@@ -130,6 +130,12 @@ struct SavedCursor {
     style: Cell,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FeedAdvance {
+    Next(usize),
+    Pending,
+}
+
 impl Terminal {
     #[must_use]
     pub fn new(size: TerminalSize) -> Self {
@@ -160,101 +166,134 @@ impl Terminal {
         self.pending_utf8
             .extend_from_slice(&input[complete_utf8_len..]);
 
-        let text = String::from_utf8_lossy(&input[..complete_utf8_len]);
         let mut chars = std::mem::take(&mut self.pending_control);
-        chars.extend(text.chars());
+        chars.extend(decode_terminal_chars(&input[..complete_utf8_len]));
         let mut index = 0;
 
         while index < chars.len() {
-            match chars[index] {
-                '\u{1b}' if chars.get(index + 1) == Some(&'[') => {
-                    if let Some((command, sequence_end)) = parse_csi(&chars, index + 2) {
-                        self.apply_csi(command, &chars[index + 2..sequence_end]);
-                        index = sequence_end + 1;
-                    } else {
-                        self.pending_control.extend_from_slice(&chars[index..]);
-                        break;
-                    }
+            if let Some(advance) = self.consume_escape_or_c1_sequence(&chars, index) {
+                match advance {
+                    FeedAdvance::Next(next_index) => index = next_index,
+                    FeedAdvance::Pending => break,
                 }
-                '\u{1b}' if chars.get(index + 1) == Some(&']') => {
-                    let Some(next_index) = self.skip_osc(&chars, index) else {
-                        break;
-                    };
-                    index = next_index;
-                }
-                '\u{1b}'
-                    if matches!(chars.get(index + 1).copied(), Some('P' | 'X' | '^' | '_')) =>
-                {
-                    let Some(next_index) = self.skip_st_control_string(&chars, index) else {
-                        break;
-                    };
-                    index = next_index;
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'(') => {
-                    if let Some(selector) = chars.get(index + 2).copied() {
-                        if let Some(character_set) = parse_g0_character_set(selector) {
-                            self.character_set = character_set;
-                        }
-                        index += 3;
-                    } else {
-                        self.pending_control.extend_from_slice(&chars[index..]);
-                        break;
-                    }
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'7') => {
-                    self.save_cursor();
-                    index += 2;
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'8') => {
-                    self.restore_cursor();
-                    index += 2;
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'H') => {
-                    self.set_horizontal_tab_stop();
-                    index += 2;
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'c') => {
-                    self.reset_terminal();
-                    index += 2;
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'D') => {
-                    self.index_down();
-                    index += 2;
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'E') => {
-                    self.next_line();
-                    index += 2;
-                }
-                '\u{1b}' if chars.get(index + 1) == Some(&'M') => {
-                    self.reverse_index();
-                    index += 2;
-                }
-                '\u{1b}' if chars.get(index + 1).is_none() => {
-                    self.pending_control.extend_from_slice(&chars[index..]);
-                    break;
-                }
-                '\u{8}' => {
-                    self.backspace();
-                    index += 1;
-                }
-                '\t' => {
-                    self.horizontal_tab();
-                    index += 1;
-                }
-                '\n' => {
-                    self.newline();
-                    index += 1;
-                }
-                '\r' => {
-                    self.cursor_column = 0;
-                    self.pending_wrap = false;
-                    index += 1;
-                }
-                ch => {
-                    self.write_char(ch);
-                    index += 1;
-                }
+            } else {
+                index = self.consume_text_or_ascii_control(chars[index], index);
             }
+        }
+    }
+
+    fn consume_escape_or_c1_sequence(
+        &mut self,
+        chars: &[char],
+        index: usize,
+    ) -> Option<FeedAdvance> {
+        match chars[index] {
+            '\u{1b}' => self.consume_escape_sequence(chars, index),
+            '\u{9b}' => Some(next_or_pending(self.apply_csi_sequence(chars, index, 1))),
+            '\u{9d}' => Some(next_or_pending(self.skip_c1_osc(chars, index))),
+            ch if is_c1_st_control_string(ch) => Some(next_or_pending(
+                self.skip_c1_st_control_string(chars, index),
+            )),
+            _ => None,
+        }
+    }
+
+    fn consume_escape_sequence(&mut self, chars: &[char], index: usize) -> Option<FeedAdvance> {
+        match chars.get(index + 1).copied() {
+            Some('[') => Some(next_or_pending(self.apply_csi_sequence(chars, index, 2))),
+            Some(']') => Some(next_or_pending(self.skip_osc(chars, index))),
+            Some('P' | 'X' | '^' | '_') => {
+                Some(next_or_pending(self.skip_st_control_string(chars, index)))
+            }
+            Some('(') => Some(self.consume_g0_character_set_selection(chars, index)),
+            Some('7') => {
+                self.save_cursor();
+                Some(FeedAdvance::Next(index + 2))
+            }
+            Some('8') => {
+                self.restore_cursor();
+                Some(FeedAdvance::Next(index + 2))
+            }
+            Some('H') => {
+                self.set_horizontal_tab_stop();
+                Some(FeedAdvance::Next(index + 2))
+            }
+            Some('c') => {
+                self.reset_terminal();
+                Some(FeedAdvance::Next(index + 2))
+            }
+            Some('D') => {
+                self.index_down();
+                Some(FeedAdvance::Next(index + 2))
+            }
+            Some('E') => {
+                self.next_line();
+                Some(FeedAdvance::Next(index + 2))
+            }
+            Some('M') => {
+                self.reverse_index();
+                Some(FeedAdvance::Next(index + 2))
+            }
+            None => {
+                self.pending_control.extend_from_slice(&chars[index..]);
+                Some(FeedAdvance::Pending)
+            }
+            Some(_) => None,
+        }
+    }
+
+    fn consume_g0_character_set_selection(&mut self, chars: &[char], index: usize) -> FeedAdvance {
+        if let Some(selector) = chars.get(index + 2).copied() {
+            if let Some(character_set) = parse_g0_character_set(selector) {
+                self.character_set = character_set;
+            }
+
+            FeedAdvance::Next(index + 3)
+        } else {
+            self.pending_control.extend_from_slice(&chars[index..]);
+            FeedAdvance::Pending
+        }
+    }
+
+    fn consume_text_or_ascii_control(&mut self, ch: char, index: usize) -> usize {
+        match ch {
+            '\u{8}' => {
+                self.backspace();
+                index + 1
+            }
+            '\t' => {
+                self.horizontal_tab();
+                index + 1
+            }
+            '\n' => {
+                self.newline();
+                index + 1
+            }
+            '\r' => {
+                self.cursor_column = 0;
+                self.pending_wrap = false;
+                index + 1
+            }
+            ch => {
+                self.write_char(ch);
+                index + 1
+            }
+        }
+    }
+
+    fn apply_csi_sequence(
+        &mut self,
+        chars: &[char],
+        index: usize,
+        content_offset: usize,
+    ) -> Option<usize> {
+        let content_start = index + content_offset;
+        if let Some((command, sequence_end)) = parse_csi(chars, content_start) {
+            self.apply_csi(command, &chars[content_start..sequence_end]);
+            Some(sequence_end + 1)
+        } else {
+            self.pending_control.extend_from_slice(&chars[index..]);
+            None
         }
     }
 
@@ -262,8 +301,16 @@ impl Terminal {
         self.skip_control_string(chars, index, 2, parse_osc)
     }
 
+    fn skip_c1_osc(&mut self, chars: &[char], index: usize) -> Option<usize> {
+        self.skip_control_string(chars, index, 1, parse_osc)
+    }
+
     fn skip_st_control_string(&mut self, chars: &[char], index: usize) -> Option<usize> {
         self.skip_control_string(chars, index, 2, parse_st_terminated_control_string)
+    }
+
+    fn skip_c1_st_control_string(&mut self, chars: &[char], index: usize) -> Option<usize> {
+        self.skip_control_string(chars, index, 1, parse_st_terminated_control_string)
     }
 
     fn skip_control_string(
@@ -1288,7 +1335,7 @@ fn clamp_axis(value: u16, limit: u16) -> u16 {
 fn parse_osc(chars: &[char], mut index: usize) -> Option<usize> {
     while index < chars.len() {
         match chars[index] {
-            '\u{7}' => return Some(index),
+            '\u{7}' | '\u{9c}' => return Some(index),
             '\u{1b}' if chars.get(index + 1) == Some(&'\\') => return Some(index + 1),
             _ => index += 1,
         }
@@ -1300,12 +1347,24 @@ fn parse_osc(chars: &[char], mut index: usize) -> Option<usize> {
 fn parse_st_terminated_control_string(chars: &[char], mut index: usize) -> Option<usize> {
     while index < chars.len() {
         match chars[index] {
+            '\u{9c}' => return Some(index),
             '\u{1b}' if chars.get(index + 1) == Some(&'\\') => return Some(index + 1),
             _ => index += 1,
         }
     }
 
     None
+}
+
+fn is_c1_st_control_string(ch: char) -> bool {
+    matches!(ch, '\u{90}' | '\u{98}' | '\u{9e}' | '\u{9f}')
+}
+
+fn next_or_pending(next_index: Option<usize>) -> FeedAdvance {
+    match next_index {
+        Some(next_index) => FeedAdvance::Next(next_index),
+        None => FeedAdvance::Pending,
+    }
 }
 
 fn csi_count(params: &[char]) -> u16 {
@@ -1402,6 +1461,46 @@ fn complete_utf8_prefix_len(bytes: &[u8]) -> usize {
         start
     } else {
         bytes.len()
+    }
+}
+
+fn decode_terminal_chars(bytes: &[u8]) -> Vec<char> {
+    let mut chars = Vec::new();
+    let mut index = 0;
+
+    while index < bytes.len() {
+        if let Some(ch) = raw_c1_control(bytes[index]) {
+            chars.push(ch);
+            index += 1;
+            continue;
+        }
+
+        match std::str::from_utf8(&bytes[index..]) {
+            Ok(text) => {
+                chars.extend(text.chars());
+                break;
+            }
+            Err(error) if error.valid_up_to() > 0 => {
+                let valid_end = index + error.valid_up_to();
+                let text = std::str::from_utf8(&bytes[index..valid_end]).unwrap_or("");
+                chars.extend(text.chars());
+                index = valid_end;
+            }
+            Err(error) => {
+                chars.push('\u{fffd}');
+                index += error.error_len().unwrap_or(1);
+            }
+        }
+    }
+
+    chars
+}
+
+fn raw_c1_control(byte: u8) -> Option<char> {
+    if (0x80..=0x9f).contains(&byte) {
+        char::from_u32(u32::from(byte))
+    } else {
+        None
     }
 }
 

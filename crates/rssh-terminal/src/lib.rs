@@ -1043,6 +1043,50 @@ mod tests {
     }
 
     #[test]
+    fn terminal_supports_c1_csi_sequences() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+
+        terminal.feed(b"ab\x9b2;3HZ");
+
+        assert_eq!(row_text(&terminal, 0), "ab    ");
+        assert_eq!(row_text(&terminal, 1), "  Z   ");
+        assert_eq!(terminal.cursor(), (1, 3));
+    }
+
+    #[test]
+    fn terminal_handles_split_c1_csi_across_feed_calls() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+
+        terminal.feed(b"ab\x9b2;");
+        terminal.feed(b"3HZ");
+
+        assert_eq!(row_text(&terminal, 0), "ab    ");
+        assert_eq!(row_text(&terminal, 1), "  Z   ");
+        assert_eq!(terminal.cursor(), (1, 3));
+    }
+
+    #[test]
+    fn terminal_ignores_c1_osc_and_control_strings() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x9d0;title\x9c\x90$qm\x9ccd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn terminal_ignores_split_c1_control_string_across_feed_calls() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x9d0;ti");
+        terminal.feed(b"tle\x9ccd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
     fn terminal_handles_split_esc_cursor_save_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 1));
 

@@ -46,6 +46,7 @@ support the next PTY and SSH milestones.
     ``ESC[column` ``, and `ESC[rowd`)
   - relative cursor movement with `CUU`, `CUD`, `CUF`, `CUB`, `HPR`, and `VPR`
   - line movement with `CNL` and `CPL`
+- C1 byte-form CSI (`0x9B`) is accepted alongside the 7-bit `ESC[` form.
 - Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`, including
   cursor position, pending wrap state, SGR style, G0 character set, and origin
   mode.
@@ -78,6 +79,8 @@ support the next PTY and SSH milestones.
   do not appear as terminal text.
 - DCS, SOS, PM, and APC control strings terminated by ST are ignored so
   unsupported terminal capability probes do not appear as terminal text.
+- C1 byte-form OSC (`0x9D`) and C1 ST (`0x9C`) are recognized for OSC and
+  ST-terminated control strings.
 - Basic SGR handling:
   - reset
   - bold, italic, underline, inverse video
@@ -129,6 +132,7 @@ cover:
   restoration
 - `?1048h/l` private cursor save/restore without switching screens
 - CSI cursor positioning, line movement, and relative cursor movement
+- C1 byte-form CSI parsing and split-sequence buffering
 - `?25h/l` cursor visibility tracking
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore, including style,
   character set, and origin-mode restoration
@@ -144,6 +148,7 @@ cover:
 - CSI scroll up/down handling with scroll-region limits
 - OSC title sequence filtering for BEL and ST terminators
 - DCS/SOS/PM/APC control-string filtering with split-sequence buffering
+- C1 byte-form OSC/ST control-string filtering
 - SGR color/style parsing, including inverse video
 - CJK wide-character layout
 - terminal grid resize growth/shrink, cursor clamping, and resize damage
