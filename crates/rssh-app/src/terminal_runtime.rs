@@ -85,6 +85,10 @@ impl TerminalOutputFilter {
             query: b"\x1b[18t",
             response: TerminalResponse::TextAreaSize,
         },
+        TerminalQueryResponse {
+            query: b"\x1b[19t",
+            response: TerminalResponse::ScreenSize,
+        },
     ];
 
     fn new(size: TerminalSize) -> Self {
@@ -155,6 +159,7 @@ enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
     TextAreaSize,
+    ScreenSize,
 }
 
 impl TerminalResponse {
@@ -181,6 +186,9 @@ impl TerminalResponse {
             }
             TerminalResponse::TextAreaSize => {
                 format!("\x1b[8;{};{}t", size.rows, size.columns).into_bytes()
+            }
+            TerminalResponse::ScreenSize => {
+                format!("\x1b[9;{};{}t", size.rows, size.columns).into_bytes()
             }
         }
     }
@@ -290,6 +298,19 @@ mod tests {
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
         assert!(!text.contains("[18t"));
+    }
+
+    #[test]
+    fn answers_screen_size_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"before\x1b[19tafter");
+
+        assert_eq!(responses, vec![b"\x1b[9;43;132t".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[19t"));
     }
 
     #[test]

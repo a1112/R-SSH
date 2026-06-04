@@ -907,6 +907,10 @@ impl TerminalOutputFilter {
             query: b"\x1b[18t",
             response: TerminalResponse::TextAreaSize,
         },
+        TerminalQueryResponse {
+            query: b"\x1b[19t",
+            response: TerminalResponse::ScreenSize,
+        },
     ];
 
     #[cfg(test)]
@@ -1006,6 +1010,10 @@ impl TerminalOutputFilter {
                 let size = self.size.snapshot();
                 format!("\x1b[8;{};{}t", size.rows(), size.columns()).into_bytes()
             }
+            TerminalResponse::ScreenSize => {
+                let size = self.size.snapshot();
+                format!("\x1b[9;{};{}t", size.rows(), size.columns()).into_bytes()
+            }
         }
     }
 
@@ -1028,6 +1036,7 @@ enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
     TextAreaSize,
+    ScreenSize,
 }
 
 impl Default for TerminalOutputFilter {
@@ -1989,6 +1998,24 @@ mod tests {
 
         assert_eq!(output, b"beforeafter");
         assert_eq!(responses, b"\x1b[8;43;132t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_screen_size_query() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[19tafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[9;43;132t");
     }
 
     #[test]

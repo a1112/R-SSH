@@ -9,10 +9,10 @@ in the native `winit` window.
 
 - `rssh-app::terminal_runtime` owns the shared path from PTY bytes to
   `rssh-terminal::Terminal`.
-- The runtime filters terminal cursor position, device-attribute, status, and
-  text-area size queries, then returns responses that are written back to the
-  PTY. Standard and DEC private cursor-position responses use the current
-  terminal grid cursor.
+- The runtime filters terminal cursor position, device-attribute, status,
+  text-area size, and screen character-size queries, then returns responses
+  that are written back to the PTY. Standard and DEC private cursor-position
+  responses use the current terminal grid cursor.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
@@ -79,7 +79,7 @@ MVP 4 tests cover:
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
 - terminal response filtering for dynamic cursor position, device-attribute, status,
-  and text-area size queries
+  text-area size, and screen character-size queries
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
 

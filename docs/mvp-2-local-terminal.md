@@ -51,7 +51,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   attributes `ESC[>c`, and terminal status `ESC[5n` instead of leaking those
   queries to the host console.
 - The app answers text-area size query `ESC[18t` with
-  `ESC[8;<rows>;<columns>t`.
+  `ESC[8;<rows>;<columns>t` and screen character-size query `ESC[19t` with
+  `ESC[9;<rows>;<columns>t`.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - After a fast child-process exit, `rssh-app local` briefly drains PTY reader
@@ -142,7 +143,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   `rssh-app local --mouse -- <echo command>` and verify the final output marker
   is present every time.
 - Control-sequence response: unit tests cover normal output, dynamic `ESC[6n`
-  and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, and split
+  and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, `ESC[19t`, and split
   response-query chunks.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
