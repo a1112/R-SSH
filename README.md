@@ -53,6 +53,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 `local` is the console-hosted startup path. Add `--mouse` when you want terminal
 applications to negotiate xterm mouse/focus reporting through PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
+The console path also answers basic terminal status and device-attribute queries.
 
 ## MVP Status
 

@@ -38,6 +38,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - PTY output is streamed to the host console.
 - The app answers the basic cursor-position query `ESC[6n` with `ESC[1;1R` so
   Windows shells can finish startup handshakes.
+- The app also answers primary device attributes `ESC[c`, secondary device
+  attributes `ESC[>c`, and terminal status `ESC[5n` instead of leaking those
+  queries to the host console.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - A real PTY integration test feeds local shell output into `rssh-terminal` and
@@ -106,8 +109,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   Enter, Ctrl+C, arrow key encoding, Alt+text, Shift+Tab, F1-F12, SGR mouse, and
   focus events.
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
-- Control-sequence response: unit tests cover normal output, `ESC[6n`, and
-  split `ESC[6n` chunks.
+- Control-sequence response: unit tests cover normal output, `ESC[6n`,
+  `ESC[c`, `ESC[>c`, `ESC[5n`, and split response-query chunks.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking

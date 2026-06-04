@@ -552,8 +552,24 @@ struct TerminalOutputFilter {
 }
 
 impl TerminalOutputFilter {
-    const CURSOR_POSITION_QUERY: &'static [u8] = b"\x1b[6n";
-    const CURSOR_POSITION_RESPONSE: &'static [u8] = b"\x1b[1;1R";
+    const RESPONSES: &'static [TerminalQueryResponse] = &[
+        TerminalQueryResponse {
+            query: b"\x1b[6n",
+            response: b"\x1b[1;1R",
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[c",
+            response: b"\x1b[?1;2c",
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[>c",
+            response: b"\x1b[>0;0;0c",
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[5n",
+            response: b"\x1b[0n",
+        },
+    ];
 
     fn write(
         &mut self,
@@ -563,14 +579,13 @@ impl TerminalOutputFilter {
     ) -> io::Result<()> {
         self.pending.extend_from_slice(bytes);
 
-        while let Some(index) = find_subslice(&self.pending, Self::CURSOR_POSITION_QUERY) {
+        while let Some((index, response)) = self.find_next_response() {
             output.write_all(&self.pending[..index])?;
-            respond(Self::CURSOR_POSITION_RESPONSE)?;
-            self.pending
-                .drain(..index + Self::CURSOR_POSITION_QUERY.len());
+            respond(response.response)?;
+            self.pending.drain(..index + response.query.len());
         }
 
-        let retained = suffix_len_matching_prefix(&self.pending, Self::CURSOR_POSITION_QUERY);
+        let retained = Self::suffix_len_matching_query_prefix(&self.pending);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             output.write_all(&self.pending[..writable])?;
@@ -580,11 +595,33 @@ impl TerminalOutputFilter {
         Ok(())
     }
 
+    fn find_next_response(&self) -> Option<(usize, &'static TerminalQueryResponse)> {
+        Self::RESPONSES
+            .iter()
+            .filter_map(|response| {
+                find_subslice(&self.pending, response.query).map(|index| (index, response))
+            })
+            .min_by_key(|(index, _)| *index)
+    }
+
+    fn suffix_len_matching_query_prefix(pending: &[u8]) -> usize {
+        Self::RESPONSES
+            .iter()
+            .map(|response| suffix_len_matching_prefix(pending, response.query))
+            .max()
+            .unwrap_or(0)
+    }
+
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
         output.write_all(&self.pending)?;
         self.pending.clear();
         Ok(())
     }
+}
+
+struct TerminalQueryResponse {
+    query: &'static [u8],
+    response: &'static [u8],
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -990,6 +1027,24 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_device_and_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"a\x1b[c b\x1b[>c c\x1b[5n d", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"a b c d");
+        assert_eq!(responses, b"\x1b[?1;2c\x1b[>0;0;0c\x1b[0n");
+    }
+
+    #[test]
     fn terminal_output_filter_handles_split_cursor_position_query() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -1011,5 +1066,29 @@ mod tests {
 
         assert_eq!(output, b"beforeafter");
         assert_eq!(responses, b"\x1b[1;1R");
+    }
+
+    #[test]
+    fn terminal_output_filter_handles_split_device_attribute_query() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b">cafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[>0;0;0c");
     }
 }
