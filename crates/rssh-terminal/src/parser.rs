@@ -204,6 +204,10 @@ impl Terminal {
                     self.set_horizontal_tab_stop();
                     index += 2;
                 }
+                '\u{1b}' if chars.get(index + 1) == Some(&'c') => {
+                    self.reset_terminal();
+                    index += 2;
+                }
                 '\u{1b}' if chars.get(index + 1) == Some(&'D') => {
                     self.index_down();
                     index += 2;
@@ -277,6 +281,24 @@ impl Terminal {
 
     pub fn take_damage(&mut self) -> Vec<DamageRegion> {
         std::mem::take(&mut self.damage)
+    }
+
+    fn reset_terminal(&mut self) {
+        let size = self.grid.size();
+        self.grid = TerminalGrid::new(size);
+        self.cursor_row = 0;
+        self.cursor_column = 0;
+        self.pending_wrap = false;
+        self.last_printable = None;
+        self.saved_cursor = None;
+        self.main_screen = None;
+        self.modes = TerminalModes::default();
+        self.scroll_top = 0;
+        self.scroll_bottom = size.rows.saturating_sub(1);
+        self.character_set = CharacterSet::Ascii;
+        self.tab_stops = TabStops::new(size);
+        self.style = Cell::default();
+        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
     fn newline(&mut self) {

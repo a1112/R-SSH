@@ -22,6 +22,8 @@ support the next PTY and SSH milestones.
   - set tab stop (`HTS`, `ESC H`)
   - clear current/all tab stops (`TBC`, `ESC[g` / `ESC[3g`)
   - cursor forward/backward tabulation (`CHT`/`CBT`, `ESC[I` / `ESC[Z`)
+- Full terminal reset with `RIS` (`ESC c`), restoring the grid, cursor, modes,
+  style, scroll region, character set, and tab stops to defaults.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
 - Delayed auto-wrap at the right edge, including bottom-row scroll on the next
   printable character.
@@ -110,6 +112,8 @@ cover:
 - ESC `IND`/`NEL`/`RI` movement and scroll-region boundary scrolling
 - backspace and horizontal tab control handling
 - custom tab stop setting, clearing, and CSI forward/backward tab movement
+- `RIS` full terminal reset for grid, cursor, modes, style, character set, and
+  tab stops
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - `?7h/l` auto-wrap mode tracking at the right edge

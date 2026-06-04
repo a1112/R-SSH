@@ -369,6 +369,37 @@ mod tests {
     }
 
     #[test]
+    fn terminal_ris_resets_visible_state_and_modes() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 3));
+
+        terminal.feed(b"dirty\x1b[31;1m\x1b[?25l\x1b[?7l\x1b(0\x1b[3g\x1b[1;5H\x1bH");
+        terminal.feed(b"\x1bcq\tB");
+
+        assert_eq!(row_text(&terminal, 0), "q       B ");
+        assert_eq!(row_text(&terminal, 1), "          ");
+        assert_eq!(row_text(&terminal, 2), "          ");
+        assert_eq!(terminal.cursor(), (0, 9));
+        assert!(terminal.cursor_visible());
+
+        let reset_cell = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(reset_cell.ch, 'q');
+        assert_eq!(reset_cell.foreground, Color::Default);
+        assert!(!reset_cell.bold);
+    }
+
+    #[test]
+    fn terminal_ris_resets_insert_mode_and_scroll_region() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+
+        terminal.feed(b"\x1b[2;3r\x1b[4h\x1bcabcd\x1b[1;2HX\x1b[3;1H\nZ");
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(row_text(&terminal, 2), "Z   ");
+        assert_eq!(terminal.cursor(), (2, 1));
+    }
+
+    #[test]
     fn terminal_origin_mode_positions_cursor_relative_to_scroll_region() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 5));
 
