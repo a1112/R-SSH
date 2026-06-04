@@ -22,6 +22,9 @@ support the next PTY and SSH milestones.
     `ESC[row;columnf`)
   - relative cursor movement with `CUU`, `CUD`, `CUF`, and `CUB`
 - Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`.
+- Incomplete CSI, OSC title, and `ESC7`/`ESC8` sequences are retained across
+  `Terminal::feed` calls so PTY chunk boundaries do not leak control bytes into
+  the grid.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
@@ -68,6 +71,7 @@ cover:
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - CSI cursor positioning and relative cursor movement
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
+- split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
 - CSI display and line erase handling
 - OSC title sequence filtering for BEL and ST terminators
 - SGR color/style parsing

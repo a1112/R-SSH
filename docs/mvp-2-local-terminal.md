@@ -48,6 +48,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   `ESC[8;<rows>;<columns>t`.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
+- After a fast child-process exit, `rssh-app local` briefly drains PTY reader
+  output so final command output is not dropped before returning the exit code.
 - A real PTY integration test feeds local shell output into `rssh-terminal` and
   asserts the terminal grid receives the marker text.
 
@@ -103,6 +105,7 @@ Real local PTY smoke checks:
 cargo test -p rssh-pty local_pty_supports_interactive_shell_roundtrip -- --ignored --nocapture
 cargo test -p rssh-pty local_pty_reports_child_exit_status -- --ignored --nocapture
 cargo test -p rssh-app local_pty_output_feeds_terminal_grid -- --ignored --nocapture
+cargo test -p rssh-app local_app_drains_output_after_fast_child_exit -- --ignored --nocapture
 cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 ```
 
@@ -118,6 +121,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   navigation/editing/function keys, Alt+text, Shift+Tab, F1-F12, SGR mouse, and
   focus events.
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
+- Fast-exit output drain: ignored integration tests repeatedly run
+  `rssh-app local --mouse -- <echo command>` and verify the final output marker
+  is present every time.
 - Control-sequence response: unit tests cover normal output, `ESC[6n`,
   `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, and split response-query chunks.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode

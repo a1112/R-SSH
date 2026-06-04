@@ -1,5 +1,6 @@
 use std::{
     io::{Read, Write},
+    process::Command,
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -80,6 +81,38 @@ fn local_pty_output_feeds_terminal_grid() {
         "terminal grid did not receive marker; grid: {:?}",
         terminal_text(&terminal)
     );
+}
+
+#[test]
+#[ignore = "spawns repeated real platform PTY sessions"]
+fn local_app_drains_output_after_fast_child_exit() {
+    let marker = "rssh-local-drain-smoke";
+
+    for attempt in 1..=30 {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rssh-app"));
+        command.args(["local", "--mouse", "--"]);
+
+        #[cfg(windows)]
+        command.args(["cmd.exe", "/C", "echo"]).arg(marker);
+
+        #[cfg(not(windows))]
+        command.args(["sh", "-lc"]).arg(format!("echo {marker}"));
+
+        let output = command.output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "attempt {attempt} exited with {:?}; stderr: {stderr}",
+            output.status.code()
+        );
+        assert!(
+            stdout.contains(marker),
+            "attempt {attempt} missed final PTY output; stdout bytes: {:?}",
+            output.stdout
+        );
+    }
 }
 
 fn answer_cursor_position_queries(chunk: &[u8], probe: &mut Vec<u8>, writer: &mut dyn Write) {

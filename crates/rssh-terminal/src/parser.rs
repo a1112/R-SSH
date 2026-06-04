@@ -9,6 +9,7 @@ pub struct Terminal {
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
+    pending_control: Vec<char>,
     saved_cursor: Option<SavedCursor>,
     style: Cell,
     damage: Vec<DamageRegion>,
@@ -29,6 +30,7 @@ impl Terminal {
             cursor_row: 0,
             cursor_column: 0,
             pending_wrap: false,
+            pending_control: Vec::new(),
             saved_cursor: None,
             style: Cell::default(),
             damage: Vec::new(),
@@ -37,7 +39,8 @@ impl Terminal {
 
     pub fn feed(&mut self, bytes: &[u8]) {
         let text = String::from_utf8_lossy(bytes);
-        let chars: Vec<char> = text.chars().collect();
+        let mut chars = std::mem::take(&mut self.pending_control);
+        chars.extend(text.chars());
         let mut index = 0;
 
         while index < chars.len() {
@@ -47,14 +50,16 @@ impl Terminal {
                         self.apply_csi(command, &chars[index + 2..sequence_end]);
                         index = sequence_end + 1;
                     } else {
-                        index += 1;
+                        self.pending_control.extend_from_slice(&chars[index..]);
+                        break;
                     }
                 }
                 '\u{1b}' if chars.get(index + 1) == Some(&']') => {
                     if let Some(sequence_end) = parse_osc(&chars, index + 2) {
                         index = sequence_end + 1;
                     } else {
-                        index += 1;
+                        self.pending_control.extend_from_slice(&chars[index..]);
+                        break;
                     }
                 }
                 '\u{1b}' if chars.get(index + 1) == Some(&'7') => {
@@ -64,6 +69,10 @@ impl Terminal {
                 '\u{1b}' if chars.get(index + 1) == Some(&'8') => {
                     self.restore_cursor();
                     index += 2;
+                }
+                '\u{1b}' if chars.get(index + 1).is_none() => {
+                    self.pending_control.extend_from_slice(&chars[index..]);
+                    break;
                 }
                 '\u{8}' => {
                     self.backspace();

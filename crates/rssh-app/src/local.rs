@@ -7,7 +7,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crossterm::{
@@ -391,10 +391,16 @@ fn run_input_loop(
     runtime_state: &LocalRuntimeState,
     allow_application_reporting: bool,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let mut exited_status: Option<(PtyExitStatus, Instant)> = None;
+
     loop {
         if let Ok(reader_result) = reader_done_receiver.try_recv() {
             reader_result?;
-            return Ok(session.wait()?);
+            let status = match exited_status {
+                Some((status, _)) => status,
+                None => session.wait()?,
+            };
+            return Ok(status);
         }
 
         if let Ok(writer_result) = writer_done_receiver.try_recv() {
@@ -434,8 +440,12 @@ fn run_input_loop(
             }
         }
 
-        if let Some(status) = session.try_wait()? {
-            return Ok(status);
+        if let Some((status, exited_at)) = &exited_status {
+            if exited_at.elapsed() >= Duration::from_millis(100) {
+                return Ok(status.clone());
+            }
+        } else if let Some(status) = session.try_wait()? {
+            exited_status = Some((status, Instant::now()));
         }
 
         thread::sleep(Duration::from_millis(10));
