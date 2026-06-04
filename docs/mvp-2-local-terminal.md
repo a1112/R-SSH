@@ -38,7 +38,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   events are wrapped as `ESC[200~...ESC[201~` until `ESC[?2004l`.
 - `rssh-app local --mouse` allows terminal applications to enable and disable
   host mouse capture and focus events through xterm PTY output modes, then
-  forwards active reports as xterm SGR mouse and focus sequences.
+  forwards active reports as xterm SGR mouse and focus sequences. Mouse mode
+  granularity follows xterm `1000` button, `1002` button-event, and `1003`
+  any-event reporting.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
 - The app answers standard and DEC private cursor-position queries (`ESC[6n`
@@ -85,6 +87,10 @@ cargo run -p rssh-app -- local --mouse
 Mouse and focus events are forwarded only after the PTY-side application enables
 the relevant xterm modes, such as `ESC[?1000h`, `ESC[?1002h`, `ESC[?1003h`, or
 `ESC[?1004h`.
+
+Mouse movement reporting follows the active xterm mode: `1000` reports button
+and wheel events, `1002` adds drag events, and `1003` also reports motion
+without buttons.
 
 Bracketed paste wrapping follows PTY-side `ESC[?2004h` and `ESC[?2004l`
 automatically.
@@ -135,7 +141,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, and split
   response-query chunks.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
-  sequences for xterm mouse and focus reporting.
+  sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
+  reporting granularity.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
 - Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`
