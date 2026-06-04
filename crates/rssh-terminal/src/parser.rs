@@ -1,4 +1,5 @@
-use rssh_core::TerminalSize;
+use rssh_core::{DamageRegion, TerminalSize};
+use unicode_width::UnicodeWidthChar;
 
 use crate::{Cell, Color, TerminalGrid};
 
@@ -8,6 +9,7 @@ pub struct Terminal {
     cursor_row: u16,
     cursor_column: u16,
     style: Cell,
+    damage: Vec<DamageRegion>,
 }
 
 impl Terminal {
@@ -18,6 +20,7 @@ impl Terminal {
             cursor_row: 0,
             cursor_column: 0,
             style: Cell::default(),
+            damage: Vec::new(),
         }
     }
 
@@ -64,6 +67,10 @@ impl Terminal {
         (self.cursor_row, self.cursor_column)
     }
 
+    pub fn take_damage(&mut self) -> Vec<DamageRegion> {
+        std::mem::take(&mut self.damage)
+    }
+
     fn newline(&mut self) {
         self.cursor_column = 0;
         if self.cursor_row + 1 < self.grid.size().rows {
@@ -72,16 +79,40 @@ impl Terminal {
     }
 
     fn write_char(&mut self, ch: char) {
-        if self.cursor_row >= self.grid.size().rows || self.cursor_column >= self.grid.size().columns
+        let width = display_width(ch);
+        if width == 0 {
+            return;
+        }
+
+        if self.cursor_column.saturating_add(width) > self.grid.size().columns {
+            self.newline();
+        }
+
+        if self.cursor_row >= self.grid.size().rows
+            || self.cursor_column >= self.grid.size().columns
+            || self.grid.size().columns == 0
         {
             return;
         }
 
+        let available_width = self.grid.size().columns - self.cursor_column;
+        let write_width = width.min(available_width);
+        let column = self.cursor_column;
+        let row = self.cursor_row;
         let mut cell = self.style.clone();
         cell.ch = ch;
 
-        if self.grid.set(self.cursor_row, self.cursor_column, cell) {
-            self.advance_cursor(1);
+        if self.grid.set(row, column, cell) {
+            if write_width > 1 {
+                let mut continuation = self.style.clone();
+                continuation.ch = ' ';
+                for offset in 1..write_width {
+                    self.grid.set(row, column + offset, continuation.clone());
+                }
+            }
+
+            self.record_damage(DamageRegion::new(column, row, write_width, 1));
+            self.advance_cursor(write_width);
         }
     }
 
@@ -133,6 +164,25 @@ impl Terminal {
             index += 1;
         }
     }
+
+    fn record_damage(&mut self, region: DamageRegion) {
+        if region.is_empty() {
+            return;
+        }
+
+        if let Some(last) = self.damage.last_mut() {
+            let adjacent = last.y == region.y
+                && last.height == region.height
+                && last.right() == region.x;
+
+            if adjacent {
+                last.width = last.width.saturating_add(region.width);
+                return;
+            }
+        }
+
+        self.damage.push(region);
+    }
 }
 
 fn parse_csi(chars: &[char], mut index: usize) -> Option<(char, usize)> {
@@ -176,5 +226,14 @@ fn parse_extended_color(values: &[u16]) -> Option<(Color, usize)> {
             4,
         )),
         _ => None,
+    }
+}
+
+fn display_width(ch: char) -> u16 {
+    match UnicodeWidthChar::width(ch) {
+        Some(0) => 0,
+        Some(width) if width > usize::from(u16::MAX) => u16::MAX,
+        Some(width) => u16::try_from(width).unwrap_or(1),
+        None => 1,
     }
 }

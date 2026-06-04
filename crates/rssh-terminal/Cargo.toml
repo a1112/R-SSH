@@ -8,6 +8,7 @@ version.workspace = true
 
 [dependencies]
 rssh-core = { path = "../rssh-core" }
+unicode-width = "0.2"
 
 [lints]
 workspace = true

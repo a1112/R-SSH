@@ -91,7 +91,7 @@ impl TerminalGrid {
 
 #[cfg(test)]
 mod tests {
-    use rssh_core::TerminalSize;
+    use rssh_core::{DamageRegion, TerminalSize};
 
     use super::{Cell, Color, Terminal, TerminalGrid};
 
@@ -189,5 +189,36 @@ mod tests {
         assert_eq!(default.ch, 'D');
         assert_eq!(default.foreground, Color::Default);
         assert!(!default.bold);
+    }
+
+    #[test]
+    fn terminal_places_wide_cjk_character_across_two_columns() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed("中x".as_bytes());
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '中');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_reports_merged_damage_for_written_text() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 1));
+
+        terminal.feed(b"abc");
+
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 3, 1)]);
+        assert!(terminal.take_damage().is_empty());
+    }
+
+    #[test]
+    fn terminal_reports_wide_character_damage() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed("中".as_bytes());
+
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 2, 1)]);
     }
 }
