@@ -40,8 +40,24 @@ struct FilteredOutput {
 }
 
 impl TerminalOutputFilter {
-    const CURSOR_POSITION_QUERY: &'static [u8] = b"\x1b[6n";
-    const CURSOR_POSITION_RESPONSE: &'static [u8] = b"\x1b[1;1R";
+    const RESPONSES: &'static [TerminalQueryResponse] = &[
+        TerminalQueryResponse {
+            query: b"\x1b[6n",
+            response: b"\x1b[1;1R",
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[c",
+            response: b"\x1b[?1;2c",
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[>c",
+            response: b"\x1b[>0;0;0c",
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[5n",
+            response: b"\x1b[0n",
+        },
+    ];
 
     fn process(&mut self, bytes: &[u8]) -> FilteredOutput {
         self.pending.extend_from_slice(bytes);
@@ -49,14 +65,13 @@ impl TerminalOutputFilter {
         let mut display = Vec::new();
         let mut responses = Vec::new();
 
-        while let Some(index) = find_subslice(&self.pending, Self::CURSOR_POSITION_QUERY) {
+        while let Some((index, response)) = self.find_next_response() {
             display.extend_from_slice(&self.pending[..index]);
-            responses.push(Self::CURSOR_POSITION_RESPONSE.to_vec());
-            self.pending
-                .drain(..index + Self::CURSOR_POSITION_QUERY.len());
+            responses.push(response.response.to_vec());
+            self.pending.drain(..index + response.query.len());
         }
 
-        let retained = suffix_prefix_len(&self.pending, Self::CURSOR_POSITION_QUERY);
+        let retained = Self::suffix_len_matching_query_prefix(&self.pending);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             display.extend_from_slice(&self.pending[..writable]);
@@ -65,6 +80,28 @@ impl TerminalOutputFilter {
 
         FilteredOutput { display, responses }
     }
+
+    fn find_next_response(&self) -> Option<(usize, &'static TerminalQueryResponse)> {
+        Self::RESPONSES
+            .iter()
+            .filter_map(|response| {
+                find_subslice(&self.pending, response.query).map(|index| (index, response))
+            })
+            .min_by_key(|(index, _)| *index)
+    }
+
+    fn suffix_len_matching_query_prefix(pending: &[u8]) -> usize {
+        Self::RESPONSES
+            .iter()
+            .map(|response| suffix_prefix_len(pending, response.query))
+            .max()
+            .unwrap_or(0)
+    }
+}
+
+struct TerminalQueryResponse {
+    query: &'static [u8],
+    response: &'static [u8],
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -117,6 +154,42 @@ mod tests {
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
         assert!(!text.contains("[6n"));
+    }
+
+    #[test]
+    fn answers_device_and_status_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let responses = runtime.feed_pty_output(b"a\x1b[c b\x1b[>c c\x1b[5n d");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?1;2c".to_vec(),
+                b"\x1b[>0;0;0c".to_vec(),
+                b"\x1b[0n".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d"));
+        assert!(!text.contains("[>c"));
+        assert!(!text.contains("[5n"));
+    }
+
+    #[test]
+    fn answers_split_device_attribute_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let first = runtime.feed_pty_output(b"before\x1b[");
+        let second = runtime.feed_pty_output(b">cafter");
+
+        assert!(first.is_empty());
+        assert_eq!(second, vec![b"\x1b[>0;0;0c".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[>c"));
     }
 
     fn terminal_text(runtime: &TerminalRuntime) -> String {

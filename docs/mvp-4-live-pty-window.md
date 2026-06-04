@@ -9,8 +9,8 @@ in the native `winit` window.
 
 - `rssh-app::terminal_runtime` owns the shared path from PTY bytes to
   `rssh-terminal::Terminal`.
-- The runtime filters terminal cursor position queries and returns responses
-  that are written back to the PTY.
+- The runtime filters terminal cursor position, device-attribute, and status
+  queries, then returns responses that are written back to the PTY.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
@@ -71,7 +71,8 @@ MVP 4 tests cover:
 - shared text, control, and navigation key encoding
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
-- terminal response filtering for cursor position queries
+- terminal response filtering for cursor position, device-attribute, and status
+  queries
 - native window snapshot rebuilds from runtime output
 
 ## Metrics Design
