@@ -562,6 +562,39 @@ mod tests {
     }
 
     #[test]
+    fn terminal_supports_1047_alternate_screen_mode() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+
+        terminal.feed(b"main\x1b[?1047halt\x1b[?1047l!");
+
+        assert_eq!(row_text(&terminal, 0), "main! ");
+        assert_eq!(row_text(&terminal, 1), "      ");
+        assert_eq!(terminal.cursor(), (0, 5));
+    }
+
+    #[test]
+    fn terminal_supports_legacy_47_alternate_screen_mode() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+
+        terminal.feed(b"main\x1b[?47halt\x1b[?47l!");
+
+        assert_eq!(row_text(&terminal, 0), "main! ");
+        assert_eq!(row_text(&terminal, 1), "      ");
+        assert_eq!(terminal.cursor(), (0, 5));
+    }
+
+    #[test]
+    fn terminal_private_1048_saves_and_restores_cursor_without_alternate_screen() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+
+        terminal.feed(b"ab\x1b[?1048hcd\x1b[2;1Hef\x1b[?1048lZ");
+
+        assert_eq!(row_text(&terminal, 0), "abZd  ");
+        assert_eq!(row_text(&terminal, 1), "ef    ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
     fn terminal_tracks_cursor_visibility_private_mode() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
 

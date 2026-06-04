@@ -546,7 +546,14 @@ impl Terminal {
                 6 => self.set_origin_mode(enabled),
                 7 => self.set_auto_wrap(enabled),
                 25 => self.modes.cursor_visible = enabled,
-                1049 => self.set_alternate_screen(enabled),
+                47 | 1047 | 1049 => self.set_alternate_screen(enabled),
+                1048 => {
+                    if enabled {
+                        self.save_cursor();
+                    } else {
+                        self.restore_cursor();
+                    }
+                }
                 _ => {}
             }
         }

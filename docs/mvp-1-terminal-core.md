@@ -35,8 +35,10 @@ support the next PTY and SSH milestones.
 - Basic `DECOM` origin-mode handling with `DECSET ?6` and `DECRST ?6`; `CUP`
   and `HVP` are relative to the active scroll region while origin mode is
   enabled.
-- Basic alternate-screen support for `DECSET ?1049` and `DECRST ?1049`, with a
-  clear alternate grid and restoration of the main grid/cursor on exit.
+- Basic alternate-screen support for `DECSET`/`DECRST` `?47`, `?1047`, and
+  `?1049`, with a clear alternate grid and restoration of the main grid/cursor
+  on exit.
+- Private cursor save/restore mode `?1048h/l`.
 - Basic CSI cursor handling:
   - absolute cursor positioning with `CUP`/`HVP` (`ESC[row;columnH` and
     `ESC[row;columnf`)
@@ -119,7 +121,9 @@ cover:
 - `?7h/l` auto-wrap mode tracking at the right edge
 - `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
 - `?6h/l` origin-mode cursor positioning relative to scroll regions
-- `?1049` alternate-screen enter/exit with main screen restoration
+- `?47`, `?1047`, and `?1049` alternate-screen enter/exit with main screen
+  restoration
+- `?1048h/l` private cursor save/restore without switching screens
 - CSI cursor positioning, line movement, and relative cursor movement
 - `?25h/l` cursor visibility tracking
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
