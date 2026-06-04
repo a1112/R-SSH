@@ -103,6 +103,18 @@ impl PixelRenderer {
                         },
                         foreground,
                     );
+                    let bold_x = draw_x.saturating_add(scale_x);
+                    if cell.bold && bold_x < origin_x.saturating_add(cell_width) {
+                        surface.fill_rect(
+                            Rect {
+                                x: bold_x,
+                                y: draw_y,
+                                width: scale_x,
+                                height: scale_y,
+                            },
+                            foreground,
+                        );
+                    }
                 }
             }
 
@@ -577,6 +589,30 @@ mod tests {
     }
 
     #[test]
+    fn pixel_renderer_draws_bold_text_with_more_foreground_pixels() {
+        let renderer = PixelRenderer::new();
+        let mut normal = Terminal::new(TerminalSize::new(2, 1));
+        normal.feed(b"\x1b[38;2;255;0;0mA");
+        let normal_snapshot = TerminalRenderSnapshot::from_terminal(&normal);
+        let mut normal_target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&normal_snapshot, &mut normal_target, 16, 8, 8, 8);
+
+        let mut bold = Terminal::new(TerminalSize::new(2, 1));
+        bold.feed(b"\x1b[1;38;2;255;0;0mA");
+        let bold_snapshot = TerminalRenderSnapshot::from_terminal(&bold);
+        assert!(bold_snapshot.cells()[0].bold);
+        let mut bold_target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&bold_snapshot, &mut bold_target, 16, 8, 8, 8);
+
+        assert!(
+            count_pixels(&bold_target, [255, 0, 0, 255])
+                > count_pixels(&normal_target, [255, 0, 0, 255])
+        );
+    }
+
+    #[test]
     fn pixel_renderer_swaps_foreground_and_background_for_inverse_cells() {
         let mut grid = TerminalGrid::new(TerminalSize::new(1, 1));
         grid.set(
@@ -707,5 +743,12 @@ mod tests {
             target[index + 2],
             target[index + 3],
         ]
+    }
+
+    fn count_pixels(target: &[u8], color: [u8; 4]) -> usize {
+        target
+            .chunks_exact(4)
+            .filter(|pixel| *pixel == color)
+            .count()
     }
 }

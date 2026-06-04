@@ -15,6 +15,7 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
 - `PixelRenderer` draws snapshot cells into an RGBA framebuffer.
 - `PixelRenderer` maps the xterm 256-color indexed palette, including the
   6x6x6 color cube and grayscale ramp.
+- `PixelRenderer` draws bold text with an extra bitmap stroke.
 - `PixelRenderer` draws underlined text using the cell foreground color.
 - `PixelRenderer` draws block, underline, and bar cursors for visible cursor
   snapshots.
@@ -68,6 +69,7 @@ Renderer-specific tests cover:
 - terminal cursor position and shape to render snapshot conversion
 - preservation of cell position and style metadata
 - glyph foreground pixels drawn into an RGBA target
+- bold terminal text drawn with additional foreground pixels
 - underlined terminal text drawn into an RGBA target
 - xterm 256-color indexed foreground output from terminal bytes to RGBA pixels
 - inverse-video foreground/background swapping
