@@ -13,7 +13,7 @@ use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use rssh_terminal::Terminal;
 use winit::{
     application::ApplicationHandler,
-    dpi::LogicalSize,
+    dpi::{LogicalSize, PhysicalSize},
     event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, ModifiersState, NamedKey},
@@ -58,6 +58,8 @@ struct NativeWindowApp {
     renderer: PixelRenderer,
     runtime: TerminalRuntime,
     snapshot: TerminalRenderSnapshot,
+    frame_width: u32,
+    frame_height: u32,
     frame_limit: Option<u64>,
     rendered_frames: u64,
     event_proxy: Option<EventLoopProxy<WindowUserEvent>>,
@@ -85,6 +87,8 @@ impl NativeWindowApp {
             renderer: PixelRenderer::new(),
             runtime,
             snapshot,
+            frame_width: FRAME_WIDTH,
+            frame_height: FRAME_HEIGHT,
             frame_limit,
             rendered_frames: 0,
             event_proxy: None,
@@ -117,7 +121,7 @@ impl NativeWindowApp {
         );
         let size = window.inner_size();
         let surface_texture = SurfaceTexture::new(size.width, size.height, window.clone());
-        let pixels = Pixels::new(FRAME_WIDTH, FRAME_HEIGHT, surface_texture)?;
+        let pixels = Pixels::new(self.frame_width, self.frame_height, surface_texture)?;
 
         self.window = Some(window);
         self.pixels = Some(pixels);
@@ -133,8 +137,8 @@ impl NativeWindowApp {
         self.renderer.render(
             &self.snapshot,
             pixels.frame_mut(),
-            FRAME_WIDTH,
-            FRAME_HEIGHT,
+            self.frame_width,
+            self.frame_height,
             CELL_WIDTH,
             CELL_HEIGHT,
         );
@@ -236,6 +240,29 @@ impl NativeWindowApp {
 
         Ok(())
     }
+
+    fn handle_window_resize(&mut self, size: PhysicalSize<u32>) -> Result<(), Box<dyn Error>> {
+        if let Some(pixels) = self.pixels.as_mut() {
+            pixels.resize_surface(size.width, size.height)?;
+        }
+
+        let terminal_size = terminal_size_from_window_pixels(size.width, size.height);
+        self.frame_width = u32::from(terminal_size.columns) * CELL_WIDTH;
+        self.frame_height = u32::from(terminal_size.rows) * CELL_HEIGHT;
+
+        if let Some(pixels) = self.pixels.as_mut() {
+            pixels.resize_buffer(self.frame_width, self.frame_height)?;
+        }
+
+        self.runtime.resize(terminal_size);
+        if let Some(session) = self.session.as_mut() {
+            let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
+            session.resize(pty_size)?;
+        }
+        self.snapshot = TerminalRenderSnapshot::from_terminal(self.runtime.terminal());
+
+        Ok(())
+    }
 }
 
 impl Drop for NativeWindowApp {
@@ -314,6 +341,15 @@ fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
     }
 }
 
+fn terminal_size_from_window_pixels(width: u32, height: u32) -> TerminalSize {
+    let columns = u16::try_from((width / CELL_WIDTH).clamp(1, u32::from(u16::MAX)))
+        .expect("column count is clamped to u16");
+    let rows = u16::try_from((height / CELL_HEIGHT).clamp(1, u32::from(u16::MAX)))
+        .expect("row count is clamped to u16");
+
+    TerminalSize::new(columns, rows)
+}
+
 impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -376,11 +412,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                 self.modifiers = modifiers.state();
             }
             WindowEvent::Resized(size) => {
-                if let Some(pixels) = self.pixels.as_mut() {
-                    if let Err(error) = pixels.resize_surface(size.width, size.height) {
-                        eprintln!("resize error: {error}");
-                        event_loop.exit();
-                    }
+                if let Err(error) = self.handle_window_resize(size) {
+                    eprintln!("resize error: {error}");
+                    event_loop.exit();
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -401,7 +435,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 mod tests {
     use winit::keyboard::{Key, ModifiersState, NamedKey};
 
-    use super::{demo_snapshot, encode_window_key};
+    use super::{demo_snapshot, encode_window_key, terminal_size_from_window_pixels};
 
     #[test]
     fn demo_snapshot_contains_visible_terminal_cells() {
@@ -472,6 +506,18 @@ mod tests {
 
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('l'));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('e'));
+    }
+
+    #[test]
+    fn derives_terminal_size_from_window_pixels() {
+        assert_eq!(
+            terminal_size_from_window_pixels(640, 384),
+            rssh_core::TerminalSize::new(80, 24)
+        );
+        assert_eq!(
+            terminal_size_from_window_pixels(1, 1),
+            rssh_core::TerminalSize::new(1, 1)
+        );
     }
 
     fn snapshot_char(

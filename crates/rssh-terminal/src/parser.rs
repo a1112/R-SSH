@@ -155,6 +155,20 @@ impl Terminal {
         self.cursor_visible
     }
 
+    pub fn resize(&mut self, size: TerminalSize) {
+        self.grid.resize(size);
+
+        if let Some(screen) = self.main_screen.as_mut() {
+            screen.grid.resize(size);
+            clamp_screen_state(screen, size);
+        }
+
+        self.clamp_to_size();
+        self.scroll_top = 0;
+        self.scroll_bottom = size.rows.saturating_sub(1);
+        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+    }
+
     pub fn take_damage(&mut self) -> Vec<DamageRegion> {
         std::mem::take(&mut self.damage)
     }
@@ -383,6 +397,22 @@ impl Terminal {
         self.scroll_top = screen.scroll_top;
         self.scroll_bottom = screen.scroll_bottom;
         self.style = screen.style;
+        self.clamp_to_size();
+    }
+
+    fn clamp_to_size(&mut self) {
+        let size = self.grid.size();
+        self.cursor_row = clamp_axis(self.cursor_row, size.rows);
+        self.cursor_column = clamp_axis(self.cursor_column, size.columns);
+        self.scroll_top = clamp_axis(self.scroll_top, size.rows);
+        self.scroll_bottom = clamp_axis(self.scroll_bottom, size.rows);
+        if self.scroll_top >= self.scroll_bottom {
+            self.scroll_top = 0;
+            self.scroll_bottom = size.rows.saturating_sub(1);
+        }
+        if size.columns == 0 || size.rows == 0 {
+            self.pending_wrap = false;
+        }
     }
 
     fn set_scroll_region(&mut self, params: &[char]) {
@@ -812,6 +842,24 @@ fn parse_csi(chars: &[char], mut index: usize) -> Option<(char, usize)> {
     }
 
     None
+}
+
+fn clamp_screen_state(screen: &mut ScreenState, size: TerminalSize) {
+    screen.cursor_row = clamp_axis(screen.cursor_row, size.rows);
+    screen.cursor_column = clamp_axis(screen.cursor_column, size.columns);
+    screen.scroll_top = clamp_axis(screen.scroll_top, size.rows);
+    screen.scroll_bottom = clamp_axis(screen.scroll_bottom, size.rows);
+    if screen.scroll_top >= screen.scroll_bottom {
+        screen.scroll_top = 0;
+        screen.scroll_bottom = size.rows.saturating_sub(1);
+    }
+    if size.columns == 0 || size.rows == 0 {
+        screen.pending_wrap = false;
+    }
+}
+
+fn clamp_axis(value: u16, limit: u16) -> u16 {
+    value.min(limit.saturating_sub(1))
 }
 
 fn parse_osc(chars: &[char], mut index: usize) -> Option<usize> {

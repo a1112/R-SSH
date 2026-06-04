@@ -55,6 +55,8 @@ support the next PTY and SSH milestones.
   - 8-color and bright 8-color foreground/background
   - indexed and RGB extended color forms
 - CJK wide-character placement across two columns.
+- Terminal grid resizing preserves visible top-left cells, clamps cursor state,
+  resets the active scroll region, and marks the resized viewport damaged.
 - Merged terminal damage regions for changed cells.
 - Shared `DamageRegion` in `rssh-core`, re-exported by `rssh-renderer`.
 
@@ -101,6 +103,7 @@ cover:
 - OSC title sequence filtering for BEL and ST terminators
 - SGR color/style parsing, including inverse video
 - CJK wide-character layout
+- terminal grid resize growth/shrink, cursor clamping, and resize damage
 - merged damage tracking
 
 ## Next Milestone

@@ -23,6 +23,9 @@ in the native `winit` window.
   `TerminalRenderSnapshot` from the live terminal, including visible cursor
   state.
 - `winit` keyboard events are encoded and written to the active PTY writer.
+- `winit` resize events are converted to terminal cell geometry; the live
+  terminal grid, PTY size, render buffer, and text-area size query response are
+  updated together.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
 
@@ -73,8 +76,10 @@ MVP 4 tests cover:
 - shared text, control, and navigation key encoding
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
+- terminal runtime resize updates the grid and text-area size response
 - terminal response filtering for cursor position, device-attribute, status,
   and text-area size queries
+- window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
 
 ## Metrics Design
@@ -104,7 +109,6 @@ Recommended MVP 5 targets:
 - Scrollback rendering and search.
 - Selection.
 - Mouse input.
-- Terminal resize from window cell geometry.
 - GPU text shaping, glyph atlas caching, and font fallback.
 - Persistent session profiles.
 
@@ -114,6 +118,5 @@ MVP 5 should replace the minimal bitmap-font renderer with a production-grade
 text rendering path and add basic terminal UX:
 
 1. Track dirty regions instead of rebuilding the full snapshot each chunk.
-2. Resize the PTY from window dimensions.
-3. Add scrollback storage and viewport rendering.
-4. Start collecting the metrics listed above in smoke and benchmark commands.
+2. Add scrollback storage and viewport rendering.
+3. Start collecting the metrics listed above in smoke and benchmark commands.

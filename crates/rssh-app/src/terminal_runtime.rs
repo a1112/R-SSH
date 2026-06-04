@@ -23,6 +23,11 @@ impl TerminalRuntime {
         output.responses
     }
 
+    pub fn resize(&mut self, size: TerminalSize) {
+        self.terminal.resize(size);
+        self.output_filter.resize(size);
+    }
+
     #[must_use]
     pub fn terminal(&self) -> &Terminal {
         &self.terminal
@@ -68,6 +73,10 @@ impl TerminalOutputFilter {
             pending: Vec::new(),
             size,
         }
+    }
+
+    fn resize(&mut self, size: TerminalSize) {
+        self.size = size;
     }
 
     fn process(&mut self, bytes: &[u8]) -> FilteredOutput {
@@ -216,6 +225,18 @@ mod tests {
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
         assert!(!text.contains("[18t"));
+    }
+
+    #[test]
+    fn resize_updates_terminal_grid_and_size_query_response() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(4, 2));
+        runtime.feed_pty_output(b"abcd\nef");
+
+        runtime.resize(TerminalSize::new(6, 3));
+        let responses = runtime.feed_pty_output(b"\x1b[18t");
+
+        assert_eq!(runtime.terminal().grid().size(), TerminalSize::new(6, 3));
+        assert_eq!(responses, vec![b"\x1b[8;3;6t".to_vec()]);
     }
 
     #[test]

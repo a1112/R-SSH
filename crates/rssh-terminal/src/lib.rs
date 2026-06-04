@@ -82,6 +82,25 @@ impl TerminalGrid {
         true
     }
 
+    pub fn resize(&mut self, size: TerminalSize) {
+        let old_size = self.size;
+        let old_cells = std::mem::replace(&mut self.cells, vec![Cell::default(); size.cells()]);
+        self.size = size;
+
+        let rows = old_size.rows.min(size.rows);
+        let columns = old_size.columns.min(size.columns);
+        for row in 0..rows {
+            for column in 0..columns {
+                let old_index =
+                    usize::from(row) * usize::from(old_size.columns) + usize::from(column);
+                let new_index = usize::from(row) * usize::from(size.columns) + usize::from(column);
+                if let Some(cell) = old_cells.get(old_index) {
+                    self.cells[new_index] = cell.clone();
+                }
+            }
+        }
+    }
+
     #[must_use]
     fn index(&self, row: u16, column: u16) -> Option<usize> {
         if row >= self.size.rows || column >= self.size.columns {
@@ -504,6 +523,37 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "中   ");
         assert_eq!(terminal.cursor(), (0, 2));
         assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 2, 1)]);
+    }
+
+    #[test]
+    fn terminal_resize_expands_grid_and_preserves_visible_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"abcd\nef");
+        terminal.take_damage();
+
+        terminal.resize(TerminalSize::new(6, 3));
+
+        assert_eq!(terminal.grid().size(), TerminalSize::new(6, 3));
+        assert_eq!(row_text(&terminal, 0), "abcd  ");
+        assert_eq!(row_text(&terminal, 1), "ef    ");
+        assert_eq!(row_text(&terminal, 2), "      ");
+        assert_eq!(terminal.cursor(), (1, 2));
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 6, 3)]);
+    }
+
+    #[test]
+    fn terminal_resize_shrinks_grid_and_clamps_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 3));
+        terminal.feed(b"abcde\x1b[2;1Hfghij\x1b[3;5HZ");
+        terminal.take_damage();
+
+        terminal.resize(TerminalSize::new(3, 2));
+
+        assert_eq!(terminal.grid().size(), TerminalSize::new(3, 2));
+        assert_eq!(row_text(&terminal, 0), "abc");
+        assert_eq!(row_text(&terminal, 1), "fgh");
+        assert_eq!(terminal.cursor(), (1, 2));
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 3, 2)]);
     }
 
     #[test]
