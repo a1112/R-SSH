@@ -30,8 +30,9 @@ in the native `winit` window.
 - The native window supports clipboard paste through `Ctrl+V`,
   `Ctrl+Shift+V`, and `Shift+Insert`; pasted text is wrapped with bracketed
   paste markers while the PTY has enabled `ESC[?2004h`.
-- The native window handles PTY-side OSC 52 clipboard writes and decodes the
-  base64 payload into the system clipboard.
+- The native window handles PTY-side OSC 52 clipboard writes and queries,
+  decoding base64 payloads into the system clipboard and answering `?` queries
+  with base64-encoded clipboard content.
 - The native window supports basic local text selection when PTY mouse
   reporting is inactive; selected text is highlighted and can be copied with
   `Ctrl+Shift+C` or `Ctrl+Insert`.
@@ -105,7 +106,8 @@ MVP 4 tests cover:
 
 - window text, control, navigation, Alt-text, and modified key encoding
 - native window clipboard paste encoding and paste shortcut detection
-- OSC 52 clipboard extraction from PTY output and native window clipboard writes
+- OSC 52 clipboard extraction from PTY output, native window clipboard writes,
+  and clipboard query responses
 - native window local selection text extraction, highlight overlay, mouse drag,
   and copy shortcut detection
 - native window line-based scrollback search, next/previous navigation, and
@@ -151,7 +153,7 @@ Recommended MVP 5 targets:
 ## Explicit Non-Scope
 
 - SSH protocol sessions in the native window.
-- OSC 52 clipboard queries and policy controls.
+- OSC 52 clipboard policy controls.
 - Cross-line and regex scrollback search.
 - Advanced selection behavior such as word/line selection and selection across
   changing scrollback.

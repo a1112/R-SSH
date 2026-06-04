@@ -45,6 +45,10 @@ impl TerminalRuntime {
         std::mem::take(&mut self.clipboard_tracker.texts)
     }
 
+    pub fn take_clipboard_queries(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.clipboard_tracker.queries)
+    }
+
     pub fn resize(&mut self, size: TerminalSize) {
         self.terminal.resize(size);
         self.output_filter.resize(size);
@@ -253,6 +257,7 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
 struct TerminalClipboardTracker {
     pending: Vec<u8>,
     texts: Vec<String>,
+    queries: Vec<String>,
 }
 
 impl TerminalClipboardTracker {
@@ -281,10 +286,10 @@ impl TerminalClipboardTracker {
                 return;
             };
             let content_end = content_start + terminator.index;
-            if let Some(text) =
-                decode_osc52_clipboard_content(&self.pending[content_start..content_end])
-            {
-                self.texts.push(text);
+            match parse_osc52_clipboard_content(&self.pending[content_start..content_end]) {
+                Some(ClipboardSequence::Write(text)) => self.texts.push(text),
+                Some(ClipboardSequence::Query(selection)) => self.queries.push(selection),
+                None => {}
             }
 
             self.pending.drain(..content_end + terminator.length);
@@ -324,12 +329,23 @@ fn find_osc_terminator(bytes: &[u8]) -> Option<OscTerminator> {
     }
 }
 
-fn decode_osc52_clipboard_content(content: &[u8]) -> Option<String> {
-    let separator = content.iter().position(|byte| *byte == b';')?;
-    let payload = &content[separator + 1..];
-    let decoded = STANDARD.decode(payload).ok()?;
+enum ClipboardSequence {
+    Write(String),
+    Query(String),
+}
 
-    String::from_utf8(decoded).ok()
+fn parse_osc52_clipboard_content(content: &[u8]) -> Option<ClipboardSequence> {
+    let separator = content.iter().position(|byte| *byte == b';')?;
+    let selection = String::from_utf8(content[..separator].to_vec()).ok()?;
+    let payload = &content[separator + 1..];
+    if payload == b"?" {
+        return Some(ClipboardSequence::Query(selection));
+    }
+
+    let decoded = STANDARD.decode(payload).ok()?;
+    let text = String::from_utf8(decoded).ok()?;
+
+    Some(ClipboardSequence::Write(text))
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -816,6 +832,16 @@ mod tests {
         runtime.feed_pty_output(b"9weQ==\x1b\\");
 
         assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
+    }
+
+    #[test]
+    fn extracts_osc52_clipboard_queries_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b]52;c;?\x07");
+
+        assert_eq!(runtime.take_clipboard_queries(), vec!["c".to_owned()]);
+        assert!(runtime.take_clipboard_queries().is_empty());
     }
 
     #[test]

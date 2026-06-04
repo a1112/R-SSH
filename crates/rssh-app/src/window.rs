@@ -5,6 +5,7 @@ use std::{
     thread,
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use pixels::{Pixels, SurfaceTexture};
 use rssh_core::TerminalSize;
 use rssh_pty::{PtyCommand, PtySession, PtySize};
@@ -76,6 +77,7 @@ struct NativeWindowApp {
     selecting: bool,
     search: Option<WindowSearch>,
     clipboard_writer: Box<dyn FnMut(&str) -> bool + Send>,
+    clipboard_reader: Box<dyn FnMut() -> Option<String> + Send>,
 }
 
 #[derive(Debug)]
@@ -113,6 +115,7 @@ impl NativeWindowApp {
             selecting: false,
             search: None,
             clipboard_writer: Box::new(write_window_clipboard_text),
+            clipboard_reader: Box::new(read_window_clipboard_text),
         }
     }
 
@@ -181,6 +184,9 @@ impl NativeWindowApp {
         }
         for text in self.runtime.take_clipboard_texts() {
             self.write_clipboard_text(&text);
+        }
+        for selection in self.runtime.take_clipboard_queries() {
+            self.answer_clipboard_query(&selection)?;
         }
         self.sync_window_title_from_runtime();
         self.refresh_snapshot();
@@ -719,6 +725,20 @@ impl NativeWindowApp {
 
     fn write_clipboard_text(&mut self, text: &str) -> bool {
         (self.clipboard_writer)(text)
+    }
+
+    fn read_clipboard_text(&mut self) -> Option<String> {
+        (self.clipboard_reader)()
+    }
+
+    fn answer_clipboard_query(&mut self, selection: &str) -> io::Result<bool> {
+        let Some(text) = self.read_clipboard_text() else {
+            return Ok(false);
+        };
+
+        let response = encode_osc52_clipboard_response(selection, &text);
+        self.write_pty_bytes(&response)?;
+        Ok(true)
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -1367,6 +1387,15 @@ fn encode_window_paste(text: &str, bracketed_paste: bool) -> Vec<u8> {
     bytes
 }
 
+fn encode_osc52_clipboard_response(selection: &str, text: &str) -> Vec<u8> {
+    format!(
+        "\x1b]52;{};{}\x07",
+        selection,
+        STANDARD.encode(text.as_bytes())
+    )
+    .into_bytes()
+}
+
 fn window_paste_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
     let ctrl_v = modifiers.control_key()
         && !modifiers.alt_key()
@@ -1563,6 +1592,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
+    use std::io::{self, Write};
     use std::sync::{Arc, Mutex};
 
     use winit::dpi::PhysicalPosition;
@@ -2257,6 +2287,21 @@ mod tests {
     }
 
     #[test]
+    fn window_app_answers_osc52_clipboard_query_from_pty_output() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.clipboard_reader = Box::new(|| Some("copy".to_owned()));
+
+        app.handle_pty_output(b"\x1b]52;c;?\x07").unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"\x1b]52;c;Y29weQ==\x07"
+        );
+    }
+
+    #[test]
     fn derives_terminal_size_from_window_pixels() {
         assert_eq!(
             terminal_size_from_window_pixels(640, 384),
@@ -2289,5 +2334,18 @@ mod tests {
             .cells()
             .iter()
             .find(|cell| cell.row == row && cell.column == column)
+    }
+
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
     }
 }
