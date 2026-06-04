@@ -180,6 +180,39 @@ mod tests {
     }
 
     #[test]
+    fn terminal_index_moves_down_without_carriage_return() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 2));
+
+        terminal.feed(b"ab\x1bDcd");
+
+        assert_eq!(row_text(&terminal, 0), "ab   ");
+        assert_eq!(row_text(&terminal, 1), "  cd ");
+        assert_eq!(terminal.cursor(), (1, 4));
+    }
+
+    #[test]
+    fn terminal_next_line_moves_down_to_first_column() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 2));
+
+        terminal.feed(b"ab\x1bEcd");
+
+        assert_eq!(row_text(&terminal, 0), "ab   ");
+        assert_eq!(row_text(&terminal, 1), "cd   ");
+        assert_eq!(terminal.cursor(), (1, 2));
+    }
+
+    #[test]
+    fn terminal_reverse_index_moves_up_without_carriage_return() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 2));
+
+        terminal.feed(b"\x1b[2;3H\x1bMZ");
+
+        assert_eq!(row_text(&terminal, 0), "  Z  ");
+        assert_eq!(row_text(&terminal, 1), "     ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
     fn terminal_backspace_moves_cursor_left_without_erasing() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
 
@@ -243,6 +276,34 @@ mod tests {
         assert_eq!(row_text(&terminal, 2), "zz  ");
         assert_eq!(row_text(&terminal, 3), "4444");
         assert_eq!(terminal.cursor(), (2, 2));
+    }
+
+    #[test]
+    fn terminal_index_scrolls_up_at_scroll_region_bottom() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2;3r\x1b[3;1H\x1bDzz");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "3333");
+        assert_eq!(row_text(&terminal, 2), "zz  ");
+        assert_eq!(row_text(&terminal, 3), "4444");
+        assert_eq!(terminal.cursor(), (2, 2));
+    }
+
+    #[test]
+    fn terminal_reverse_index_scrolls_down_at_scroll_region_top() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2;3r\x1b[2;1H\x1bMzz");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "zz  ");
+        assert_eq!(row_text(&terminal, 2), "2222");
+        assert_eq!(row_text(&terminal, 3), "4444");
+        assert_eq!(terminal.cursor(), (1, 2));
     }
 
     #[test]

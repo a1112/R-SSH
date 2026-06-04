@@ -91,6 +91,18 @@ impl Terminal {
                     self.restore_cursor();
                     index += 2;
                 }
+                '\u{1b}' if chars.get(index + 1) == Some(&'D') => {
+                    self.index_down();
+                    index += 2;
+                }
+                '\u{1b}' if chars.get(index + 1) == Some(&'E') => {
+                    self.next_line();
+                    index += 2;
+                }
+                '\u{1b}' if chars.get(index + 1) == Some(&'M') => {
+                    self.reverse_index();
+                    index += 2;
+                }
                 '\u{1b}' if chars.get(index + 1).is_none() => {
                     self.pending_control.extend_from_slice(&chars[index..]);
                     break;
@@ -141,6 +153,15 @@ impl Terminal {
 
     fn newline(&mut self) {
         self.cursor_column = 0;
+        self.index_down();
+    }
+
+    fn next_line(&mut self) {
+        self.cursor_column = 0;
+        self.index_down();
+    }
+
+    fn index_down(&mut self) {
         self.pending_wrap = false;
         let rows = self.grid.size().rows;
         if rows == 0 {
@@ -153,6 +174,23 @@ impl Terminal {
             self.cursor_row = scroll_bottom;
         } else if self.cursor_row + 1 < rows {
             self.cursor_row += 1;
+        }
+    }
+
+    fn reverse_index(&mut self) {
+        self.pending_wrap = false;
+        let rows = self.grid.size().rows;
+        if rows == 0 {
+            return;
+        }
+
+        let scroll_top = self.scroll_top.min(rows - 1);
+        let scroll_bottom = self.scroll_bottom.min(rows - 1);
+        if self.cursor_row == scroll_top {
+            self.scroll_down_region(scroll_top, scroll_bottom, 1);
+            self.cursor_row = scroll_top;
+        } else {
+            self.cursor_row = self.cursor_row.saturating_sub(1);
         }
     }
 

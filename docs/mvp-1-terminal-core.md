@@ -12,6 +12,10 @@ support the next PTY and SSH milestones.
 - `TerminalGrid` allocation, bounds-checked reads, and bounds-checked writes.
 - `Terminal::feed` for printable UTF-8 text.
 - Newline and carriage-return handling.
+- Basic ESC line movement:
+  - index (`IND`, `ESC D`)
+  - next line (`NEL`, `ESC E`)
+  - reverse index (`RI`, `ESC M`)
 - Backspace handling moves the cursor left without erasing content.
 - Horizontal tab moves to the next 8-column tab stop.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
@@ -79,6 +83,7 @@ cover:
 - grid get/set bounds behavior
 - plain text parsing
 - newline parsing
+- ESC `IND`/`NEL`/`RI` movement and scroll-region boundary scrolling
 - backspace and horizontal tab control handling
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
