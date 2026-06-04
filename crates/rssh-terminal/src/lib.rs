@@ -489,6 +489,24 @@ mod tests {
     }
 
     #[test]
+    fn terminal_handles_split_utf8_across_feed_calls() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        let bytes = "中".as_bytes();
+
+        terminal.feed(&bytes[..1]);
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+        assert_eq!(terminal.cursor(), (0, 0));
+        assert!(terminal.take_damage().is_empty());
+
+        terminal.feed(&bytes[1..]);
+
+        assert_eq!(row_text(&terminal, 0), "中   ");
+        assert_eq!(terminal.cursor(), (0, 2));
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 2, 1)]);
+    }
+
+    #[test]
     fn terminal_reports_merged_damage_for_written_text() {
         let mut terminal = Terminal::new(TerminalSize::new(10, 1));
 

@@ -35,6 +35,8 @@ support the next PTY and SSH milestones.
 - Incomplete CSI, OSC title, and `ESC7`/`ESC8` sequences are retained across
   `Terminal::feed` calls so PTY chunk boundaries do not leak control bytes into
   the grid.
+- Incomplete UTF-8 sequences are retained across `Terminal::feed` calls so PTY
+  chunk boundaries do not create replacement characters.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
@@ -63,7 +65,6 @@ support the next PTY and SSH milestones.
 - Full alternate-screen edge-case behavior beyond `?1049`.
 - Mouse modes.
 - Hyperlinks and OSC clipboard.
-- Streaming partial UTF-8 handling across separate `feed` calls.
 - GPU rendering.
 - Local PTY and SSH channel I/O.
 
@@ -93,6 +94,7 @@ cover:
 - `?25h/l` cursor visibility tracking
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
+- split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
 - CSI insert/delete/erase character handling
 - CSI insert/delete line handling with scroll-region limits

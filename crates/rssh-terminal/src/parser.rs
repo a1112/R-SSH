@@ -9,6 +9,7 @@ pub struct Terminal {
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
+    pending_utf8: Vec<u8>,
     pending_control: Vec<char>,
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
@@ -47,6 +48,7 @@ impl Terminal {
             cursor_row: 0,
             cursor_column: 0,
             pending_wrap: false,
+            pending_utf8: Vec::new(),
             pending_control: Vec::new(),
             saved_cursor: None,
             main_screen: None,
@@ -59,7 +61,13 @@ impl Terminal {
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
-        let text = String::from_utf8_lossy(bytes);
+        let mut input = std::mem::take(&mut self.pending_utf8);
+        input.extend_from_slice(bytes);
+        let complete_utf8_len = complete_utf8_prefix_len(&input);
+        self.pending_utf8
+            .extend_from_slice(&input[complete_utf8_len..]);
+
+        let text = String::from_utf8_lossy(&input[..complete_utf8_len]);
         let mut chars = std::mem::take(&mut self.pending_control);
         chars.extend(text.chars());
         let mut index = 0;
@@ -884,6 +892,49 @@ fn parse_extended_color(values: &[u16]) -> Option<(Color, usize)> {
         )),
         _ => None,
     }
+}
+
+fn complete_utf8_prefix_len(bytes: &[u8]) -> usize {
+    let Some(mut start) = bytes.len().checked_sub(1) else {
+        return 0;
+    };
+
+    while start > 0 && is_utf8_continuation(bytes[start]) {
+        start -= 1;
+    }
+
+    let first = bytes[start];
+    let Some(expected_len) = utf8_sequence_len(first) else {
+        return bytes.len();
+    };
+
+    let available_len = bytes.len() - start;
+    if available_len >= expected_len {
+        return bytes.len();
+    }
+
+    if bytes[start + 1..]
+        .iter()
+        .all(|byte| is_utf8_continuation(*byte))
+    {
+        start
+    } else {
+        bytes.len()
+    }
+}
+
+fn utf8_sequence_len(byte: u8) -> Option<usize> {
+    match byte {
+        0x00..=0x7f => Some(1),
+        0xc2..=0xdf => Some(2),
+        0xe0..=0xef => Some(3),
+        0xf0..=0xf4 => Some(4),
+        _ => None,
+    }
+}
+
+fn is_utf8_continuation(byte: u8) -> bool {
+    byte & 0b1100_0000 == 0b1000_0000
 }
 
 fn saturating_u8(value: u16) -> u8 {
