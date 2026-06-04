@@ -750,7 +750,11 @@ impl TerminalOutputFilter {
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
-            response: TerminalResponse::CursorPosition,
+            response: TerminalResponse::CursorPosition { private: false },
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[?6n",
+            response: TerminalResponse::CursorPosition { private: true },
         },
         TerminalQueryResponse {
             query: b"\x1b[c",
@@ -844,15 +848,24 @@ impl TerminalOutputFilter {
     fn response_bytes(&mut self, response: TerminalResponse) -> Vec<u8> {
         match response {
             TerminalResponse::Static(bytes) => bytes.to_vec(),
-            TerminalResponse::CursorPosition => {
+            TerminalResponse::CursorPosition { private } => {
                 self.sync_mirror_size();
                 let (row, column) = self.mirror.cursor();
-                format!(
-                    "\x1b[{};{}R",
-                    row.saturating_add(1),
-                    column.saturating_add(1)
-                )
-                .into_bytes()
+                if private {
+                    format!(
+                        "\x1b[?{};{}R",
+                        row.saturating_add(1),
+                        column.saturating_add(1)
+                    )
+                    .into_bytes()
+                } else {
+                    format!(
+                        "\x1b[{};{}R",
+                        row.saturating_add(1),
+                        column.saturating_add(1)
+                    )
+                    .into_bytes()
+                }
             }
             TerminalResponse::TextAreaSize => {
                 let size = self.size.snapshot();
@@ -878,7 +891,7 @@ struct TerminalQueryResponse {
 #[derive(Clone, Copy)]
 enum TerminalResponse {
     Static(&'static [u8]),
-    CursorPosition,
+    CursorPosition { private: bool },
     TextAreaSize,
 }
 
@@ -1603,6 +1616,23 @@ mod tests {
 
         assert_eq!(output, b"abc");
         assert_eq!(responses, b"\x1b[1;4R");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_private_cursor_position_query() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"abc\x1b[?6n", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"abc");
+        assert_eq!(responses, b"\x1b[?1;4R");
     }
 
     #[test]

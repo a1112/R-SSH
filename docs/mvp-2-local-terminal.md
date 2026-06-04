@@ -41,9 +41,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   forwards active reports as xterm SGR mouse and focus sequences.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
-- The app answers cursor-position query `ESC[6n` with the current mirrored
-  terminal cursor position so shells and TUI programs can complete position
-  handshakes.
+- The app answers standard and DEC private cursor-position queries (`ESC[6n`
+  and `ESC[?6n`) with the current mirrored terminal cursor position so shells
+  and TUI programs can complete position handshakes.
 - The app also answers primary device attributes `ESC[c`, secondary device
   attributes `ESC[>c`, and terminal status `ESC[5n` instead of leaking those
   queries to the host console.
@@ -131,8 +131,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Fast-exit output drain: ignored integration tests repeatedly run
   `rssh-app local --mouse -- <echo command>` and verify the final output marker
   is present every time.
-- Control-sequence response: unit tests cover normal output, dynamic `ESC[6n`,
-  `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, and split response-query chunks.
+- Control-sequence response: unit tests cover normal output, dynamic `ESC[6n`
+  and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, and split
+  response-query chunks.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking

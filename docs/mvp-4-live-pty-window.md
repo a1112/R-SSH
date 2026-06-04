@@ -11,7 +11,8 @@ in the native `winit` window.
   `rssh-terminal::Terminal`.
 - The runtime filters terminal cursor position, device-attribute, status, and
   text-area size queries, then returns responses that are written back to the
-  PTY. Cursor-position responses use the current terminal grid cursor.
+  PTY. Standard and DEC private cursor-position responses use the current
+  terminal grid cursor.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
