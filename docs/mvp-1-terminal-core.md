@@ -56,6 +56,8 @@ support the next PTY and SSH milestones.
   cursor position, pending wrap state, SGR style, G0 character set, and origin
   mode.
 - Cursor visibility tracking for `DECSET ?25` and `DECRST ?25`.
+- Cursor shape tracking for `DECSCUSR` (`CSI Ps SP q`) with block, underline,
+  and bar shapes.
 - G0 character-set switching for DEC Special Graphics (`ESC(0` / `ESC(B`),
   with common box-drawing glyph mapping.
 - Incomplete CSI, OSC title, DCS/SOS/PM/APC, and `ESC7`/`ESC8` sequences are
@@ -150,6 +152,7 @@ cover:
 - CSI cursor positioning, line movement, and relative cursor movement
 - C1 byte-form CSI parsing and split-sequence buffering
 - `?25h/l` cursor visibility tracking
+- `DECSCUSR` cursor shape tracking for block, underline, and bar cursors
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore, including style,
   character set, and origin-mode restoration
 - DEC Special Graphics line drawing and split `ESC(` sequence handling

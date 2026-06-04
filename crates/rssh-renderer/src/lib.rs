@@ -1,6 +1,6 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 pub use rssh_core::DamageRegion;
-use rssh_terminal::{Cell, Color, Terminal, TerminalGrid};
+use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
@@ -20,6 +20,7 @@ pub struct RenderCell {
 pub struct RenderCursor {
     pub row: u16,
     pub column: u16,
+    pub shape: CursorShape,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -109,15 +110,8 @@ impl PixelRenderer {
         if let Some(cursor) = snapshot.cursor() {
             let origin_x = u32::from(cursor.column).saturating_mul(cell_width);
             let origin_y = u32::from(cursor.row).saturating_mul(cell_height);
-            surface.fill_rect(
-                Rect {
-                    x: origin_x,
-                    y: origin_y,
-                    width: cell_width,
-                    height: cell_height,
-                },
-                default_foreground(),
-            );
+            let rect = cursor_rect(cursor.shape, origin_x, origin_y, cell_width, cell_height);
+            surface.fill_rect(rect, default_foreground());
         }
     }
 }
@@ -240,7 +234,11 @@ impl TerminalRenderSnapshot {
         let first_source_row = scrollback.len().saturating_sub(offset);
         let cursor = if terminal.cursor_visible() {
             let (row, column) = terminal.cursor();
-            (offset == 0).then_some(RenderCursor { row, column })
+            (offset == 0).then_some(RenderCursor {
+                row,
+                column,
+                shape: terminal.cursor_shape(),
+            })
         } else {
             None
         };
@@ -317,6 +315,38 @@ impl TerminalRenderSnapshot {
     }
 }
 
+fn cursor_rect(
+    shape: CursorShape,
+    origin_x: u32,
+    origin_y: u32,
+    cell_width: u32,
+    cell_height: u32,
+) -> Rect {
+    match shape {
+        CursorShape::Block => Rect {
+            x: origin_x,
+            y: origin_y,
+            width: cell_width,
+            height: cell_height,
+        },
+        CursorShape::Underline => {
+            let height = (cell_height / 6).max(1);
+            Rect {
+                x: origin_x,
+                y: origin_y + cell_height.saturating_sub(height),
+                width: cell_width,
+                height,
+            }
+        }
+        CursorShape::Bar => Rect {
+            x: origin_x,
+            y: origin_y,
+            width: (cell_width / 4).max(1),
+            height: cell_height,
+        },
+    }
+}
+
 fn append_grid_row(
     cells: &mut Vec<RenderCell>,
     grid: &TerminalGrid,
@@ -375,7 +405,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
 #[cfg(test)]
 mod tests {
     use rssh_core::TerminalSize;
-    use rssh_terminal::{Cell, Color, Terminal, TerminalGrid};
+    use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid};
 
     use super::{DamageRegion, PixelRenderer, TerminalRenderSnapshot};
 
@@ -609,5 +639,45 @@ mod tests {
                 .any(|pixel| pixel == [229, 229, 229, 255]),
             "renderer did not draw a visible cursor block"
         );
+    }
+
+    #[test]
+    fn pixel_renderer_draws_bar_cursor_shape() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[6 q");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.cursor().unwrap().shape, CursorShape::Bar);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 7, 0), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_draws_underline_cursor_shape() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[4 q");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.cursor().unwrap().shape, CursorShape::Underline);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 7), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 0, 0), [12, 12, 12, 255]);
+    }
+
+    fn pixel_at(target: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
+        let index = (y * width + x) * 4;
+        [
+            target[index],
+            target[index + 1],
+            target[index + 2],
+            target[index + 3],
+        ]
     }
 }

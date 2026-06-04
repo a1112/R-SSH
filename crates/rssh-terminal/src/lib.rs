@@ -11,6 +11,13 @@ pub enum Color {
     Rgb(u8, u8, u8),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CursorShape {
+    Block,
+    Underline,
+    Bar,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Cell {
@@ -142,7 +149,7 @@ impl ScrollbackLine {
 mod tests {
     use rssh_core::{DamageRegion, TerminalSize};
 
-    use super::{Cell, Color, Terminal, TerminalGrid};
+    use super::{Cell, Color, CursorShape, Terminal, TerminalGrid};
 
     #[test]
     fn grid_allocates_one_cell_per_terminal_slot() {
@@ -763,6 +770,22 @@ mod tests {
 
         terminal.feed(b"\x1b[?25h");
         assert!(terminal.cursor_visible());
+    }
+
+    #[test]
+    fn terminal_tracks_decscusr_cursor_shape() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        assert_eq!(terminal.cursor_shape(), CursorShape::Block);
+
+        terminal.feed(b"\x1b[6 q");
+        assert_eq!(terminal.cursor_shape(), CursorShape::Bar);
+
+        terminal.feed(b"\x1b[4 q");
+        assert_eq!(terminal.cursor_shape(), CursorShape::Underline);
+
+        terminal.feed(b"\x1b[0 q");
+        assert_eq!(terminal.cursor_shape(), CursorShape::Block);
     }
 
     #[test]

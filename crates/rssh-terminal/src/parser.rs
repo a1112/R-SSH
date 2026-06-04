@@ -1,7 +1,7 @@
 use rssh_core::{DamageRegion, TerminalSize};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{Cell, Color, ScrollbackLine, TerminalGrid};
+use crate::{Cell, Color, CursorShape, ScrollbackLine, TerminalGrid};
 
 const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 
@@ -20,6 +20,7 @@ enum CharacterWriteMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TerminalModes {
     cursor_visible: bool,
+    cursor_shape: CursorShape,
     auto_wrap: bool,
     origin_mode: bool,
     write_mode: CharacterWriteMode,
@@ -29,6 +30,7 @@ impl Default for TerminalModes {
     fn default() -> Self {
         Self {
             cursor_visible: true,
+            cursor_shape: CursorShape::Block,
             auto_wrap: true,
             origin_mode: false,
             write_mode: CharacterWriteMode::Replace,
@@ -421,6 +423,11 @@ impl Terminal {
         self.modes.cursor_visible
     }
 
+    #[must_use]
+    pub const fn cursor_shape(&self) -> CursorShape {
+        self.modes.cursor_shape
+    }
+
     pub fn resize(&mut self, size: TerminalSize) {
         self.grid.resize(size);
         self.tab_stops.resize(size);
@@ -694,6 +701,7 @@ impl Terminal {
             'd' => self.position_cursor_row(params),
             'g' => self.clear_tab_stop(csi_mode(params)),
             'm' => self.apply_sgr(params),
+            'q' => self.set_cursor_shape(params),
             'r' => self.set_scroll_region(params),
             'h' => self.set_mode(params, true),
             'l' => self.set_mode(params, false),
@@ -747,6 +755,19 @@ impl Terminal {
             CharacterWriteMode::Insert
         } else {
             CharacterWriteMode::Replace
+        };
+    }
+
+    fn set_cursor_shape(&mut self, params: &[char]) {
+        let Some(params) = params.strip_suffix(&[' ']) else {
+            return;
+        };
+        let value = parse_csi_params(params).first().copied().unwrap_or(0);
+        self.modes.cursor_shape = match value {
+            0..=2 => CursorShape::Block,
+            3 | 4 => CursorShape::Underline,
+            5 | 6 => CursorShape::Bar,
+            _ => self.modes.cursor_shape,
         };
     }
 

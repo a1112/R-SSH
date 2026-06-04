@@ -10,12 +10,13 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   `rssh-terminal::Terminal` into a `TerminalRenderSnapshot`.
 - `TerminalRenderSnapshot` keeps row, column, character, foreground,
   background, and basic style flags including inverse video for visible cells.
-- `TerminalRenderSnapshot` carries visible cursor row/column when built from a
-  `Terminal`.
+- `TerminalRenderSnapshot` carries visible cursor row/column and shape when
+  built from a `Terminal`.
 - `PixelRenderer` draws snapshot cells into an RGBA framebuffer.
 - `PixelRenderer` maps the xterm 256-color indexed palette, including the
   6x6x6 color cube and grayscale ramp.
-- `PixelRenderer` draws a basic block cursor for visible cursor snapshots.
+- `PixelRenderer` draws block, underline, and bar cursors for visible cursor
+  snapshots.
 - The renderer uses `font8x8` for a minimal built-in glyph path.
 - `rssh-app` starts a native `winit` window by default.
 - `pixels` presents the renderer framebuffer through a GPU-backed window
@@ -63,12 +64,12 @@ cargo run -p rssh-app -- window --frames 1
 Renderer-specific tests cover:
 
 - terminal grid to render snapshot conversion
-- terminal cursor to render snapshot conversion
+- terminal cursor position and shape to render snapshot conversion
 - preservation of cell position and style metadata
 - glyph foreground pixels drawn into an RGBA target
 - xterm 256-color indexed foreground output from terminal bytes to RGBA pixels
 - inverse-video foreground/background swapping
-- blank-cell cursor pixels drawn into an RGBA target
+- block, underline, and bar cursor pixels drawn into an RGBA target
 
 ## Explicit Non-Scope
 
