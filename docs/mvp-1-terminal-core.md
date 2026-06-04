@@ -8,7 +8,7 @@ support the next PTY and SSH milestones.
 ## Completed Scope
 
 - `Cell` model with character, foreground color, background color, bold, italic,
-  and underline attributes.
+  underline, and inverse-video attributes.
 - `TerminalGrid` allocation, bounds-checked reads, and bounds-checked writes.
 - `Terminal::feed` for printable UTF-8 text.
 - Newline and carriage-return handling.
@@ -38,7 +38,7 @@ support the next PTY and SSH milestones.
   do not appear as terminal text.
 - Basic SGR handling:
   - reset
-  - bold, italic, underline
+  - bold, italic, underline, inverse video
   - 8-color and bright 8-color foreground/background
   - indexed and RGB extended color forms
 - CJK wide-character placement across two columns.
@@ -83,7 +83,7 @@ cover:
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
 - CSI display and line erase handling
 - OSC title sequence filtering for BEL and ST terminators
-- SGR color/style parsing
+- SGR color/style parsing, including inverse video
 - CJK wide-character layout
 - merged damage tracking
 

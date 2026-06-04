@@ -9,7 +9,7 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
 - `rssh-renderer` converts `rssh-terminal::TerminalGrid` or
   `rssh-terminal::Terminal` into a `TerminalRenderSnapshot`.
 - `TerminalRenderSnapshot` keeps row, column, character, foreground,
-  background, and basic style flags for visible cells.
+  background, and basic style flags including inverse video for visible cells.
 - `TerminalRenderSnapshot` carries visible cursor row/column when built from a
   `Terminal`.
 - `PixelRenderer` draws snapshot cells into an RGBA framebuffer.
@@ -64,6 +64,7 @@ Renderer-specific tests cover:
 - terminal cursor to render snapshot conversion
 - preservation of cell position and style metadata
 - glyph foreground pixels drawn into an RGBA target
+- inverse-video foreground/background swapping
 - blank-cell cursor pixels drawn into an RGBA target
 
 ## Explicit Non-Scope

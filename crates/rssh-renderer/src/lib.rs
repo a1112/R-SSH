@@ -3,6 +3,7 @@ pub use rssh_core::DamageRegion;
 use rssh_terminal::{Color, Terminal, TerminalGrid};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct RenderCell {
     pub row: u16,
     pub column: u16,
@@ -12,6 +13,7 @@ pub struct RenderCell {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub inverse: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +60,14 @@ impl PixelRenderer {
         for cell in snapshot.cells() {
             let origin_x = u32::from(cell.column).saturating_mul(cell_width);
             let origin_y = u32::from(cell.row).saturating_mul(cell_height);
+            let foreground = color_to_rgba(cell.foreground, default_foreground());
+            let background = color_to_rgba(cell.background, default_background());
+            let (foreground, background) = if cell.inverse {
+                (background, foreground)
+            } else {
+                (foreground, background)
+            };
+
             surface.fill_rect(
                 Rect {
                     x: origin_x,
@@ -65,14 +75,13 @@ impl PixelRenderer {
                     width: cell_width,
                     height: cell_height,
                 },
-                color_to_rgba(cell.background, default_background()),
+                background,
             );
 
             let Some(glyph) = BASIC_FONTS.get(cell.ch) else {
                 continue;
             };
 
-            let foreground = color_to_rgba(cell.foreground, default_foreground());
             let scale_x = cell_width.max(8) / 8;
             let scale_y = cell_height.max(8) / 8;
 
@@ -235,6 +244,7 @@ impl TerminalRenderSnapshot {
                     bold: cell.bold,
                     italic: cell.italic,
                     underline: cell.underline,
+                    inverse: cell.inverse,
                 });
             }
         }
@@ -278,6 +288,7 @@ mod tests {
                 bold: true,
                 italic: false,
                 underline: true,
+                inverse: false,
             },
         );
 
@@ -291,6 +302,29 @@ mod tests {
         assert_eq!(snapshot.cells()[0].background, Color::Rgb(1, 2, 3));
         assert!(snapshot.cells()[0].bold);
         assert!(snapshot.cells()[0].underline);
+        assert!(!snapshot.cells()[0].inverse);
+    }
+
+    #[test]
+    fn render_snapshot_preserves_inverse_style() {
+        let mut grid = TerminalGrid::new(TerminalSize::new(1, 1));
+        grid.set(
+            0,
+            0,
+            Cell {
+                ch: 'I',
+                foreground: Color::Default,
+                background: Color::Default,
+                bold: false,
+                italic: false,
+                underline: false,
+                inverse: true,
+            },
+        );
+
+        let snapshot = TerminalRenderSnapshot::from_grid(&grid);
+
+        assert!(snapshot.cells()[0].inverse);
     }
 
     #[test]
@@ -306,6 +340,7 @@ mod tests {
                 bold: false,
                 italic: false,
                 underline: false,
+                inverse: false,
             },
         );
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
@@ -319,6 +354,42 @@ mod tests {
                 .chunks_exact(4)
                 .any(|pixel| pixel == [255, 0, 0, 255]),
             "renderer did not draw a red glyph pixel"
+        );
+    }
+
+    #[test]
+    fn pixel_renderer_swaps_foreground_and_background_for_inverse_cells() {
+        let mut grid = TerminalGrid::new(TerminalSize::new(1, 1));
+        grid.set(
+            0,
+            0,
+            Cell {
+                ch: 'A',
+                foreground: Color::Rgb(255, 0, 0),
+                background: Color::Rgb(0, 0, 255),
+                bold: false,
+                italic: false,
+                underline: false,
+                inverse: true,
+            },
+        );
+        let snapshot = TerminalRenderSnapshot::from_grid(&grid);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert!(
+            target
+                .chunks_exact(4)
+                .any(|pixel| pixel == [255, 0, 0, 255]),
+            "renderer did not use the original foreground as inverse background"
+        );
+        assert!(
+            target
+                .chunks_exact(4)
+                .any(|pixel| pixel == [0, 0, 255, 255]),
+            "renderer did not use the original background as inverse foreground"
         );
     }
 

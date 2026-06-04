@@ -12,6 +12,7 @@ pub enum Color {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct Cell {
     pub ch: char,
     pub foreground: Color,
@@ -19,6 +20,7 @@ pub struct Cell {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub inverse: bool,
 }
 
 impl Default for Cell {
@@ -30,6 +32,7 @@ impl Default for Cell {
             bold: false,
             italic: false,
             underline: false,
+            inverse: false,
         }
     }
 }
@@ -114,6 +117,7 @@ mod tests {
         assert!(!cell.bold);
         assert!(!cell.italic);
         assert!(!cell.underline);
+        assert!(!cell.inverse);
     }
 
     #[test]
@@ -126,6 +130,7 @@ mod tests {
             bold: true,
             italic: false,
             underline: true,
+            inverse: false,
         };
 
         assert!(grid.set(1, 2, cell.clone()));
@@ -335,6 +340,21 @@ mod tests {
         assert_eq!(default.ch, 'D');
         assert_eq!(default.foreground, Color::Default);
         assert!(!default.bold);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_inverse_video() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[7mA\x1b[27mB");
+
+        let inverse = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(inverse.ch, 'A');
+        assert!(inverse.inverse);
+
+        let normal = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(normal.ch, 'B');
+        assert!(!normal.inverse);
     }
 
     #[test]
