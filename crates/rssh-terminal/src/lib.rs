@@ -254,6 +254,32 @@ mod tests {
     }
 
     #[test]
+    fn terminal_switches_to_alternate_screen_and_restores_main_screen() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+
+        terminal.feed(b"main\x1b[?1049halt\x1b[?1049l!");
+
+        assert_eq!(row_text(&terminal, 0), "main! ");
+        assert_eq!(row_text(&terminal, 1), "      ");
+        assert_eq!(terminal.cursor(), (0, 5));
+    }
+
+    #[test]
+    fn terminal_alternate_screen_starts_clear_and_is_discarded_on_exit() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 2));
+
+        terminal.feed(b"main\x1b[?1049h");
+
+        assert_eq!(row_text(&terminal, 0), "      ");
+        assert_eq!(terminal.cursor(), (0, 0));
+
+        terminal.feed(b"alt\x1b[?1049l");
+
+        assert_eq!(row_text(&terminal, 0), "main  ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
     fn terminal_delays_auto_wrap_until_next_printable_character() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 

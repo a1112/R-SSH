@@ -11,10 +11,23 @@ pub struct Terminal {
     pending_wrap: bool,
     pending_control: Vec<char>,
     saved_cursor: Option<SavedCursor>,
+    main_screen: Option<ScreenState>,
     scroll_top: u16,
     scroll_bottom: u16,
     style: Cell,
     damage: Vec<DamageRegion>,
+}
+
+#[derive(Debug, Clone)]
+struct ScreenState {
+    grid: TerminalGrid,
+    cursor_row: u16,
+    cursor_column: u16,
+    pending_wrap: bool,
+    saved_cursor: Option<SavedCursor>,
+    scroll_top: u16,
+    scroll_bottom: u16,
+    style: Cell,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -34,6 +47,7 @@ impl Terminal {
             pending_wrap: false,
             pending_control: Vec::new(),
             saved_cursor: None,
+            main_screen: None,
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
             style: Cell::default(),
@@ -240,10 +254,71 @@ impl Terminal {
             'K' => self.erase_line(csi_mode(params)),
             'm' => self.apply_sgr(params),
             'r' => self.set_scroll_region(params),
+            'h' => self.set_private_mode(params, true),
+            'l' => self.set_private_mode(params, false),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
             _ => {}
         }
+    }
+
+    fn set_private_mode(&mut self, params: &[char], enabled: bool) {
+        let Some(values) = parse_private_csi_params(params) else {
+            return;
+        };
+
+        for value in values {
+            if value == 1049 {
+                self.set_alternate_screen(enabled);
+            }
+        }
+    }
+
+    fn set_alternate_screen(&mut self, enabled: bool) {
+        if enabled {
+            if self.main_screen.is_some() {
+                return;
+            }
+
+            let size = self.grid.size();
+            self.main_screen = Some(self.screen_state());
+            self.grid = TerminalGrid::new(size);
+            self.cursor_row = 0;
+            self.cursor_column = 0;
+            self.pending_wrap = false;
+            self.saved_cursor = None;
+            self.scroll_top = 0;
+            self.scroll_bottom = size.rows.saturating_sub(1);
+            self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        } else if let Some(screen) = self.main_screen.take() {
+            self.restore_screen_state(screen);
+            let size = self.grid.size();
+            self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        }
+    }
+
+    fn screen_state(&self) -> ScreenState {
+        ScreenState {
+            grid: self.grid.clone(),
+            cursor_row: self.cursor_row,
+            cursor_column: self.cursor_column,
+            pending_wrap: self.pending_wrap,
+            saved_cursor: self.saved_cursor,
+            scroll_top: self.scroll_top,
+            scroll_bottom: self.scroll_bottom,
+            style: self.style.clone(),
+        }
+    }
+
+    fn restore_screen_state(&mut self, screen: ScreenState) {
+        self.grid = screen.grid;
+        self.cursor_row = screen.cursor_row;
+        self.cursor_column = screen.cursor_column;
+        self.pending_wrap = screen.pending_wrap;
+        self.saved_cursor = screen.saved_cursor;
+        self.scroll_top = screen.scroll_top;
+        self.scroll_bottom = screen.scroll_bottom;
+        self.style = screen.style;
     }
 
     fn set_scroll_region(&mut self, params: &[char]) {
@@ -533,6 +608,14 @@ fn parse_csi_params(params: &[char]) -> Vec<u16> {
             }
         })
         .collect()
+}
+
+fn parse_private_csi_params(params: &[char]) -> Option<Vec<u16>> {
+    let ['?', rest @ ..] = params else {
+        return None;
+    };
+
+    Some(parse_csi_params(rest))
 }
 
 fn parse_sgr_params(params: &[char]) -> Vec<u16> {

@@ -20,6 +20,8 @@ support the next PTY and SSH milestones.
 - Basic `DECSTBM` scroll-region handling with `ESC[<top>;<bottom>r`; linefeed
   at the bottom margin scrolls only the configured region, and `ESC[r` restores
   full-screen scrolling.
+- Basic alternate-screen support for `DECSET ?1049` and `DECRST ?1049`, with a
+  clear alternate grid and restoration of the main grid/cursor on exit.
 - Basic CSI cursor handling:
   - absolute cursor positioning with `CUP`/`HVP` (`ESC[row;columnH` and
     `ESC[row;columnf`)
@@ -46,7 +48,7 @@ support the next PTY and SSH milestones.
 
 - Full VT/xterm compatibility.
 - Scrollback storage and full scroll-region edge-case behavior.
-- Alternate screen.
+- Full alternate-screen edge-case behavior beyond `?1049`.
 - Mouse modes.
 - Hyperlinks and OSC clipboard.
 - Streaming partial UTF-8 handling across separate `feed` calls.
@@ -73,6 +75,7 @@ cover:
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
+- `?1049` alternate-screen enter/exit with main screen restoration
 - CSI cursor positioning and relative cursor movement
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
