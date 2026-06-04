@@ -12,6 +12,8 @@ support the next PTY and SSH milestones.
 - `TerminalGrid` allocation, bounds-checked reads, and bounds-checked writes.
 - `Terminal::feed` for printable UTF-8 text.
 - Newline and carriage-return handling.
+- Backspace handling moves the cursor left without erasing content.
+- Horizontal tab moves to the next 8-column tab stop.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
 - Delayed auto-wrap at the right edge, including bottom-row scroll on the next
   printable character.
@@ -19,6 +21,7 @@ support the next PTY and SSH milestones.
   - absolute cursor positioning with `CUP`/`HVP` (`ESC[row;columnH` and
     `ESC[row;columnf`)
   - relative cursor movement with `CUU`, `CUD`, `CUF`, and `CUB`
+- Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
@@ -60,9 +63,11 @@ cover:
 - grid get/set bounds behavior
 - plain text parsing
 - newline parsing
+- backspace and horizontal tab control handling
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - CSI cursor positioning and relative cursor movement
+- `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
 - CSI display and line erase handling
 - OSC title sequence filtering for BEL and ST terminators
 - SGR color/style parsing

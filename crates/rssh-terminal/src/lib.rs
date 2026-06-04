@@ -175,6 +175,47 @@ mod tests {
     }
 
     #[test]
+    fn terminal_backspace_moves_cursor_left_without_erasing() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"ab\x08c");
+
+        assert_eq!(row_text(&terminal, 0), "ac  ");
+        assert_eq!(terminal.cursor(), (0, 2));
+    }
+
+    #[test]
+    fn terminal_tab_moves_to_next_eight_column_stop() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 1));
+
+        terminal.feed(b"a\tb");
+
+        assert_eq!(row_text(&terminal, 0), "a       b ");
+        assert_eq!(terminal.cursor(), (0, 9));
+    }
+
+    #[test]
+    fn terminal_saves_and_restores_cursor_with_esc_7_and_8() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+
+        terminal.feed(b"ab\x1b7cd\x1b8Z");
+
+        assert_eq!(row_text(&terminal, 0), "abZd    ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_saves_and_restores_cursor_with_csi_s_and_u() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+
+        terminal.feed(b"ab\x1b[s\x1b[2;1Hcd\x1b[uZ");
+
+        assert_eq!(row_text(&terminal, 0), "abZ     ");
+        assert_eq!(row_text(&terminal, 1), "cd      ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
     fn terminal_scrolls_when_newline_reaches_bottom_row() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 

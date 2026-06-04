@@ -9,8 +9,16 @@ pub struct Terminal {
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
+    saved_cursor: Option<SavedCursor>,
     style: Cell,
     damage: Vec<DamageRegion>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SavedCursor {
+    row: u16,
+    column: u16,
+    pending_wrap: bool,
 }
 
 impl Terminal {
@@ -21,6 +29,7 @@ impl Terminal {
             cursor_row: 0,
             cursor_column: 0,
             pending_wrap: false,
+            saved_cursor: None,
             style: Cell::default(),
             damage: Vec::new(),
         }
@@ -47,6 +56,22 @@ impl Terminal {
                     } else {
                         index += 1;
                     }
+                }
+                '\u{1b}' if chars.get(index + 1) == Some(&'7') => {
+                    self.save_cursor();
+                    index += 2;
+                }
+                '\u{1b}' if chars.get(index + 1) == Some(&'8') => {
+                    self.restore_cursor();
+                    index += 2;
+                }
+                '\u{8}' => {
+                    self.backspace();
+                    index += 1;
+                }
+                '\t' => {
+                    self.horizontal_tab();
+                    index += 1;
                 }
                 '\n' => {
                     self.newline();
@@ -93,6 +118,22 @@ impl Terminal {
             self.scroll_up_one_line();
             self.cursor_row = rows - 1;
         }
+    }
+
+    fn backspace(&mut self) {
+        self.pending_wrap = false;
+        self.cursor_column = self.cursor_column.saturating_sub(1);
+    }
+
+    fn horizontal_tab(&mut self) {
+        self.pending_wrap = false;
+        let columns = self.grid.size().columns;
+        if columns == 0 {
+            return;
+        }
+
+        let next_stop = ((self.cursor_column / 8) + 1) * 8;
+        self.cursor_column = next_stop.min(columns - 1);
     }
 
     fn scroll_up_one_line(&mut self) {
@@ -179,8 +220,36 @@ impl Terminal {
             'J' => self.erase_display(csi_mode(params)),
             'K' => self.erase_line(csi_mode(params)),
             'm' => self.apply_sgr(params),
+            's' => self.save_cursor(),
+            'u' => self.restore_cursor(),
             _ => {}
         }
+    }
+
+    fn save_cursor(&mut self) {
+        self.saved_cursor = Some(SavedCursor {
+            row: self.cursor_row,
+            column: self.cursor_column,
+            pending_wrap: self.pending_wrap,
+        });
+    }
+
+    fn restore_cursor(&mut self) {
+        let Some(saved) = self.saved_cursor else {
+            return;
+        };
+
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 {
+            self.cursor_row = 0;
+            self.cursor_column = 0;
+            self.pending_wrap = false;
+            return;
+        }
+
+        self.cursor_row = saved.row.min(size.rows - 1);
+        self.cursor_column = saved.column.min(size.columns - 1);
+        self.pending_wrap = saved.pending_wrap;
     }
 
     fn move_cursor_up(&mut self, count: u16) {
