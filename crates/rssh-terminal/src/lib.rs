@@ -304,6 +304,26 @@ mod tests {
         assert_eq!(terminal.cursor(), (1, 2));
     }
 
+    #[test]
+    fn terminal_ignores_osc_title_terminated_by_bel() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x1b]0;cmd.exe\x07cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn terminal_ignores_osc_title_terminated_by_st() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x1b]2;PowerShell\x1b\\cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
     fn row_text(terminal: &Terminal, row: u16) -> String {
         let grid = terminal.grid();
         let mut text = String::new();

@@ -41,6 +41,13 @@ impl Terminal {
                         index += 1;
                     }
                 }
+                '\u{1b}' if chars.get(index + 1) == Some(&']') => {
+                    if let Some(sequence_end) = parse_osc(&chars, index + 2) {
+                        index = sequence_end + 1;
+                    } else {
+                        index += 1;
+                    }
+                }
                 '\n' => {
                     self.newline();
                     index += 1;
@@ -367,6 +374,18 @@ fn parse_csi(chars: &[char], mut index: usize) -> Option<(char, usize)> {
             return Some((ch, index));
         }
         index += 1;
+    }
+
+    None
+}
+
+fn parse_osc(chars: &[char], mut index: usize) -> Option<usize> {
+    while index < chars.len() {
+        match chars[index] {
+            '\u{7}' => return Some(index),
+            '\u{1b}' if chars.get(index + 1) == Some(&'\\') => return Some(index + 1),
+            _ => index += 1,
+        }
     }
 
     None

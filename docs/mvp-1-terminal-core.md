@@ -22,6 +22,8 @@ support the next PTY and SSH milestones.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
+- OSC title sequences terminated by BEL or ST are ignored so shell title updates
+  do not appear as terminal text.
 - Basic SGR handling:
   - reset
   - bold, italic, underline
@@ -62,6 +64,7 @@ cover:
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - CSI cursor positioning and relative cursor movement
 - CSI display and line erase handling
+- OSC title sequence filtering for BEL and ST terminators
 - SGR color/style parsing
 - CJK wide-character layout
 - merged damage tracking
