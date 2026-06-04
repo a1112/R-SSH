@@ -5,10 +5,9 @@ target product shape is closer to XShell than to a web terminal: native window,
 GPU text rendering, direct SSH protocol integration, session management, SFTP,
 tunnels, logging, and secure key storage.
 
-The repository is currently initialized as a planning and architecture baseline.
-The first code milestone is a local terminal MVP: parse a small VT stream into a
-terminal grid, render the dirty cells, and drive either an SSH channel or a local
-PTY through the same terminal core.
+The repository now includes MVP 1 for the terminal core: a styled cell model,
+grid read/write access, basic text/newline parsing, basic SGR color/style
+handling, wide CJK glyph placement, and terminal damage tracking.
 
 ## Technical Direction
 
@@ -41,6 +40,11 @@ refs/                 Local reference source cache, ignored by Git
 cargo fmt --all
 cargo test --workspace
 ```
+
+## MVP Status
+
+- MVP 1: Terminal core baseline is complete. See `docs/mvp-1-terminal-core.md`.
+- MVP 2: Local PTY and SSH shell wiring is next.
 
 ## Reference Sources
 

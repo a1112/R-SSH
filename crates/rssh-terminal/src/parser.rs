@@ -171,9 +171,8 @@ impl Terminal {
         }
 
         if let Some(last) = self.damage.last_mut() {
-            let adjacent = last.y == region.y
-                && last.height == region.height
-                && last.right() == region.x;
+            let adjacent =
+                last.y == region.y && last.height == region.height && last.right() == region.x;
 
             if adjacent {
                 last.width = last.width.saturating_add(region.width);
