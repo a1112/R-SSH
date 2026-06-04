@@ -10,10 +10,17 @@ enum CharacterSet {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharacterWriteMode {
+    Replace,
+    Insert,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TerminalModes {
     cursor_visible: bool,
     auto_wrap: bool,
     origin_mode: bool,
+    write_mode: CharacterWriteMode,
 }
 
 impl Default for TerminalModes {
@@ -22,6 +29,7 @@ impl Default for TerminalModes {
             cursor_visible: true,
             auto_wrap: true,
             origin_mode: false,
+            write_mode: CharacterWriteMode::Replace,
         }
     }
 }
@@ -326,6 +334,10 @@ impl Terminal {
 
         let available_width = self.grid.size().columns - self.cursor_column;
         let write_width = width.min(available_width);
+        if self.modes.write_mode == CharacterWriteMode::Insert {
+            self.insert_blank_characters(write_width);
+        }
+
         let column = self.cursor_column;
         let row = self.cursor_row;
         let mut cell = self.style.clone();
@@ -380,11 +392,27 @@ impl Terminal {
             'd' => self.position_cursor_row(params),
             'm' => self.apply_sgr(params),
             'r' => self.set_scroll_region(params),
-            'h' => self.set_private_mode(params, true),
-            'l' => self.set_private_mode(params, false),
+            'h' => self.set_mode(params, true),
+            'l' => self.set_mode(params, false),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
             _ => {}
+        }
+    }
+
+    fn set_mode(&mut self, params: &[char], enabled: bool) {
+        if params.first() == Some(&'?') {
+            self.set_private_mode(params, enabled);
+        } else {
+            self.set_standard_mode(params, enabled);
+        }
+    }
+
+    fn set_standard_mode(&mut self, params: &[char], enabled: bool) {
+        for value in parse_csi_params(params) {
+            if value == 4 {
+                self.set_insert_mode(enabled);
+            }
         }
     }
 
@@ -402,6 +430,14 @@ impl Terminal {
                 _ => {}
             }
         }
+    }
+
+    fn set_insert_mode(&mut self, enabled: bool) {
+        self.modes.write_mode = if enabled {
+            CharacterWriteMode::Insert
+        } else {
+            CharacterWriteMode::Replace
+        };
     }
 
     fn set_origin_mode(&mut self, enabled: bool) {

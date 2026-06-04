@@ -755,6 +755,16 @@ mod tests {
     }
 
     #[test]
+    fn terminal_insert_mode_shifts_printable_characters() {
+        let mut terminal = Terminal::new(TerminalSize::new(7, 1));
+
+        terminal.feed(b"abcd\x1b[1;2H\x1b[4hXY\x1b[4lZ");
+
+        assert_eq!(row_text(&terminal, 0), "aXYZcd ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
     fn terminal_deletes_characters_with_dch() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 1));
 
