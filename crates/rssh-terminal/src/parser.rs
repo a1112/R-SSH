@@ -182,7 +182,9 @@ impl Terminal {
                     };
                     index = next_index;
                 }
-                '\u{1b}' if matches!(chars.get(index + 1).copied(), Some('P' | '^' | '_')) => {
+                '\u{1b}'
+                    if matches!(chars.get(index + 1).copied(), Some('P' | 'X' | '^' | '_')) =>
+                {
                     let Some(next_index) = self.skip_st_control_string(&chars, index) else {
                         break;
                     };

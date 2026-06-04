@@ -1022,6 +1022,27 @@ mod tests {
     }
 
     #[test]
+    fn terminal_ignores_sos_terminated_by_st() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x1bXstring\x1b\\cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn terminal_ignores_split_sos_across_feed_calls() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x1bXstr");
+        terminal.feed(b"ing\x1b\\cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
     fn terminal_handles_split_esc_cursor_save_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 1));
 

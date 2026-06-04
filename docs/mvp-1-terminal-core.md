@@ -52,7 +52,7 @@ support the next PTY and SSH milestones.
 - Cursor visibility tracking for `DECSET ?25` and `DECRST ?25`.
 - G0 character-set switching for DEC Special Graphics (`ESC(0` / `ESC(B`),
   with common box-drawing glyph mapping.
-- Incomplete CSI, OSC title, DCS/PM/APC, and `ESC7`/`ESC8` sequences are
+- Incomplete CSI, OSC title, DCS/SOS/PM/APC, and `ESC7`/`ESC8` sequences are
   retained across `Terminal::feed` calls so PTY chunk boundaries do not leak
   control bytes into the grid.
 - Incomplete UTF-8 sequences are retained across `Terminal::feed` calls so PTY
@@ -76,8 +76,8 @@ support the next PTY and SSH milestones.
   - scroll down (`SD`, `ESC[T`)
 - OSC title sequences terminated by BEL or ST are ignored so shell title updates
   do not appear as terminal text.
-- DCS, PM, and APC control strings terminated by ST are ignored so unsupported
-  terminal capability probes do not appear as terminal text.
+- DCS, SOS, PM, and APC control strings terminated by ST are ignored so
+  unsupported terminal capability probes do not appear as terminal text.
 - Basic SGR handling:
   - reset
   - bold, italic, underline, inverse video
@@ -133,8 +133,8 @@ cover:
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore, including style,
   character set, and origin-mode restoration
 - DEC Special Graphics line drawing and split `ESC(` sequence handling
-- split CSI, OSC title, DCS/PM/APC, and `ESC7`/`ESC8` sequences across `feed`
-  calls
+- split CSI, OSC title, DCS/SOS/PM/APC, and `ESC7`/`ESC8` sequences across
+  `feed` calls
 - split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
 - CSI insert/delete/erase character handling
@@ -143,7 +143,7 @@ cover:
 - CSI insert/delete line handling with scroll-region limits
 - CSI scroll up/down handling with scroll-region limits
 - OSC title sequence filtering for BEL and ST terminators
-- DCS/PM/APC control-string filtering with split-sequence buffering
+- DCS/SOS/PM/APC control-string filtering with split-sequence buffering
 - SGR color/style parsing, including inverse video
 - CJK wide-character layout
 - terminal grid resize growth/shrink, cursor clamping, and resize damage
