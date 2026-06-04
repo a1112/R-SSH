@@ -8,8 +8,9 @@ use std::{
 
 use crossterm::{
     event::{
-        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyEventKind,
-        KeyModifiers,
+        self, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
+        EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     },
     execute, terminal,
 };
@@ -40,8 +41,8 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
         let _ = writer_done_sender.send(result);
     });
 
-    let _raw_mode = RawMode::enable()?;
-    let _input_thread = spawn_input_thread(pty_input_sender.clone(), control_sender);
+    let _raw_mode = RawMode::enable(options.mouse)?;
+    let _input_thread = spawn_input_thread(pty_input_sender.clone(), control_sender, options.mouse);
     let run_result = run_input_loop(
         &mut session,
         &reader_done_receiver,
@@ -62,12 +63,19 @@ enum LocalControlEvent {
 fn spawn_input_thread(
     pty_input_sender: mpsc::Sender<Vec<u8>>,
     control_sender: mpsc::Sender<LocalControlEvent>,
+    mouse_reporting: bool,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         loop {
             match event::read() {
-                Ok(event @ (Event::Key(_) | Event::Paste(_))) => {
-                    let Some(bytes) = encode_input_event(event) else {
+                Ok(
+                    event @ (Event::Key(_)
+                    | Event::Paste(_)
+                    | Event::Mouse(_)
+                    | Event::FocusGained
+                    | Event::FocusLost),
+                ) => {
+                    let Some(bytes) = encode_input_event(event, mouse_reporting) else {
                         continue;
                     };
                     if pty_input_sender.send(bytes).is_err() {
@@ -85,7 +93,6 @@ fn spawn_input_thread(
                         return;
                     }
                 }
-                Ok(_) => {}
                 Err(_) => return,
             }
         }
@@ -109,10 +116,12 @@ fn fallback_pty_size() -> PtySize {
 
 struct RawMode {
     bracketed_paste: bool,
+    mouse_capture: bool,
+    focus_change: bool,
 }
 
 impl RawMode {
-    fn enable() -> io::Result<Self> {
+    fn enable(mouse_capture_requested: bool) -> io::Result<Self> {
         terminal::enable_raw_mode()?;
 
         let bracketed_paste = if io::stdout().is_terminal() {
@@ -122,12 +131,35 @@ impl RawMode {
             false
         };
 
-        Ok(Self { bracketed_paste })
+        let (mouse_capture, focus_change) = if mouse_capture_requested && io::stdout().is_terminal()
+        {
+            let mut stdout = io::stdout();
+            (
+                execute!(stdout, EnableMouseCapture).is_ok(),
+                execute!(stdout, EnableFocusChange).is_ok(),
+            )
+        } else {
+            (false, false)
+        };
+
+        Ok(Self {
+            bracketed_paste,
+            mouse_capture,
+            focus_change,
+        })
     }
 }
 
 impl Drop for RawMode {
     fn drop(&mut self) {
+        if self.focus_change {
+            let mut stdout = io::stdout();
+            let _ = execute!(stdout, DisableFocusChange);
+        }
+        if self.mouse_capture {
+            let mut stdout = io::stdout();
+            let _ = execute!(stdout, DisableMouseCapture);
+        }
         if self.bracketed_paste {
             let mut stdout = io::stdout();
             let _ = execute!(stdout, DisableBracketedPaste);
@@ -258,11 +290,54 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-fn encode_input_event(event: Event) -> Option<Vec<u8>> {
+fn encode_input_event(event: Event, mouse_reporting: bool) -> Option<Vec<u8>> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => encode_key(key),
         Event::Paste(text) => Some(text.into_bytes()),
+        Event::Mouse(event) if mouse_reporting => encode_mouse_event(event),
+        Event::FocusGained if mouse_reporting => Some(b"\x1b[I".to_vec()),
+        Event::FocusLost if mouse_reporting => Some(b"\x1b[O".to_vec()),
         _ => None,
+    }
+}
+
+fn encode_mouse_event(event: MouseEvent) -> Option<Vec<u8>> {
+    let mut code = match event.kind {
+        MouseEventKind::Down(button) | MouseEventKind::Up(button) => mouse_button_code(button),
+        MouseEventKind::Drag(button) => mouse_button_code(button) + 32,
+        MouseEventKind::Moved => 35,
+        MouseEventKind::ScrollUp => 64,
+        MouseEventKind::ScrollDown => 65,
+        MouseEventKind::ScrollLeft => 66,
+        MouseEventKind::ScrollRight => 67,
+    };
+
+    if event.modifiers.contains(KeyModifiers::SHIFT) {
+        code += 4;
+    }
+    if event.modifiers.contains(KeyModifiers::ALT) {
+        code += 8;
+    }
+    if event.modifiers.contains(KeyModifiers::CONTROL) {
+        code += 16;
+    }
+
+    let final_byte = if matches!(event.kind, MouseEventKind::Up(_)) {
+        b'm'
+    } else {
+        b'M'
+    };
+    let column = event.column.checked_add(1)?;
+    let row = event.row.checked_add(1)?;
+
+    Some(format!("\x1b[<{code};{column};{row}{}", final_byte as char).into_bytes())
+}
+
+const fn mouse_button_code(button: MouseButton) -> u16 {
+    match button {
+        MouseButton::Left => 0,
+        MouseButton::Middle => 1,
+        MouseButton::Right => 2,
     }
 }
 
@@ -302,7 +377,9 @@ fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{
+        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
 
     use super::{TerminalOutputFilter, encode_input_event, encode_key, resolve_local_size};
 
@@ -361,9 +438,69 @@ mod tests {
     #[test]
     fn encodes_paste_event_as_utf8_bytes() {
         assert_eq!(
-            encode_input_event(Event::Paste("line 1\n中".to_owned())).unwrap(),
+            encode_input_event(Event::Paste("line 1\n中".to_owned()), false).unwrap(),
             "line 1\n中".as_bytes()
         );
+    }
+
+    #[test]
+    fn ignores_mouse_events_unless_enabled() {
+        assert!(encode_input_event(left_mouse_down(), false).is_none());
+    }
+
+    #[test]
+    fn encodes_mouse_events_as_sgr_sequences_when_enabled() {
+        assert_eq!(
+            encode_input_event(left_mouse_down(), true).unwrap(),
+            b"\x1b[<0;1;2M"
+        );
+        assert_eq!(
+            encode_input_event(left_mouse_release(), true).unwrap(),
+            b"\x1b[<0;1;2m"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::ScrollDown,
+                    column: 4,
+                    row: 5,
+                    modifiers: KeyModifiers::CONTROL,
+                }),
+                true
+            )
+            .unwrap(),
+            b"\x1b[<81;5;6M"
+        );
+    }
+
+    #[test]
+    fn encodes_focus_events_when_mouse_reporting_is_enabled() {
+        assert_eq!(
+            encode_input_event(Event::FocusGained, true).unwrap(),
+            b"\x1b[I"
+        );
+        assert_eq!(
+            encode_input_event(Event::FocusLost, true).unwrap(),
+            b"\x1b[O"
+        );
+    }
+
+    fn left_mouse_down() -> Event {
+        Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 0,
+            row: 1,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    fn left_mouse_release() -> Event {
+        Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: 1,
+            modifiers: KeyModifiers::NONE,
+        })
     }
 
     #[test]

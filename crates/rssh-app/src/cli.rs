@@ -11,6 +11,7 @@ pub enum AppCommand {
 pub struct LocalOptions {
     pub command: PtyCommand,
     pub size: Option<PtySize>,
+    pub mouse: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -44,12 +45,13 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N]\n  rssh-app local [--cols N] [--rows N] [-- <program> [args...]]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
     let mut columns = None;
     let mut rows = None;
+    let mut mouse = false;
     let mut command_args = Vec::new();
     let mut index = 0;
 
@@ -62,6 +64,9 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
             "--rows" => {
                 index += 1;
                 rows = Some(parse_dimension(args.get(index), "--rows")?);
+            }
+            "--mouse" => {
+                mouse = true;
             }
             "--" => {
                 command_args.extend(args[index + 1..].iter().cloned());
@@ -89,7 +94,11 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         (Some(_), None) => return Err("--cols requires --rows".to_owned()),
     };
 
-    Ok(AppCommand::Local(LocalOptions { command, size }))
+    Ok(AppCommand::Local(LocalOptions {
+        command,
+        size,
+        mouse,
+    }))
 }
 
 fn parse_window(args: &[String]) -> Result<AppCommand, String> {
@@ -170,6 +179,7 @@ mod tests {
 
         assert!(!options.command.program().is_empty());
         assert_eq!(options.size, None);
+        assert!(!options.mouse);
     }
 
     #[test]
@@ -196,6 +206,18 @@ mod tests {
         assert_eq!(options.command.program(), "cmd.exe");
         assert_eq!(options.command.args(), ["/K"]);
         assert_eq!(options.size, None);
+        assert!(!options.mouse);
+    }
+
+    #[test]
+    fn parses_local_mouse_capture() {
+        let parsed = parse_args(["rssh-app", "local", "--mouse"]).unwrap();
+
+        let AppCommand::Local(options) = parsed else {
+            panic!("expected local command");
+        };
+
+        assert!(options.mouse);
     }
 
     #[test]

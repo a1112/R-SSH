@@ -30,6 +30,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   - F1 through F12
 - Bracketed paste events are forwarded to the PTY as UTF-8 bytes when the host
   console supports bracketed paste mode.
+- `rssh-app local --mouse` enables host mouse capture and focus events, then
+  forwards them as xterm SGR mouse and focus sequences.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
 - The app answers the basic cursor-position query `ESC[6n` with `ESC[1;1R` so
@@ -59,6 +61,12 @@ Run with a fixed PTY size:
 cargo run -p rssh-app -- local --cols 120 --rows 30
 ```
 
+Run with mouse/focus reporting enabled:
+
+```powershell
+cargo run -p rssh-app -- local --mouse
+```
+
 ## Verification
 
 Default checks:
@@ -86,7 +94,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Terminal ingestion: PTY output containing a marker is visible in
   `rssh-terminal` grid state within 5 seconds.
 - Input coverage: unit tests cover printable UTF-8, paste, Enter, Ctrl+C, arrow
-  key encoding, Alt+text, Shift+Tab, and F1-F12.
+  key encoding, Alt+text, Shift+Tab, F1-F12, SGR mouse, and focus events.
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
 - Control-sequence response: unit tests cover normal output, `ESC[6n`, and
   split `ESC[6n` chunks.
@@ -97,7 +105,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Native GPU window.
 - Full VT/xterm compatibility.
 - Scrollback.
-- Mouse reporting.
+- Application-negotiated mouse mode tracking.
 - Clipboard.
 - Tab/session profile UI.
 - SSH network connection.
