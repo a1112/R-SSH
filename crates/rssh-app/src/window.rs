@@ -301,12 +301,23 @@ impl Drop for NativeWindowApp {
 }
 
 fn encode_window_key(key: &Key, text: Option<&str>, modifiers: ModifiersState) -> Vec<u8> {
+    let alt = modifiers.alt_key();
+
     if modifiers.control_key() {
         if let Key::Character(character) = key.as_ref() {
             if let Some(character) = character.chars().next() {
-                return encode_terminal_key(TerminalKey::Control(character)).unwrap_or_default();
+                let mut bytes =
+                    encode_terminal_key(TerminalKey::Control(character)).unwrap_or_default();
+                if alt {
+                    bytes.insert(0, 0x1b);
+                }
+                return bytes;
             }
         }
+    }
+
+    if let Some(bytes) = encode_modified_window_key(key, modifiers) {
+        return bytes;
     }
 
     if modifiers.shift_key() && matches!(key, Key::Named(NamedKey::Tab)) {
@@ -317,11 +328,62 @@ fn encode_window_key(key: &Key, text: Option<&str>, modifiers: ModifiersState) -
         return encode_terminal_key(key).unwrap_or_default();
     }
 
-    text.unwrap_or_default()
+    let mut bytes: Vec<u8> = text
+        .unwrap_or_default()
         .chars()
         .filter_map(|character| encode_terminal_key(TerminalKey::Text(character)))
         .flatten()
-        .collect()
+        .collect();
+    if alt && !bytes.is_empty() {
+        bytes.insert(0, 0x1b);
+    }
+
+    bytes
+}
+
+fn encode_modified_window_key(key: &Key, modifiers: ModifiersState) -> Option<Vec<u8>> {
+    let modifier = xterm_window_modifier(modifiers)?;
+
+    let Key::Named(named) = key else {
+        return None;
+    };
+
+    match named {
+        NamedKey::ArrowLeft => Some(format!("\x1b[1;{modifier}D").into_bytes()),
+        NamedKey::ArrowRight => Some(format!("\x1b[1;{modifier}C").into_bytes()),
+        NamedKey::ArrowUp => Some(format!("\x1b[1;{modifier}A").into_bytes()),
+        NamedKey::ArrowDown => Some(format!("\x1b[1;{modifier}B").into_bytes()),
+        NamedKey::Home => Some(format!("\x1b[1;{modifier}H").into_bytes()),
+        NamedKey::End => Some(format!("\x1b[1;{modifier}F").into_bytes()),
+        NamedKey::Insert => Some(format!("\x1b[2;{modifier}~").into_bytes()),
+        NamedKey::Delete => Some(format!("\x1b[3;{modifier}~").into_bytes()),
+        NamedKey::PageUp => Some(format!("\x1b[5;{modifier}~").into_bytes()),
+        NamedKey::PageDown => Some(format!("\x1b[6;{modifier}~").into_bytes()),
+        NamedKey::F1 => Some(format!("\x1b[1;{modifier}P").into_bytes()),
+        NamedKey::F2 => Some(format!("\x1b[1;{modifier}Q").into_bytes()),
+        NamedKey::F3 => Some(format!("\x1b[1;{modifier}R").into_bytes()),
+        NamedKey::F4 => Some(format!("\x1b[1;{modifier}S").into_bytes()),
+        NamedKey::F5 => Some(format!("\x1b[15;{modifier}~").into_bytes()),
+        NamedKey::F6 => Some(format!("\x1b[17;{modifier}~").into_bytes()),
+        NamedKey::F7 => Some(format!("\x1b[18;{modifier}~").into_bytes()),
+        NamedKey::F8 => Some(format!("\x1b[19;{modifier}~").into_bytes()),
+        NamedKey::F9 => Some(format!("\x1b[20;{modifier}~").into_bytes()),
+        NamedKey::F10 => Some(format!("\x1b[21;{modifier}~").into_bytes()),
+        NamedKey::F11 => Some(format!("\x1b[23;{modifier}~").into_bytes()),
+        NamedKey::F12 => Some(format!("\x1b[24;{modifier}~").into_bytes()),
+        _ => None,
+    }
+}
+
+fn xterm_window_modifier(modifiers: ModifiersState) -> Option<u8> {
+    let shift = modifiers.shift_key();
+    let alt = modifiers.alt_key();
+    let control = modifiers.control_key();
+    if !(shift || alt || control) {
+        return None;
+    }
+
+    Some(1 + u8::from(shift) + u8::from(alt) * 2 + u8::from(control) * 4)
 }
 
 fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
@@ -484,6 +546,13 @@ mod tests {
     }
 
     #[test]
+    fn encodes_window_alt_text_with_escape_prefix() {
+        let bytes = encode_window_key(&Key::Character("x".into()), Some("x"), ModifiersState::ALT);
+
+        assert_eq!(bytes, b"\x1bx");
+    }
+
+    #[test]
     fn encodes_window_named_keys_for_pty() {
         assert_eq!(
             encode_window_key(
@@ -500,6 +569,30 @@ mod tests {
                 ModifiersState::empty()
             ),
             b"\r"
+        );
+    }
+
+    #[test]
+    fn encodes_window_modified_navigation_and_function_keys() {
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::ArrowLeft),
+                None,
+                ModifiersState::CONTROL
+            ),
+            b"\x1b[1;5D"
+        );
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::Delete),
+                None,
+                ModifiersState::SHIFT | ModifiersState::ALT
+            ),
+            b"\x1b[3;4~"
+        );
+        assert_eq!(
+            encode_window_key(&Key::Named(NamedKey::F5), None, ModifiersState::SHIFT),
+            b"\x1b[15;2~"
         );
     }
 

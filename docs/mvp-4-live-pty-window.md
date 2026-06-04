@@ -24,7 +24,9 @@ in the native `winit` window.
   `TerminalRenderSnapshot` from the live terminal, including visible cursor
   state.
 - Native window title follows OSC `0`/`2` title updates from the active shell.
-- `winit` keyboard events are encoded and written to the active PTY writer.
+- `winit` keyboard events are encoded and written to the active PTY writer,
+  including Alt-prefixed text and Shift/Alt/Ctrl-modified navigation,
+  editing, and function keys.
 - `winit` resize events are converted to terminal cell geometry; the live
   terminal grid, PTY size, render buffer, and text-area size query response are
   updated together.
@@ -75,7 +77,7 @@ cargo run -p rssh-app -- window --frames 3
 
 MVP 4 tests cover:
 
-- shared text, control, and navigation key encoding
+- window text, control, navigation, Alt-text, and modified key encoding
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
