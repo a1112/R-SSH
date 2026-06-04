@@ -71,9 +71,38 @@ impl Terminal {
 
     fn newline(&mut self) {
         self.cursor_column = 0;
-        if self.cursor_row + 1 < self.grid.size().rows {
-            self.cursor_row += 1;
+        let rows = self.grid.size().rows;
+        if rows == 0 {
+            return;
         }
+
+        if self.cursor_row + 1 < rows {
+            self.cursor_row += 1;
+        } else {
+            self.scroll_up_one_line();
+            self.cursor_row = rows - 1;
+        }
+    }
+
+    fn scroll_up_one_line(&mut self) {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 {
+            return;
+        }
+
+        for row in 1..size.rows {
+            for column in 0..size.columns {
+                let cell = self.grid.get(row, column).cloned().unwrap_or_default();
+                self.grid.set(row - 1, column, cell);
+            }
+        }
+
+        let bottom_row = size.rows - 1;
+        for column in 0..size.columns {
+            self.grid.set(bottom_row, column, Cell::default());
+        }
+
+        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
     fn write_char(&mut self, ch: char) {

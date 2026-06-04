@@ -12,6 +12,7 @@ support the next PTY and SSH milestones.
 - `TerminalGrid` allocation, bounds-checked reads, and bounds-checked writes.
 - `Terminal::feed` for printable UTF-8 text.
 - Newline and carriage-return handling.
+- Basic main-screen linefeed scrolling when output reaches the bottom row.
 - Basic CSI cursor handling:
   - absolute cursor positioning with `CUP`/`HVP` (`ESC[row;columnH` and
     `ESC[row;columnf`)
@@ -31,7 +32,7 @@ support the next PTY and SSH milestones.
 ## Explicit Non-Scope
 
 - Full VT/xterm compatibility.
-- Scrollback and scroll-region behavior.
+- Scrollback and configurable scroll-region behavior.
 - Alternate screen.
 - Mouse modes.
 - Hyperlinks and OSC clipboard.
@@ -55,6 +56,7 @@ cover:
 - grid get/set bounds behavior
 - plain text parsing
 - newline parsing
+- bottom-row linefeed scrolling
 - CSI cursor positioning and relative cursor movement
 - CSI display and line erase handling
 - SGR color/style parsing

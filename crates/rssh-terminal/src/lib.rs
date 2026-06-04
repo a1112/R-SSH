@@ -175,6 +175,17 @@ mod tests {
     }
 
     #[test]
+    fn terminal_scrolls_when_newline_reaches_bottom_row() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"ab\ncd\nef");
+
+        assert_eq!(row_text(&terminal, 0), "cd  ");
+        assert_eq!(row_text(&terminal, 1), "ef  ");
+        assert_eq!(terminal.cursor(), (1, 2));
+    }
+
+    #[test]
     fn terminal_applies_basic_sgr_colors_and_styles() {
         let mut terminal = Terminal::new(TerminalSize::new(5, 1));
 
