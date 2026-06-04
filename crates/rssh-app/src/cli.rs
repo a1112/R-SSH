@@ -3,6 +3,7 @@ use rssh_pty::{PtyCommand, PtySize};
 #[derive(Debug, PartialEq, Eq)]
 pub enum AppCommand {
     Local(LocalOptions),
+    Window(WindowOptions),
     Help,
 }
 
@@ -10,6 +11,11 @@ pub enum AppCommand {
 pub struct LocalOptions {
     pub command: PtyCommand,
     pub size: PtySize,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct WindowOptions {
+    pub frame_limit: Option<u64>,
 }
 
 pub fn parse_args<I, S>(args: I) -> Result<AppCommand, String>
@@ -20,7 +26,7 @@ where
     let mut args = args.into_iter().map(Into::into);
     let _program = args.next();
     let Some(command) = args.next() else {
-        return Ok(AppCommand::Help);
+        return Ok(AppCommand::Window(WindowOptions { frame_limit: None }));
     };
 
     match command.as_str() {
@@ -28,13 +34,17 @@ where
             let local_args = args.collect::<Vec<_>>();
             parse_local(&local_args)
         }
+        "window" => {
+            let window_args = args.collect::<Vec<_>>();
+            parse_window(&window_args)
+        }
         "-h" | "--help" | "help" => Ok(AppCommand::Help),
         unknown => Err(format!("unknown command: {unknown}")),
     }
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app local [--cols N] [--rows N] [-- <program> [args...]]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N]\n  rssh-app local [--cols N] [--rows N] [-- <program> [args...]]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -75,6 +85,34 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
     Ok(AppCommand::Local(LocalOptions { command, size }))
 }
 
+fn parse_window(args: &[String]) -> Result<AppCommand, String> {
+    let mut frame_limit = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--frames" => {
+                index += 1;
+                frame_limit = Some(parse_frame_limit(args.get(index))?);
+            }
+            value => return Err(format!("unexpected window option: {value}")),
+        }
+        index += 1;
+    }
+
+    Ok(AppCommand::Window(WindowOptions { frame_limit }))
+}
+
+fn parse_frame_limit(value: Option<&String>) -> Result<u64, String> {
+    let Some(value) = value else {
+        return Err("missing value for --frames".to_owned());
+    };
+
+    value
+        .parse::<u64>()
+        .map_err(|_| format!("invalid value for --frames: {value}"))
+}
+
 fn parse_dimension(value: Option<&String>, name: &str) -> Result<u16, String> {
     let Some(value) = value else {
         return Err(format!("missing value for {name}"));
@@ -88,6 +126,32 @@ fn parse_dimension(value: Option<&String>, name: &str) -> Result<u16, String> {
 #[cfg(test)]
 mod tests {
     use super::{AppCommand, parse_args};
+
+    #[test]
+    fn parses_default_window_command() {
+        assert_eq!(
+            parse_args(["rssh-app"]).unwrap(),
+            AppCommand::Window(super::WindowOptions { frame_limit: None })
+        );
+    }
+
+    #[test]
+    fn parses_explicit_window_command() {
+        assert_eq!(
+            parse_args(["rssh-app", "window"]).unwrap(),
+            AppCommand::Window(super::WindowOptions { frame_limit: None })
+        );
+    }
+
+    #[test]
+    fn parses_window_frame_limit() {
+        assert_eq!(
+            parse_args(["rssh-app", "window", "--frames", "1"]).unwrap(),
+            AppCommand::Window(super::WindowOptions {
+                frame_limit: Some(1)
+            })
+        );
+    }
 
     #[test]
     fn parses_local_default_shell() {

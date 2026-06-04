@@ -1,5 +1,6 @@
 mod cli;
 mod local;
+mod window;
 
 use std::{env, process::ExitCode};
 
@@ -18,6 +19,7 @@ fn main() -> ExitCode {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     match cli::parse_args(env::args()).map_err(io_error)? {
         AppCommand::Local(options) => local::run(&options),
+        AppCommand::Window(options) => window::run(&options),
         AppCommand::Help => {
             print!("{}", cli::help_text());
             Ok(())

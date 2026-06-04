@@ -8,11 +8,14 @@ version.workspace = true
 
 [dependencies]
 crossterm = "0.29"
+pixels = "0.15"
+rssh-core = { path = "../rssh-core" }
 rssh-pty = { path = "../rssh-pty" }
+rssh-renderer = { path = "../rssh-renderer" }
+rssh-terminal = { path = "../rssh-terminal" }
+winit = "0.30"
 
 [dev-dependencies]
-rssh-core = { path = "../rssh-core" }
-rssh-terminal = { path = "../rssh-terminal" }
 
 [lints]
 workspace = true
