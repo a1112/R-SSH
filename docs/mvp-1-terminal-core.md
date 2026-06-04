@@ -94,7 +94,8 @@ support the next PTY and SSH milestones.
   - reset
   - bold, italic, underline, inverse video
   - 8-color and bright 8-color foreground/background
-  - indexed and RGB extended color forms
+  - indexed and RGB extended color forms, including semicolon and xterm
+    colon-separated SGR parameters
 - CJK wide-character placement across two columns.
 - Terminal grid resizing preserves visible top-left cells, clamps cursor state,
   resets the active scroll region, and marks the resized viewport damaged.
@@ -166,7 +167,8 @@ cover:
 - OSC title metadata tracking and text filtering for BEL and ST terminators
 - DCS/SOS/PM/APC control-string filtering with split-sequence buffering
 - C1 byte-form OSC/ST control-string filtering
-- SGR color/style parsing, including inverse video
+- SGR color/style parsing, including inverse video and colon-separated
+  extended color parameters
 - CJK wide-character layout
 - terminal grid resize growth/shrink, cursor clamping, and resize damage
 - merged damage tracking

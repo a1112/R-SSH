@@ -833,6 +833,33 @@ mod tests {
     }
 
     #[test]
+    fn terminal_applies_colon_separated_sgr_extended_colors() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+
+        terminal.feed(b"\x1b[38:5:196mF\x1b[48:2::1:2:3mB");
+
+        let foreground = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(foreground.ch, 'F');
+        assert_eq!(foreground.foreground, Color::Indexed(196));
+
+        let background = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(background.ch, 'B');
+        assert_eq!(background.background, Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn terminal_keeps_sgr_params_after_semicolon_truecolor() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+
+        terminal.feed(b"\x1b[38;2;1;2;3;1mA");
+
+        let cell = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(cell.ch, 'A');
+        assert_eq!(cell.foreground, Color::Rgb(1, 2, 3));
+        assert!(cell.bold);
+    }
+
+    #[test]
     fn terminal_applies_sgr_inverse_video() {
         let mut terminal = Terminal::new(TerminalSize::new(3, 1));
 

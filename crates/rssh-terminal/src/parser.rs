@@ -1542,7 +1542,7 @@ fn parse_sgr_params(params: &[char]) -> Vec<u16> {
     }
 
     let raw = params.iter().collect::<String>();
-    raw.split(';')
+    raw.split([';', ':'])
         .map(|part| {
             if part.is_empty() {
                 0
@@ -1556,6 +1556,14 @@ fn parse_sgr_params(params: &[char]) -> Vec<u16> {
 fn parse_extended_color(values: &[u16]) -> Option<(Color, usize)> {
     match values {
         [5, index, ..] => Some((Color::Indexed(saturating_u8(*index)), 2)),
+        [2, 0, red, green, blue, ..] => Some((
+            Color::Rgb(
+                saturating_u8(*red),
+                saturating_u8(*green),
+                saturating_u8(*blue),
+            ),
+            5,
+        )),
         [2, red, green, blue, ..] => Some((
             Color::Rgb(
                 saturating_u8(*red),
