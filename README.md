@@ -49,6 +49,7 @@ cargo run -p rssh-app -- local
 cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
+cargo test -p rssh-ssh
 ```
 
 `local` is the console-hosted startup path. Add `--mouse` when you want terminal
@@ -66,7 +67,9 @@ The console path also answers basic terminal status and device-attribute queries
 - MVP 4: Live PTY session inside the native renderer is complete. See
   `docs/mvp-4-live-pty-window.md`.
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
-  rendering, and input-write metrics with `window --metrics`.
+  rendering, and input-write metrics with `window --metrics`; the SSH crate now
+  has a validated config and shell-session boundary. See
+  `docs/mvp-5-ssh-session-boundary.md`.
 
 ## Reference Sources
 
