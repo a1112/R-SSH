@@ -3,6 +3,7 @@ use std::{
     io::{self, Read, Write},
     sync::Arc,
     thread,
+    time::{Duration, Instant},
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -34,6 +35,7 @@ const CELL_HEIGHT: u32 = 16;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 const FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * CELL_WIDTH;
 const FRAME_HEIGHT: u32 = TERMINAL_ROWS as u32 * CELL_HEIGHT;
+const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
@@ -76,6 +78,7 @@ struct NativeWindowApp {
     active_mouse_button: Option<MouseButton>,
     selection: Option<WindowSelection>,
     selecting: bool,
+    last_left_click: Option<WindowClick>,
     search: Option<WindowSearch>,
     osc52_policy: Osc52Policy,
     clipboard_writer: Box<dyn FnMut(&str) -> bool + Send>,
@@ -120,6 +123,7 @@ impl NativeWindowApp {
             active_mouse_button: None,
             selection: None,
             selecting: false,
+            last_left_click: None,
             search: None,
             osc52_policy,
             clipboard_writer: Box::new(write_window_clipboard_text),
@@ -386,8 +390,18 @@ impl NativeWindowApp {
                     return false;
                 };
                 self.search = None;
+                let now = Instant::now();
+                if let Some(selection) = self.double_click_word_selection(cell, now) {
+                    self.selection = Some(selection);
+                    self.selecting = false;
+                    self.last_left_click = None;
+                    self.refresh_snapshot();
+                    self.apply_window_title();
+                    return true;
+                }
                 self.selection = Some(WindowSelection::new(cell, cell));
                 self.selecting = true;
+                self.last_left_click = Some(WindowClick { cell, time: now });
                 self.refresh_snapshot();
                 self.apply_window_title();
                 true
@@ -422,6 +436,7 @@ impl NativeWindowApp {
         }
 
         selection.set_focus(cell);
+        self.last_left_click = None;
         self.refresh_snapshot();
         true
     }
@@ -434,6 +449,69 @@ impl NativeWindowApp {
         }
 
         Some(SelectionCell { row, column })
+    }
+
+    fn double_click_word_selection(
+        &self,
+        cell: SelectionCell,
+        now: Instant,
+    ) -> Option<WindowSelection> {
+        let last_click = self.last_left_click?;
+        let elapsed = now.checked_duration_since(last_click.time)?;
+        if elapsed > DOUBLE_CLICK_MAX_INTERVAL {
+            return None;
+        }
+
+        let selection = self.word_selection_at_cell(cell)?;
+        let size = self.runtime.terminal().grid().size();
+        if selection.contains(last_click.cell.row, last_click.cell.column, size) {
+            Some(selection)
+        } else {
+            None
+        }
+    }
+
+    fn word_selection_at_cell(&self, cell: SelectionCell) -> Option<WindowSelection> {
+        let size = self.runtime.terminal().grid().size();
+        if cell.row >= size.rows || cell.column >= size.columns {
+            return None;
+        }
+        if !is_word_selection_character(snapshot_character(&self.snapshot, cell.row, cell.column)) {
+            return None;
+        }
+
+        let mut start_column = cell.column;
+        while start_column > 0
+            && is_word_selection_character(snapshot_character(
+                &self.snapshot,
+                cell.row,
+                start_column - 1,
+            ))
+        {
+            start_column -= 1;
+        }
+
+        let mut end_column = cell.column;
+        while end_column + 1 < size.columns
+            && is_word_selection_character(snapshot_character(
+                &self.snapshot,
+                cell.row,
+                end_column + 1,
+            ))
+        {
+            end_column += 1;
+        }
+
+        Some(WindowSelection::new(
+            SelectionCell {
+                row: cell.row,
+                column: start_column,
+            },
+            SelectionCell {
+                row: cell.row,
+                column: end_column,
+            },
+        ))
     }
 
     fn handle_scrollback_shortcut(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
@@ -908,6 +986,12 @@ struct SelectionCell {
     column: u16,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct WindowClick {
+    cell: SelectionCell,
+    time: Instant,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WindowSelection {
     anchor: SelectionCell,
@@ -1003,6 +1087,10 @@ fn snapshot_character(snapshot: &TerminalRenderSnapshot, row: u16, column: u16) 
         .iter()
         .find(|cell| cell.row == row && cell.column == column)
         .map_or(' ', |cell| cell.ch)
+}
+
+fn is_word_selection_character(character: char) -> bool {
+    !character.is_whitespace()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -2215,6 +2303,38 @@ mod tests {
                 .unwrap()
         );
         assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_double_click_selects_word() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"run alpha-beta").unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(super::CELL_WIDTH * 6), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 4 },
+                SelectionCell { row: 0, column: 13 },
+            ))
+        );
+        assert!(snapshot_cell(&app.snapshot, 0, 4).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 0, 13).unwrap().inverse);
     }
 
     #[test]

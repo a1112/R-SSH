@@ -37,7 +37,8 @@ in the native `winit` window.
   OSC 52 clipboard writes and read queries are allowed.
 - The native window supports basic local text selection when PTY mouse
   reporting is inactive; selected text is highlighted and can be copied with
-  `Ctrl+Shift+C` or `Ctrl+Insert`.
+  `Ctrl+Shift+C` or `Ctrl+Insert`. A double click selects the contiguous
+  non-whitespace word under the cursor.
 - The native window supports line-based scrollback search with `Ctrl+F`,
   `Enter`/`F3` for the next match, `Shift+F3` for the previous match, and
   `Esc` to exit search mode. Matches scroll the viewport into history and use
@@ -118,7 +119,7 @@ MVP 4 tests cover:
   and clipboard query responses
 - native window OSC 52 policy parsing and write/query enforcement
 - native window local selection text extraction, highlight overlay, mouse drag,
-  and copy shortcut detection
+  double-click word selection, and copy shortcut detection
 - native window line-based scrollback search, next/previous navigation, and
   search shortcut detection
 - console path reuse of the shared key encoder
@@ -163,7 +164,7 @@ Recommended MVP 5 targets:
 
 - SSH protocol sessions in the native window.
 - Cross-line and regex scrollback search.
-- Advanced selection behavior such as word/line selection and selection across
+- Advanced selection behavior such as line selection and selection across
   changing scrollback.
 - GPU text shaping, glyph atlas caching, and font fallback.
 - Persistent session profiles.
