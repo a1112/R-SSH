@@ -336,9 +336,12 @@ impl Terminal {
         match command {
             '@' => self.insert_blank_characters(csi_count(params)),
             'A' => self.move_cursor_up(csi_count(params)),
-            'B' => self.move_cursor_down(csi_count(params)),
-            'C' => self.move_cursor_forward(csi_count(params)),
+            'B' | 'e' => self.move_cursor_down(csi_count(params)),
+            'C' | 'a' => self.move_cursor_forward(csi_count(params)),
             'D' => self.move_cursor_back(csi_count(params)),
+            'E' => self.move_cursor_next_line(csi_count(params)),
+            'F' => self.move_cursor_previous_line(csi_count(params)),
+            'G' | '`' => self.position_cursor_column(params),
             'H' | 'f' => self.position_cursor(params),
             'J' => self.erase_display(csi_mode(params)),
             'K' => self.erase_line(csi_mode(params)),
@@ -348,6 +351,7 @@ impl Terminal {
             'S' => self.scroll_up(csi_count(params)),
             'T' => self.scroll_down(csi_count(params)),
             'X' => self.erase_characters(csi_count(params)),
+            'd' => self.position_cursor_row(params),
             'm' => self.apply_sgr(params),
             'r' => self.set_scroll_region(params),
             'h' => self.set_private_mode(params, true),
@@ -523,6 +527,16 @@ impl Terminal {
         self.cursor_column = self.cursor_column.saturating_sub(count);
     }
 
+    fn move_cursor_next_line(&mut self, count: u16) {
+        self.move_cursor_down(count);
+        self.cursor_column = 0;
+    }
+
+    fn move_cursor_previous_line(&mut self, count: u16) {
+        self.move_cursor_up(count);
+        self.cursor_column = 0;
+    }
+
     fn position_cursor(&mut self, params: &[char]) {
         self.pending_wrap = false;
         let values = parse_csi_params(params);
@@ -538,6 +552,28 @@ impl Terminal {
 
         self.cursor_row = row.min(rows - 1);
         self.cursor_column = column.min(columns - 1);
+    }
+
+    fn position_cursor_column(&mut self, params: &[char]) {
+        self.pending_wrap = false;
+        let columns = self.grid.size().columns;
+        if columns == 0 {
+            return;
+        }
+
+        let column = csi_count(params).saturating_sub(1);
+        self.cursor_column = column.min(columns - 1);
+    }
+
+    fn position_cursor_row(&mut self, params: &[char]) {
+        self.pending_wrap = false;
+        let rows = self.grid.size().rows;
+        if rows == 0 {
+            return;
+        }
+
+        let row = csi_count(params).saturating_sub(1);
+        self.cursor_row = row.min(rows - 1);
     }
 
     fn erase_display(&mut self, mode: u16) {

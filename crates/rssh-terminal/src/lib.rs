@@ -648,6 +648,32 @@ mod tests {
     }
 
     #[test]
+    fn terminal_moves_cursor_with_additional_csi_absolute_controls() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+
+        terminal.feed(b"abcdef\x1b[4GZ\x1b[3dQ\x1b[2Ers\x1b[Ft");
+
+        assert_eq!(row_text(&terminal, 0), "abcZef  ");
+        assert_eq!(row_text(&terminal, 1), "        ");
+        assert_eq!(row_text(&terminal, 2), "t   Q   ");
+        assert_eq!(row_text(&terminal, 3), "rs      ");
+        assert_eq!(terminal.cursor(), (2, 1));
+    }
+
+    #[test]
+    fn terminal_moves_cursor_with_additional_csi_relative_controls() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 4));
+
+        terminal.feed(b"\x1b[2;2H\x1b[3aX\x1b[2eY\x1b[1`Z");
+
+        assert_eq!(row_text(&terminal, 0), "        ");
+        assert_eq!(row_text(&terminal, 1), "    X   ");
+        assert_eq!(row_text(&terminal, 2), "        ");
+        assert_eq!(row_text(&terminal, 3), "Z    Y  ");
+        assert_eq!(terminal.cursor(), (3, 1));
+    }
+
+    #[test]
     fn terminal_handles_split_csi_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 1));
 

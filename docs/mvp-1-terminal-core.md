@@ -29,7 +29,10 @@ support the next PTY and SSH milestones.
 - Basic CSI cursor handling:
   - absolute cursor positioning with `CUP`/`HVP` (`ESC[row;columnH` and
     `ESC[row;columnf`)
-  - relative cursor movement with `CUU`, `CUD`, `CUF`, and `CUB`
+  - column/row positioning with `CHA`/`HPA`/`VPA` (`ESC[columnG`,
+    ``ESC[column` ``, and `ESC[rowd`)
+  - relative cursor movement with `CUU`, `CUD`, `CUF`, `CUB`, `HPR`, and `VPR`
+  - line movement with `CNL` and `CPL`
 - Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`.
 - Cursor visibility tracking for `DECSET ?25` and `DECRST ?25`.
 - G0 character-set switching for DEC Special Graphics (`ESC(0` / `ESC(B`),
@@ -97,7 +100,7 @@ cover:
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
 - `?1049` alternate-screen enter/exit with main screen restoration
-- CSI cursor positioning and relative cursor movement
+- CSI cursor positioning, line movement, and relative cursor movement
 - `?25h/l` cursor visibility tracking
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
 - DEC Special Graphics line drawing and split `ESC(` sequence handling
