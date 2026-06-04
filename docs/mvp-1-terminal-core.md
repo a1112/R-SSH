@@ -68,6 +68,8 @@ support the next PTY and SSH milestones.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
+- xterm erase-saved-lines handling with `CSI 3 J`, clearing scrollback without
+  erasing the visible grid.
 - Basic character editing within the active row:
   - insert blank characters (`ICH`, `ESC[@`)
   - delete characters (`DCH`, `ESC[P`)
@@ -155,6 +157,7 @@ cover:
 - `CAN`/`SUB` cancellation for CSI, OSC, and ST-terminated control strings
 - split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
+- CSI `3J` scrollback clearing without visible grid erasure
 - CSI insert/delete/erase character handling
 - CSI `IRM` insert/replace mode for printable character writes
 - CSI `REP` repeated printable character handling

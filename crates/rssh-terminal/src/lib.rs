@@ -436,6 +436,20 @@ mod tests {
     }
 
     #[test]
+    fn terminal_erase_display_mode_3_clears_scrollback_only() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"ab\ncd\nef");
+        assert_eq!(terminal.scrollback().len(), 1);
+
+        terminal.feed(b"\x1b[3J");
+
+        assert!(terminal.scrollback().is_empty());
+        assert_eq!(row_text(&terminal, 0), "cd  ");
+        assert_eq!(row_text(&terminal, 1), "ef  ");
+    }
+
+    #[test]
     fn terminal_does_not_record_scroll_region_lines_in_scrollback() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 4));
 

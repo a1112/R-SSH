@@ -998,6 +998,11 @@ impl Terminal {
     }
 
     fn erase_display(&mut self, mode: u16) {
+        if mode == 3 {
+            self.scrollback.clear();
+            return;
+        }
+
         let size = self.grid.size();
         if size.rows == 0 || size.columns == 0 {
             return;
@@ -1020,7 +1025,7 @@ impl Terminal {
                     self.cursor_column.saturating_add(1).min(size.columns),
                 );
             }
-            2 | 3 => {
+            2 => {
                 for row in 0..size.rows {
                     self.clear_cells(row, 0, size.columns);
                 }
