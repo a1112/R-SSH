@@ -33,6 +33,8 @@ in the native `winit` window.
 - The native window handles PTY-side OSC 52 clipboard writes and queries,
   decoding base64 payloads into the system clipboard and answering `?` queries
   with base64-encoded clipboard content.
+- `rssh-app window --osc52 off|write|read-write` controls whether PTY-side
+  OSC 52 clipboard writes and read queries are allowed.
 - The native window supports basic local text selection when PTY mouse
   reporting is inactive; selected text is highlighted and can be copied with
   `Ctrl+Shift+C` or `Ctrl+Insert`.
@@ -74,6 +76,12 @@ Equivalent explicit command:
 cargo run -p rssh-app -- window
 ```
 
+Disable PTY-side OSC 52 clipboard access:
+
+```powershell
+cargo run -p rssh-app -- window --osc52 off
+```
+
 Automated window smoke:
 
 ```powershell
@@ -108,6 +116,7 @@ MVP 4 tests cover:
 - native window clipboard paste encoding and paste shortcut detection
 - OSC 52 clipboard extraction from PTY output, native window clipboard writes,
   and clipboard query responses
+- native window OSC 52 policy parsing and write/query enforcement
 - native window local selection text extraction, highlight overlay, mouse drag,
   and copy shortcut detection
 - native window line-based scrollback search, next/previous navigation, and
@@ -153,7 +162,6 @@ Recommended MVP 5 targets:
 ## Explicit Non-Scope
 
 - SSH protocol sessions in the native window.
-- OSC 52 clipboard policy controls.
 - Cross-line and regex scrollback search.
 - Advanced selection behavior such as word/line selection and selection across
   changing scrollback.

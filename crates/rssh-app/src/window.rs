@@ -22,7 +22,7 @@ use winit::{
 };
 
 use crate::{
-    cli::WindowOptions,
+    cli::{Osc52Policy, WindowOptions},
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalRuntime},
 };
@@ -38,7 +38,8 @@ const FRAME_HEIGHT: u32 = TERMINAL_ROWS as u32 * CELL_HEIGHT;
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
-    let mut app = NativeWindowApp::with_event_proxy(options.frame_limit, event_proxy);
+    let mut app =
+        NativeWindowApp::with_event_proxy(options.frame_limit, options.osc52_policy, event_proxy);
 
     event_loop.run_app(&mut app)?;
 
@@ -76,6 +77,7 @@ struct NativeWindowApp {
     selection: Option<WindowSelection>,
     selecting: bool,
     search: Option<WindowSearch>,
+    osc52_policy: Osc52Policy,
     clipboard_writer: Box<dyn FnMut(&str) -> bool + Send>,
     clipboard_reader: Box<dyn FnMut() -> Option<String> + Send>,
 }
@@ -88,7 +90,12 @@ enum WindowUserEvent {
 }
 
 impl NativeWindowApp {
+    #[cfg(test)]
     fn new(frame_limit: Option<u64>) -> Self {
+        Self::new_with_osc52_policy(frame_limit, Osc52Policy::default())
+    }
+
+    fn new_with_osc52_policy(frame_limit: Option<u64>, osc52_policy: Osc52Policy) -> Self {
         let runtime = TerminalRuntime::new(TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS));
         let snapshot = TerminalRenderSnapshot::from_terminal(runtime.terminal());
 
@@ -114,6 +121,7 @@ impl NativeWindowApp {
             selection: None,
             selecting: false,
             search: None,
+            osc52_policy,
             clipboard_writer: Box::new(write_window_clipboard_text),
             clipboard_reader: Box::new(read_window_clipboard_text),
         }
@@ -121,9 +129,10 @@ impl NativeWindowApp {
 
     fn with_event_proxy(
         frame_limit: Option<u64>,
+        osc52_policy: Osc52Policy,
         event_proxy: EventLoopProxy<WindowUserEvent>,
     ) -> Self {
-        let mut app = Self::new(frame_limit);
+        let mut app = Self::new_with_osc52_policy(frame_limit, osc52_policy);
         app.event_proxy = Some(event_proxy);
         app
     }
@@ -183,10 +192,14 @@ impl NativeWindowApp {
             self.write_pty_bytes(&response)?;
         }
         for text in self.runtime.take_clipboard_texts() {
-            self.write_clipboard_text(&text);
+            if self.osc52_policy.allows_write() {
+                self.write_clipboard_text(&text);
+            }
         }
         for selection in self.runtime.take_clipboard_queries() {
-            self.answer_clipboard_query(&selection)?;
+            if self.osc52_policy.allows_query() {
+                self.answer_clipboard_query(&selection)?;
+            }
         }
         self.sync_window_title_from_runtime();
         self.refresh_snapshot();
@@ -1599,7 +1612,10 @@ mod tests {
     use winit::event::{ElementState, MouseButton, MouseScrollDelta};
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
 
-    use crate::terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
+    use crate::{
+        cli::Osc52Policy,
+        terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
+    };
 
     use super::{
         NativeWindowApp, SearchDirection, SelectionCell, WindowMouseEvent, WindowMouseEventKind,
@@ -2299,6 +2315,46 @@ mod tests {
             written.lock().unwrap().as_slice(),
             b"\x1b]52;c;Y29weQ==\x07"
         );
+    }
+
+    #[test]
+    fn window_app_blocks_osc52_when_policy_is_off() {
+        let clipboard_writes = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_writes);
+        let pty_writes = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new_with_osc52_policy(None, Osc52Policy::Off);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&pty_writes))));
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.clipboard_reader = Box::new(|| Some("copy".to_owned()));
+
+        app.handle_pty_output(b"\x1b]52;c;Y29weQ==\x07").unwrap();
+        app.handle_pty_output(b"\x1b]52;c;?\x07").unwrap();
+
+        assert!(clipboard_writes.lock().unwrap().is_empty());
+        assert!(pty_writes.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_write_only_osc52_policy_blocks_queries() {
+        let clipboard_writes = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_writes);
+        let pty_writes = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new_with_osc52_policy(None, Osc52Policy::WriteOnly);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&pty_writes))));
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.clipboard_reader = Box::new(|| Some("copy".to_owned()));
+
+        app.handle_pty_output(b"\x1b]52;c;Y29weQ==\x07").unwrap();
+        app.handle_pty_output(b"\x1b]52;c;?\x07").unwrap();
+
+        assert_eq!(clipboard_writes.lock().unwrap().as_slice(), ["copy"]);
+        assert!(pty_writes.lock().unwrap().is_empty());
     }
 
     #[test]
