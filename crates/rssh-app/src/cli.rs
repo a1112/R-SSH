@@ -10,7 +10,7 @@ pub enum AppCommand {
 #[derive(Debug, PartialEq, Eq)]
 pub struct LocalOptions {
     pub command: PtyCommand,
-    pub size: PtySize,
+    pub size: Option<PtySize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,8 +48,8 @@ pub fn help_text() -> &'static str {
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
-    let mut columns = 80;
-    let mut rows = 24;
+    let mut columns = None;
+    let mut rows = None;
     let mut command_args = Vec::new();
     let mut index = 0;
 
@@ -57,11 +57,11 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         match args[index].as_str() {
             "--cols" => {
                 index += 1;
-                columns = parse_dimension(args.get(index), "--cols")?;
+                columns = Some(parse_dimension(args.get(index), "--cols")?);
             }
             "--rows" => {
                 index += 1;
-                rows = parse_dimension(args.get(index), "--rows")?;
+                rows = Some(parse_dimension(args.get(index), "--rows")?);
             }
             "--" => {
                 command_args.extend(args[index + 1..].iter().cloned());
@@ -80,7 +80,14 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         PtyCommand::new(program).with_args(iter)
     };
 
-    let size = PtySize::try_new(columns, rows).map_err(|error| error.to_string())?;
+    let size = match (columns, rows) {
+        (None, None) => None,
+        (Some(columns), Some(rows)) => {
+            Some(PtySize::try_new(columns, rows).map_err(|error| error.to_string())?)
+        }
+        (None, Some(_)) => return Err("--rows requires --cols".to_owned()),
+        (Some(_), None) => return Err("--cols requires --rows".to_owned()),
+    };
 
     Ok(AppCommand::Local(LocalOptions { command, size }))
 }
@@ -162,8 +169,7 @@ mod tests {
         };
 
         assert!(!options.command.program().is_empty());
-        assert_eq!(options.size.columns(), 80);
-        assert_eq!(options.size.rows(), 24);
+        assert_eq!(options.size, None);
     }
 
     #[test]
@@ -174,8 +180,9 @@ mod tests {
             panic!("expected local command");
         };
 
-        assert_eq!(options.size.columns(), 100);
-        assert_eq!(options.size.rows(), 30);
+        let size = options.size.unwrap();
+        assert_eq!(size.columns(), 100);
+        assert_eq!(size.rows(), 30);
     }
 
     #[test]
@@ -188,10 +195,17 @@ mod tests {
 
         assert_eq!(options.command.program(), "cmd.exe");
         assert_eq!(options.command.args(), ["/K"]);
+        assert_eq!(options.size, None);
     }
 
     #[test]
     fn rejects_unknown_command() {
         assert!(parse_args(["rssh-app", "wat"]).is_err());
+    }
+
+    #[test]
+    fn rejects_partial_local_size() {
+        assert!(parse_args(["rssh-app", "local", "--cols", "100"]).is_err());
+        assert!(parse_args(["rssh-app", "local", "--rows", "30"]).is_err());
     }
 }

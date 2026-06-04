@@ -263,6 +263,10 @@ fn encode_window_key(key: &Key, text: Option<&str>, modifiers: ModifiersState) -
         }
     }
 
+    if modifiers.shift_key() && matches!(key, Key::Named(NamedKey::Tab)) {
+        return encode_terminal_key(TerminalKey::BackTab).unwrap_or_default();
+    }
+
     if let Some(key) = named_terminal_key(key) {
         return encode_terminal_key(key).unwrap_or_default();
     }
@@ -294,6 +298,18 @@ fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
         NamedKey::Insert => Some(TerminalKey::Insert),
         NamedKey::PageUp => Some(TerminalKey::PageUp),
         NamedKey::PageDown => Some(TerminalKey::PageDown),
+        NamedKey::F1 => Some(TerminalKey::Function(1)),
+        NamedKey::F2 => Some(TerminalKey::Function(2)),
+        NamedKey::F3 => Some(TerminalKey::Function(3)),
+        NamedKey::F4 => Some(TerminalKey::Function(4)),
+        NamedKey::F5 => Some(TerminalKey::Function(5)),
+        NamedKey::F6 => Some(TerminalKey::Function(6)),
+        NamedKey::F7 => Some(TerminalKey::Function(7)),
+        NamedKey::F8 => Some(TerminalKey::Function(8)),
+        NamedKey::F9 => Some(TerminalKey::Function(9)),
+        NamedKey::F10 => Some(TerminalKey::Function(10)),
+        NamedKey::F11 => Some(TerminalKey::Function(11)),
+        NamedKey::F12 => Some(TerminalKey::Function(12)),
         _ => None,
     }
 }
@@ -429,6 +445,22 @@ mod tests {
                 ModifiersState::empty()
             ),
             b"\r"
+        );
+    }
+
+    #[test]
+    fn encodes_window_backtab_and_function_keys_for_pty() {
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::Tab),
+                Some("\t"),
+                ModifiersState::SHIFT
+            ),
+            b"\x1b[Z"
+        );
+        assert_eq!(
+            encode_window_key(&Key::Named(NamedKey::F12), None, ModifiersState::empty()),
+            b"\x1b[24~"
         );
     }
 

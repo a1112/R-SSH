@@ -18,7 +18,8 @@ use crate::{
 };
 
 pub fn run(options: &LocalOptions) -> Result<(), Box<dyn Error>> {
-    let mut session = PtySession::spawn(&options.command, options.size)?;
+    let size = resolve_local_size(options.size);
+    let mut session = PtySession::spawn(&options.command, size)?;
     let mut reader = session.take_reader()?;
     let mut writer = session.take_writer()?;
     let (reader_done_sender, reader_done_receiver) = mpsc::channel();
@@ -43,6 +44,21 @@ pub fn run(options: &LocalOptions) -> Result<(), Box<dyn Error>> {
     let _ = reader_thread.join();
 
     run_result
+}
+
+fn resolve_local_size(explicit: Option<PtySize>) -> PtySize {
+    if let Some(size) = explicit {
+        return size;
+    }
+
+    terminal::size()
+        .ok()
+        .and_then(|(columns, rows)| PtySize::try_new(columns, rows).ok())
+        .unwrap_or_else(fallback_pty_size)
+}
+
+fn fallback_pty_size() -> PtySize {
+    PtySize::try_new(80, 24).expect("fallback PTY size is valid")
 }
 
 struct RawMode;
@@ -202,6 +218,8 @@ fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
         KeyCode::Insert => TerminalKey::Insert,
         KeyCode::PageUp => TerminalKey::PageUp,
         KeyCode::PageDown => TerminalKey::PageDown,
+        KeyCode::BackTab => TerminalKey::BackTab,
+        KeyCode::F(key) => TerminalKey::Function(key),
         _ => return None,
     };
 
@@ -212,7 +230,7 @@ fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{TerminalOutputFilter, encode_key};
+    use super::{TerminalOutputFilter, encode_key, resolve_local_size};
 
     #[test]
     fn encodes_text_input_as_utf8() {
@@ -244,6 +262,28 @@ mod tests {
             encode_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap(),
             b"\x1b[A"
         );
+    }
+
+    #[test]
+    fn encodes_backtab_and_function_keys_as_escape_sequences() {
+        assert_eq!(
+            encode_key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT)).unwrap(),
+            b"\x1b[Z"
+        );
+        assert_eq!(
+            encode_key(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE)).unwrap(),
+            b"\x1b[24~"
+        );
+    }
+
+    #[test]
+    fn explicit_local_size_overrides_console_size() {
+        let size = rssh_pty::PtySize::try_new(101, 31).unwrap();
+
+        let resolved = resolve_local_size(Some(size));
+
+        assert_eq!(resolved.columns(), 101);
+        assert_eq!(resolved.rows(), 31);
     }
 
     #[test]

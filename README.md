@@ -45,6 +45,7 @@ cargo test --workspace
 cargo run -p rssh-app
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- local
+cargo run -p rssh-app -- local --cols 120 --rows 30
 ```
 
 ## MVP Status

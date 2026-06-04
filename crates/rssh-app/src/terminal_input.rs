@@ -16,6 +16,8 @@ pub enum TerminalKey {
     Insert,
     PageUp,
     PageDown,
+    BackTab,
+    Function(u8),
 }
 
 pub fn encode_terminal_key(key: TerminalKey) -> Option<Vec<u8>> {
@@ -41,16 +43,47 @@ pub fn encode_terminal_key(key: TerminalKey) -> Option<Vec<u8>> {
         TerminalKey::Insert => Some(b"\x1b[2~".to_vec()),
         TerminalKey::PageUp => Some(b"\x1b[5~".to_vec()),
         TerminalKey::PageDown => Some(b"\x1b[6~".to_vec()),
+        TerminalKey::BackTab => Some(b"\x1b[Z".to_vec()),
+        TerminalKey::Function(key) => encode_function_key(key),
     }
 }
 
 fn encode_control_char(character: char) -> Option<Vec<u8>> {
     let lower = character.to_ascii_lowercase();
-    if !lower.is_ascii_lowercase() {
-        return None;
-    }
 
-    Some(vec![lower as u8 - b'a' + 1])
+    let byte = match lower {
+        ' ' | '@' => 0,
+        'a'..='z' => lower as u8 - b'a' + 1,
+        '[' => 0x1b,
+        '\\' => 0x1c,
+        ']' => 0x1d,
+        '^' => 0x1e,
+        '_' => 0x1f,
+        '?' => 0x7f,
+        _ => return None,
+    };
+
+    Some(vec![byte])
+}
+
+fn encode_function_key(key: u8) -> Option<Vec<u8>> {
+    let bytes = match key {
+        1 => b"\x1bOP".as_slice(),
+        2 => b"\x1bOQ".as_slice(),
+        3 => b"\x1bOR".as_slice(),
+        4 => b"\x1bOS".as_slice(),
+        5 => b"\x1b[15~".as_slice(),
+        6 => b"\x1b[17~".as_slice(),
+        7 => b"\x1b[18~".as_slice(),
+        8 => b"\x1b[19~".as_slice(),
+        9 => b"\x1b[20~".as_slice(),
+        10 => b"\x1b[21~".as_slice(),
+        11 => b"\x1b[23~".as_slice(),
+        12 => b"\x1b[24~".as_slice(),
+        _ => return None,
+    };
+
+    Some(bytes.to_vec())
 }
 
 #[cfg(test)]
@@ -81,6 +114,38 @@ mod tests {
         assert_eq!(
             encode_terminal_key(TerminalKey::Delete).unwrap(),
             b"\x1b[3~"
+        );
+    }
+
+    #[test]
+    fn encodes_extended_control_keys() {
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control(' ')).unwrap(),
+            vec![0]
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('[')).unwrap(),
+            vec![0x1b]
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('\\')).unwrap(),
+            vec![0x1c]
+        );
+    }
+
+    #[test]
+    fn encodes_backtab_and_function_keys() {
+        assert_eq!(
+            encode_terminal_key(TerminalKey::BackTab).unwrap(),
+            b"\x1b[Z"
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Function(1)).unwrap(),
+            b"\x1bOP"
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Function(12)).unwrap(),
+            b"\x1b[24~"
         );
     }
 }

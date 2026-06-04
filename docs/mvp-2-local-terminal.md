@@ -15,13 +15,18 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - `PtySession` supports spawn, read, write, resize, wait, kill, and owned stream
   extraction for threaded runtime loops.
 - `rssh-app local` starts the default platform shell in a PTY.
+- When no explicit size is provided, `rssh-app local` sizes the PTY from the
+  current host console.
+- `rssh-app local --cols N --rows N` starts with an explicit PTY size.
 - `rssh-app local -- <program> [args...]` starts a custom program in the same
   PTY path.
 - Keyboard input is encoded for common terminal keys:
   - UTF-8 text
   - Enter, Backspace, Tab, Escape
-  - Ctrl+A through Ctrl+Z
+  - Shift+Tab
+  - Ctrl+Space, Ctrl+A through Ctrl+Z, and common control-symbol keys
   - arrow keys, Home, End, Insert, Delete, Page Up, Page Down
+  - F1 through F12
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
 - The app answers the basic cursor-position query `ESC[6n` with `ESC[1;1R` so
@@ -41,6 +46,12 @@ Run a specific local program through the PTY:
 
 ```powershell
 cargo run -p rssh-app -- local -- cmd.exe
+```
+
+Run with a fixed PTY size:
+
+```powershell
+cargo run -p rssh-app -- local --cols 120 --rows 30
 ```
 
 ## Verification
@@ -68,7 +79,7 @@ cargo test -p rssh-app local_pty_output_feeds_terminal_grid -- --ignored --nocap
 - Terminal ingestion: PTY output containing a marker is visible in
   `rssh-terminal` grid state within 5 seconds.
 - Input coverage: unit tests cover printable UTF-8, Enter, Ctrl+C, and arrow
-  key encoding.
+  key encoding, plus Shift+Tab and F1-F12.
 - Control-sequence response: unit tests cover normal output, `ESC[6n`, and
   split `ESC[6n` chunks.
 - Regression gate: workspace tests and clippy must pass before merging.
