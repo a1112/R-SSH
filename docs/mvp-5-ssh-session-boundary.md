@@ -15,6 +15,14 @@ channel contract that a future `russh` adapter must satisfy.
   - terminal sizes with zero columns or rows
 - `SshConfigError` is a typed error with `Display` and `Error`
   implementations for user-facing startup failures.
+- `SshAuthMethod` models the SSH authentication inputs the adapter will need:
+  - password
+  - private key path with an optional passphrase
+  - SSH agent
+- `SshAuthError` rejects empty password and empty private-key path inputs before
+  a network connection starts.
+- `SshConnectRequest` combines a validated session config with one
+  authentication method so the future adapter has one stable request object.
 - `SshShellSession` defines the shell channel operations needed by the terminal
   runtime:
   - read SSH channel bytes
@@ -35,12 +43,14 @@ SSH-boundary tests cover:
 
 - successful validated config creation
 - host, username, port, and terminal-size validation
+- password, private-key, and agent connection request construction
+- empty password and empty private-key path rejection
 - shell-session trait shape with a mock channel
 
 ## Explicit Non-Scope
 
 - Real SSH network connections.
-- Password, key, agent, and host-key authentication.
+- Executing password, key, agent, and host-key authentication against a server.
 - `russh` adapter wiring.
 - SFTP, tunnels, reconnects, and known-host storage.
 

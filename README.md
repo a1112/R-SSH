@@ -68,7 +68,8 @@ The console path also answers basic terminal status and device-attribute queries
   `docs/mvp-4-live-pty-window.md`.
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
   rendering, and input-write metrics with `window --metrics`; the SSH crate now
-  has a validated config and shell-session boundary. See
+  has a validated config, authentication request model, and shell-session
+  boundary. See
   `docs/mvp-5-ssh-session-boundary.md`.
 
 ## Reference Sources

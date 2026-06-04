@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use rssh_core::TerminalSize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,6 +23,73 @@ impl std::fmt::Display for SshConfigError {
 }
 
 impl std::error::Error for SshConfigError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshAuthError {
+    EmptyPassword,
+    EmptyPrivateKeyPath,
+}
+
+impl std::fmt::Display for SshAuthError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            Self::EmptyPassword => "SSH password cannot be empty",
+            Self::EmptyPrivateKeyPath => "SSH private key path cannot be empty",
+        };
+        formatter.write_str(message)
+    }
+}
+
+impl std::error::Error for SshAuthError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SshAuthMethod {
+    Password {
+        password: String,
+    },
+    PrivateKey {
+        path: PathBuf,
+        passphrase: Option<String>,
+    },
+    Agent,
+}
+
+impl SshAuthMethod {
+    /// Creates password authentication data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshAuthError::EmptyPassword`] when the password is empty or
+    /// only whitespace.
+    pub fn password(password: impl Into<String>) -> Result<Self, SshAuthError> {
+        let password = password.into();
+        if password.trim().is_empty() {
+            return Err(SshAuthError::EmptyPassword);
+        }
+
+        Ok(Self::Password { password })
+    }
+
+    /// Creates private-key authentication data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshAuthError::EmptyPrivateKeyPath`] when `path` is empty.
+    pub fn private_key(
+        path: impl Into<PathBuf>,
+        passphrase: Option<impl Into<String>>,
+    ) -> Result<Self, SshAuthError> {
+        let path = path.into();
+        if path.as_os_str().is_empty() {
+            return Err(SshAuthError::EmptyPrivateKeyPath);
+        }
+
+        Ok(Self::PrivateKey {
+            path,
+            passphrase: passphrase.map(Into::into),
+        })
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SshSessionConfig {
@@ -79,6 +148,53 @@ impl SshSessionConfig {
         }
 
         Ok(Self::new(host, port, username, initial_size))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshConnectRequest {
+    pub config: SshSessionConfig,
+    pub auth: SshAuthMethod,
+}
+
+impl SshConnectRequest {
+    #[must_use]
+    pub const fn new(config: SshSessionConfig, auth: SshAuthMethod) -> Self {
+        Self { config, auth }
+    }
+
+    /// Creates a connection request with password authentication.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshAuthError::EmptyPassword`] when the password is empty or
+    /// only whitespace.
+    pub fn password(
+        config: SshSessionConfig,
+        password: impl Into<String>,
+    ) -> Result<Self, SshAuthError> {
+        Ok(Self::new(config, SshAuthMethod::password(password)?))
+    }
+
+    /// Creates a connection request with private-key authentication.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshAuthError::EmptyPrivateKeyPath`] when `path` is empty.
+    pub fn private_key(
+        config: SshSessionConfig,
+        path: impl Into<PathBuf>,
+        passphrase: Option<impl Into<String>>,
+    ) -> Result<Self, SshAuthError> {
+        Ok(Self::new(
+            config,
+            SshAuthMethod::private_key(path, passphrase)?,
+        ))
+    }
+
+    #[must_use]
+    pub const fn agent(config: SshSessionConfig) -> Self {
+        Self::new(config, SshAuthMethod::Agent)
     }
 }
 
@@ -146,9 +262,13 @@ pub trait SshShellSession {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use rssh_core::TerminalSize;
 
-    use super::{SshSessionConfig, SshShellSession};
+    use super::{
+        SshAuthError, SshAuthMethod, SshConnectRequest, SshSessionConfig, SshShellSession,
+    };
 
     #[test]
     fn session_config_keeps_terminal_size() {
@@ -224,6 +344,68 @@ mod tests {
         assert_eq!(session.size, TerminalSize::new(120, 30));
         assert!(session.kept_alive);
         assert!(session.closed);
+    }
+
+    #[test]
+    fn connect_request_accepts_password_auth() {
+        let config = valid_config();
+        let request = SshConnectRequest::password(config.clone(), "secret").unwrap();
+
+        assert_eq!(request.config, config);
+        assert_eq!(
+            request.auth,
+            SshAuthMethod::Password {
+                password: "secret".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn connect_request_rejects_empty_password() {
+        let error = SshConnectRequest::password(valid_config(), " ").unwrap_err();
+
+        assert_eq!(error, SshAuthError::EmptyPassword);
+    }
+
+    #[test]
+    fn connect_request_accepts_private_key_auth() {
+        let config = valid_config();
+        let request = SshConnectRequest::private_key(
+            config.clone(),
+            PathBuf::from("C:/Users/ops/.ssh/id_ed25519"),
+            Some("secret"),
+        )
+        .unwrap();
+
+        assert_eq!(request.config, config);
+        assert_eq!(
+            request.auth,
+            SshAuthMethod::PrivateKey {
+                path: PathBuf::from("C:/Users/ops/.ssh/id_ed25519"),
+                passphrase: Some("secret".to_owned())
+            }
+        );
+    }
+
+    #[test]
+    fn connect_request_rejects_empty_private_key_path() {
+        let error = SshConnectRequest::private_key(valid_config(), PathBuf::new(), None::<String>)
+            .unwrap_err();
+
+        assert_eq!(error, SshAuthError::EmptyPrivateKeyPath);
+    }
+
+    #[test]
+    fn connect_request_accepts_agent_auth() {
+        let config = valid_config();
+        let request = SshConnectRequest::agent(config.clone());
+
+        assert_eq!(request.config, config);
+        assert_eq!(request.auth, SshAuthMethod::Agent);
+    }
+
+    fn valid_config() -> SshSessionConfig {
+        SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(100, 40)).unwrap()
     }
 
     struct MockSshSession {
