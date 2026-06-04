@@ -18,6 +18,10 @@ support the next PTY and SSH milestones.
   - reverse index (`RI`, `ESC M`)
 - Backspace handling moves the cursor left without erasing content.
 - Horizontal tab moves to the next 8-column tab stop.
+- Custom horizontal tab stops:
+  - set tab stop (`HTS`, `ESC H`)
+  - clear current/all tab stops (`TBC`, `ESC[g` / `ESC[3g`)
+  - cursor forward/backward tabulation (`CHT`/`CBT`, `ESC[I` / `ESC[Z`)
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
 - Delayed auto-wrap at the right edge, including bottom-row scroll on the next
   printable character.
@@ -105,6 +109,7 @@ cover:
 - newline parsing
 - ESC `IND`/`NEL`/`RI` movement and scroll-region boundary scrolling
 - backspace and horizontal tab control handling
+- custom tab stop setting, clearing, and CSI forward/backward tab movement
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - `?7h/l` auto-wrap mode tracking at the right edge

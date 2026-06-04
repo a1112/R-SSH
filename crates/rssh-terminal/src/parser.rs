@@ -35,6 +35,57 @@ impl Default for TerminalModes {
 }
 
 #[derive(Debug, Clone)]
+struct TabStops {
+    columns: Vec<u16>,
+}
+
+impl TabStops {
+    fn new(size: TerminalSize) -> Self {
+        Self {
+            columns: default_tab_stops(size),
+        }
+    }
+
+    fn resize(&mut self, size: TerminalSize) {
+        self.columns.retain(|column| *column < size.columns);
+    }
+
+    fn set(&mut self, column: u16, size: TerminalSize) {
+        if column >= size.columns || self.columns.binary_search(&column).is_ok() {
+            return;
+        }
+
+        let index = self.columns.partition_point(|stop| *stop < column);
+        self.columns.insert(index, column);
+    }
+
+    fn clear(&mut self, column: u16) {
+        self.columns.retain(|stop| *stop != column);
+    }
+
+    fn clear_all(&mut self) {
+        self.columns.clear();
+    }
+
+    fn next_after(&self, column: u16, fallback: u16) -> u16 {
+        self.columns
+            .iter()
+            .copied()
+            .find(|stop| *stop > column)
+            .unwrap_or(fallback)
+    }
+
+    fn previous_before(&self, column: u16) -> u16 {
+        self.columns
+            .iter()
+            .rev()
+            .copied()
+            .find(|stop| *stop < column)
+            .unwrap_or(0)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Terminal {
     grid: TerminalGrid,
     cursor_row: u16,
@@ -49,6 +100,7 @@ pub struct Terminal {
     scroll_top: u16,
     scroll_bottom: u16,
     character_set: CharacterSet,
+    tab_stops: TabStops,
     style: Cell,
     damage: Vec<DamageRegion>,
 }
@@ -92,6 +144,7 @@ impl Terminal {
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
             character_set: CharacterSet::Ascii,
+            tab_stops: TabStops::new(size),
             style: Cell::default(),
             damage: Vec::new(),
         }
@@ -145,6 +198,10 @@ impl Terminal {
                 }
                 '\u{1b}' if chars.get(index + 1) == Some(&'8') => {
                     self.restore_cursor();
+                    index += 2;
+                }
+                '\u{1b}' if chars.get(index + 1) == Some(&'H') => {
+                    self.set_horizontal_tab_stop();
                     index += 2;
                 }
                 '\u{1b}' if chars.get(index + 1) == Some(&'D') => {
@@ -205,6 +262,7 @@ impl Terminal {
 
     pub fn resize(&mut self, size: TerminalSize) {
         self.grid.resize(size);
+        self.tab_stops.resize(size);
 
         if let Some(screen) = self.main_screen.as_mut() {
             screen.grid.resize(size);
@@ -270,14 +328,51 @@ impl Terminal {
     }
 
     fn horizontal_tab(&mut self) {
+        self.move_forward_tabs(1);
+    }
+
+    fn set_horizontal_tab_stop(&mut self) {
+        self.tab_stops.set(self.cursor_column, self.grid.size());
+    }
+
+    fn clear_tab_stop(&mut self, mode: u16) {
+        match mode {
+            0 => self.tab_stops.clear(self.cursor_column),
+            3 => self.tab_stops.clear_all(),
+            _ => {}
+        }
+    }
+
+    fn move_forward_tabs(&mut self, count: u16) {
         self.pending_wrap = false;
         let columns = self.grid.size().columns;
         if columns == 0 {
             return;
         }
 
-        let next_stop = ((self.cursor_column / 8) + 1) * 8;
-        self.cursor_column = next_stop.min(columns - 1);
+        let fallback = columns - 1;
+        for _ in 0..count {
+            let next = self.tab_stops.next_after(self.cursor_column, fallback);
+            if next == self.cursor_column {
+                break;
+            }
+            self.cursor_column = next;
+        }
+    }
+
+    fn move_backward_tabs(&mut self, count: u16) {
+        self.pending_wrap = false;
+        if self.grid.size().columns == 0 {
+            return;
+        }
+
+        for _ in 0..count {
+            let previous = self.tab_stops.previous_before(self.cursor_column);
+            if previous == self.cursor_column {
+                break;
+            }
+            self.cursor_column = previous;
+        }
     }
 
     fn scroll_up_region(&mut self, top: u16, bottom: u16) {
@@ -380,6 +475,7 @@ impl Terminal {
             'F' => self.move_cursor_previous_line(csi_count(params)),
             'G' | '`' => self.position_cursor_column(params),
             'H' | 'f' => self.position_cursor(params),
+            'I' => self.move_forward_tabs(csi_count(params)),
             'J' => self.erase_display(csi_mode(params)),
             'K' => self.erase_line(csi_mode(params)),
             'L' => self.insert_lines(csi_count(params)),
@@ -388,8 +484,10 @@ impl Terminal {
             'S' => self.scroll_up(csi_count(params)),
             'T' => self.scroll_down(csi_count(params)),
             'X' => self.erase_characters(csi_count(params)),
+            'Z' => self.move_backward_tabs(csi_count(params)),
             'b' => self.repeat_previous_character(csi_count(params)),
             'd' => self.position_cursor_row(params),
+            'g' => self.clear_tab_stop(csi_mode(params)),
             'm' => self.apply_sgr(params),
             'r' => self.set_scroll_region(params),
             'h' => self.set_mode(params, true),
@@ -1077,6 +1175,16 @@ fn map_dec_special_graphics(ch: char) -> char {
         '~' => '·',
         _ => ch,
     }
+}
+
+fn default_tab_stops(size: TerminalSize) -> Vec<u16> {
+    let mut stops = Vec::new();
+    let mut column = 8;
+    while column < size.columns {
+        stops.push(column);
+        column = column.saturating_add(8);
+    }
+    stops
 }
 
 fn parse_csi(chars: &[char], mut index: usize) -> Option<(char, usize)> {

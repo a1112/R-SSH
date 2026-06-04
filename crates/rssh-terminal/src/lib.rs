@@ -252,6 +252,36 @@ mod tests {
     }
 
     #[test]
+    fn terminal_sets_custom_tab_stop_with_hts() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 1));
+
+        terminal.feed(b"\x1b[3g\x1b[1;5H\x1bH\x1b[1;1Ha\tb");
+
+        assert_eq!(row_text(&terminal, 0), "a   b     ");
+        assert_eq!(terminal.cursor(), (0, 5));
+    }
+
+    #[test]
+    fn terminal_clears_tab_stops_with_tbc() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 1));
+
+        terminal.feed(b"\x1b[3g\x1b[1;5H\x1bH\x1b[g\x1b[1;1Ha\tb");
+
+        assert_eq!(row_text(&terminal, 0), "a        b");
+        assert_eq!(terminal.cursor(), (0, 9));
+    }
+
+    #[test]
+    fn terminal_moves_forward_and_backward_between_tab_stops() {
+        let mut terminal = Terminal::new(TerminalSize::new(20, 1));
+
+        terminal.feed(b"a\x1b[2Ib\x1b[10G\x1b[Zc");
+
+        assert_eq!(row_text(&terminal, 0), "a       c       b   ");
+        assert_eq!(terminal.cursor(), (0, 9));
+    }
+
+    #[test]
     fn terminal_saves_and_restores_cursor_with_esc_7_and_8() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 2));
 
