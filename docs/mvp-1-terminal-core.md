@@ -51,6 +51,8 @@ support the next PTY and SSH milestones.
   - insert blank characters (`ICH`, `ESC[@`)
   - delete characters (`DCH`, `ESC[P`)
   - erase characters (`ECH`, `ESC[X`)
+- Repeat preceding printable character with `REP` (`ESC[<count>b`), including
+  repeated DEC Special Graphics line-drawing glyphs.
 - Basic line editing within the active scroll region:
   - insert lines (`IL`, `ESC[L`)
   - delete lines (`DL`, `ESC[M`)
@@ -111,6 +113,7 @@ cover:
 - split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
 - CSI insert/delete/erase character handling
+- CSI `REP` repeated printable character handling
 - CSI insert/delete line handling with scroll-region limits
 - CSI scroll up/down handling with scroll-region limits
 - OSC title sequence filtering for BEL and ST terminators

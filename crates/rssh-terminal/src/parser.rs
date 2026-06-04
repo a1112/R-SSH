@@ -17,6 +17,7 @@ pub struct Terminal {
     pending_wrap: bool,
     pending_utf8: Vec<u8>,
     pending_control: Vec<char>,
+    last_printable: Option<char>,
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
     cursor_visible: bool,
@@ -34,6 +35,7 @@ struct ScreenState {
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
+    last_printable: Option<char>,
     saved_cursor: Option<SavedCursor>,
     cursor_visible: bool,
     auto_wrap: bool,
@@ -60,6 +62,7 @@ impl Terminal {
             pending_wrap: false,
             pending_utf8: Vec::new(),
             pending_control: Vec::new(),
+            last_printable: None,
             saved_cursor: None,
             main_screen: None,
             cursor_visible: true,
@@ -323,6 +326,7 @@ impl Terminal {
 
             self.record_damage(DamageRegion::new(column, row, write_width, 1));
             self.advance_cursor(write_width);
+            self.last_printable = Some(ch);
         }
     }
 
@@ -356,6 +360,7 @@ impl Terminal {
             'S' => self.scroll_up(csi_count(params)),
             'T' => self.scroll_down(csi_count(params)),
             'X' => self.erase_characters(csi_count(params)),
+            'b' => self.repeat_previous_character(csi_count(params)),
             'd' => self.position_cursor_row(params),
             'm' => self.apply_sgr(params),
             'r' => self.set_scroll_region(params),
@@ -401,6 +406,7 @@ impl Terminal {
             self.cursor_row = 0;
             self.cursor_column = 0;
             self.pending_wrap = false;
+            self.last_printable = None;
             self.saved_cursor = None;
             self.cursor_visible = true;
             self.scroll_top = 0;
@@ -419,6 +425,7 @@ impl Terminal {
             cursor_row: self.cursor_row,
             cursor_column: self.cursor_column,
             pending_wrap: self.pending_wrap,
+            last_printable: self.last_printable,
             saved_cursor: self.saved_cursor,
             cursor_visible: self.cursor_visible,
             auto_wrap: self.auto_wrap,
@@ -434,6 +441,7 @@ impl Terminal {
         self.cursor_row = screen.cursor_row;
         self.cursor_column = screen.cursor_column;
         self.pending_wrap = screen.pending_wrap;
+        self.last_printable = screen.last_printable;
         self.saved_cursor = screen.saved_cursor;
         self.cursor_visible = screen.cursor_visible;
         self.auto_wrap = screen.auto_wrap;
@@ -850,6 +858,16 @@ impl Terminal {
             count,
             1,
         ));
+    }
+
+    fn repeat_previous_character(&mut self, count: u16) {
+        let Some(ch) = self.last_printable else {
+            return;
+        };
+
+        for _ in 0..count {
+            self.write_char(ch);
+        }
     }
 
     fn clear_cells(&mut self, row: u16, start_column: u16, end_column: u16) {

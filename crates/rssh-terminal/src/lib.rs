@@ -747,6 +747,26 @@ mod tests {
     }
 
     #[test]
+    fn terminal_repeats_previous_character_with_rep() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"A\x1b[3bZ");
+
+        assert_eq!(row_text(&terminal, 0), "AAAAZ   ");
+        assert_eq!(terminal.cursor(), (0, 5));
+    }
+
+    #[test]
+    fn terminal_repeats_dec_special_graphics_with_rep() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"\x1b(0q\x1b[4b\x1b(Bx");
+
+        assert_eq!(row_text(&terminal, 0), "─────x  ");
+        assert_eq!(terminal.cursor(), (0, 6));
+    }
+
+    #[test]
     fn terminal_erases_entire_display() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 
