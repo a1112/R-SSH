@@ -1,4 +1,5 @@
 /target/
+/.worktrees/
 
 # Local reference source cache. Keep only metadata committed.
 /refs/*
