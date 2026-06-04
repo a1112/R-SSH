@@ -192,7 +192,24 @@ fn indexed_color(index: u8) -> [u8; 4] {
         [255, 255, 255, 255],
     ];
 
-    ANSI.get(usize::from(index)).copied().unwrap_or(ANSI[15])
+    if let Some(color) = ANSI.get(usize::from(index)) {
+        return *color;
+    }
+
+    if (16..=231).contains(&index) {
+        let cube_index = index - 16;
+        let red = xterm_color_cube_intensity(cube_index / 36);
+        let green = xterm_color_cube_intensity((cube_index / 6) % 6);
+        let blue = xterm_color_cube_intensity(cube_index % 6);
+        return [red, green, blue, 255];
+    }
+
+    let level = 8 + (index - 232) * 10;
+    [level, level, level, 255]
+}
+
+const fn xterm_color_cube_intensity(value: u8) -> u8 {
+    if value == 0 { 0 } else { 55 + value * 40 }
 }
 
 const fn default_foreground() -> [u8; 4] {
@@ -459,6 +476,45 @@ mod tests {
                 .chunks_exact(4)
                 .any(|pixel| pixel == [255, 0, 0, 255]),
             "renderer did not draw a red glyph pixel"
+        );
+    }
+
+    #[test]
+    fn indexed_color_maps_xterm_256_color_palette() {
+        assert_eq!(
+            super::color_to_rgba(Color::Indexed(16), [1, 2, 3, 255]),
+            [0, 0, 0, 255]
+        );
+        assert_eq!(
+            super::color_to_rgba(Color::Indexed(196), [1, 2, 3, 255]),
+            [255, 0, 0, 255]
+        );
+        assert_eq!(
+            super::color_to_rgba(Color::Indexed(232), [1, 2, 3, 255]),
+            [8, 8, 8, 255]
+        );
+        assert_eq!(
+            super::color_to_rgba(Color::Indexed(255), [1, 2, 3, 255]),
+            [238, 238, 238, 255]
+        );
+    }
+
+    #[test]
+    fn pixel_renderer_draws_xterm_256_color_from_terminal_output() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[38;5;196mR");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.cells()[0].foreground, Color::Indexed(196));
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert!(
+            target
+                .chunks_exact(4)
+                .any(|pixel| pixel == [255, 0, 0, 255]),
+            "renderer did not draw xterm indexed red"
         );
     }
 

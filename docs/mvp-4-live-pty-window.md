@@ -22,7 +22,7 @@ in the native `winit` window.
   `winit::EventLoopProxy`.
 - PTY output updates the terminal runtime and rebuilds
   `TerminalRenderSnapshot` from the live terminal, including visible cursor
-  state.
+  state and xterm 256-color indexed cell colors.
 - Native window title follows OSC `0`/`2` title updates from the active shell.
 - `winit` keyboard events are encoded and written to the active PTY writer,
   including Alt-prefixed text and Shift/Alt/Ctrl-modified navigation,
@@ -134,6 +134,7 @@ MVP 4 tests cover:
 - focus reporting mode tracking and native window focus event encoding
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
+- renderer xterm 256-color palette mapping for indexed terminal colors
 - native window scrollback viewport clamping and mouse-wheel movement
 - native window Shift scrollback shortcuts without stealing unmodified page keys
 - native window xterm mouse-mode tracking and button/wheel/drag/motion report
