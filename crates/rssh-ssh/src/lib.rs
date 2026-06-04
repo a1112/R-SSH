@@ -220,7 +220,20 @@ impl std::fmt::Display for SshSessionError {
 
 impl std::error::Error for SshSessionError {}
 
-pub trait SshShellSession {
+pub trait SshShellConnector {
+    /// Connects to an SSH server and starts a shell session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when connecting, authenticating, requesting
+    /// the remote PTY, or starting the shell fails.
+    fn connect(
+        &mut self,
+        request: SshConnectRequest,
+    ) -> Result<Box<dyn SshShellSession>, SshSessionError>;
+}
+
+pub trait SshShellSession: Send {
     /// Reads bytes from the remote shell channel into `buffer`.
     ///
     /// # Errors
@@ -267,7 +280,8 @@ mod tests {
     use rssh_core::TerminalSize;
 
     use super::{
-        SshAuthError, SshAuthMethod, SshConnectRequest, SshSessionConfig, SshShellSession,
+        SshAuthError, SshAuthMethod, SshConnectRequest, SshSessionConfig, SshShellConnector,
+        SshShellSession,
     };
 
     #[test]
@@ -404,8 +418,37 @@ mod tests {
         assert_eq!(request.auth, SshAuthMethod::Agent);
     }
 
+    #[test]
+    fn ssh_shell_connector_trait_creates_shell_session_from_request() {
+        let request = SshConnectRequest::agent(valid_config());
+        let mut connector = MockSshConnector::default();
+
+        let mut session = connector.connect(request.clone()).unwrap();
+        let mut output = [0; 4];
+
+        assert_eq!(session.read(&mut output).unwrap(), 4);
+        assert_eq!(&output, b"pong");
+        assert_eq!(session.write(b"ping").unwrap(), 4);
+        assert_eq!(connector.last_request, Some(request));
+    }
+
     fn valid_config() -> SshSessionConfig {
         SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(100, 40)).unwrap()
+    }
+
+    #[derive(Default)]
+    struct MockSshConnector {
+        last_request: Option<SshConnectRequest>,
+    }
+
+    impl SshShellConnector for MockSshConnector {
+        fn connect(
+            &mut self,
+            request: SshConnectRequest,
+        ) -> Result<Box<dyn SshShellSession>, super::SshSessionError> {
+            self.last_request = Some(request);
+            Ok(Box::new(MockSshSession::default()))
+        }
     }
 
     struct MockSshSession {
