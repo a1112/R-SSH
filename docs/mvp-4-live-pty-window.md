@@ -30,6 +30,9 @@ in the native `winit` window.
 - The native window supports clipboard paste through `Ctrl+V`,
   `Ctrl+Shift+V`, and `Shift+Insert`; pasted text is wrapped with bracketed
   paste markers while the PTY has enabled `ESC[?2004h`.
+- The native window supports basic local text selection when PTY mouse
+  reporting is inactive; selected text is highlighted and can be copied with
+  `Ctrl+Shift+C` or `Ctrl+Insert`.
 - The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
   and sends SS3 arrow-key sequences while it is enabled.
 - The native window tracks PTY-side application keypad mode (`ESC=` / `ESC>`)
@@ -96,6 +99,8 @@ MVP 4 tests cover:
 
 - window text, control, navigation, Alt-text, and modified key encoding
 - native window clipboard paste encoding and paste shortcut detection
+- native window local selection text extraction, highlight overlay, mouse drag,
+  and copy shortcut detection
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
@@ -138,7 +143,8 @@ Recommended MVP 5 targets:
 
 - SSH protocol sessions in the native window.
 - Scrollback search.
-- Selection.
+- Advanced selection behavior such as word/line selection and selection across
+  changing scrollback.
 - GPU text shaping, glyph atlas caching, and font fallback.
 - Persistent session profiles.
 

@@ -287,6 +287,17 @@ impl TerminalRenderSnapshot {
     pub const fn cursor(&self) -> Option<RenderCursor> {
         self.cursor
     }
+
+    #[must_use]
+    pub fn with_inverse_overlay(mut self, mut selected: impl FnMut(u16, u16) -> bool) -> Self {
+        for cell in &mut self.cells {
+            if selected(cell.row, cell.column) {
+                cell.inverse = !cell.inverse;
+            }
+        }
+
+        self
+    }
 }
 
 fn append_grid_row(
@@ -406,6 +417,19 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
 
         assert!(snapshot.cells()[0].inverse);
+    }
+
+    #[test]
+    fn render_snapshot_can_apply_inverse_overlay() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+        terminal.feed(b"abc");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal)
+            .with_inverse_overlay(|row, column| row == 0 && column == 1);
+
+        assert!(!snapshot.cells()[0].inverse);
+        assert!(snapshot.cells()[1].inverse);
+        assert!(!snapshot.cells()[2].inverse);
     }
 
     #[test]

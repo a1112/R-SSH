@@ -72,6 +72,8 @@ struct NativeWindowApp {
     scrollback_offset: usize,
     mouse_position: Option<(u16, u16)>,
     active_mouse_button: Option<MouseButton>,
+    selection: Option<WindowSelection>,
+    selecting: bool,
 }
 
 #[derive(Debug)]
@@ -105,6 +107,8 @@ impl NativeWindowApp {
             scrollback_offset: 0,
             mouse_position: None,
             active_mouse_button: None,
+            selection: None,
+            selecting: false,
         }
     }
 
@@ -181,10 +185,16 @@ impl NativeWindowApp {
         self.scrollback_offset = self
             .scrollback_offset
             .min(self.runtime.terminal().scrollback().len());
-        self.snapshot = TerminalRenderSnapshot::from_terminal_viewport(
+        let snapshot = TerminalRenderSnapshot::from_terminal_viewport(
             self.runtime.terminal(),
             self.scrollback_offset,
         );
+        let size = self.runtime.terminal().grid().size();
+        self.snapshot = if let Some(selection) = self.selection {
+            snapshot.with_inverse_overlay(|row, column| selection.contains(row, column, size))
+        } else {
+            snapshot
+        };
     }
 
     fn scroll_viewport_lines(&mut self, lines: isize) {
@@ -260,7 +270,7 @@ impl NativeWindowApp {
 
         let mode = self.runtime.mouse_input_mode();
         if !mode.reporting_enabled() {
-            return Ok(false);
+            return Ok(self.handle_selection_mouse_input(state, button));
         }
 
         let Some((column, row)) = self.mouse_position else {
@@ -292,7 +302,7 @@ impl NativeWindowApp {
 
         let mode = self.runtime.mouse_input_mode();
         if !mode.reporting_enabled() {
-            return Ok(false);
+            return Ok(self.update_selection_from_mouse_position());
         }
 
         let Some((column, row)) = self.mouse_position else {
@@ -331,6 +341,64 @@ impl NativeWindowApp {
             }
             ElementState::Released => {}
         }
+    }
+
+    fn handle_selection_mouse_input(&mut self, state: ElementState, button: MouseButton) -> bool {
+        if button != MouseButton::Left {
+            return false;
+        }
+
+        match state {
+            ElementState::Pressed => {
+                let Some(cell) = self.selection_cell_from_mouse_position() else {
+                    return false;
+                };
+                self.selection = Some(WindowSelection::new(cell, cell));
+                self.selecting = true;
+                self.refresh_snapshot();
+                true
+            }
+            ElementState::Released => {
+                if !self.selecting {
+                    return false;
+                }
+                self.selecting = false;
+                if self.selection.is_some_and(WindowSelection::is_single_cell) {
+                    self.selection = None;
+                }
+                self.refresh_snapshot();
+                true
+            }
+        }
+    }
+
+    fn update_selection_from_mouse_position(&mut self) -> bool {
+        if !self.selecting {
+            return false;
+        }
+        let Some(cell) = self.selection_cell_from_mouse_position() else {
+            return false;
+        };
+        let Some(selection) = self.selection.as_mut() else {
+            return false;
+        };
+        if selection.focus == cell {
+            return false;
+        }
+
+        selection.set_focus(cell);
+        self.refresh_snapshot();
+        true
+    }
+
+    fn selection_cell_from_mouse_position(&self) -> Option<SelectionCell> {
+        let (column, row) = self.mouse_position?;
+        let size = self.runtime.terminal().grid().size();
+        if row >= size.rows || column >= size.columns {
+            return None;
+        }
+
+        Some(SelectionCell { row, column })
     }
 
     fn handle_scrollback_shortcut(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
@@ -448,6 +516,11 @@ impl NativeWindowApp {
             return Ok(());
         }
 
+        if window_copy_shortcut(&key.logical_key, self.modifiers) {
+            self.copy_selection_to_clipboard();
+            return Ok(());
+        }
+
         if window_paste_shortcut(&key.logical_key, self.modifiers) {
             self.handle_window_paste()?;
             return Ok(());
@@ -470,6 +543,21 @@ impl NativeWindowApp {
         }
 
         Ok(())
+    }
+
+    fn copy_selection_to_clipboard(&self) -> bool {
+        let Some(text) = self.selected_text() else {
+            return false;
+        };
+
+        write_window_clipboard_text(&text)
+    }
+
+    fn selected_text(&self) -> Option<String> {
+        let selection = self.selection?;
+        let text =
+            selection.text_from_snapshot(&self.snapshot, self.runtime.terminal().grid().size());
+        (!text.is_empty()).then_some(text)
     }
 
     fn handle_window_paste(&mut self) -> io::Result<bool> {
@@ -611,6 +699,109 @@ fn signed_scroll_direction(value: impl Into<f64>) -> isize {
     } else {
         0
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SelectionCell {
+    row: u16,
+    column: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowSelection {
+    anchor: SelectionCell,
+    focus: SelectionCell,
+}
+
+impl WindowSelection {
+    const fn new(anchor: SelectionCell, focus: SelectionCell) -> Self {
+        Self { anchor, focus }
+    }
+
+    fn set_focus(&mut self, focus: SelectionCell) {
+        self.focus = focus;
+    }
+
+    const fn is_single_cell(self) -> bool {
+        self.anchor.row == self.focus.row && self.anchor.column == self.focus.column
+    }
+
+    fn contains(self, row: u16, column: u16, size: TerminalSize) -> bool {
+        if row >= size.rows || column >= size.columns {
+            return false;
+        }
+
+        let (start, end) = self.normalized();
+        if row < start.row || row > end.row {
+            return false;
+        }
+
+        if start.row == end.row {
+            return column >= start.column && column <= end.column;
+        }
+
+        if row == start.row {
+            column >= start.column
+        } else if row == end.row {
+            column <= end.column
+        } else {
+            true
+        }
+    }
+
+    fn text_from_snapshot(self, snapshot: &TerminalRenderSnapshot, size: TerminalSize) -> String {
+        if size.columns == 0 || size.rows == 0 {
+            return String::new();
+        }
+
+        let (start, end) = self.normalized();
+        let mut lines = Vec::new();
+        for row in start.row..=end.row.min(size.rows.saturating_sub(1)) {
+            let first_column = if row == start.row { start.column } else { 0 };
+            let last_column = if row == end.row {
+                end.column.min(size.columns.saturating_sub(1))
+            } else {
+                size.columns.saturating_sub(1)
+            };
+            if first_column > last_column {
+                lines.push(String::new());
+                continue;
+            }
+
+            let mut line = String::new();
+            for column in first_column..=last_column {
+                line.push(snapshot_character(snapshot, row, column));
+            }
+            trim_trailing_spaces(&mut line);
+            lines.push(line);
+        }
+
+        lines.join("\n")
+    }
+
+    const fn normalized(self) -> (SelectionCell, SelectionCell) {
+        if self.anchor.row < self.focus.row
+            || (self.anchor.row == self.focus.row && self.anchor.column <= self.focus.column)
+        {
+            (self.anchor, self.focus)
+        } else {
+            (self.focus, self.anchor)
+        }
+    }
+}
+
+fn trim_trailing_spaces(text: &mut String) {
+    while text.ends_with(' ') {
+        text.pop();
+    }
+}
+
+fn snapshot_character(snapshot: &TerminalRenderSnapshot, row: u16, column: u16) -> char {
+    snapshot
+        .cells()
+        .iter()
+        .find(|cell| cell.row == row && cell.column == column)
+        .map_or(' ', |cell| cell.ch)
 }
 
 #[derive(Clone, Copy)]
@@ -894,8 +1085,25 @@ fn window_paste_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
     ctrl_v || shift_insert
 }
 
+fn window_copy_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
+    let ctrl_shift_c = modifiers.control_key()
+        && modifiers.shift_key()
+        && !modifiers.alt_key()
+        && matches!(key.as_ref(), Key::Character(character) if character.eq_ignore_ascii_case("c"));
+    let ctrl_insert =
+        modifiers == ModifiersState::CONTROL && matches!(key, Key::Named(NamedKey::Insert));
+
+    ctrl_shift_c || ctrl_insert
+}
+
 fn read_window_clipboard_text() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
+}
+
+fn write_window_clipboard_text(text: &str) -> bool {
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(text.to_owned()))
+        .is_ok()
 }
 
 fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
@@ -1056,15 +1264,17 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
-    use winit::event::{MouseButton, MouseScrollDelta};
+    use winit::dpi::PhysicalPosition;
+    use winit::event::{ElementState, MouseButton, MouseScrollDelta};
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
 
     use crate::terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
 
     use super::{
-        NativeWindowApp, WindowMouseEvent, WindowMouseEventKind, demo_snapshot,
-        encode_window_focus_event, encode_window_key, encode_window_mouse_event,
-        encode_window_paste, terminal_size_from_window_pixels, window_paste_shortcut,
+        NativeWindowApp, SelectionCell, WindowMouseEvent, WindowMouseEventKind, WindowSelection,
+        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_mouse_event,
+        encode_window_paste, terminal_size_from_window_pixels, window_copy_shortcut,
+        window_paste_shortcut,
     };
 
     #[test]
@@ -1142,6 +1352,26 @@ mod tests {
         assert!(!window_paste_shortcut(
             &Key::Character("v".into()),
             ModifiersState::empty()
+        ));
+    }
+
+    #[test]
+    fn recognizes_window_copy_shortcuts() {
+        assert!(window_copy_shortcut(
+            &Key::Character("c".into()),
+            ModifiersState::CONTROL | ModifiersState::SHIFT
+        ));
+        assert!(window_copy_shortcut(
+            &Key::Character("C".into()),
+            ModifiersState::CONTROL | ModifiersState::SHIFT
+        ));
+        assert!(window_copy_shortcut(
+            &Key::Named(NamedKey::Insert),
+            ModifiersState::CONTROL
+        ));
+        assert!(!window_copy_shortcut(
+            &Key::Character("c".into()),
+            ModifiersState::CONTROL
         ));
     }
 
@@ -1564,6 +1794,83 @@ mod tests {
     }
 
     #[test]
+    fn window_selection_extracts_text_across_rows() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"abcd\r\nwxyz").unwrap();
+
+        let selection = WindowSelection::new(
+            SelectionCell { row: 0, column: 1 },
+            SelectionCell { row: 1, column: 2 },
+        );
+
+        assert_eq!(
+            selection.text_from_snapshot(&app.snapshot, app.runtime.terminal().grid().size()),
+            "bcd\nwxy"
+        );
+
+        let reversed = WindowSelection::new(
+            SelectionCell { row: 1, column: 2 },
+            SelectionCell { row: 0, column: 1 },
+        );
+        assert_eq!(
+            reversed.text_from_snapshot(&app.snapshot, app.runtime.terminal().grid().size()),
+            "bcd\nwxy"
+        );
+    }
+
+    #[test]
+    fn window_app_highlights_active_selection() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
+        app.handle_pty_output(b"abcd").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 1 },
+            SelectionCell { row: 0, column: 2 },
+        ));
+
+        app.refresh_snapshot();
+
+        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 0, 1).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 0, 2).unwrap().inverse);
+        assert!(!snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
+    }
+
+    #[test]
+    fn window_app_updates_selection_from_left_mouse_drag() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
+        app.handle_pty_output(b"abcd").unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(0.0, 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(super::CELL_WIDTH * 2), 0.0))
+            .unwrap();
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 2 },
+            ))
+        );
+        assert!(snapshot_cell(&app.snapshot, 0, 1).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 0, 2).unwrap().inverse);
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!app.selecting);
+    }
+
+    #[test]
     fn window_app_unmodified_page_key_stays_available_for_pty() {
         let mut app = NativeWindowApp::new(None);
 
@@ -1603,5 +1910,16 @@ mod tests {
             .iter()
             .find(|cell| cell.row == row && cell.column == column)
             .map(|cell| cell.ch)
+    }
+
+    fn snapshot_cell(
+        snapshot: &rssh_renderer::TerminalRenderSnapshot,
+        row: u16,
+        column: u16,
+    ) -> Option<&rssh_renderer::RenderCell> {
+        snapshot
+            .cells()
+            .iter()
+            .find(|cell| cell.row == row && cell.column == column)
     }
 }
