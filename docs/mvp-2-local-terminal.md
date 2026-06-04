@@ -30,6 +30,7 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   - F1 through F12
   - Shift/Alt/Ctrl-modified navigation, editing, and function keys as xterm CSI
     modifier sequences
+  - application cursor key mode from PTY-side `ESC[?1h` and `ESC[?1l`
 - Paste events are forwarded to the PTY as UTF-8 bytes by default. When the
   PTY-side application enables xterm bracketed paste with `ESC[?2004h`, paste
   events are wrapped as `ESC[200~...ESC[201~` until `ESC[?2004l`.
@@ -81,6 +82,9 @@ the relevant xterm modes, such as `ESC[?1000h`, `ESC[?1002h`, `ESC[?1003h`, or
 Bracketed paste wrapping follows PTY-side `ESC[?2004h` and `ESC[?2004l`
 automatically.
 
+Application cursor key mode follows PTY-side `ESC[?1h` and `ESC[?1l`
+automatically for unmodified arrow keys.
+
 ## Verification
 
 Default checks:
@@ -108,8 +112,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Terminal ingestion: PTY output containing a marker is visible in
   `rssh-terminal` grid state within 5 seconds.
 - Input coverage: unit tests cover printable UTF-8, raw paste, bracketed paste,
-  Enter, Ctrl+C, arrow key encoding, modified navigation/editing/function keys,
-  Alt+text, Shift+Tab, F1-F12, SGR mouse, and focus events.
+  Enter, Ctrl+C, arrow key encoding, application cursor keys, modified
+  navigation/editing/function keys, Alt+text, Shift+Tab, F1-F12, SGR mouse, and
+  focus events.
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
 - Control-sequence response: unit tests cover normal output, `ESC[6n`,
   `ESC[c`, `ESC[>c`, `ESC[5n`, and split response-query chunks.
@@ -117,6 +122,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   sequences for xterm mouse and focus reporting.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
+- Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`
+  tracking and SS3 arrow-key encoding.
 - Regression gate: workspace tests and clippy must pass before merging.
 
 ## Explicit Non-Scope
