@@ -31,6 +31,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   - Shift/Alt/Ctrl-modified navigation, editing, and function keys as xterm CSI
     modifier sequences
   - application cursor key mode from PTY-side `ESC[?1h` and `ESC[?1l`
+  - application keypad mode from PTY-side `ESC=` and `ESC>` for keypad-tagged
+    number/operator keys
 - Paste events are forwarded to the PTY as UTF-8 bytes by default. When the
   PTY-side application enables xterm bracketed paste with `ESC[?2004h`, paste
   events are wrapped as `ESC[200~...ESC[201~` until `ESC[?2004l`.
@@ -89,6 +91,10 @@ automatically.
 Application cursor key mode follows PTY-side `ESC[?1h` and `ESC[?1l`
 automatically for unmodified arrow keys.
 
+Application keypad mode follows PTY-side `ESC=` and `ESC>` automatically. When
+the host input reports keypad-origin keys, number/operator keypad keys are sent
+as SS3 application-keypad sequences.
+
 ## Verification
 
 Default checks:
@@ -132,6 +138,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   and wrapped paste encoding.
 - Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`
   tracking and SS3 arrow-key encoding.
+- Application keypad negotiation: unit tests cover xterm/VT `ESC=` and `ESC>`
+  tracking plus SS3 keypad encoding for keypad-tagged input.
 - Regression gate: workspace tests and clippy must pass before merging.
 
 ## Explicit Non-Scope

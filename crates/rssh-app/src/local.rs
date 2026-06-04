@@ -14,7 +14,7 @@ use crossterm::{
     event::{
         self, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
         EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-        KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        KeyEventState, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     },
     execute, terminal,
 };
@@ -112,6 +112,7 @@ impl Default for SharedTerminalSize {
 enum LocalControlEvent {
     Resize(PtySize),
     SetApplicationCursorKeys(bool),
+    SetApplicationKeypad(bool),
     SetBracketedPaste(bool),
     SetMouseReporting(bool),
     SetFocusReporting(bool),
@@ -120,6 +121,7 @@ enum LocalControlEvent {
 #[derive(Clone, Default)]
 struct InputReporting {
     application_cursor_keys: Arc<AtomicBool>,
+    application_keypad: Arc<AtomicBool>,
     bracketed_paste: Arc<AtomicBool>,
     mouse: Arc<AtomicBool>,
     focus: Arc<AtomicBool>,
@@ -129,6 +131,7 @@ impl InputReporting {
     fn snapshot(&self) -> InputModes {
         InputModes::default()
             .with_application_cursor_keys(self.application_cursor_keys_enabled())
+            .with_application_keypad(self.application_keypad_enabled())
             .with_bracketed_paste(self.bracketed_paste_enabled())
             .with_mouse_reporting(self.mouse_enabled())
             .with_focus_reporting(self.focus_enabled())
@@ -136,6 +139,10 @@ impl InputReporting {
 
     fn application_cursor_keys_enabled(&self) -> bool {
         self.application_cursor_keys.load(Ordering::Relaxed)
+    }
+
+    fn application_keypad_enabled(&self) -> bool {
+        self.application_keypad.load(Ordering::Relaxed)
     }
 
     fn bracketed_paste_enabled(&self) -> bool {
@@ -165,6 +172,10 @@ impl InputReporting {
     fn set_application_cursor_keys(&self, enabled: bool) {
         self.application_cursor_keys
             .store(enabled, Ordering::Relaxed);
+    }
+
+    fn set_application_keypad(&self, enabled: bool) {
+        self.application_keypad.store(enabled, Ordering::Relaxed);
     }
 }
 
@@ -345,6 +356,9 @@ fn copy_pty_output(
                         TerminalModeChange::ApplicationCursorKeys(enabled) => {
                             LocalControlEvent::SetApplicationCursorKeys(enabled)
                         }
+                        TerminalModeChange::ApplicationKeypad(enabled) => {
+                            LocalControlEvent::SetApplicationKeypad(enabled)
+                        }
                         TerminalModeChange::BracketedPaste(enabled) => {
                             LocalControlEvent::SetBracketedPaste(enabled)
                         }
@@ -418,6 +432,11 @@ fn run_input_loop(
                         .input_reporting
                         .set_application_cursor_keys(enabled);
                 }
+                LocalControlEvent::SetApplicationKeypad(enabled) => {
+                    runtime_state
+                        .input_reporting
+                        .set_application_keypad(enabled);
+                }
                 LocalControlEvent::SetBracketedPaste(enabled) => {
                     runtime_state.input_reporting.set_bracketed_paste(enabled);
                 }
@@ -455,6 +474,7 @@ fn run_input_loop(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerminalModeChange {
     ApplicationCursorKeys(bool),
+    ApplicationKeypad(bool),
     BracketedPaste(bool),
     Mouse(bool),
     Focus(bool),
@@ -464,47 +484,72 @@ enum TerminalModeChange {
 struct TerminalModeTracker {
     pending: Vec<u8>,
     mouse_modes: MouseModes,
-    application_cursor_keys: bool,
-    bracketed_paste: bool,
-    focus: bool,
+    tracked_modes: TrackedTerminalModes,
 }
 
 impl TerminalModeTracker {
-    const MODE_PREFIX: &'static [u8] = b"\x1b[?";
+    const APPLICATION_KEYPAD_PREFIX: &'static [u8] = b"\x1b=";
+    const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
+    const NUMERIC_KEYPAD_PREFIX: &'static [u8] = b"\x1b>";
 
     fn process(&mut self, bytes: &[u8], mut emit: impl FnMut(TerminalModeChange)) {
         self.pending.extend_from_slice(bytes);
 
         loop {
-            let Some(index) = find_subslice(&self.pending, Self::MODE_PREFIX) else {
+            let Some(start) = Self::find_next_mode_start(&self.pending) else {
                 self.retain_possible_prefix();
                 return;
             };
-            if index > 0 {
-                self.pending.drain(..index);
+            if start.index > 0 {
+                self.pending.drain(..start.index);
             }
 
-            match Self::parse_mode_sequence(&self.pending) {
-                ModeParse::Complete {
-                    modes,
-                    enabled,
-                    consumed,
-                } => {
-                    for mode in modes {
-                        self.apply_mode(mode, enabled, &mut emit);
+            match start.sequence {
+                ModeSequence::ApplicationKeypad(enabled) => {
+                    self.set_application_keypad(enabled, &mut emit);
+                    self.pending.drain(..2);
+                }
+                ModeSequence::CsiPrivateMode => match Self::parse_mode_sequence(&self.pending) {
+                    ModeParse::Complete {
+                        modes,
+                        enabled,
+                        consumed,
+                    } => {
+                        for mode in modes {
+                            self.apply_mode(mode, enabled, &mut emit);
+                        }
+                        self.pending.drain(..consumed);
                     }
-                    self.pending.drain(..consumed);
-                }
-                ModeParse::Incomplete => return,
-                ModeParse::Invalid => {
-                    self.pending.drain(..1);
-                }
+                    ModeParse::Incomplete => return,
+                    ModeParse::Invalid => {
+                        self.pending.drain(..1);
+                    }
+                },
             }
         }
     }
 
+    fn find_next_mode_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
+        [
+            (Self::CSI_PRIVATE_MODE_PREFIX, ModeSequence::CsiPrivateMode),
+            (
+                Self::APPLICATION_KEYPAD_PREFIX,
+                ModeSequence::ApplicationKeypad(true),
+            ),
+            (
+                Self::NUMERIC_KEYPAD_PREFIX,
+                ModeSequence::ApplicationKeypad(false),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(prefix, sequence)| {
+            find_subslice(bytes, prefix).map(|index| ModeSequenceStart { index, sequence })
+        })
+        .min_by_key(|start| start.index)
+    }
+
     fn parse_mode_sequence(bytes: &[u8]) -> ModeParse {
-        let mut cursor = Self::MODE_PREFIX.len();
+        let mut cursor = Self::CSI_PRIVATE_MODE_PREFIX.len();
         let mut modes = Vec::new();
 
         loop {
@@ -547,25 +592,37 @@ impl TerminalModeTracker {
     fn apply_mode(&mut self, mode: u16, enabled: bool, emit: &mut impl FnMut(TerminalModeChange)) {
         match mode {
             1 => {
-                if self.application_cursor_keys != enabled {
-                    self.application_cursor_keys = enabled;
+                if self
+                    .tracked_modes
+                    .set(TrackedTerminalModes::APPLICATION_CURSOR_KEYS, enabled)
+                {
                     emit(TerminalModeChange::ApplicationCursorKeys(enabled));
                 }
             }
             1000 | 1002 | 1003 => self.set_mouse_mode(mode, enabled, emit),
             1004 => {
-                if self.focus != enabled {
-                    self.focus = enabled;
+                if self.tracked_modes.set(TrackedTerminalModes::FOCUS, enabled) {
                     emit(TerminalModeChange::Focus(enabled));
                 }
             }
             2004 => {
-                if self.bracketed_paste != enabled {
-                    self.bracketed_paste = enabled;
+                if self
+                    .tracked_modes
+                    .set(TrackedTerminalModes::BRACKETED_PASTE, enabled)
+                {
                     emit(TerminalModeChange::BracketedPaste(enabled));
                 }
             }
             _ => {}
+        }
+    }
+
+    fn set_application_keypad(&mut self, enabled: bool, emit: &mut impl FnMut(TerminalModeChange)) {
+        if self
+            .tracked_modes
+            .set(TrackedTerminalModes::APPLICATION_KEYPAD, enabled)
+        {
+            emit(TerminalModeChange::ApplicationKeypad(enabled));
         }
     }
 
@@ -588,7 +645,15 @@ impl TerminalModeTracker {
     }
 
     fn retain_possible_prefix(&mut self) {
-        let retained = Self::MODE_PREFIX.len().saturating_sub(1);
+        let retained = [
+            Self::CSI_PRIVATE_MODE_PREFIX,
+            Self::APPLICATION_KEYPAD_PREFIX,
+            Self::NUMERIC_KEYPAD_PREFIX,
+        ]
+        .into_iter()
+        .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
+        .max()
+        .unwrap_or(0);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -630,6 +695,26 @@ impl MouseModes {
     }
 }
 
+#[derive(Default)]
+struct TrackedTerminalModes(u8);
+
+impl TrackedTerminalModes {
+    const APPLICATION_CURSOR_KEYS: u8 = 1;
+    const APPLICATION_KEYPAD: u8 = 1 << 1;
+    const BRACKETED_PASTE: u8 = 1 << 2;
+    const FOCUS: u8 = 1 << 3;
+
+    fn set(&mut self, mode: u8, enabled: bool) -> bool {
+        let before = self.0;
+        if enabled {
+            self.0 |= mode;
+        } else {
+            self.0 &= !mode;
+        }
+        self.0 != before
+    }
+}
+
 enum ModeParse {
     Complete {
         modes: Vec<u16>,
@@ -638,6 +723,18 @@ enum ModeParse {
     },
     Incomplete,
     Invalid,
+}
+
+#[derive(Clone, Copy)]
+struct ModeSequenceStart {
+    index: usize,
+    sequence: ModeSequence,
+}
+
+#[derive(Clone, Copy)]
+enum ModeSequence {
+    CsiPrivateMode,
+    ApplicationKeypad(bool),
 }
 
 #[derive(Default)]
@@ -776,9 +873,10 @@ struct InputModes(u8);
 
 impl InputModes {
     const APPLICATION_CURSOR_KEYS: u8 = 1;
-    const BRACKETED_PASTE: u8 = 1 << 1;
-    const MOUSE_REPORTING: u8 = 1 << 2;
-    const FOCUS_REPORTING: u8 = 1 << 3;
+    const APPLICATION_KEYPAD: u8 = 1 << 1;
+    const BRACKETED_PASTE: u8 = 1 << 2;
+    const MOUSE_REPORTING: u8 = 1 << 3;
+    const FOCUS_REPORTING: u8 = 1 << 4;
 
     fn application_cursor_keys(self) -> bool {
         self.enabled(Self::APPLICATION_CURSOR_KEYS)
@@ -786,6 +884,10 @@ impl InputModes {
 
     fn bracketed_paste(self) -> bool {
         self.enabled(Self::BRACKETED_PASTE)
+    }
+
+    fn application_keypad(self) -> bool {
+        self.enabled(Self::APPLICATION_KEYPAD)
     }
 
     fn mouse_reporting(self) -> bool {
@@ -798,6 +900,10 @@ impl InputModes {
 
     fn with_application_cursor_keys(self, enabled: bool) -> Self {
         self.with_flag(Self::APPLICATION_CURSOR_KEYS, enabled)
+    }
+
+    fn with_application_keypad(self, enabled: bool) -> Self {
+        self.with_flag(Self::APPLICATION_KEYPAD, enabled)
     }
 
     fn with_bracketed_paste(self, enabled: bool) -> Self {
@@ -828,9 +934,11 @@ impl InputModes {
 
 fn encode_input_event(event: Event, modes: InputModes) -> Option<Vec<u8>> {
     match event {
-        Event::Key(key) if key.kind == KeyEventKind::Press => {
-            encode_key_with_mode(key, modes.application_cursor_keys())
-        }
+        Event::Key(key) if key.kind == KeyEventKind::Press => encode_key_with_mode(
+            key,
+            modes.application_cursor_keys(),
+            modes.application_keypad(),
+        ),
         Event::Paste(text) if modes.bracketed_paste() => Some(encode_bracketed_paste(&text)),
         Event::Paste(text) => Some(text.into_bytes()),
         Event::Mouse(event) if modes.mouse_reporting() => encode_mouse_event(event),
@@ -890,13 +998,22 @@ const fn mouse_button_code(button: MouseButton) -> u16 {
 
 #[cfg(test)]
 fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
-    encode_key_with_mode(key, false)
+    encode_key_with_mode(key, false, false)
 }
 
-fn encode_key_with_mode(key: KeyEvent, application_cursor_keys: bool) -> Option<Vec<u8>> {
+fn encode_key_with_mode(
+    key: KeyEvent,
+    application_cursor_keys: bool,
+    application_keypad: bool,
+) -> Option<Vec<u8>> {
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     if let Some(bytes) = encode_modified_key(key) {
         return Some(bytes);
+    }
+    if application_keypad {
+        if let Some(bytes) = encode_application_keypad_key(key) {
+            return Some(bytes);
+        }
     }
     if application_cursor_keys {
         if let Some(bytes) = encode_application_cursor_key(key) {
@@ -934,6 +1051,41 @@ fn encode_key_with_mode(key: KeyEvent, application_cursor_keys: bool) -> Option<
     }
 
     Some(bytes)
+}
+
+fn encode_application_keypad_key(key: KeyEvent) -> Option<Vec<u8>> {
+    if !key.modifiers.is_empty() {
+        return None;
+    }
+    if !key.state.contains(KeyEventState::KEYPAD) && !matches!(key.code, KeyCode::KeypadBegin) {
+        return None;
+    }
+
+    let final_byte = match key.code {
+        KeyCode::Tab => b'I',
+        KeyCode::Enter => b'M',
+        KeyCode::Char(' ') => b' ',
+        KeyCode::Char('*') => b'j',
+        KeyCode::Char('+') => b'k',
+        KeyCode::Char(',') => b'l',
+        KeyCode::Char('-') => b'm',
+        KeyCode::Char('.') => b'n',
+        KeyCode::Char('/') => b'o',
+        KeyCode::Char('0') => b'p',
+        KeyCode::Char('1') => b'q',
+        KeyCode::Char('2') => b'r',
+        KeyCode::Char('3') => b's',
+        KeyCode::Char('4') => b't',
+        KeyCode::Char('5') | KeyCode::KeypadBegin => b'u',
+        KeyCode::Char('6') => b'v',
+        KeyCode::Char('7') => b'w',
+        KeyCode::Char('8') => b'x',
+        KeyCode::Char('9') => b'y',
+        KeyCode::Char('=') => b'X',
+        _ => return None,
+    };
+
+    Some(vec![0x1b, b'O', final_byte])
 }
 
 fn encode_application_cursor_key(key: KeyEvent) -> Option<Vec<u8>> {
@@ -999,7 +1151,8 @@ fn xterm_modifier(modifiers: KeyModifiers) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use crossterm::event::{
-        Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton,
+        MouseEvent, MouseEventKind,
     };
 
     use super::{
@@ -1056,6 +1209,23 @@ mod tests {
             )
             .unwrap(),
             b"\x1bOC"
+        );
+    }
+
+    #[test]
+    fn encodes_keypad_keys_when_application_keypad_is_enabled() {
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('5'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Press,
+                    KeyEventState::KEYPAD
+                )),
+                InputModes::default().with_application_keypad(true),
+            )
+            .unwrap(),
+            b"\x1bOu"
         );
     }
 
@@ -1274,6 +1444,23 @@ mod tests {
             vec![
                 TerminalModeChange::ApplicationCursorKeys(true),
                 TerminalModeChange::ApplicationCursorKeys(false)
+            ]
+        );
+    }
+
+    #[test]
+    fn tracks_application_keypad_from_pty_output_modes() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"before\x1b", |change| changes.push(change));
+        tracker.process(b"=after\x1b>", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::ApplicationKeypad(true),
+                TerminalModeChange::ApplicationKeypad(false)
             ]
         );
     }
