@@ -61,6 +61,8 @@ in the native `winit` window.
 - The native window tracks PTY-side xterm mouse modes (`1000`/`1002`/`1003`
   and `1006`) and forwards button, wheel, drag, and any-motion events as
   legacy or SGR mouse reports when reporting is enabled.
+- `rssh-app window --metrics` prints startup, PTY processing, render-frame,
+  and PTY input-write counters and p95 timings when the window run exits.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
 
@@ -88,6 +90,12 @@ Automated window smoke:
 
 ```powershell
 cargo run -p rssh-app -- window --frames 3
+```
+
+Automated window smoke with metrics:
+
+```powershell
+cargo run -p rssh-app -- window --frames 30 --metrics
 ```
 
 Console-hosted local PTY remains available:
@@ -143,16 +151,26 @@ MVP 4 tests cover:
 - native window xterm mouse-mode tracking and button/wheel/drag/motion report
   encoding
 
-## Metrics Design
+## Metrics
 
-The current MVP uses tests and smoke checks as completion gates. The next
-instrumentation layer should record these metrics:
+The current MVP uses tests and smoke checks as completion gates. Window runs can
+now add `--metrics` to print:
 
-- Time to first PTY byte: process spawn to first output chunk.
-- Time to first rendered PTY cell: process spawn to first non-empty snapshot.
-- PTY chunk processing time: bytes received to terminal grid update.
-- Render time per frame: snapshot to `pixels.render()` completion.
-- Input write latency: key event received to PTY writer flush.
+- `first_pty_byte_ms`: process spawn timer to first PTY output chunk.
+- `first_rendered_cell_ms`: process spawn timer to first non-empty render
+  snapshot after PTY output.
+- `pty_chunks` and `pty_bytes`: PTY output volume received by the UI runtime.
+- `pty_chunk_process_p95_us`: p95 time from PTY output delivery through
+  terminal runtime update, query responses, OSC 52 handling, title sync, and
+  snapshot refresh.
+- `render_frames` and `render_frame_p95_us`: successful framebuffer render
+  count and p95 render-frame time.
+- `input_writes`, `input_bytes`, and `input_write_p95_us`: PTY write volume and
+  p95 write/flush duration for keyboard, paste, mouse, focus, and terminal
+  response bytes.
+
+The next instrumentation layer should add these metrics:
+
 - Steady idle CPU: open shell with no input.
 - Burst throughput: sustained bytes parsed and rendered per second.
 - Memory footprint: baseline window, active shell, and future scrollback sizes.

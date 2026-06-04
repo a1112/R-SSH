@@ -18,6 +18,7 @@ pub struct LocalOptions {
 pub struct WindowOptions {
     pub frame_limit: Option<u64>,
     pub osc52_policy: Osc52Policy,
+    pub metrics: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -49,6 +50,7 @@ where
         return Ok(AppCommand::Window(WindowOptions {
             frame_limit: None,
             osc52_policy: Osc52Policy::default(),
+            metrics: false,
         }));
     };
 
@@ -67,7 +69,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -126,6 +128,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
 fn parse_window(args: &[String]) -> Result<AppCommand, String> {
     let mut frame_limit = None;
     let mut osc52_policy = Osc52Policy::default();
+    let mut metrics = false;
     let mut index = 0;
 
     while index < args.len() {
@@ -138,6 +141,9 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
                 index += 1;
                 osc52_policy = parse_osc52_policy(args.get(index))?;
             }
+            "--metrics" => {
+                metrics = true;
+            }
             value => return Err(format!("unexpected window option: {value}")),
         }
         index += 1;
@@ -146,6 +152,7 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
     Ok(AppCommand::Window(WindowOptions {
         frame_limit,
         osc52_policy,
+        metrics,
     }))
 }
 
@@ -192,7 +199,8 @@ mod tests {
             parse_args(["rssh-app"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::ReadWrite
+                osc52_policy: super::Osc52Policy::ReadWrite,
+                metrics: false
             })
         );
     }
@@ -203,7 +211,8 @@ mod tests {
             parse_args(["rssh-app", "window"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::ReadWrite
+                osc52_policy: super::Osc52Policy::ReadWrite,
+                metrics: false
             })
         );
     }
@@ -214,7 +223,20 @@ mod tests {
             parse_args(["rssh-app", "window", "--frames", "1"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: Some(1),
-                osc52_policy: super::Osc52Policy::ReadWrite
+                osc52_policy: super::Osc52Policy::ReadWrite,
+                metrics: false
+            })
+        );
+    }
+
+    #[test]
+    fn parses_window_metrics_flag() {
+        assert_eq!(
+            parse_args(["rssh-app", "window", "--metrics"]).unwrap(),
+            AppCommand::Window(super::WindowOptions {
+                frame_limit: None,
+                osc52_policy: super::Osc52Policy::ReadWrite,
+                metrics: true
             })
         );
     }
@@ -225,14 +247,16 @@ mod tests {
             parse_args(["rssh-app", "window", "--osc52", "off"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::Off
+                osc52_policy: super::Osc52Policy::Off,
+                metrics: false
             })
         );
         assert_eq!(
             parse_args(["rssh-app", "window", "--osc52", "write"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::WriteOnly
+                osc52_policy: super::Osc52Policy::WriteOnly,
+                metrics: false
             })
         );
         assert!(parse_args(["rssh-app", "window", "--osc52", "bad"]).is_err());

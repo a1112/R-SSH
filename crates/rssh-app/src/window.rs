@@ -44,6 +44,9 @@ pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
         NativeWindowApp::with_event_proxy(options.frame_limit, options.osc52_policy, event_proxy);
 
     event_loop.run_app(&mut app)?;
+    if options.metrics {
+        print!("{}", app.metrics_report());
+    }
 
     Ok(())
 }
@@ -83,6 +86,7 @@ struct NativeWindowApp {
     osc52_policy: Osc52Policy,
     clipboard_writer: Box<dyn FnMut(&str) -> bool + Send>,
     clipboard_reader: Box<dyn FnMut() -> Option<String> + Send>,
+    metrics: WindowMetrics,
 }
 
 #[derive(Debug)]
@@ -90,6 +94,160 @@ enum WindowUserEvent {
     Output(Vec<u8>),
     Exited,
     ReadError(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WindowMetricsSnapshot {
+    first_pty_byte_ms: Option<u128>,
+    first_rendered_cell_ms: Option<u128>,
+    pty_chunks: u64,
+    pty_bytes: u64,
+    pty_chunk_process_p95_us: u128,
+    render_frames: u64,
+    render_frame_p95_us: u128,
+    input_writes: u64,
+    input_bytes: u64,
+    input_write_p95_us: u128,
+}
+
+impl WindowMetricsSnapshot {
+    fn report(self) -> String {
+        format!(
+            "\
+R-SSH metrics
+first_pty_byte_ms={}
+first_rendered_cell_ms={}
+pty_chunks={}
+pty_bytes={}
+pty_chunk_process_p95_us={}
+render_frames={}
+render_frame_p95_us={}
+input_writes={}
+input_bytes={}
+input_write_p95_us={}
+",
+            metric_option(self.first_pty_byte_ms),
+            metric_option(self.first_rendered_cell_ms),
+            self.pty_chunks,
+            self.pty_bytes,
+            self.pty_chunk_process_p95_us,
+            self.render_frames,
+            self.render_frame_p95_us,
+            self.input_writes,
+            self.input_bytes,
+            self.input_write_p95_us
+        )
+    }
+}
+
+#[derive(Debug)]
+struct WindowMetrics {
+    spawn_started_at: Instant,
+    first_pty_byte: Option<Duration>,
+    first_rendered_cell: Option<Duration>,
+    pty_chunks: u64,
+    pty_bytes: u64,
+    pty_chunk_process_times: Vec<Duration>,
+    render_frame_times: Vec<Duration>,
+    input_writes: u64,
+    input_bytes: u64,
+    input_write_times: Vec<Duration>,
+}
+
+impl WindowMetrics {
+    fn new() -> Self {
+        Self {
+            spawn_started_at: Instant::now(),
+            first_pty_byte: None,
+            first_rendered_cell: None,
+            pty_chunks: 0,
+            pty_bytes: 0,
+            pty_chunk_process_times: Vec::new(),
+            render_frame_times: Vec::new(),
+            input_writes: 0,
+            input_bytes: 0,
+            input_write_times: Vec::new(),
+        }
+    }
+
+    fn start_spawn_timer(&mut self) {
+        self.spawn_started_at = Instant::now();
+        self.first_pty_byte = None;
+        self.first_rendered_cell = None;
+    }
+
+    fn record_pty_chunk(&mut self, byte_count: usize) {
+        if self.first_pty_byte.is_none() {
+            self.first_pty_byte = Some(self.spawn_started_at.elapsed());
+        }
+        self.pty_chunks = self.pty_chunks.saturating_add(1);
+        self.pty_bytes = self
+            .pty_bytes
+            .saturating_add(u64::try_from(byte_count).unwrap_or(u64::MAX));
+    }
+
+    fn record_first_rendered_cell(&mut self, snapshot_is_empty: bool) {
+        if self.first_rendered_cell.is_none() && !snapshot_is_empty {
+            self.first_rendered_cell = Some(self.spawn_started_at.elapsed());
+        }
+    }
+
+    fn record_pty_chunk_process(&mut self, duration: Duration) {
+        self.pty_chunk_process_times.push(duration);
+    }
+
+    fn record_render_frame(&mut self, duration: Duration) {
+        self.render_frame_times.push(duration);
+    }
+
+    fn record_input_write(&mut self, byte_count: usize, duration: Duration) {
+        self.input_writes = self.input_writes.saturating_add(1);
+        self.input_bytes = self
+            .input_bytes
+            .saturating_add(u64::try_from(byte_count).unwrap_or(u64::MAX));
+        self.input_write_times.push(duration);
+    }
+
+    fn snapshot(&self) -> WindowMetricsSnapshot {
+        WindowMetricsSnapshot {
+            first_pty_byte_ms: self.first_pty_byte.map(|duration| duration.as_millis()),
+            first_rendered_cell_ms: self
+                .first_rendered_cell
+                .map(|duration| duration.as_millis()),
+            pty_chunks: self.pty_chunks,
+            pty_bytes: self.pty_bytes,
+            pty_chunk_process_p95_us: p95_us(&self.pty_chunk_process_times),
+            render_frames: u64::try_from(self.render_frame_times.len()).unwrap_or(u64::MAX),
+            render_frame_p95_us: p95_us(&self.render_frame_times),
+            input_writes: self.input_writes,
+            input_bytes: self.input_bytes,
+            input_write_p95_us: p95_us(&self.input_write_times),
+        }
+    }
+}
+
+fn p95_us(samples: &[Duration]) -> u128 {
+    if samples.is_empty() {
+        return 0;
+    }
+
+    let mut values = samples
+        .iter()
+        .map(std::time::Duration::as_micros)
+        .collect::<Vec<_>>();
+    values.sort_unstable();
+    let index = values
+        .len()
+        .saturating_mul(95)
+        .saturating_add(99)
+        .saturating_div(100)
+        .saturating_sub(1);
+
+    values[index]
+}
+
+fn metric_option(value: Option<u128>) -> String {
+    value.map_or_else(|| "NA".to_owned(), |value| value.to_string())
 }
 
 impl NativeWindowApp {
@@ -128,6 +286,7 @@ impl NativeWindowApp {
             osc52_policy,
             clipboard_writer: Box::new(write_window_clipboard_text),
             clipboard_reader: Box::new(read_window_clipboard_text),
+            metrics: WindowMetrics::new(),
         }
     }
 
@@ -167,6 +326,7 @@ impl NativeWindowApp {
             return;
         };
 
+        let started = Instant::now();
         self.renderer.render(
             &self.snapshot,
             pixels.frame_mut(),
@@ -183,6 +343,7 @@ impl NativeWindowApp {
         }
 
         self.rendered_frames = self.rendered_frames.saturating_add(1);
+        self.metrics.record_render_frame(started.elapsed());
         if self
             .frame_limit
             .is_some_and(|limit| self.rendered_frames >= limit)
@@ -192,6 +353,8 @@ impl NativeWindowApp {
     }
 
     fn handle_pty_output(&mut self, bytes: &[u8]) -> io::Result<()> {
+        let started = Instant::now();
+        self.metrics.record_pty_chunk(bytes.len());
         for response in self.runtime.feed_pty_output(bytes) {
             self.write_pty_bytes(&response)?;
         }
@@ -207,6 +370,9 @@ impl NativeWindowApp {
         }
         self.sync_window_title_from_runtime();
         self.refresh_snapshot();
+        self.metrics
+            .record_first_rendered_cell(self.snapshot.cells().is_empty());
+        self.metrics.record_pty_chunk_process(started.elapsed());
 
         Ok(())
     }
@@ -623,6 +789,7 @@ impl NativeWindowApp {
         };
 
         let size = PtySize::try_new(TERMINAL_COLUMNS, TERMINAL_ROWS)?;
+        self.metrics.start_spawn_timer();
         let mut session = PtySession::spawn(&PtyCommand::default_shell(), size)?;
         let mut reader = session.take_reader()?;
         let writer = session.take_writer()?;
@@ -666,10 +833,21 @@ impl NativeWindowApp {
             return Ok(());
         };
 
+        let started = Instant::now();
         writer.write_all(bytes)?;
         writer.flush()?;
+        self.metrics
+            .record_input_write(bytes.len(), started.elapsed());
 
         Ok(())
+    }
+
+    fn metrics_snapshot(&self) -> WindowMetricsSnapshot {
+        self.metrics.snapshot()
+    }
+
+    fn metrics_report(&self) -> String {
+        self.metrics_snapshot().report()
     }
 
     fn handle_keyboard_input(&mut self, key: &winit::event::KeyEvent) -> io::Result<()> {
@@ -2171,6 +2349,33 @@ mod tests {
 
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('l'));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('e'));
+    }
+
+    #[test]
+    fn window_app_collects_pty_processing_metrics() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.handle_pty_output(b"live").unwrap();
+
+        let metrics = app.metrics_snapshot();
+        assert_eq!(metrics.pty_chunks, 1);
+        assert_eq!(metrics.pty_bytes, 4);
+        assert!(metrics.first_pty_byte_ms.is_some());
+        assert!(metrics.first_rendered_cell_ms.is_some());
+    }
+
+    #[test]
+    fn window_app_collects_input_write_metrics() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.write_pty_bytes(b"abc").unwrap();
+
+        let metrics = app.metrics_snapshot();
+        assert_eq!(written.lock().unwrap().as_slice(), b"abc");
+        assert_eq!(metrics.input_writes, 1);
+        assert_eq!(metrics.input_bytes, 3);
     }
 
     #[test]

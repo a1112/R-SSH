@@ -44,6 +44,7 @@ cargo fmt --all
 cargo test --workspace
 cargo run -p rssh-app
 cargo run -p rssh-app -- window --frames 3
+cargo run -p rssh-app -- window --frames 30 --metrics
 cargo run -p rssh-app -- local
 cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
@@ -64,6 +65,8 @@ The console path also answers basic terminal status and device-attribute queries
   `docs/mvp-3-native-renderer.md`.
 - MVP 4: Live PTY session inside the native renderer is complete. See
   `docs/mvp-4-live-pty-window.md`.
+- MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
+  rendering, and input-write metrics with `window --metrics`.
 
 ## Reference Sources
 
