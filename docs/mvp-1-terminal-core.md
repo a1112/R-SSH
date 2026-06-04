@@ -16,12 +16,15 @@ support the next PTY and SSH milestones.
   - index (`IND`, `ESC D`)
   - next line (`NEL`, `ESC E`)
   - reverse index (`RI`, `ESC M`)
+- C1 byte-form `IND` (`0x84`), `NEL` (`0x85`), and `RI` (`0x8D`) map to the
+  same line movement behavior.
 - Backspace handling moves the cursor left without erasing content.
 - Horizontal tab moves to the next 8-column tab stop.
 - Custom horizontal tab stops:
   - set tab stop (`HTS`, `ESC H`)
   - clear current/all tab stops (`TBC`, `ESC[g` / `ESC[3g`)
   - cursor forward/backward tabulation (`CHT`/`CBT`, `ESC[I` / `ESC[Z`)
+- C1 byte-form `HTS` (`0x88`) sets the active column as a tab stop.
 - Full terminal reset with `RIS` (`ESC c`), restoring the grid, cursor, modes,
   style, scroll region, character set, and tab stops to defaults.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
@@ -119,8 +122,10 @@ cover:
 - plain text parsing
 - newline parsing
 - ESC `IND`/`NEL`/`RI` movement and scroll-region boundary scrolling
+- C1 byte-form `IND`/`NEL`/`RI` line movement
 - backspace and horizontal tab control handling
-- custom tab stop setting, clearing, and CSI forward/backward tab movement
+- custom tab stop setting, clearing, C1 `HTS`, and CSI forward/backward tab
+  movement
 - `RIS` full terminal reset for grid, cursor, modes, style, character set, and
   tab stops
 - bottom-row linefeed scrolling

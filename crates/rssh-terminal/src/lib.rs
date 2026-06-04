@@ -232,6 +232,18 @@ mod tests {
     }
 
     #[test]
+    fn terminal_c1_ind_nel_and_ri_match_escape_controls() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 3));
+
+        terminal.feed(b"ab\x84cd\x85ef\x9b3;3H\x8dZ");
+
+        assert_eq!(row_text(&terminal, 0), "ab   ");
+        assert_eq!(row_text(&terminal, 1), "  Zd ");
+        assert_eq!(row_text(&terminal, 2), "ef   ");
+        assert_eq!(terminal.cursor(), (1, 3));
+    }
+
+    #[test]
     fn terminal_backspace_moves_cursor_left_without_erasing() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
 
@@ -256,6 +268,16 @@ mod tests {
         let mut terminal = Terminal::new(TerminalSize::new(10, 1));
 
         terminal.feed(b"\x1b[3g\x1b[1;5H\x1bH\x1b[1;1Ha\tb");
+
+        assert_eq!(row_text(&terminal, 0), "a   b     ");
+        assert_eq!(terminal.cursor(), (0, 5));
+    }
+
+    #[test]
+    fn terminal_c1_hts_sets_custom_tab_stop() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 1));
+
+        terminal.feed(b"\x1b[3g\x1b[1;5H\x88\x1b[1;1Ha\tb");
 
         assert_eq!(row_text(&terminal, 0), "a   b     ");
         assert_eq!(terminal.cursor(), (0, 5));

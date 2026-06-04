@@ -194,6 +194,22 @@ impl Terminal {
             ch if is_c1_st_control_string(ch) => Some(next_or_pending(
                 self.skip_c1_st_control_string(chars, index),
             )),
+            '\u{84}' => {
+                self.index_down();
+                Some(FeedAdvance::Next(index + 1))
+            }
+            '\u{85}' => {
+                self.next_line();
+                Some(FeedAdvance::Next(index + 1))
+            }
+            '\u{88}' => {
+                self.set_horizontal_tab_stop();
+                Some(FeedAdvance::Next(index + 1))
+            }
+            '\u{8d}' => {
+                self.reverse_index();
+                Some(FeedAdvance::Next(index + 1))
+            }
             _ => None,
         }
     }
