@@ -17,10 +17,21 @@ impl TerminalRuntime {
 
     pub fn feed_pty_output(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
         let output = self.output_filter.process(bytes);
-        if !output.display.is_empty() {
-            self.terminal.feed(&output.display);
+
+        let mut responses = Vec::new();
+        for event in output.events {
+            match event {
+                FilteredOutputEvent::Display(display) => self.terminal.feed(&display),
+                FilteredOutputEvent::Response(response) => {
+                    responses.push(
+                        self.output_filter
+                            .response_bytes(response, self.terminal.cursor()),
+                    );
+                }
+            }
         }
-        output.responses
+
+        responses
     }
 
     pub fn resize(&mut self, size: TerminalSize) {
@@ -40,15 +51,19 @@ struct TerminalOutputFilter {
 }
 
 struct FilteredOutput {
-    display: Vec<u8>,
-    responses: Vec<Vec<u8>>,
+    events: Vec<FilteredOutputEvent>,
+}
+
+enum FilteredOutputEvent {
+    Display(Vec<u8>),
+    Response(TerminalResponse),
 }
 
 impl TerminalOutputFilter {
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
-            response: TerminalResponse::Static(b"\x1b[1;1R"),
+            response: TerminalResponse::CursorPosition,
         },
         TerminalQueryResponse {
             query: b"\x1b[c",
@@ -82,23 +97,26 @@ impl TerminalOutputFilter {
     fn process(&mut self, bytes: &[u8]) -> FilteredOutput {
         self.pending.extend_from_slice(bytes);
 
-        let mut display = Vec::new();
-        let mut responses = Vec::new();
+        let mut events = Vec::new();
 
         while let Some((index, response)) = self.find_next_response() {
-            display.extend_from_slice(&self.pending[..index]);
-            responses.push(response.response_bytes(self.size));
+            if index > 0 {
+                events.push(FilteredOutputEvent::Display(self.pending[..index].to_vec()));
+            }
+            events.push(FilteredOutputEvent::Response(response.response));
             self.pending.drain(..index + response.query.len());
         }
 
         let retained = Self::suffix_len_matching_query_prefix(&self.pending);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
-            display.extend_from_slice(&self.pending[..writable]);
+            events.push(FilteredOutputEvent::Display(
+                self.pending[..writable].to_vec(),
+            ));
             self.pending.drain(..writable);
         }
 
-        FilteredOutput { display, responses }
+        FilteredOutput { events }
     }
 
     fn find_next_response(&self) -> Option<(usize, &'static TerminalQueryResponse)> {
@@ -117,6 +135,10 @@ impl TerminalOutputFilter {
             .max()
             .unwrap_or(0)
     }
+
+    fn response_bytes(&self, response: TerminalResponse, cursor: (u16, u16)) -> Vec<u8> {
+        response.response_bytes(self.size, cursor)
+    }
 }
 
 struct TerminalQueryResponse {
@@ -127,13 +149,23 @@ struct TerminalQueryResponse {
 #[derive(Clone, Copy)]
 enum TerminalResponse {
     Static(&'static [u8]),
+    CursorPosition,
     TextAreaSize,
 }
 
-impl TerminalQueryResponse {
-    fn response_bytes(&self, size: TerminalSize) -> Vec<u8> {
-        match self.response {
+impl TerminalResponse {
+    fn response_bytes(self, size: TerminalSize, cursor: (u16, u16)) -> Vec<u8> {
+        match self {
             TerminalResponse::Static(bytes) => bytes.to_vec(),
+            TerminalResponse::CursorPosition => {
+                let (row, column) = cursor;
+                format!(
+                    "\x1b[{};{}R",
+                    row.saturating_add(1),
+                    column.saturating_add(1)
+                )
+                .into_bytes()
+            }
             TerminalResponse::TextAreaSize => {
                 format!("\x1b[8;{};{}t", size.rows, size.columns).into_bytes()
             }
@@ -186,11 +218,21 @@ mod tests {
         let second = runtime.feed_pty_output(b"6nafter");
 
         assert!(first.is_empty());
-        assert_eq!(second, vec![b"\x1b[1;1R".to_vec()]);
+        assert_eq!(second, vec![b"\x1b[1;7R".to_vec()]);
 
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
         assert!(!text.contains("[6n"));
+    }
+
+    #[test]
+    fn answers_cursor_position_query_with_current_cursor() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let responses = runtime.feed_pty_output(b"abc\x1b[6n");
+
+        assert_eq!(responses, vec![b"\x1b[1;4R".to_vec()]);
+        assert!(terminal_text(&runtime).contains("abc"));
     }
 
     #[test]

@@ -18,7 +18,9 @@ use crossterm::{
     },
     execute, terminal,
 };
+use rssh_core::TerminalSize;
 use rssh_pty::{PtyExitStatus, PtySession, PtySize};
+use rssh_terminal::Terminal;
 
 use crate::{
     cli::LocalOptions,
@@ -737,17 +739,18 @@ enum ModeSequence {
     ApplicationKeypad(bool),
 }
 
-#[derive(Default)]
 struct TerminalOutputFilter {
     pending: Vec<u8>,
     size: SharedTerminalSize,
+    mirror: Terminal,
+    mirror_size: PtySize,
 }
 
 impl TerminalOutputFilter {
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
-            response: TerminalResponse::Static(b"\x1b[1;1R"),
+            response: TerminalResponse::CursorPosition,
         },
         TerminalQueryResponse {
             query: b"\x1b[c",
@@ -773,9 +776,12 @@ impl TerminalOutputFilter {
     }
 
     fn with_shared_size(size: SharedTerminalSize) -> Self {
+        let mirror_size = size.snapshot();
         Self {
             pending: Vec::new(),
             size,
+            mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
+            mirror_size,
         }
     }
 
@@ -789,7 +795,8 @@ impl TerminalOutputFilter {
 
         while let Some((index, response)) = self.find_next_response() {
             output.write_all(&self.pending[..index])?;
-            let response_bytes = response.response_bytes(self.size.snapshot());
+            self.feed_mirror_through_output(index);
+            let response_bytes = self.response_bytes(response.response);
             respond(&response_bytes)?;
             self.pending.drain(..index + response.query.len());
         }
@@ -798,6 +805,7 @@ impl TerminalOutputFilter {
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             output.write_all(&self.pending[..writable])?;
+            self.feed_mirror_through_output(writable);
             self.pending.drain(..writable);
         }
 
@@ -823,8 +831,42 @@ impl TerminalOutputFilter {
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
         output.write_all(&self.pending)?;
+        self.feed_mirror_through_output(self.pending.len());
         self.pending.clear();
         Ok(())
+    }
+
+    fn feed_mirror_through_output(&mut self, end: usize) {
+        self.sync_mirror_size();
+        self.mirror.feed(&self.pending[..end]);
+    }
+
+    fn response_bytes(&mut self, response: TerminalResponse) -> Vec<u8> {
+        match response {
+            TerminalResponse::Static(bytes) => bytes.to_vec(),
+            TerminalResponse::CursorPosition => {
+                self.sync_mirror_size();
+                let (row, column) = self.mirror.cursor();
+                format!(
+                    "\x1b[{};{}R",
+                    row.saturating_add(1),
+                    column.saturating_add(1)
+                )
+                .into_bytes()
+            }
+            TerminalResponse::TextAreaSize => {
+                let size = self.size.snapshot();
+                format!("\x1b[8;{};{}t", size.rows(), size.columns()).into_bytes()
+            }
+        }
+    }
+
+    fn sync_mirror_size(&mut self) {
+        let size = self.size.snapshot();
+        if size != self.mirror_size {
+            self.mirror.resize(terminal_size_from_pty(size));
+            self.mirror_size = size;
+        }
     }
 }
 
@@ -836,18 +878,18 @@ struct TerminalQueryResponse {
 #[derive(Clone, Copy)]
 enum TerminalResponse {
     Static(&'static [u8]),
+    CursorPosition,
     TextAreaSize,
 }
 
-impl TerminalQueryResponse {
-    fn response_bytes(&self, size: PtySize) -> Vec<u8> {
-        match self.response {
-            TerminalResponse::Static(bytes) => bytes.to_vec(),
-            TerminalResponse::TextAreaSize => {
-                format!("\x1b[8;{};{}t", size.rows(), size.columns()).into_bytes()
-            }
-        }
+impl Default for TerminalOutputFilter {
+    fn default() -> Self {
+        Self::with_shared_size(SharedTerminalSize::default())
     }
+}
+
+fn terminal_size_from_pty(size: PtySize) -> TerminalSize {
+    TerminalSize::new(size.columns(), size.rows())
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -1543,7 +1585,24 @@ mod tests {
         filter.flush(&mut output).unwrap();
 
         assert_eq!(output, b"beforeafter");
-        assert_eq!(responses, b"\x1b[1;1R");
+        assert_eq!(responses, b"\x1b[1;7R");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_current_cursor_position_query() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"abc\x1b[6n", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"abc");
+        assert_eq!(responses, b"\x1b[1;4R");
     }
 
     #[test]
@@ -1603,7 +1662,7 @@ mod tests {
         filter.flush(&mut output).unwrap();
 
         assert_eq!(output, b"beforeafter");
-        assert_eq!(responses, b"\x1b[1;1R");
+        assert_eq!(responses, b"\x1b[1;7R");
     }
 
     #[test]
