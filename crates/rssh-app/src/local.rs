@@ -3,7 +3,7 @@ use std::{
     io::{self, IsTerminal, Read, Write},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU16, Ordering},
         mpsc,
     },
     thread,
@@ -36,13 +36,15 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let (control_sender, control_receiver) = mpsc::channel();
     let terminal_response_sender = pty_input_sender.clone();
     let output_control_sender = control_sender.clone();
-    let input_reporting = InputReporting::default();
+    let runtime_state = LocalRuntimeState::new(size);
+    let output_terminal_size = runtime_state.terminal_size.clone();
 
     let _reader_thread = thread::spawn(move || {
         let result = copy_pty_output(
             &mut reader,
             &terminal_response_sender,
             &output_control_sender,
+            output_terminal_size,
         );
         let _ = reader_done_sender.send(result);
     });
@@ -55,7 +57,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let _input_thread = spawn_input_thread(
         pty_input_sender.clone(),
         control_sender,
-        input_reporting.clone(),
+        runtime_state.input_reporting.clone(),
     );
     let run_result = run_input_loop(
         &mut session,
@@ -63,7 +65,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
         &writer_done_receiver,
         &control_receiver,
         &mut raw_mode,
-        &input_reporting,
+        &runtime_state,
         options.mouse,
     );
 
@@ -71,6 +73,40 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     drop(session);
 
     run_result
+}
+
+#[derive(Clone)]
+struct SharedTerminalSize {
+    columns: Arc<AtomicU16>,
+    rows: Arc<AtomicU16>,
+}
+
+impl SharedTerminalSize {
+    fn new(size: PtySize) -> Self {
+        Self {
+            columns: Arc::new(AtomicU16::new(size.columns())),
+            rows: Arc::new(AtomicU16::new(size.rows())),
+        }
+    }
+
+    fn snapshot(&self) -> PtySize {
+        PtySize::try_new(
+            self.columns.load(Ordering::Relaxed),
+            self.rows.load(Ordering::Relaxed),
+        )
+        .expect("shared terminal size remains valid")
+    }
+
+    fn set(&self, size: PtySize) {
+        self.columns.store(size.columns(), Ordering::Relaxed);
+        self.rows.store(size.rows(), Ordering::Relaxed);
+    }
+}
+
+impl Default for SharedTerminalSize {
+    fn default() -> Self {
+        Self::new(fallback_pty_size())
+    }
 }
 
 enum LocalControlEvent {
@@ -129,6 +165,20 @@ impl InputReporting {
     fn set_application_cursor_keys(&self, enabled: bool) {
         self.application_cursor_keys
             .store(enabled, Ordering::Relaxed);
+    }
+}
+
+struct LocalRuntimeState {
+    input_reporting: InputReporting,
+    terminal_size: SharedTerminalSize,
+}
+
+impl LocalRuntimeState {
+    fn new(size: PtySize) -> Self {
+        Self {
+            input_reporting: InputReporting::default(),
+            terminal_size: SharedTerminalSize::new(size),
+        }
     }
 }
 
@@ -275,10 +325,11 @@ fn copy_pty_output(
     reader: &mut dyn Read,
     pty_input_sender: &mpsc::Sender<Vec<u8>>,
     control_sender: &mpsc::Sender<LocalControlEvent>,
+    terminal_size: SharedTerminalSize,
 ) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     let mut buffer = [0; 8192];
-    let mut output_filter = TerminalOutputFilter::default();
+    let mut output_filter = TerminalOutputFilter::with_shared_size(terminal_size);
     let mut mode_tracker = TerminalModeTracker::default();
 
     loop {
@@ -337,7 +388,7 @@ fn run_input_loop(
     writer_done_receiver: &mpsc::Receiver<io::Result<()>>,
     control_receiver: &mpsc::Receiver<LocalControlEvent>,
     raw_mode: &mut RawMode,
-    input_reporting: &InputReporting,
+    runtime_state: &LocalRuntimeState,
     allow_application_reporting: bool,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     loop {
@@ -352,12 +403,17 @@ fn run_input_loop(
 
         while let Ok(control_event) = control_receiver.try_recv() {
             match control_event {
-                LocalControlEvent::Resize(size) => session.resize(size)?,
+                LocalControlEvent::Resize(size) => {
+                    session.resize(size)?;
+                    runtime_state.terminal_size.set(size);
+                }
                 LocalControlEvent::SetApplicationCursorKeys(enabled) => {
-                    input_reporting.set_application_cursor_keys(enabled);
+                    runtime_state
+                        .input_reporting
+                        .set_application_cursor_keys(enabled);
                 }
                 LocalControlEvent::SetBracketedPaste(enabled) => {
-                    input_reporting.set_bracketed_paste(enabled);
+                    runtime_state.input_reporting.set_bracketed_paste(enabled);
                 }
                 LocalControlEvent::SetMouseReporting(enabled) => {
                     let enabled = if allow_application_reporting {
@@ -365,7 +421,7 @@ fn run_input_loop(
                     } else {
                         false
                     };
-                    input_reporting.set_mouse(enabled);
+                    runtime_state.input_reporting.set_mouse(enabled);
                 }
                 LocalControlEvent::SetFocusReporting(enabled) => {
                     let enabled = if allow_application_reporting {
@@ -373,7 +429,7 @@ fn run_input_loop(
                     } else {
                         false
                     };
-                    input_reporting.set_focus(enabled);
+                    runtime_state.input_reporting.set_focus(enabled);
                 }
             }
         }
@@ -577,27 +633,44 @@ enum ModeParse {
 #[derive(Default)]
 struct TerminalOutputFilter {
     pending: Vec<u8>,
+    size: SharedTerminalSize,
 }
 
 impl TerminalOutputFilter {
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
-            response: b"\x1b[1;1R",
+            response: TerminalResponse::Static(b"\x1b[1;1R"),
         },
         TerminalQueryResponse {
             query: b"\x1b[c",
-            response: b"\x1b[?1;2c",
+            response: TerminalResponse::Static(b"\x1b[?1;2c"),
         },
         TerminalQueryResponse {
             query: b"\x1b[>c",
-            response: b"\x1b[>0;0;0c",
+            response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
         },
         TerminalQueryResponse {
             query: b"\x1b[5n",
-            response: b"\x1b[0n",
+            response: TerminalResponse::Static(b"\x1b[0n"),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[18t",
+            response: TerminalResponse::TextAreaSize,
         },
     ];
+
+    #[cfg(test)]
+    fn new(size: PtySize) -> Self {
+        Self::with_shared_size(SharedTerminalSize::new(size))
+    }
+
+    fn with_shared_size(size: SharedTerminalSize) -> Self {
+        Self {
+            pending: Vec::new(),
+            size,
+        }
+    }
 
     fn write(
         &mut self,
@@ -609,7 +682,8 @@ impl TerminalOutputFilter {
 
         while let Some((index, response)) = self.find_next_response() {
             output.write_all(&self.pending[..index])?;
-            respond(response.response)?;
+            let response_bytes = response.response_bytes(self.size.snapshot());
+            respond(&response_bytes)?;
             self.pending.drain(..index + response.query.len());
         }
 
@@ -649,7 +723,24 @@ impl TerminalOutputFilter {
 
 struct TerminalQueryResponse {
     query: &'static [u8],
-    response: &'static [u8],
+    response: TerminalResponse,
+}
+
+#[derive(Clone, Copy)]
+enum TerminalResponse {
+    Static(&'static [u8]),
+    TextAreaSize,
+}
+
+impl TerminalQueryResponse {
+    fn response_bytes(&self, size: PtySize) -> Vec<u8> {
+        match self.response {
+            TerminalResponse::Static(bytes) => bytes.to_vec(),
+            TerminalResponse::TextAreaSize => {
+                format!("\x1b[8;{};{}t", size.rows(), size.columns()).into_bytes()
+            }
+        }
+    }
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -1274,6 +1365,24 @@ mod tests {
 
         assert_eq!(output, b"a b c d");
         assert_eq!(responses, b"\x1b[?1;2c\x1b[>0;0;0c\x1b[0n");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_text_area_size_query() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[18tafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[8;43;132t");
     }
 
     #[test]

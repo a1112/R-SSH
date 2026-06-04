@@ -11,7 +11,7 @@ impl TerminalRuntime {
     pub fn new(size: TerminalSize) -> Self {
         Self {
             terminal: Terminal::new(size),
-            output_filter: TerminalOutputFilter::default(),
+            output_filter: TerminalOutputFilter::new(size),
         }
     }
 
@@ -29,9 +29,9 @@ impl TerminalRuntime {
     }
 }
 
-#[derive(Default)]
 struct TerminalOutputFilter {
     pending: Vec<u8>,
+    size: TerminalSize,
 }
 
 struct FilteredOutput {
@@ -43,21 +43,32 @@ impl TerminalOutputFilter {
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
-            response: b"\x1b[1;1R",
+            response: TerminalResponse::Static(b"\x1b[1;1R"),
         },
         TerminalQueryResponse {
             query: b"\x1b[c",
-            response: b"\x1b[?1;2c",
+            response: TerminalResponse::Static(b"\x1b[?1;2c"),
         },
         TerminalQueryResponse {
             query: b"\x1b[>c",
-            response: b"\x1b[>0;0;0c",
+            response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
         },
         TerminalQueryResponse {
             query: b"\x1b[5n",
-            response: b"\x1b[0n",
+            response: TerminalResponse::Static(b"\x1b[0n"),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[18t",
+            response: TerminalResponse::TextAreaSize,
         },
     ];
+
+    fn new(size: TerminalSize) -> Self {
+        Self {
+            pending: Vec::new(),
+            size,
+        }
+    }
 
     fn process(&mut self, bytes: &[u8]) -> FilteredOutput {
         self.pending.extend_from_slice(bytes);
@@ -67,7 +78,7 @@ impl TerminalOutputFilter {
 
         while let Some((index, response)) = self.find_next_response() {
             display.extend_from_slice(&self.pending[..index]);
-            responses.push(response.response.to_vec());
+            responses.push(response.response_bytes(self.size));
             self.pending.drain(..index + response.query.len());
         }
 
@@ -101,7 +112,24 @@ impl TerminalOutputFilter {
 
 struct TerminalQueryResponse {
     query: &'static [u8],
-    response: &'static [u8],
+    response: TerminalResponse,
+}
+
+#[derive(Clone, Copy)]
+enum TerminalResponse {
+    Static(&'static [u8]),
+    TextAreaSize,
+}
+
+impl TerminalQueryResponse {
+    fn response_bytes(&self, size: TerminalSize) -> Vec<u8> {
+        match self.response {
+            TerminalResponse::Static(bytes) => bytes.to_vec(),
+            TerminalResponse::TextAreaSize => {
+                format!("\x1b[8;{};{}t", size.rows, size.columns).into_bytes()
+            }
+        }
+    }
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -175,6 +203,19 @@ mod tests {
         assert!(text.contains("a b c d"));
         assert!(!text.contains("[>c"));
         assert!(!text.contains("[5n"));
+    }
+
+    #[test]
+    fn answers_text_area_size_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"before\x1b[18tafter");
+
+        assert_eq!(responses, vec![b"\x1b[8;43;132t".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[18t"));
     }
 
     #[test]
