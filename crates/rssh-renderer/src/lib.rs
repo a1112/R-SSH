@@ -105,6 +105,19 @@ impl PixelRenderer {
                     );
                 }
             }
+
+            if cell.underline {
+                let underline_height = (cell_height / 8).max(1);
+                surface.fill_rect(
+                    Rect {
+                        x: origin_x,
+                        y: origin_y + cell_height.saturating_sub(underline_height),
+                        width: cell_width,
+                        height: underline_height,
+                    },
+                    foreground,
+                );
+            }
         }
 
         if let Some(cursor) = snapshot.cursor() {
@@ -546,6 +559,21 @@ mod tests {
                 .any(|pixel| pixel == [255, 0, 0, 255]),
             "renderer did not draw xterm indexed red"
         );
+    }
+
+    #[test]
+    fn pixel_renderer_draws_underlined_text() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[4;38;2;255;0;0mA");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].underline);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 7), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 7), [255, 0, 0, 255]);
     }
 
     #[test]
