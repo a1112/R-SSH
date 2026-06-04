@@ -390,18 +390,28 @@ impl NativeWindowApp {
                     return false;
                 };
                 self.search = None;
-                let now = Instant::now();
-                if let Some(selection) = self.double_click_word_selection(cell, now) {
-                    self.selection = Some(selection);
+                let click = self.next_left_click(cell, Instant::now());
+                if click.count >= 3 {
+                    self.selection = Some(self.line_selection_at_cell(cell));
                     self.selecting = false;
-                    self.last_left_click = None;
+                    self.last_left_click = Some(click);
                     self.refresh_snapshot();
                     self.apply_window_title();
                     return true;
                 }
+                if click.count == 2 {
+                    if let Some(selection) = self.double_click_word_selection(cell) {
+                        self.selection = Some(selection);
+                        self.selecting = false;
+                        self.last_left_click = Some(click);
+                        self.refresh_snapshot();
+                        self.apply_window_title();
+                        return true;
+                    }
+                }
                 self.selection = Some(WindowSelection::new(cell, cell));
                 self.selecting = true;
-                self.last_left_click = Some(WindowClick { cell, time: now });
+                self.last_left_click = Some(click);
                 self.refresh_snapshot();
                 self.apply_window_title();
                 true
@@ -451,17 +461,20 @@ impl NativeWindowApp {
         Some(SelectionCell { row, column })
     }
 
-    fn double_click_word_selection(
-        &self,
-        cell: SelectionCell,
-        now: Instant,
-    ) -> Option<WindowSelection> {
-        let last_click = self.last_left_click?;
-        let elapsed = now.checked_duration_since(last_click.time)?;
-        if elapsed > DOUBLE_CLICK_MAX_INTERVAL {
-            return None;
-        }
+    fn next_left_click(&self, cell: SelectionCell, time: Instant) -> WindowClick {
+        let count = self
+            .last_left_click
+            .and_then(|last_click| {
+                let elapsed = time.checked_duration_since(last_click.time)?;
+                (elapsed <= DOUBLE_CLICK_MAX_INTERVAL).then_some(last_click.count.saturating_add(1))
+            })
+            .unwrap_or(1);
 
+        WindowClick { cell, time, count }
+    }
+
+    fn double_click_word_selection(&self, cell: SelectionCell) -> Option<WindowSelection> {
+        let last_click = self.last_left_click?;
         let selection = self.word_selection_at_cell(cell)?;
         let size = self.runtime.terminal().grid().size();
         if selection.contains(last_click.cell.row, last_click.cell.column, size) {
@@ -469,6 +482,20 @@ impl NativeWindowApp {
         } else {
             None
         }
+    }
+
+    fn line_selection_at_cell(&self, cell: SelectionCell) -> WindowSelection {
+        let size = self.runtime.terminal().grid().size();
+        WindowSelection::new(
+            SelectionCell {
+                row: cell.row,
+                column: 0,
+            },
+            SelectionCell {
+                row: cell.row,
+                column: size.columns.saturating_sub(1),
+            },
+        )
     }
 
     fn word_selection_at_cell(&self, cell: SelectionCell) -> Option<WindowSelection> {
@@ -990,6 +1017,7 @@ struct SelectionCell {
 struct WindowClick {
     cell: SelectionCell,
     time: Instant,
+    count: u8,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2335,6 +2363,47 @@ mod tests {
         );
         assert!(snapshot_cell(&app.snapshot, 0, 4).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 0, 13).unwrap().inverse);
+    }
+
+    #[test]
+    fn window_app_triple_click_selects_line() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"run alpha-beta").unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(super::CELL_WIDTH * 6), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 0, column: 15 },
+            ))
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("run alpha-beta"));
+        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(
+            app.selection
+                .unwrap()
+                .contains(0, 15, app.runtime.terminal().grid().size())
+        );
     }
 
     #[test]
