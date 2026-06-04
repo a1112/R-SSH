@@ -139,13 +139,19 @@ impl Terminal {
                 22 => self.style.bold = false,
                 23 => self.style.italic = false,
                 24 => self.style.underline = false,
-                30..=37 => self.style.foreground = Color::Indexed((values[index] - 30) as u8),
+                30..=37 => {
+                    self.style.foreground = Color::Indexed(saturating_u8(values[index] - 30));
+                }
                 39 => self.style.foreground = Color::Default,
-                40..=47 => self.style.background = Color::Indexed((values[index] - 40) as u8),
+                40..=47 => {
+                    self.style.background = Color::Indexed(saturating_u8(values[index] - 40));
+                }
                 49 => self.style.background = Color::Default,
-                90..=97 => self.style.foreground = Color::Indexed((values[index] - 90 + 8) as u8),
+                90..=97 => {
+                    self.style.foreground = Color::Indexed(saturating_u8(values[index] - 90 + 8));
+                }
                 100..=107 => {
-                    self.style.background = Color::Indexed((values[index] - 100 + 8) as u8);
+                    self.style.background = Color::Indexed(saturating_u8(values[index] - 100 + 8));
                 }
                 38 | 48 => {
                     let is_foreground = values[index] == 38;
@@ -215,17 +221,21 @@ fn parse_sgr_params(params: &[char]) -> Vec<u16> {
 
 fn parse_extended_color(values: &[u16]) -> Option<(Color, usize)> {
     match values {
-        [5, index, ..] => Some((Color::Indexed((*index).min(u16::from(u8::MAX)) as u8), 2)),
+        [5, index, ..] => Some((Color::Indexed(saturating_u8(*index)), 2)),
         [2, red, green, blue, ..] => Some((
             Color::Rgb(
-                (*red).min(u16::from(u8::MAX)) as u8,
-                (*green).min(u16::from(u8::MAX)) as u8,
-                (*blue).min(u16::from(u8::MAX)) as u8,
+                saturating_u8(*red),
+                saturating_u8(*green),
+                saturating_u8(*blue),
             ),
             4,
         )),
         _ => None,
     }
+}
+
+fn saturating_u8(value: u16) -> u8 {
+    u8::try_from(value).unwrap_or(u8::MAX)
 }
 
 fn display_width(ch: char) -> u16 {
