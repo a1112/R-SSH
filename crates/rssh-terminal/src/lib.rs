@@ -221,4 +221,58 @@ mod tests {
 
         assert_eq!(terminal.take_damage(), vec![DamageRegion::new(0, 0, 2, 1)]);
     }
+
+    #[test]
+    fn terminal_positions_cursor_with_cup_and_hvp() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+
+        terminal.feed(b"\x1b[2;3HZ\x1b[3;1fQ");
+
+        assert_eq!(terminal.grid().get(1, 2).unwrap().ch, 'Z');
+        assert_eq!(terminal.grid().get(2, 0).unwrap().ch, 'Q');
+        assert_eq!(terminal.cursor(), (2, 1));
+    }
+
+    #[test]
+    fn terminal_moves_cursor_with_relative_csi_commands() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 3));
+
+        terminal.feed(b"ab\ncd\x1b[A\x1b[CX\x1b[B\x1b[DY");
+
+        assert_eq!(terminal.grid().get(0, 3).unwrap().ch, 'X');
+        assert_eq!(terminal.grid().get(1, 3).unwrap().ch, 'Y');
+        assert_eq!(terminal.cursor(), (1, 4));
+    }
+
+    #[test]
+    fn terminal_erases_line_from_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"abcdef\x1b[3D\x1b[K");
+
+        assert_eq!(row_text(&terminal, 0), "abc     ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_erases_entire_display() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"abcd\nef\x1b[2J");
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(terminal.cursor(), (1, 2));
+    }
+
+    fn row_text(terminal: &Terminal, row: u16) -> String {
+        let grid = terminal.grid();
+        let mut text = String::new();
+
+        for column in 0..grid.size().columns {
+            text.push(grid.get(row, column).unwrap().ch);
+        }
+
+        text
+    }
 }
