@@ -201,6 +201,16 @@ impl NativeWindowApp {
         self.refresh_snapshot();
     }
 
+    fn set_scrollback_offset(&mut self, offset: usize) {
+        let next_offset = offset.min(self.runtime.terminal().scrollback().len());
+        if next_offset == self.scrollback_offset {
+            return;
+        }
+
+        self.scrollback_offset = next_offset;
+        self.refresh_snapshot();
+    }
+
     fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) -> bool {
         let lines = scrollback_lines_from_mouse_delta(delta);
         if lines == 0 {
@@ -209,6 +219,40 @@ impl NativeWindowApp {
 
         self.scroll_viewport_lines(lines);
         true
+    }
+
+    fn handle_scrollback_shortcut(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
+        if modifiers != ModifiersState::SHIFT {
+            return false;
+        }
+
+        let Key::Named(named) = key else {
+            return false;
+        };
+
+        match named {
+            NamedKey::PageUp => {
+                self.scroll_viewport_lines(self.viewport_page_rows());
+                true
+            }
+            NamedKey::PageDown => {
+                self.scroll_viewport_lines(-self.viewport_page_rows());
+                true
+            }
+            NamedKey::Home => {
+                self.set_scrollback_offset(self.runtime.terminal().scrollback().len());
+                true
+            }
+            NamedKey::End => {
+                self.set_scrollback_offset(0);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn viewport_page_rows(&self) -> isize {
+        isize::try_from(i32::from(self.runtime.terminal().grid().size().rows)).unwrap_or(isize::MAX)
     }
 
     fn sync_window_title_from_runtime(&mut self) {
@@ -289,6 +333,10 @@ impl NativeWindowApp {
 
     fn handle_keyboard_input(&mut self, key: &winit::event::KeyEvent) -> io::Result<()> {
         if key.state != ElementState::Pressed {
+            return Ok(());
+        }
+
+        if self.handle_scrollback_shortcut(&key.logical_key, self.modifiers) {
             return Ok(());
         }
 
@@ -955,6 +1003,50 @@ mod tests {
         assert!(app.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, -1.0)));
 
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
+    }
+
+    #[test]
+    fn window_app_shift_page_keys_scroll_scrollback_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\nbb\ncc\ndd\nee").unwrap();
+
+        assert!(
+            app.handle_scrollback_shortcut(&Key::Named(NamedKey::PageUp), ModifiersState::SHIFT)
+        );
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
+
+        assert!(
+            app.handle_scrollback_shortcut(&Key::Named(NamedKey::PageDown), ModifiersState::SHIFT)
+        );
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('d'));
+    }
+
+    #[test]
+    fn window_app_shift_home_end_jump_scrollback_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\nbb\ncc\ndd\nee").unwrap();
+
+        assert!(app.handle_scrollback_shortcut(&Key::Named(NamedKey::Home), ModifiersState::SHIFT));
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+
+        assert!(app.handle_scrollback_shortcut(&Key::Named(NamedKey::End), ModifiersState::SHIFT));
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('d'));
+        assert!(app.snapshot.cursor().is_some());
+    }
+
+    #[test]
+    fn window_app_unmodified_page_key_stays_available_for_pty() {
+        let mut app = NativeWindowApp::new(None);
+
+        assert!(
+            !app.handle_scrollback_shortcut(&Key::Named(NamedKey::PageUp), ModifiersState::empty())
+        );
     }
 
     #[test]

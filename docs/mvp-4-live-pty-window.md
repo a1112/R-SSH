@@ -38,6 +38,9 @@ in the native `winit` window.
   updated together.
 - The native window can render the terminal scrollback viewport and mouse-wheel
   events move that viewport up or down through available history.
+- `Shift+PageUp`, `Shift+PageDown`, `Shift+Home`, and `Shift+End` navigate the
+  native scrollback viewport while unmodified page/navigation keys remain
+  available to the active PTY application.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
 
@@ -98,6 +101,7 @@ MVP 4 tests cover:
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
 - native window scrollback viewport clamping and mouse-wheel movement
+- native window Shift scrollback shortcuts without stealing unmodified page keys
 
 ## Metrics Design
 
@@ -134,8 +138,9 @@ Recommended MVP 5 targets:
 MVP 5 should replace the minimal bitmap-font renderer with a production-grade
 text rendering path and add basic terminal UX. The terminal core now has bounded
 main-screen scrollback storage, the renderer can build scrollback viewport
-snapshots, and the native window can move that viewport with mouse-wheel input.
+snapshots, and the native window can move that viewport with mouse-wheel input
+and Shift page/navigation shortcuts.
 
 1. Track dirty regions instead of rebuilding the full snapshot each chunk.
-2. Add keyboard shortcuts and scrollbar/status affordances for scrollback.
+2. Add scrollbar/status affordances for scrollback.
 3. Start collecting the metrics listed above in smoke and benchmark commands.
