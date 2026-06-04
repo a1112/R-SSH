@@ -75,17 +75,23 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 
 enum LocalControlEvent {
     Resize(PtySize),
+    SetBracketedPaste(bool),
     SetMouseReporting(bool),
     SetFocusReporting(bool),
 }
 
 #[derive(Clone, Default)]
 struct InputReporting {
+    bracketed_paste: Arc<AtomicBool>,
     mouse: Arc<AtomicBool>,
     focus: Arc<AtomicBool>,
 }
 
 impl InputReporting {
+    fn bracketed_paste_enabled(&self) -> bool {
+        self.bracketed_paste.load(Ordering::Relaxed)
+    }
+
     fn mouse_enabled(&self) -> bool {
         self.mouse.load(Ordering::Relaxed)
     }
@@ -100,6 +106,10 @@ impl InputReporting {
 
     fn set_focus(&self, enabled: bool) {
         self.focus.store(enabled, Ordering::Relaxed);
+    }
+
+    fn set_bracketed_paste(&self, enabled: bool) {
+        self.bracketed_paste.store(enabled, Ordering::Relaxed);
     }
 }
 
@@ -122,6 +132,7 @@ fn spawn_input_thread(
                         event,
                         input_reporting.mouse_enabled(),
                         input_reporting.focus_enabled(),
+                        input_reporting.bracketed_paste_enabled(),
                     ) else {
                         continue;
                     };
@@ -266,6 +277,9 @@ fn copy_pty_output(
             Ok(count) => {
                 mode_tracker.process(&buffer[..count], |change| {
                     let event = match change {
+                        TerminalModeChange::BracketedPaste(enabled) => {
+                            LocalControlEvent::SetBracketedPaste(enabled)
+                        }
                         TerminalModeChange::Mouse(enabled) => {
                             LocalControlEvent::SetMouseReporting(enabled)
                         }
@@ -322,6 +336,9 @@ fn run_input_loop(
         while let Ok(control_event) = control_receiver.try_recv() {
             match control_event {
                 LocalControlEvent::Resize(size) => session.resize(size)?,
+                LocalControlEvent::SetBracketedPaste(enabled) => {
+                    input_reporting.set_bracketed_paste(enabled);
+                }
                 LocalControlEvent::SetMouseReporting(enabled) => {
                     let enabled = if allow_application_reporting {
                         raw_mode.set_mouse_capture(enabled)?
@@ -351,6 +368,7 @@ fn run_input_loop(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerminalModeChange {
+    BracketedPaste(bool),
     Mouse(bool),
     Focus(bool),
 }
@@ -359,6 +377,7 @@ enum TerminalModeChange {
 struct TerminalModeTracker {
     pending: Vec<u8>,
     mouse_modes: MouseModes,
+    bracketed_paste: bool,
     focus: bool,
 }
 
@@ -444,6 +463,12 @@ impl TerminalModeTracker {
                 if self.focus != enabled {
                     self.focus = enabled;
                     emit(TerminalModeChange::Focus(enabled));
+                }
+            }
+            2004 => {
+                if self.bracketed_paste != enabled {
+                    self.bracketed_paste = enabled;
+                    emit(TerminalModeChange::BracketedPaste(enabled));
                 }
             }
             _ => {}
@@ -584,15 +609,25 @@ fn encode_input_event(
     event: Event,
     mouse_reporting: bool,
     focus_reporting: bool,
+    bracketed_paste: bool,
 ) -> Option<Vec<u8>> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => encode_key(key),
+        Event::Paste(text) if bracketed_paste => Some(encode_bracketed_paste(&text)),
         Event::Paste(text) => Some(text.into_bytes()),
         Event::Mouse(event) if mouse_reporting => encode_mouse_event(event),
         Event::FocusGained if focus_reporting => Some(b"\x1b[I".to_vec()),
         Event::FocusLost if focus_reporting => Some(b"\x1b[O".to_vec()),
         _ => None,
     }
+}
+
+fn encode_bracketed_paste(text: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(b"\x1b[200~".len() + text.len() + b"\x1b[201~".len());
+    bytes.extend_from_slice(b"\x1b[200~");
+    bytes.extend_from_slice(text.as_bytes());
+    bytes.extend_from_slice(b"\x1b[201~");
+    bytes
 }
 
 fn encode_mouse_event(event: MouseEvent) -> Option<Vec<u8>> {
@@ -735,24 +770,32 @@ mod tests {
     #[test]
     fn encodes_paste_event_as_utf8_bytes() {
         assert_eq!(
-            encode_input_event(Event::Paste("line 1\n中".to_owned()), false, false).unwrap(),
+            encode_input_event(Event::Paste("line 1\n中".to_owned()), false, false, false).unwrap(),
             "line 1\n中".as_bytes()
         );
     }
 
     #[test]
+    fn encodes_paste_event_as_bracketed_paste_when_enabled() {
+        assert_eq!(
+            encode_input_event(Event::Paste("line 1\n中".to_owned()), false, false, true).unwrap(),
+            b"\x1b[200~line 1\n\xe4\xb8\xad\x1b[201~"
+        );
+    }
+
+    #[test]
     fn ignores_mouse_events_unless_enabled() {
-        assert!(encode_input_event(left_mouse_down(), false, false).is_none());
+        assert!(encode_input_event(left_mouse_down(), false, false, false).is_none());
     }
 
     #[test]
     fn encodes_mouse_events_as_sgr_sequences_when_enabled() {
         assert_eq!(
-            encode_input_event(left_mouse_down(), true, false).unwrap(),
+            encode_input_event(left_mouse_down(), true, false, false).unwrap(),
             b"\x1b[<0;1;2M"
         );
         assert_eq!(
-            encode_input_event(left_mouse_release(), true, false).unwrap(),
+            encode_input_event(left_mouse_release(), true, false, false).unwrap(),
             b"\x1b[<0;1;2m"
         );
         assert_eq!(
@@ -764,6 +807,7 @@ mod tests {
                     modifiers: KeyModifiers::CONTROL,
                 }),
                 true,
+                false,
                 false
             )
             .unwrap(),
@@ -774,20 +818,20 @@ mod tests {
     #[test]
     fn encodes_focus_events_when_focus_reporting_is_enabled() {
         assert_eq!(
-            encode_input_event(Event::FocusGained, false, true).unwrap(),
+            encode_input_event(Event::FocusGained, false, true, false).unwrap(),
             b"\x1b[I"
         );
         assert_eq!(
-            encode_input_event(Event::FocusLost, false, true).unwrap(),
+            encode_input_event(Event::FocusLost, false, true, false).unwrap(),
             b"\x1b[O"
         );
     }
 
     #[test]
     fn encodes_focus_events_only_when_focus_reporting_is_enabled() {
-        assert!(encode_input_event(Event::FocusGained, true, false).is_none());
+        assert!(encode_input_event(Event::FocusGained, true, false, false).is_none());
         assert_eq!(
-            encode_input_event(Event::FocusGained, false, true).unwrap(),
+            encode_input_event(Event::FocusGained, false, true, false).unwrap(),
             b"\x1b[I"
         );
     }
@@ -843,6 +887,23 @@ mod tests {
             vec![
                 TerminalModeChange::Focus(true),
                 TerminalModeChange::Focus(false)
+            ]
+        );
+    }
+
+    #[test]
+    fn tracks_bracketed_paste_from_pty_output_modes() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?2004h", |change| changes.push(change));
+        tracker.process(b"\x1b[?2004l", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::BracketedPaste(true),
+                TerminalModeChange::BracketedPaste(false)
             ]
         );
     }
