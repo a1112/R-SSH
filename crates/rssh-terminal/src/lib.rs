@@ -1,5 +1,9 @@
 use rssh_core::TerminalSize;
 
+mod parser;
+
+pub use parser::Terminal;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     Default,
@@ -89,7 +93,7 @@ impl TerminalGrid {
 mod tests {
     use rssh_core::TerminalSize;
 
-    use super::{Cell, Color, TerminalGrid};
+    use super::{Cell, Color, Terminal, TerminalGrid};
 
     #[test]
     fn grid_allocates_one_cell_per_terminal_slot() {
@@ -143,5 +147,47 @@ mod tests {
 
         assert!(!grid.set(2, 0, Cell::default()));
         assert!(!grid.set(0, 3, Cell::default()));
+    }
+
+    #[test]
+    fn terminal_writes_plain_text_into_grid() {
+        let mut terminal = Terminal::new(TerminalSize::new(10, 2));
+
+        terminal.feed(b"abc");
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'a');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'b');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'c');
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_moves_to_next_row_on_newline() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 2));
+
+        terminal.feed(b"ab\ncd");
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'a');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'b');
+        assert_eq!(terminal.grid().get(1, 0).unwrap().ch, 'c');
+        assert_eq!(terminal.grid().get(1, 1).unwrap().ch, 'd');
+        assert_eq!(terminal.cursor(), (1, 2));
+    }
+
+    #[test]
+    fn terminal_applies_basic_sgr_colors_and_styles() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 1));
+
+        terminal.feed(b"\x1b[1;31mR\x1b[0mD");
+
+        let red = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(red.ch, 'R');
+        assert_eq!(red.foreground, Color::Indexed(1));
+        assert!(red.bold);
+
+        let default = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(default.ch, 'D');
+        assert_eq!(default.foreground, Color::Default);
+        assert!(!default.bold);
     }
 }
