@@ -33,6 +33,10 @@ in the native `winit` window.
 - The native window supports basic local text selection when PTY mouse
   reporting is inactive; selected text is highlighted and can be copied with
   `Ctrl+Shift+C` or `Ctrl+Insert`.
+- The native window supports line-based scrollback search with `Ctrl+F`,
+  `Enter`/`F3` for the next match, `Shift+F3` for the previous match, and
+  `Esc` to exit search mode. Matches scroll the viewport into history and use
+  the selection highlight.
 - The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
   and sends SS3 arrow-key sequences while it is enabled.
 - The native window tracks PTY-side application keypad mode (`ESC=` / `ESC>`)
@@ -101,6 +105,8 @@ MVP 4 tests cover:
 - native window clipboard paste encoding and paste shortcut detection
 - native window local selection text extraction, highlight overlay, mouse drag,
   and copy shortcut detection
+- native window line-based scrollback search, next/previous navigation, and
+  search shortcut detection
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
@@ -142,7 +148,7 @@ Recommended MVP 5 targets:
 ## Explicit Non-Scope
 
 - SSH protocol sessions in the native window.
-- Scrollback search.
+- Cross-line and regex scrollback search.
 - Advanced selection behavior such as word/line selection and selection across
   changing scrollback.
 - GPU text shaping, glyph atlas caching, and font fallback.

@@ -74,6 +74,7 @@ struct NativeWindowApp {
     active_mouse_button: Option<MouseButton>,
     selection: Option<WindowSelection>,
     selecting: bool,
+    search: Option<WindowSearch>,
 }
 
 #[derive(Debug)]
@@ -109,6 +110,7 @@ impl NativeWindowApp {
             active_mouse_button: None,
             selection: None,
             selecting: false,
+            search: None,
         }
     }
 
@@ -212,7 +214,10 @@ impl NativeWindowApp {
         }
 
         self.scrollback_offset = next_offset;
+        self.selection = None;
+        self.search = None;
         self.refresh_snapshot();
+        self.apply_window_title();
     }
 
     fn set_scrollback_offset(&mut self, offset: usize) {
@@ -222,7 +227,10 @@ impl NativeWindowApp {
         }
 
         self.scrollback_offset = next_offset;
+        self.selection = None;
+        self.search = None;
         self.refresh_snapshot();
+        self.apply_window_title();
     }
 
     fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) -> bool {
@@ -353,9 +361,11 @@ impl NativeWindowApp {
                 let Some(cell) = self.selection_cell_from_mouse_position() else {
                     return false;
                 };
+                self.search = None;
                 self.selection = Some(WindowSelection::new(cell, cell));
                 self.selecting = true;
                 self.refresh_snapshot();
+                self.apply_window_title();
                 true
             }
             ElementState::Released => {
@@ -367,6 +377,7 @@ impl NativeWindowApp {
                     self.selection = None;
                 }
                 self.refresh_snapshot();
+                self.apply_window_title();
                 true
             }
         }
@@ -445,8 +456,29 @@ impl NativeWindowApp {
         }
 
         self.window_title = title;
+        self.apply_window_title();
+    }
+
+    fn effective_window_title(&self) -> String {
+        let Some(search) = &self.search else {
+            return self.window_title.clone();
+        };
+
+        if search.query.is_empty() {
+            format!("{} - Search", self.window_title)
+        } else if search.current.is_some() {
+            format!("{} - Search: {}", self.window_title, search.query)
+        } else {
+            format!(
+                "{} - Search: {} (no match)",
+                self.window_title, search.query
+            )
+        }
+    }
+
+    fn apply_window_title(&self) {
         if let Some(window) = &self.window {
-            window.set_title(&self.window_title);
+            window.set_title(&self.effective_window_title());
         }
     }
 
@@ -516,6 +548,16 @@ impl NativeWindowApp {
             return Ok(());
         }
 
+        if window_search_shortcut(&key.logical_key, self.modifiers) {
+            self.enter_search_mode();
+            return Ok(());
+        }
+
+        if self.search.is_some() {
+            self.handle_search_key(key);
+            return Ok(());
+        }
+
         if window_copy_shortcut(&key.logical_key, self.modifiers) {
             self.copy_selection_to_clipboard();
             return Ok(());
@@ -543,6 +585,123 @@ impl NativeWindowApp {
         }
 
         Ok(())
+    }
+
+    fn enter_search_mode(&mut self) {
+        self.search = Some(WindowSearch::default());
+        self.apply_window_title();
+    }
+
+    fn exit_search_mode(&mut self) {
+        self.search = None;
+        self.apply_window_title();
+    }
+
+    fn handle_search_key(&mut self, key: &winit::event::KeyEvent) -> bool {
+        match key.logical_key.as_ref() {
+            Key::Named(NamedKey::Escape) => {
+                self.exit_search_mode();
+                true
+            }
+            Key::Named(NamedKey::F3) if self.modifiers.shift_key() => {
+                self.step_search(SearchDirection::Previous)
+            }
+            Key::Named(NamedKey::Enter | NamedKey::F3) => self.step_search(SearchDirection::Next),
+            Key::Named(NamedKey::Backspace) => {
+                let Some(search) = self.search.as_ref() else {
+                    return false;
+                };
+                let mut query = search.query.clone();
+                if query.pop().is_none() {
+                    return false;
+                }
+                self.update_search_query(&query);
+                true
+            }
+            Key::Character(text) if !self.modifiers.control_key() && !self.modifiers.alt_key() => {
+                let Some(search) = self.search.as_ref() else {
+                    return false;
+                };
+                let mut query = search.query.clone();
+                query.push_str(text);
+                self.update_search_query(&query);
+                true
+            }
+            _ => true,
+        }
+    }
+
+    fn update_search_query(&mut self, query: &str) -> bool {
+        let mut search = WindowSearch {
+            query: query.to_owned(),
+            current: None,
+        };
+
+        if query.is_empty() {
+            self.search = Some(search);
+            self.selection = None;
+            self.refresh_snapshot();
+            self.apply_window_title();
+            return false;
+        }
+
+        let found =
+            find_window_search_match(self.runtime.terminal(), query, None, SearchDirection::Next);
+        search.current = found;
+        self.search = Some(search);
+
+        let Some(found) = found else {
+            self.selection = None;
+            self.refresh_snapshot();
+            self.apply_window_title();
+            return false;
+        };
+
+        self.apply_search_match(found);
+        true
+    }
+
+    fn step_search(&mut self, direction: SearchDirection) -> bool {
+        let Some(search) = self.search.as_ref() else {
+            return false;
+        };
+        if search.query.is_empty() {
+            return false;
+        }
+
+        let found = find_window_search_match(
+            self.runtime.terminal(),
+            &search.query,
+            search.current,
+            direction,
+        );
+        let Some(found) = found else {
+            return false;
+        };
+
+        if let Some(search) = self.search.as_mut() {
+            search.current = Some(found);
+        }
+        self.apply_search_match(found);
+        true
+    }
+
+    fn apply_search_match(&mut self, search_match: WindowSearchMatch) {
+        let scrollback_len = self.runtime.terminal().scrollback().len();
+        let (offset, viewport_row) = search_match.viewport_position(scrollback_len);
+        self.scrollback_offset = offset;
+        self.selection = Some(WindowSelection::new(
+            SelectionCell {
+                row: viewport_row,
+                column: search_match.start_column,
+            },
+            SelectionCell {
+                row: viewport_row,
+                column: search_match.end_column,
+            },
+        ));
+        self.refresh_snapshot();
+        self.apply_window_title();
     }
 
     fn copy_selection_to_clipboard(&self) -> bool {
@@ -802,6 +961,130 @@ fn snapshot_character(snapshot: &TerminalRenderSnapshot, row: u16, column: u16) 
         .iter()
         .find(|cell| cell.row == row && cell.column == column)
         .map_or(' ', |cell| cell.ch)
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct WindowSearch {
+    query: String,
+    current: Option<WindowSearchMatch>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WindowSearchMatch {
+    source_row: usize,
+    start_column: u16,
+    end_column: u16,
+}
+
+impl WindowSearchMatch {
+    fn viewport_position(self, scrollback_len: usize) -> (usize, u16) {
+        if self.source_row < scrollback_len {
+            (scrollback_len - self.source_row, 0)
+        } else {
+            let row = self.source_row.saturating_sub(scrollback_len);
+            (0, u16::try_from(row).unwrap_or(u16::MAX))
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SearchDirection {
+    Next,
+    Previous,
+}
+
+fn find_window_search_match(
+    terminal: &rssh_terminal::Terminal,
+    query: &str,
+    current: Option<WindowSearchMatch>,
+    direction: SearchDirection,
+) -> Option<WindowSearchMatch> {
+    if query.is_empty() {
+        return None;
+    }
+
+    let matches = window_search_matches(terminal, query);
+    if matches.is_empty() {
+        return None;
+    }
+
+    let Some(current) = current else {
+        return match direction {
+            SearchDirection::Next => matches.first().copied(),
+            SearchDirection::Previous => matches.last().copied(),
+        };
+    };
+
+    match direction {
+        SearchDirection::Next => matches
+            .iter()
+            .copied()
+            .find(|candidate| search_match_after(*candidate, current))
+            .or_else(|| matches.first().copied()),
+        SearchDirection::Previous => matches
+            .iter()
+            .rev()
+            .copied()
+            .find(|candidate| search_match_after(current, *candidate))
+            .or_else(|| matches.last().copied()),
+    }
+}
+
+fn search_match_after(candidate: WindowSearchMatch, current: WindowSearchMatch) -> bool {
+    candidate.source_row > current.source_row
+        || (candidate.source_row == current.source_row
+            && candidate.start_column > current.start_column)
+}
+
+fn window_search_matches(
+    terminal: &rssh_terminal::Terminal,
+    query: &str,
+) -> Vec<WindowSearchMatch> {
+    terminal_search_lines(terminal)
+        .into_iter()
+        .enumerate()
+        .flat_map(|(source_row, line)| search_line_matches(source_row, &line, query))
+        .collect()
+}
+
+fn terminal_search_lines(terminal: &rssh_terminal::Terminal) -> Vec<String> {
+    let size = terminal.grid().size();
+    let mut lines = Vec::new();
+
+    for line in terminal.scrollback() {
+        lines.push(
+            line.cells()
+                .iter()
+                .take(usize::from(size.columns))
+                .map(|cell| cell.ch)
+                .collect(),
+        );
+    }
+
+    for row in 0..size.rows {
+        let mut line = String::new();
+        for column in 0..size.columns {
+            line.push(terminal.grid().get(row, column).map_or(' ', |cell| cell.ch));
+        }
+        lines.push(line);
+    }
+
+    lines
+}
+
+fn search_line_matches(source_row: usize, line: &str, query: &str) -> Vec<WindowSearchMatch> {
+    line.match_indices(query)
+        .filter_map(|(byte_index, _)| {
+            let start = u16::try_from(line[..byte_index].chars().count()).ok()?;
+            let width = u16::try_from(query.chars().count()).ok()?;
+            let end = start.checked_add(width.saturating_sub(1))?;
+            Some(WindowSearchMatch {
+                source_row,
+                start_column: start,
+                end_column: end,
+            })
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy)]
@@ -1096,6 +1379,13 @@ fn window_copy_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
     ctrl_shift_c || ctrl_insert
 }
 
+fn window_search_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
+    modifiers.control_key()
+        && !modifiers.shift_key()
+        && !modifiers.alt_key()
+        && matches!(key.as_ref(), Key::Character(character) if character.eq_ignore_ascii_case("f"))
+}
+
 fn read_window_clipboard_text() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
 }
@@ -1271,10 +1561,10 @@ mod tests {
     use crate::terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
 
     use super::{
-        NativeWindowApp, SelectionCell, WindowMouseEvent, WindowMouseEventKind, WindowSelection,
-        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_mouse_event,
-        encode_window_paste, terminal_size_from_window_pixels, window_copy_shortcut,
-        window_paste_shortcut,
+        NativeWindowApp, SearchDirection, SelectionCell, WindowMouseEvent, WindowMouseEventKind,
+        WindowSelection, demo_snapshot, encode_window_focus_event, encode_window_key,
+        encode_window_mouse_event, encode_window_paste, terminal_size_from_window_pixels,
+        window_copy_shortcut, window_paste_shortcut, window_search_shortcut,
     };
 
     #[test]
@@ -1868,6 +2158,58 @@ mod tests {
                 .unwrap()
         );
         assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_search_finds_matches_in_scrollback() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 2));
+        app.handle_pty_output(b"alpha\r\nbeta\r\ngamma").unwrap();
+
+        assert!(app.update_search_query("alpha"));
+
+        assert_eq!(app.selected_text().as_deref(), Some("alpha"));
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(app.scrollback_offset > 0);
+    }
+
+    #[test]
+    fn window_search_steps_between_matches() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.handle_pty_output(b"foo one\r\nmiddle\r\nfoo two")
+            .unwrap();
+
+        assert!(app.update_search_query("foo"));
+        assert_eq!(app.selected_text().as_deref(), Some("foo"));
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('f'));
+
+        assert!(app.step_search(SearchDirection::Next));
+
+        assert_eq!(app.selected_text().as_deref(), Some("foo"));
+        assert_eq!(snapshot_char(&app.snapshot, 2, 0), Some('f'));
+
+        assert!(app.step_search(SearchDirection::Previous));
+
+        assert_eq!(app.selected_text().as_deref(), Some("foo"));
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('f'));
+    }
+
+    #[test]
+    fn recognizes_window_search_shortcuts() {
+        assert!(window_search_shortcut(
+            &Key::Character("f".into()),
+            ModifiersState::CONTROL
+        ));
+        assert!(window_search_shortcut(
+            &Key::Character("F".into()),
+            ModifiersState::CONTROL
+        ));
+        assert!(!window_search_shortcut(
+            &Key::Character("f".into()),
+            ModifiersState::empty()
+        ));
     }
 
     #[test]
