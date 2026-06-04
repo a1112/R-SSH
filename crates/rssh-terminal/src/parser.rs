@@ -120,11 +120,14 @@ struct ScreenState {
     style: Cell,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct SavedCursor {
     row: u16,
     column: u16,
     pending_wrap: bool,
+    origin_mode: bool,
+    character_set: CharacterSet,
+    style: Cell,
 }
 
 impl Terminal {
@@ -612,7 +615,7 @@ impl Terminal {
             cursor_column: self.cursor_column,
             pending_wrap: self.pending_wrap,
             last_printable: self.last_printable,
-            saved_cursor: self.saved_cursor,
+            saved_cursor: self.saved_cursor.clone(),
             modes: self.modes,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
@@ -691,13 +694,20 @@ impl Terminal {
             row: self.cursor_row,
             column: self.cursor_column,
             pending_wrap: self.pending_wrap,
+            origin_mode: self.modes.origin_mode,
+            character_set: self.character_set,
+            style: self.style.clone(),
         });
     }
 
     fn restore_cursor(&mut self) {
-        let Some(saved) = self.saved_cursor else {
+        let Some(saved) = self.saved_cursor.clone() else {
             return;
         };
+
+        self.modes.origin_mode = saved.origin_mode;
+        self.character_set = saved.character_set;
+        self.style = saved.style;
 
         let size = self.grid.size();
         if size.rows == 0 || size.columns == 0 {

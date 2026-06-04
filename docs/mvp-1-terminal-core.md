@@ -46,7 +46,9 @@ support the next PTY and SSH milestones.
     ``ESC[column` ``, and `ESC[rowd`)
   - relative cursor movement with `CUU`, `CUD`, `CUF`, `CUB`, `HPR`, and `VPR`
   - line movement with `CNL` and `CPL`
-- Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`.
+- Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`, including
+  cursor position, pending wrap state, SGR style, G0 character set, and origin
+  mode.
 - Cursor visibility tracking for `DECSET ?25` and `DECRST ?25`.
 - G0 character-set switching for DEC Special Graphics (`ESC(0` / `ESC(B`),
   with common box-drawing glyph mapping.
@@ -126,7 +128,8 @@ cover:
 - `?1048h/l` private cursor save/restore without switching screens
 - CSI cursor positioning, line movement, and relative cursor movement
 - `?25h/l` cursor visibility tracking
-- `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
+- `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore, including style,
+  character set, and origin-mode restoration
 - DEC Special Graphics line drawing and split `ESC(` sequence handling
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
 - split UTF-8 characters across `feed` calls

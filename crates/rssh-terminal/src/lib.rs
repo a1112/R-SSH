@@ -292,6 +292,32 @@ mod tests {
     }
 
     #[test]
+    fn terminal_esc_save_restore_restores_style_and_character_set() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"\x1b[31;1mA\x1b7\x1b[0m\x1b(0q\x1b8q");
+
+        assert_eq!(row_text(&terminal, 0), "Aq    ");
+        assert_eq!(terminal.cursor(), (0, 2));
+
+        let restored = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(restored.ch, 'q');
+        assert_eq!(restored.foreground, Color::Indexed(1));
+        assert!(restored.bold);
+    }
+
+    #[test]
+    fn terminal_esc_save_restore_restores_origin_mode() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[2;3r\x1b[?6h\x1b[1;1H\x1b7\x1b[?6l\x1b8\x1b[1;1HZ");
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+        assert_eq!(row_text(&terminal, 1), "Z   ");
+        assert_eq!(terminal.cursor(), (1, 1));
+    }
+
+    #[test]
     fn terminal_saves_and_restores_cursor_with_csi_s_and_u() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 2));
 
@@ -300,6 +326,19 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "abZ     ");
         assert_eq!(row_text(&terminal, 1), "cd      ");
         assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_csi_save_restore_restores_style_and_character_set() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"\x1b[32mA\x1b[s\x1b[0m\x1b(0q\x1b[uq");
+
+        assert_eq!(row_text(&terminal, 0), "Aq    ");
+
+        let restored = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(restored.ch, 'q');
+        assert_eq!(restored.foreground, Color::Indexed(2));
     }
 
     #[test]
