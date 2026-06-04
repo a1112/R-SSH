@@ -199,6 +199,28 @@ mod tests {
     }
 
     #[test]
+    fn terminal_ignores_bel_without_advancing_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"ab\x07cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd  ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn terminal_vertical_tab_and_form_feed_move_to_next_row() {
+        let mut terminal = Terminal::new(TerminalSize::new(5, 3));
+
+        terminal.feed(b"ab\x0bcd\x0cef");
+
+        assert_eq!(row_text(&terminal, 0), "ab   ");
+        assert_eq!(row_text(&terminal, 1), "cd   ");
+        assert_eq!(row_text(&terminal, 2), "ef   ");
+        assert_eq!(terminal.cursor(), (2, 2));
+    }
+
+    #[test]
     fn terminal_index_moves_down_without_carriage_return() {
         let mut terminal = Terminal::new(TerminalSize::new(5, 2));
 

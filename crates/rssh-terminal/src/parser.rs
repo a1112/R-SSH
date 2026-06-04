@@ -273,6 +273,7 @@ impl Terminal {
 
     fn consume_text_or_ascii_control(&mut self, ch: char, index: usize) -> usize {
         match ch {
+            '\0' | '\u{7}' => index + 1,
             '\u{8}' => {
                 self.backspace();
                 index + 1
@@ -281,7 +282,7 @@ impl Terminal {
                 self.horizontal_tab();
                 index + 1
             }
-            '\n' => {
+            '\n' | '\u{b}' | '\u{c}' => {
                 self.newline();
                 index + 1
             }
