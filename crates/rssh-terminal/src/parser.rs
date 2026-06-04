@@ -182,8 +182,8 @@ impl Terminal {
                     };
                     index = next_index;
                 }
-                '\u{1b}' if chars.get(index + 1) == Some(&'P') => {
-                    let Some(next_index) = self.skip_dcs(&chars, index) else {
+                '\u{1b}' if matches!(chars.get(index + 1).copied(), Some('P' | '^' | '_')) => {
+                    let Some(next_index) = self.skip_st_control_string(&chars, index) else {
                         break;
                     };
                     index = next_index;
@@ -260,7 +260,7 @@ impl Terminal {
         self.skip_control_string(chars, index, 2, parse_osc)
     }
 
-    fn skip_dcs(&mut self, chars: &[char], index: usize) -> Option<usize> {
+    fn skip_st_control_string(&mut self, chars: &[char], index: usize) -> Option<usize> {
         self.skip_control_string(chars, index, 2, parse_st_terminated_control_string)
     }
 
