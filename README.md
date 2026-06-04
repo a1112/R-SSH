@@ -50,6 +50,9 @@ cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 ```
 
+`local` is the console-hosted startup path. Add `--mouse` when you want terminal
+applications to negotiate xterm mouse/focus reporting through PTY output modes.
+
 ## MVP Status
 
 - MVP 1: Terminal core baseline is complete. See `docs/mvp-1-terminal-core.md`.

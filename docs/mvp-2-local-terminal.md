@@ -30,8 +30,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   - F1 through F12
 - Bracketed paste events are forwarded to the PTY as UTF-8 bytes when the host
   console supports bracketed paste mode.
-- `rssh-app local --mouse` enables host mouse capture and focus events, then
-  forwards them as xterm SGR mouse and focus sequences.
+- `rssh-app local --mouse` allows terminal applications to enable and disable
+  host mouse capture and focus events through xterm PTY output modes, then
+  forwards active reports as xterm SGR mouse and focus sequences.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
 - The app answers the basic cursor-position query `ESC[6n` with `ESC[1;1R` so
@@ -67,6 +68,10 @@ Run with mouse/focus reporting enabled:
 cargo run -p rssh-app -- local --mouse
 ```
 
+Mouse and focus events are forwarded only after the PTY-side application enables
+the relevant xterm modes, such as `ESC[?1000h`, `ESC[?1002h`, `ESC[?1003h`, or
+`ESC[?1004h`.
+
 ## Verification
 
 Default checks:
@@ -98,6 +103,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
 - Control-sequence response: unit tests cover normal output, `ESC[6n`, and
   split `ESC[6n` chunks.
+- Mouse/focus negotiation: unit tests cover split and combined PTY mode
+  sequences for xterm mouse and focus reporting.
 - Regression gate: workspace tests and clippy must pass before merging.
 
 ## Explicit Non-Scope
@@ -105,7 +112,6 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Native GPU window.
 - Full VT/xterm compatibility.
 - Scrollback.
-- Application-negotiated mouse mode tracking.
 - Clipboard.
 - Tab/session profile UI.
 - SSH network connection.

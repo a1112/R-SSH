@@ -1,7 +1,11 @@
 use std::{
     error::Error,
     io::{self, IsTerminal, Read, Write},
-    sync::mpsc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
@@ -31,9 +35,15 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let (pty_input_sender, pty_input_receiver) = mpsc::channel();
     let (control_sender, control_receiver) = mpsc::channel();
     let terminal_response_sender = pty_input_sender.clone();
+    let output_control_sender = control_sender.clone();
+    let input_reporting = InputReporting::default();
 
     let _reader_thread = thread::spawn(move || {
-        let result = copy_pty_output(&mut reader, &terminal_response_sender);
+        let result = copy_pty_output(
+            &mut reader,
+            &terminal_response_sender,
+            &output_control_sender,
+        );
         let _ = reader_done_sender.send(result);
     });
     let _writer_thread = thread::spawn(move || {
@@ -41,13 +51,20 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
         let _ = writer_done_sender.send(result);
     });
 
-    let _raw_mode = RawMode::enable(options.mouse)?;
-    let _input_thread = spawn_input_thread(pty_input_sender.clone(), control_sender, options.mouse);
+    let mut raw_mode = RawMode::enable()?;
+    let _input_thread = spawn_input_thread(
+        pty_input_sender.clone(),
+        control_sender,
+        input_reporting.clone(),
+    );
     let run_result = run_input_loop(
         &mut session,
         &reader_done_receiver,
         &writer_done_receiver,
         &control_receiver,
+        &mut raw_mode,
+        &input_reporting,
+        options.mouse,
     );
 
     drop(pty_input_sender);
@@ -58,12 +75,38 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 
 enum LocalControlEvent {
     Resize(PtySize),
+    SetMouseReporting(bool),
+    SetFocusReporting(bool),
+}
+
+#[derive(Clone, Default)]
+struct InputReporting {
+    mouse: Arc<AtomicBool>,
+    focus: Arc<AtomicBool>,
+}
+
+impl InputReporting {
+    fn mouse_enabled(&self) -> bool {
+        self.mouse.load(Ordering::Relaxed)
+    }
+
+    fn focus_enabled(&self) -> bool {
+        self.focus.load(Ordering::Relaxed)
+    }
+
+    fn set_mouse(&self, enabled: bool) {
+        self.mouse.store(enabled, Ordering::Relaxed);
+    }
+
+    fn set_focus(&self, enabled: bool) {
+        self.focus.store(enabled, Ordering::Relaxed);
+    }
 }
 
 fn spawn_input_thread(
     pty_input_sender: mpsc::Sender<Vec<u8>>,
     control_sender: mpsc::Sender<LocalControlEvent>,
-    mouse_reporting: bool,
+    input_reporting: InputReporting,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         loop {
@@ -75,7 +118,11 @@ fn spawn_input_thread(
                     | Event::FocusGained
                     | Event::FocusLost),
                 ) => {
-                    let Some(bytes) = encode_input_event(event, mouse_reporting) else {
+                    let Some(bytes) = encode_input_event(
+                        event,
+                        input_reporting.mouse_enabled(),
+                        input_reporting.focus_enabled(),
+                    ) else {
                         continue;
                     };
                     if pty_input_sender.send(bytes).is_err() {
@@ -121,7 +168,7 @@ struct RawMode {
 }
 
 impl RawMode {
-    fn enable(mouse_capture_requested: bool) -> io::Result<Self> {
+    fn enable() -> io::Result<Self> {
         terminal::enable_raw_mode()?;
 
         let bracketed_paste = if io::stdout().is_terminal() {
@@ -131,22 +178,53 @@ impl RawMode {
             false
         };
 
-        let (mouse_capture, focus_change) = if mouse_capture_requested && io::stdout().is_terminal()
-        {
-            let mut stdout = io::stdout();
-            (
-                execute!(stdout, EnableMouseCapture).is_ok(),
-                execute!(stdout, EnableFocusChange).is_ok(),
-            )
-        } else {
-            (false, false)
-        };
-
         Ok(Self {
             bracketed_paste,
-            mouse_capture,
-            focus_change,
+            mouse_capture: false,
+            focus_change: false,
         })
+    }
+
+    fn set_mouse_capture(&mut self, enabled: bool) -> io::Result<bool> {
+        if enabled == self.mouse_capture {
+            return Ok(self.mouse_capture);
+        }
+
+        if enabled {
+            if !io::stdout().is_terminal() {
+                return Ok(false);
+            }
+            let mut stdout = io::stdout();
+            execute!(stdout, EnableMouseCapture)?;
+            self.mouse_capture = true;
+        } else {
+            let mut stdout = io::stdout();
+            execute!(stdout, DisableMouseCapture)?;
+            self.mouse_capture = false;
+        }
+
+        Ok(self.mouse_capture)
+    }
+
+    fn set_focus_change(&mut self, enabled: bool) -> io::Result<bool> {
+        if enabled == self.focus_change {
+            return Ok(self.focus_change);
+        }
+
+        if enabled {
+            if !io::stdout().is_terminal() {
+                return Ok(false);
+            }
+            let mut stdout = io::stdout();
+            execute!(stdout, EnableFocusChange)?;
+            self.focus_change = true;
+        } else {
+            let mut stdout = io::stdout();
+            execute!(stdout, DisableFocusChange)?;
+            self.focus_change = false;
+        }
+
+        Ok(self.focus_change)
     }
 }
 
@@ -171,10 +249,12 @@ impl Drop for RawMode {
 fn copy_pty_output(
     reader: &mut dyn Read,
     pty_input_sender: &mpsc::Sender<Vec<u8>>,
+    control_sender: &mpsc::Sender<LocalControlEvent>,
 ) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     let mut buffer = [0; 8192];
     let mut output_filter = TerminalOutputFilter::default();
+    let mut mode_tracker = TerminalModeTracker::default();
 
     loop {
         match reader.read(&mut buffer) {
@@ -184,6 +264,17 @@ fn copy_pty_output(
                 return Ok(());
             }
             Ok(count) => {
+                mode_tracker.process(&buffer[..count], |change| {
+                    let event = match change {
+                        TerminalModeChange::Mouse(enabled) => {
+                            LocalControlEvent::SetMouseReporting(enabled)
+                        }
+                        TerminalModeChange::Focus(enabled) => {
+                            LocalControlEvent::SetFocusReporting(enabled)
+                        }
+                    };
+                    let _ = control_sender.send(event);
+                });
                 output_filter.write(&buffer[..count], &mut stdout, |response| {
                     pty_input_sender
                         .send(response.to_vec())
@@ -214,6 +305,9 @@ fn run_input_loop(
     reader_done_receiver: &mpsc::Receiver<io::Result<()>>,
     writer_done_receiver: &mpsc::Receiver<io::Result<()>>,
     control_receiver: &mpsc::Receiver<LocalControlEvent>,
+    raw_mode: &mut RawMode,
+    input_reporting: &InputReporting,
+    allow_application_reporting: bool,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     loop {
         if let Ok(reader_result) = reader_done_receiver.try_recv() {
@@ -228,6 +322,22 @@ fn run_input_loop(
         while let Ok(control_event) = control_receiver.try_recv() {
             match control_event {
                 LocalControlEvent::Resize(size) => session.resize(size)?,
+                LocalControlEvent::SetMouseReporting(enabled) => {
+                    let enabled = if allow_application_reporting {
+                        raw_mode.set_mouse_capture(enabled)?
+                    } else {
+                        false
+                    };
+                    input_reporting.set_mouse(enabled);
+                }
+                LocalControlEvent::SetFocusReporting(enabled) => {
+                    let enabled = if allow_application_reporting {
+                        raw_mode.set_focus_change(enabled)?
+                    } else {
+                        false
+                    };
+                    input_reporting.set_focus(enabled);
+                }
             }
         }
 
@@ -237,6 +347,178 @@ fn run_input_loop(
 
         thread::sleep(Duration::from_millis(10));
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalModeChange {
+    Mouse(bool),
+    Focus(bool),
+}
+
+#[derive(Default)]
+struct TerminalModeTracker {
+    pending: Vec<u8>,
+    mouse_modes: MouseModes,
+    focus: bool,
+}
+
+impl TerminalModeTracker {
+    const MODE_PREFIX: &'static [u8] = b"\x1b[?";
+
+    fn process(&mut self, bytes: &[u8], mut emit: impl FnMut(TerminalModeChange)) {
+        self.pending.extend_from_slice(bytes);
+
+        loop {
+            let Some(index) = find_subslice(&self.pending, Self::MODE_PREFIX) else {
+                self.retain_possible_prefix();
+                return;
+            };
+            if index > 0 {
+                self.pending.drain(..index);
+            }
+
+            match Self::parse_mode_sequence(&self.pending) {
+                ModeParse::Complete {
+                    modes,
+                    enabled,
+                    consumed,
+                } => {
+                    for mode in modes {
+                        self.apply_mode(mode, enabled, &mut emit);
+                    }
+                    self.pending.drain(..consumed);
+                }
+                ModeParse::Incomplete => return,
+                ModeParse::Invalid => {
+                    self.pending.drain(..1);
+                }
+            }
+        }
+    }
+
+    fn parse_mode_sequence(bytes: &[u8]) -> ModeParse {
+        let mut cursor = Self::MODE_PREFIX.len();
+        let mut modes = Vec::new();
+
+        loop {
+            if cursor >= bytes.len() {
+                return ModeParse::Incomplete;
+            }
+
+            let start = cursor;
+            let mut mode = 0u16;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                mode = mode
+                    .saturating_mul(10)
+                    .saturating_add(u16::from(bytes[cursor] - b'0'));
+                cursor += 1;
+            }
+
+            if cursor == start {
+                return ModeParse::Invalid;
+            }
+            modes.push(mode);
+
+            if cursor >= bytes.len() {
+                return ModeParse::Incomplete;
+            }
+
+            match bytes[cursor] {
+                b';' => cursor += 1,
+                b'h' | b'l' => {
+                    return ModeParse::Complete {
+                        modes,
+                        enabled: bytes[cursor] == b'h',
+                        consumed: cursor + 1,
+                    };
+                }
+                _ => return ModeParse::Invalid,
+            }
+        }
+    }
+
+    fn apply_mode(&mut self, mode: u16, enabled: bool, emit: &mut impl FnMut(TerminalModeChange)) {
+        match mode {
+            1000 | 1002 | 1003 => self.set_mouse_mode(mode, enabled, emit),
+            1004 => {
+                if self.focus != enabled {
+                    self.focus = enabled;
+                    emit(TerminalModeChange::Focus(enabled));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn set_mouse_mode(
+        &mut self,
+        mode: u16,
+        enabled: bool,
+        emit: &mut impl FnMut(TerminalModeChange),
+    ) {
+        let before = self.mouse_reporting();
+        self.mouse_modes.set(mode, enabled);
+        let after = self.mouse_reporting();
+        if before != after {
+            emit(TerminalModeChange::Mouse(after));
+        }
+    }
+
+    fn mouse_reporting(&self) -> bool {
+        self.mouse_modes.any_enabled()
+    }
+
+    fn retain_possible_prefix(&mut self) {
+        let retained = Self::MODE_PREFIX.len().saturating_sub(1);
+        let writable = self.pending.len().saturating_sub(retained);
+        if writable > 0 {
+            self.pending.drain(..writable);
+        }
+    }
+}
+
+#[derive(Default)]
+struct MouseModes(u8);
+
+impl MouseModes {
+    const NORMAL: u8 = 1;
+    const BUTTON_EVENT: u8 = 1 << 1;
+    const ANY_EVENT: u8 = 1 << 2;
+
+    fn set(&mut self, mode: u16, enabled: bool) {
+        let Some(mask) = Self::mask(mode) else {
+            return;
+        };
+
+        if enabled {
+            self.0 |= mask;
+        } else {
+            self.0 &= !mask;
+        }
+    }
+
+    fn any_enabled(&self) -> bool {
+        self.0 != 0
+    }
+
+    const fn mask(mode: u16) -> Option<u8> {
+        match mode {
+            1000 => Some(Self::NORMAL),
+            1002 => Some(Self::BUTTON_EVENT),
+            1003 => Some(Self::ANY_EVENT),
+            _ => None,
+        }
+    }
+}
+
+enum ModeParse {
+    Complete {
+        modes: Vec<u16>,
+        enabled: bool,
+        consumed: usize,
+    },
+    Incomplete,
+    Invalid,
 }
 
 #[derive(Default)]
@@ -263,7 +545,7 @@ impl TerminalOutputFilter {
                 .drain(..index + Self::CURSOR_POSITION_QUERY.len());
         }
 
-        let retained = Self::CURSOR_POSITION_QUERY.len().saturating_sub(1);
+        let retained = suffix_len_matching_prefix(&self.pending, Self::CURSOR_POSITION_QUERY);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             output.write_all(&self.pending[..writable])?;
@@ -290,13 +572,25 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
-fn encode_input_event(event: Event, mouse_reporting: bool) -> Option<Vec<u8>> {
+fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
+    let max = haystack.len().min(needle.len().saturating_sub(1));
+    (1..=max)
+        .rev()
+        .find(|&length| haystack[haystack.len() - length..] == needle[..length])
+        .unwrap_or(0)
+}
+
+fn encode_input_event(
+    event: Event,
+    mouse_reporting: bool,
+    focus_reporting: bool,
+) -> Option<Vec<u8>> {
     match event {
         Event::Key(key) if key.kind == KeyEventKind::Press => encode_key(key),
         Event::Paste(text) => Some(text.into_bytes()),
         Event::Mouse(event) if mouse_reporting => encode_mouse_event(event),
-        Event::FocusGained if mouse_reporting => Some(b"\x1b[I".to_vec()),
-        Event::FocusLost if mouse_reporting => Some(b"\x1b[O".to_vec()),
+        Event::FocusGained if focus_reporting => Some(b"\x1b[I".to_vec()),
+        Event::FocusLost if focus_reporting => Some(b"\x1b[O".to_vec()),
         _ => None,
     }
 }
@@ -381,7 +675,10 @@ mod tests {
         Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
     };
 
-    use super::{TerminalOutputFilter, encode_input_event, encode_key, resolve_local_size};
+    use super::{
+        TerminalModeChange, TerminalModeTracker, TerminalOutputFilter, encode_input_event,
+        encode_key, resolve_local_size,
+    };
 
     #[test]
     fn encodes_text_input_as_utf8() {
@@ -438,24 +735,24 @@ mod tests {
     #[test]
     fn encodes_paste_event_as_utf8_bytes() {
         assert_eq!(
-            encode_input_event(Event::Paste("line 1\n中".to_owned()), false).unwrap(),
+            encode_input_event(Event::Paste("line 1\n中".to_owned()), false, false).unwrap(),
             "line 1\n中".as_bytes()
         );
     }
 
     #[test]
     fn ignores_mouse_events_unless_enabled() {
-        assert!(encode_input_event(left_mouse_down(), false).is_none());
+        assert!(encode_input_event(left_mouse_down(), false, false).is_none());
     }
 
     #[test]
     fn encodes_mouse_events_as_sgr_sequences_when_enabled() {
         assert_eq!(
-            encode_input_event(left_mouse_down(), true).unwrap(),
+            encode_input_event(left_mouse_down(), true, false).unwrap(),
             b"\x1b[<0;1;2M"
         );
         assert_eq!(
-            encode_input_event(left_mouse_release(), true).unwrap(),
+            encode_input_event(left_mouse_release(), true, false).unwrap(),
             b"\x1b[<0;1;2m"
         );
         assert_eq!(
@@ -466,7 +763,8 @@ mod tests {
                     row: 5,
                     modifiers: KeyModifiers::CONTROL,
                 }),
-                true
+                true,
+                false
             )
             .unwrap(),
             b"\x1b[<81;5;6M"
@@ -474,14 +772,78 @@ mod tests {
     }
 
     #[test]
-    fn encodes_focus_events_when_mouse_reporting_is_enabled() {
+    fn encodes_focus_events_when_focus_reporting_is_enabled() {
         assert_eq!(
-            encode_input_event(Event::FocusGained, true).unwrap(),
+            encode_input_event(Event::FocusGained, false, true).unwrap(),
             b"\x1b[I"
         );
         assert_eq!(
-            encode_input_event(Event::FocusLost, true).unwrap(),
+            encode_input_event(Event::FocusLost, false, true).unwrap(),
             b"\x1b[O"
+        );
+    }
+
+    #[test]
+    fn encodes_focus_events_only_when_focus_reporting_is_enabled() {
+        assert!(encode_input_event(Event::FocusGained, true, false).is_none());
+        assert_eq!(
+            encode_input_event(Event::FocusGained, false, true).unwrap(),
+            b"\x1b[I"
+        );
+    }
+
+    #[test]
+    fn tracks_mouse_reporting_from_pty_output_modes() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?1006h", |change| changes.push(change));
+        assert!(changes.is_empty());
+
+        tracker.process(b"\x1b[?1000h", |change| changes.push(change));
+        tracker.process(b"\x1b[?1000l", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::Mouse(true),
+                TerminalModeChange::Mouse(false)
+            ]
+        );
+    }
+
+    #[test]
+    fn tracks_combined_mouse_reporting_modes_from_pty_output() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?1002;1006h", |change| changes.push(change));
+        tracker.process(b"\x1b[?1006l", |change| changes.push(change));
+        tracker.process(b"\x1b[?1002l", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::Mouse(true),
+                TerminalModeChange::Mouse(false)
+            ]
+        );
+    }
+
+    #[test]
+    fn tracks_split_focus_reporting_from_pty_output_modes() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"before\x1b[?", |change| changes.push(change));
+        tracker.process(b"1004hafter\x1b[?1004l", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::Focus(true),
+                TerminalModeChange::Focus(false)
+            ]
         );
     }
 
@@ -528,6 +890,23 @@ mod tests {
         filter.flush(&mut output).unwrap();
 
         assert_eq!(output, b"hello");
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_does_not_hold_unrelated_tail_bytes() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"console-smoke", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"console-smoke");
         assert!(responses.is_empty());
     }
 
