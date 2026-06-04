@@ -9,6 +9,23 @@ enum CharacterSet {
     DecSpecialGraphics,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TerminalModes {
+    cursor_visible: bool,
+    auto_wrap: bool,
+    origin_mode: bool,
+}
+
+impl Default for TerminalModes {
+    fn default() -> Self {
+        Self {
+            cursor_visible: true,
+            auto_wrap: true,
+            origin_mode: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Terminal {
     grid: TerminalGrid,
@@ -20,8 +37,7 @@ pub struct Terminal {
     last_printable: Option<char>,
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
-    cursor_visible: bool,
-    auto_wrap: bool,
+    modes: TerminalModes,
     scroll_top: u16,
     scroll_bottom: u16,
     character_set: CharacterSet,
@@ -37,8 +53,7 @@ struct ScreenState {
     pending_wrap: bool,
     last_printable: Option<char>,
     saved_cursor: Option<SavedCursor>,
-    cursor_visible: bool,
-    auto_wrap: bool,
+    modes: TerminalModes,
     scroll_top: u16,
     scroll_bottom: u16,
     character_set: CharacterSet,
@@ -65,8 +80,7 @@ impl Terminal {
             last_printable: None,
             saved_cursor: None,
             main_screen: None,
-            cursor_visible: true,
-            auto_wrap: true,
+            modes: TerminalModes::default(),
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
             character_set: CharacterSet::Ascii,
@@ -178,7 +192,7 @@ impl Terminal {
 
     #[must_use]
     pub const fn cursor_visible(&self) -> bool {
-        self.cursor_visible
+        self.modes.cursor_visible
     }
 
     pub fn resize(&mut self, size: TerminalSize) {
@@ -291,13 +305,15 @@ impl Terminal {
             return;
         }
 
-        if self.pending_wrap && self.auto_wrap {
+        if self.pending_wrap && self.modes.auto_wrap {
             self.newline();
         } else if self.pending_wrap {
             self.pending_wrap = false;
         }
 
-        if self.cursor_column.saturating_add(width) > self.grid.size().columns && self.auto_wrap {
+        if self.cursor_column.saturating_add(width) > self.grid.size().columns
+            && self.modes.auto_wrap
+        {
             self.newline();
         }
 
@@ -334,7 +350,7 @@ impl Terminal {
         let next_column = self.cursor_column.saturating_add(width);
         if next_column >= self.grid.size().columns {
             self.cursor_column = self.grid.size().columns.saturating_sub(1);
-            self.pending_wrap = self.auto_wrap;
+            self.pending_wrap = self.modes.auto_wrap;
         } else {
             self.cursor_column = next_column;
             self.pending_wrap = false;
@@ -379,16 +395,22 @@ impl Terminal {
 
         for value in values {
             match value {
+                6 => self.set_origin_mode(enabled),
                 7 => self.set_auto_wrap(enabled),
-                25 => self.cursor_visible = enabled,
+                25 => self.modes.cursor_visible = enabled,
                 1049 => self.set_alternate_screen(enabled),
                 _ => {}
             }
         }
     }
 
+    fn set_origin_mode(&mut self, enabled: bool) {
+        self.modes.origin_mode = enabled;
+        self.cursor_home();
+    }
+
     fn set_auto_wrap(&mut self, enabled: bool) {
-        self.auto_wrap = enabled;
+        self.modes.auto_wrap = enabled;
         if !enabled {
             self.pending_wrap = false;
         }
@@ -408,7 +430,8 @@ impl Terminal {
             self.pending_wrap = false;
             self.last_printable = None;
             self.saved_cursor = None;
-            self.cursor_visible = true;
+            self.modes.cursor_visible = true;
+            self.modes.origin_mode = false;
             self.scroll_top = 0;
             self.scroll_bottom = size.rows.saturating_sub(1);
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
@@ -427,8 +450,7 @@ impl Terminal {
             pending_wrap: self.pending_wrap,
             last_printable: self.last_printable,
             saved_cursor: self.saved_cursor,
-            cursor_visible: self.cursor_visible,
-            auto_wrap: self.auto_wrap,
+            modes: self.modes,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
             character_set: self.character_set,
@@ -443,8 +465,7 @@ impl Terminal {
         self.pending_wrap = screen.pending_wrap;
         self.last_printable = screen.last_printable;
         self.saved_cursor = screen.saved_cursor;
-        self.cursor_visible = screen.cursor_visible;
-        self.auto_wrap = screen.auto_wrap;
+        self.modes = screen.modes;
         self.scroll_top = screen.scroll_top;
         self.scroll_bottom = screen.scroll_bottom;
         self.character_set = screen.character_set;
@@ -465,6 +486,16 @@ impl Terminal {
         if size.columns == 0 || size.rows == 0 {
             self.pending_wrap = false;
         }
+    }
+
+    fn cursor_home(&mut self) {
+        self.pending_wrap = false;
+        self.cursor_column = 0;
+        self.cursor_row = if self.modes.origin_mode {
+            self.scroll_top.min(self.grid.size().rows.saturating_sub(1))
+        } else {
+            0
+        };
     }
 
     fn set_scroll_region(&mut self, params: &[char]) {
@@ -489,9 +520,7 @@ impl Terminal {
 
         self.scroll_top = top;
         self.scroll_bottom = bottom;
-        self.cursor_row = 0;
-        self.cursor_column = 0;
-        self.pending_wrap = false;
+        self.cursor_home();
     }
 
     fn save_cursor(&mut self) {
@@ -570,11 +599,27 @@ impl Terminal {
             return;
         }
 
-        let row = param_or_one(values.first().copied()).saturating_sub(1);
+        let row = self.cursor_row_from_position_param(param_or_one(values.first().copied()));
         let column = param_or_one(values.get(1).copied()).saturating_sub(1);
 
-        self.cursor_row = row.min(rows - 1);
+        self.cursor_row = row;
         self.cursor_column = column.min(columns - 1);
+    }
+
+    fn cursor_row_from_position_param(&self, param: u16) -> u16 {
+        let row = param.saturating_sub(1);
+        let rows = self.grid.size().rows;
+        if rows == 0 {
+            return 0;
+        }
+
+        if self.modes.origin_mode {
+            let top = self.scroll_top.min(rows - 1);
+            let bottom = self.scroll_bottom.min(rows - 1);
+            top.saturating_add(row).min(bottom)
+        } else {
+            row.min(rows - 1)
+        }
     }
 
     fn position_cursor_column(&mut self, params: &[char]) {

@@ -339,6 +339,34 @@ mod tests {
     }
 
     #[test]
+    fn terminal_origin_mode_positions_cursor_relative_to_scroll_region() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 5));
+
+        terminal.feed(b"\x1b[2;4r\x1b[?6h\x1b[1;1HZ\x1b[3;4HQ");
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+        assert_eq!(row_text(&terminal, 1), "Z   ");
+        assert_eq!(row_text(&terminal, 2), "    ");
+        assert_eq!(row_text(&terminal, 3), "   Q");
+        assert_eq!(row_text(&terminal, 4), "    ");
+        assert_eq!(terminal.cursor(), (3, 3));
+    }
+
+    #[test]
+    fn terminal_origin_mode_reset_restores_absolute_cursor_positioning() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 5));
+
+        terminal.feed(b"\x1b[2;4r\x1b[?6h\x1b[1;1HZ\x1b[?6l\x1b[1;1HQ");
+
+        assert_eq!(row_text(&terminal, 0), "Q   ");
+        assert_eq!(row_text(&terminal, 1), "Z   ");
+        assert_eq!(row_text(&terminal, 2), "    ");
+        assert_eq!(row_text(&terminal, 3), "    ");
+        assert_eq!(row_text(&terminal, 4), "    ");
+        assert_eq!(terminal.cursor(), (0, 1));
+    }
+
+    #[test]
     fn terminal_inserts_lines_with_il() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 4));
 

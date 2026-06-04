@@ -26,6 +26,9 @@ support the next PTY and SSH milestones.
 - Basic `DECSTBM` scroll-region handling with `ESC[<top>;<bottom>r`; linefeed
   at the bottom margin scrolls only the configured region, and `ESC[r` restores
   full-screen scrolling.
+- Basic `DECOM` origin-mode handling with `DECSET ?6` and `DECRST ?6`; `CUP`
+  and `HVP` are relative to the active scroll region while origin mode is
+  enabled.
 - Basic alternate-screen support for `DECSET ?1049` and `DECRST ?1049`, with a
   clear alternate grid and restoration of the main grid/cursor on exit.
 - Basic CSI cursor handling:
@@ -104,6 +107,7 @@ cover:
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - `?7h/l` auto-wrap mode tracking at the right edge
 - `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
+- `?6h/l` origin-mode cursor positioning relative to scroll regions
 - `?1049` alternate-screen enter/exit with main screen restoration
 - CSI cursor positioning, line movement, and relative cursor movement
 - `?25h/l` cursor visibility tracking
