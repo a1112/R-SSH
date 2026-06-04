@@ -42,8 +42,8 @@ in the native `winit` window.
   native scrollback viewport while unmodified page/navigation keys remain
   available to the active PTY application.
 - The native window tracks PTY-side xterm mouse modes (`1000`/`1002`/`1003`
-  and `1006`) and forwards button and wheel events as legacy or SGR mouse
-  reports when reporting is enabled.
+  and `1006`) and forwards button, wheel, drag, and any-motion events as
+  legacy or SGR mouse reports when reporting is enabled.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
 
@@ -105,7 +105,8 @@ MVP 4 tests cover:
 - native window snapshot rebuilds from runtime output, including cursor state
 - native window scrollback viewport clamping and mouse-wheel movement
 - native window Shift scrollback shortcuts without stealing unmodified page keys
-- native window xterm mouse-mode tracking and button/wheel report encoding
+- native window xterm mouse-mode tracking and button/wheel/drag/motion report
+  encoding
 
 ## Metrics Design
 
@@ -131,9 +132,8 @@ Recommended MVP 5 targets:
 ## Explicit Non-Scope
 
 - SSH protocol sessions in the native window.
-- Scrollback rendering and search.
+- Scrollback search.
 - Selection.
-- Drag and any-motion mouse reporting.
 - GPU text shaping, glyph atlas caching, and font fallback.
 - Persistent session profiles.
 
