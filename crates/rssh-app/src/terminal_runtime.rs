@@ -1,3 +1,4 @@
+use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::TerminalSize;
 use rssh_terminal::Terminal;
 
@@ -5,6 +6,7 @@ pub struct TerminalRuntime {
     terminal: Terminal,
     output_filter: TerminalOutputFilter,
     mode_tracker: TerminalModeTracker,
+    clipboard_tracker: TerminalClipboardTracker,
 }
 
 impl TerminalRuntime {
@@ -14,10 +16,12 @@ impl TerminalRuntime {
             terminal: Terminal::new(size),
             output_filter: TerminalOutputFilter::new(size),
             mode_tracker: TerminalModeTracker::default(),
+            clipboard_tracker: TerminalClipboardTracker::default(),
         }
     }
 
     pub fn feed_pty_output(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        self.clipboard_tracker.process(bytes);
         self.mode_tracker.process(bytes);
         let output = self.output_filter.process(bytes);
 
@@ -35,6 +39,10 @@ impl TerminalRuntime {
         }
 
         responses
+    }
+
+    pub fn take_clipboard_texts(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.clipboard_tracker.texts)
     }
 
     pub fn resize(&mut self, size: TerminalSize) {
@@ -239,6 +247,89 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
         .rev()
         .find(|&length| bytes[bytes.len() - length..] == prefix[..length])
         .unwrap_or(0)
+}
+
+#[derive(Default)]
+struct TerminalClipboardTracker {
+    pending: Vec<u8>,
+    texts: Vec<String>,
+}
+
+impl TerminalClipboardTracker {
+    const OSC52_PREFIX: &'static [u8] = b"\x1b]52;";
+    const ST_TERMINATOR: &'static [u8] = b"\x1b\\";
+    const MAX_PENDING: usize = 1024 * 1024;
+
+    fn process(&mut self, bytes: &[u8]) {
+        self.pending.extend_from_slice(bytes);
+        if self.pending.len() > Self::MAX_PENDING {
+            self.pending.clear();
+            return;
+        }
+
+        loop {
+            let Some(start) = find_subslice(&self.pending, Self::OSC52_PREFIX) else {
+                self.retain_possible_prefix();
+                return;
+            };
+            if start > 0 {
+                self.pending.drain(..start);
+            }
+
+            let content_start = Self::OSC52_PREFIX.len();
+            let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
+                return;
+            };
+            let content_end = content_start + terminator.index;
+            if let Some(text) =
+                decode_osc52_clipboard_content(&self.pending[content_start..content_end])
+            {
+                self.texts.push(text);
+            }
+
+            self.pending.drain(..content_end + terminator.length);
+        }
+    }
+
+    fn retain_possible_prefix(&mut self) {
+        let retained = suffix_prefix_len(&self.pending, Self::OSC52_PREFIX);
+        let writable = self.pending.len().saturating_sub(retained);
+        if writable > 0 {
+            self.pending.drain(..writable);
+        }
+    }
+}
+
+struct OscTerminator {
+    index: usize,
+    length: usize,
+}
+
+fn find_osc_terminator(bytes: &[u8]) -> Option<OscTerminator> {
+    let bel = bytes
+        .iter()
+        .position(|byte| *byte == b'\x07')
+        .map(|index| OscTerminator { index, length: 1 });
+    let st =
+        find_subslice(bytes, TerminalClipboardTracker::ST_TERMINATOR).map(|index| OscTerminator {
+            index,
+            length: TerminalClipboardTracker::ST_TERMINATOR.len(),
+        });
+
+    match (bel, st) {
+        (Some(bel), Some(st)) => Some(if bel.index <= st.index { bel } else { st }),
+        (Some(bel), None) => Some(bel),
+        (None, Some(st)) => Some(st),
+        (None, None) => None,
+    }
+}
+
+fn decode_osc52_clipboard_content(content: &[u8]) -> Option<String> {
+    let separator = content.iter().position(|byte| *byte == b';')?;
+    let payload = &content[separator + 1..];
+    let decoded = STANDARD.decode(payload).ok()?;
+
+    String::from_utf8(decoded).ok()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -703,6 +794,28 @@ mod tests {
 
         runtime.feed_pty_output(b"\x1b[?2004l");
         assert!(!runtime.bracketed_paste());
+    }
+
+    #[test]
+    fn extracts_osc52_clipboard_text_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b]52;c;Y29weQ==\x07");
+
+        assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
+        assert!(runtime.take_clipboard_texts().is_empty());
+    }
+
+    #[test]
+    fn extracts_split_osc52_clipboard_text_with_st_terminator() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b]52;c;Y2");
+        assert!(runtime.take_clipboard_texts().is_empty());
+
+        runtime.feed_pty_output(b"9weQ==\x1b\\");
+
+        assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
     }
 
     #[test]

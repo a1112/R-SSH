@@ -75,6 +75,7 @@ struct NativeWindowApp {
     selection: Option<WindowSelection>,
     selecting: bool,
     search: Option<WindowSearch>,
+    clipboard_writer: Box<dyn FnMut(&str) -> bool + Send>,
 }
 
 #[derive(Debug)]
@@ -111,6 +112,7 @@ impl NativeWindowApp {
             selection: None,
             selecting: false,
             search: None,
+            clipboard_writer: Box::new(write_window_clipboard_text),
         }
     }
 
@@ -176,6 +178,9 @@ impl NativeWindowApp {
     fn handle_pty_output(&mut self, bytes: &[u8]) -> io::Result<()> {
         for response in self.runtime.feed_pty_output(bytes) {
             self.write_pty_bytes(&response)?;
+        }
+        for text in self.runtime.take_clipboard_texts() {
+            self.write_clipboard_text(&text);
         }
         self.sync_window_title_from_runtime();
         self.refresh_snapshot();
@@ -704,12 +709,16 @@ impl NativeWindowApp {
         self.apply_window_title();
     }
 
-    fn copy_selection_to_clipboard(&self) -> bool {
+    fn copy_selection_to_clipboard(&mut self) -> bool {
         let Some(text) = self.selected_text() else {
             return false;
         };
 
-        write_window_clipboard_text(&text)
+        self.write_clipboard_text(&text)
+    }
+
+    fn write_clipboard_text(&mut self, text: &str) -> bool {
+        (self.clipboard_writer)(text)
     }
 
     fn selected_text(&self) -> Option<String> {
@@ -1554,6 +1563,8 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use winit::dpi::PhysicalPosition;
     use winit::event::{ElementState, MouseButton, MouseScrollDelta};
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
@@ -2228,6 +2239,21 @@ mod tests {
         app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
 
         assert_eq!(app.window_title, "PowerShell");
+    }
+
+    #[test]
+    fn window_app_writes_osc52_clipboard_text_from_pty_output() {
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&writes);
+        let mut app = NativeWindowApp::new(None);
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded.lock().unwrap().push(text.to_owned());
+            true
+        });
+
+        app.handle_pty_output(b"\x1b]52;c;Y29weQ==\x07").unwrap();
+
+        assert_eq!(writes.lock().unwrap().as_slice(), ["copy"]);
     }
 
     #[test]

@@ -8,6 +8,7 @@ version.workspace = true
 
 [dependencies]
 arboard = "3"
+base64 = "0.22"
 crossterm = "0.29"
 pixels = "0.15"
 rssh-core = { path = "../rssh-core" }
