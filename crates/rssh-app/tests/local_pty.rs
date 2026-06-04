@@ -103,7 +103,7 @@ fn answer_cursor_position_queries(chunk: &[u8], probe: &mut Vec<u8>, writer: &mu
 fn wait_or_kill(session: &mut PtySession, timeout: Duration) {
     let started = Instant::now();
     while started.elapsed() < timeout {
-        if session.try_wait().unwrap() {
+        if session.try_wait().unwrap().is_some() {
             return;
         }
         thread::sleep(Duration::from_millis(20));

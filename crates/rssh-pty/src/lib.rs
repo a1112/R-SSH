@@ -8,7 +8,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use portable_pty::{CommandBuilder, MasterPty, PtySize as PortablePtySize, native_pty_system};
+use portable_pty::{
+    CommandBuilder, ExitStatus as PortableExitStatus, MasterPty, PtySize as PortablePtySize,
+    native_pty_system,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtyBackend {
@@ -179,6 +182,82 @@ mod tests {
         drop(session);
         reader_thread.join().unwrap();
     }
+
+    #[test]
+    #[ignore = "spawns a real platform PTY"]
+    fn local_pty_reports_child_exit_status() {
+        let command = if cfg!(windows) {
+            PtyCommand::new("cmd.exe").with_args(["/C", "exit", "7"])
+        } else {
+            PtyCommand::new("/bin/sh").with_args(["-lc", "exit 7"])
+        };
+        let mut session = PtySession::spawn(&command, PtySize::try_new(80, 24).unwrap()).unwrap();
+        let mut reader = session.take_reader().unwrap();
+        let mut writer = session.take_writer().unwrap();
+        let _io_thread = thread::spawn(move || {
+            let mut buffer = [0; 4096];
+            let mut probe = Vec::new();
+
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) | Err(_) => return,
+                    Ok(count) => respond_to_cursor_position_queries(
+                        &buffer[..count],
+                        &mut probe,
+                        &mut writer,
+                    ),
+                }
+            }
+        });
+
+        let started = Instant::now();
+        let timeout = Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = session.try_wait().unwrap() {
+                break status;
+            }
+            if started.elapsed() >= timeout {
+                let _ = session.kill();
+                panic!("PTY child did not exit within {timeout:?}");
+            }
+            thread::sleep(Duration::from_millis(20));
+        };
+
+        assert_eq!(status.exit_code(), 7);
+        assert!(!status.success());
+    }
+
+    fn respond_to_cursor_position_queries(
+        chunk: &[u8],
+        probe: &mut Vec<u8>,
+        writer: &mut dyn Write,
+    ) {
+        const QUERY: &[u8] = b"\x1b[6n";
+        const RESPONSE: &[u8] = b"\x1b[1;1R";
+
+        probe.extend_from_slice(chunk);
+        while let Some(index) = find_subslice(probe, QUERY) {
+            writer.write_all(RESPONSE).unwrap();
+            writer.flush().unwrap();
+            probe.drain(..index + QUERY.len());
+        }
+
+        let retained = QUERY.len().saturating_sub(1);
+        let removable = probe.len().saturating_sub(retained);
+        if removable > 0 {
+            probe.drain(..removable);
+        }
+    }
+
+    fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        if needle.is_empty() {
+            return Some(0);
+        }
+
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -321,6 +400,43 @@ impl PtySize {
             cols: self.columns,
             pixel_width: 0,
             pixel_height: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PtyExitStatus {
+    code: u32,
+    signal: Option<String>,
+}
+
+impl PtyExitStatus {
+    #[must_use]
+    pub const fn from_exit_code(code: u32) -> Self {
+        Self { code, signal: None }
+    }
+
+    #[must_use]
+    pub const fn success(&self) -> bool {
+        self.code == 0 && self.signal.is_none()
+    }
+
+    #[must_use]
+    pub const fn exit_code(&self) -> u32 {
+        self.code
+    }
+
+    #[must_use]
+    pub fn signal(&self) -> Option<&str> {
+        self.signal.as_deref()
+    }
+}
+
+impl From<PortableExitStatus> for PtyExitStatus {
+    fn from(status: PortableExitStatus) -> Self {
+        Self {
+            code: status.exit_code(),
+            signal: status.signal().map(str::to_owned),
         }
     }
 }
@@ -544,10 +660,10 @@ impl PtySession {
     /// # Errors
     ///
     /// Returns an error when the backend wait operation fails.
-    pub fn wait(&mut self) -> Result<(), PtyError> {
+    pub fn wait(&mut self) -> Result<PtyExitStatus, PtyError> {
         self.child
             .wait()
-            .map(|_| ())
+            .map(PtyExitStatus::from)
             .map_err(|error| PtyError::Backend(error.to_string()))
     }
 
@@ -565,10 +681,10 @@ impl PtySession {
     /// # Errors
     ///
     /// Returns an error when the backend status check fails.
-    pub fn try_wait(&mut self) -> Result<bool, PtyError> {
+    pub fn try_wait(&mut self) -> Result<Option<PtyExitStatus>, PtyError> {
         self.child
             .try_wait()
-            .map(|status| status.is_some())
+            .map(|status| status.map(PtyExitStatus::from))
             .map_err(PtyError::Io)
     }
 }

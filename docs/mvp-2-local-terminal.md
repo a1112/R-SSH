@@ -12,8 +12,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - `PtyCommand` models default shell, custom program, arguments, and working
   directory.
 - `PtySize` validates terminal dimensions.
-- `PtySession` supports spawn, read, write, resize, wait, kill, and owned stream
-  extraction for threaded runtime loops.
+- `PtySession` supports spawn, read, write, resize, wait, try-wait, kill, child
+  exit status, and owned stream extraction for threaded runtime loops.
 - `rssh-app local` starts the default platform shell in a PTY.
 - When no explicit size is provided, `rssh-app local` sizes the PTY from the
   current host console.
@@ -25,12 +25,17 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   - Enter, Backspace, Tab, Escape
   - Shift+Tab
   - Ctrl+Space, Ctrl+A through Ctrl+Z, and common control-symbol keys
+  - Alt+text as ESC-prefixed text
   - arrow keys, Home, End, Insert, Delete, Page Up, Page Down
   - F1 through F12
+- Bracketed paste events are forwarded to the PTY as UTF-8 bytes when the host
+  console supports bracketed paste mode.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
 - The app answers the basic cursor-position query `ESC[6n` with `ESC[1;1R` so
   Windows shells can finish startup handshakes.
+- `rssh-app local -- <program> [args...]` propagates the child process exit code
+  back to the host process.
 - A real PTY integration test feeds local shell output into `rssh-terminal` and
   asserts the terminal grid receives the marker text.
 
@@ -68,7 +73,9 @@ Real local PTY smoke checks:
 
 ```powershell
 cargo test -p rssh-pty local_pty_supports_interactive_shell_roundtrip -- --ignored --nocapture
+cargo test -p rssh-pty local_pty_reports_child_exit_status -- --ignored --nocapture
 cargo test -p rssh-app local_pty_output_feeds_terminal_grid -- --ignored --nocapture
+cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 ```
 
 ## Acceptance Metrics
@@ -78,8 +85,9 @@ cargo test -p rssh-app local_pty_output_feeds_terminal_grid -- --ignored --nocap
   output within 5 seconds.
 - Terminal ingestion: PTY output containing a marker is visible in
   `rssh-terminal` grid state within 5 seconds.
-- Input coverage: unit tests cover printable UTF-8, Enter, Ctrl+C, and arrow
-  key encoding, plus Shift+Tab and F1-F12.
+- Input coverage: unit tests cover printable UTF-8, paste, Enter, Ctrl+C, arrow
+  key encoding, Alt+text, Shift+Tab, and F1-F12.
+- Exit propagation: real PTY smoke tests cover non-zero child exit status.
 - Control-sequence response: unit tests cover normal output, `ESC[6n`, and
   split `ESC[6n` chunks.
 - Regression gate: workspace tests and clippy must pass before merging.
@@ -90,7 +98,7 @@ cargo test -p rssh-app local_pty_output_feeds_terminal_grid -- --ignored --nocap
 - Full VT/xterm compatibility.
 - Scrollback.
 - Mouse reporting.
-- Clipboard and bracketed paste.
+- Clipboard.
 - Tab/session profile UI.
 - SSH network connection.
 

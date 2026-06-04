@@ -1,49 +1,95 @@
 use std::{
     error::Error,
-    io::{self, Read, Write},
+    io::{self, IsTerminal, Read, Write},
     sync::mpsc,
     thread,
     time::Duration,
 };
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
-    terminal,
+    event::{
+        self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyEventKind,
+        KeyModifiers,
+    },
+    execute, terminal,
 };
-use rssh_pty::{PtySession, PtySize};
+use rssh_pty::{PtyExitStatus, PtySession, PtySize};
 
 use crate::{
     cli::LocalOptions,
     terminal_input::{TerminalKey, encode_terminal_key},
 };
 
-pub fn run(options: &LocalOptions) -> Result<(), Box<dyn Error>> {
+pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let size = resolve_local_size(options.size);
     let mut session = PtySession::spawn(&options.command, size)?;
     let mut reader = session.take_reader()?;
     let mut writer = session.take_writer()?;
     let (reader_done_sender, reader_done_receiver) = mpsc::channel();
-    let (terminal_response_sender, terminal_response_receiver) = mpsc::channel();
+    let (writer_done_sender, writer_done_receiver) = mpsc::channel();
+    let (pty_input_sender, pty_input_receiver) = mpsc::channel();
+    let (control_sender, control_receiver) = mpsc::channel();
+    let terminal_response_sender = pty_input_sender.clone();
 
-    let reader_thread = thread::spawn(move || {
+    let _reader_thread = thread::spawn(move || {
         let result = copy_pty_output(&mut reader, &terminal_response_sender);
         let _ = reader_done_sender.send(result);
     });
+    let _writer_thread = thread::spawn(move || {
+        let result = copy_pty_input(&mut writer, &pty_input_receiver);
+        let _ = writer_done_sender.send(result);
+    });
 
     let _raw_mode = RawMode::enable()?;
+    let _input_thread = spawn_input_thread(pty_input_sender.clone(), control_sender);
     let run_result = run_input_loop(
         &mut session,
-        &mut writer,
         &reader_done_receiver,
-        &terminal_response_receiver,
+        &writer_done_receiver,
+        &control_receiver,
     );
 
-    drop(writer);
-    let _ = session.wait();
+    drop(pty_input_sender);
     drop(session);
-    let _ = reader_thread.join();
 
     run_result
+}
+
+enum LocalControlEvent {
+    Resize(PtySize),
+}
+
+fn spawn_input_thread(
+    pty_input_sender: mpsc::Sender<Vec<u8>>,
+    control_sender: mpsc::Sender<LocalControlEvent>,
+) -> thread::JoinHandle<()> {
+    thread::spawn(move || {
+        loop {
+            match event::read() {
+                Ok(event @ (Event::Key(_) | Event::Paste(_))) => {
+                    let Some(bytes) = encode_input_event(event) else {
+                        continue;
+                    };
+                    if pty_input_sender.send(bytes).is_err() {
+                        return;
+                    }
+                }
+                Ok(Event::Resize(columns, rows)) => {
+                    let Ok(size) = PtySize::try_new(columns, rows) else {
+                        continue;
+                    };
+                    if control_sender
+                        .send(LocalControlEvent::Resize(size))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                Ok(_) => {}
+                Err(_) => return,
+            }
+        }
+    })
 }
 
 fn resolve_local_size(explicit: Option<PtySize>) -> PtySize {
@@ -61,24 +107,38 @@ fn fallback_pty_size() -> PtySize {
     PtySize::try_new(80, 24).expect("fallback PTY size is valid")
 }
 
-struct RawMode;
+struct RawMode {
+    bracketed_paste: bool,
+}
 
 impl RawMode {
     fn enable() -> io::Result<Self> {
         terminal::enable_raw_mode()?;
-        Ok(Self)
+
+        let bracketed_paste = if io::stdout().is_terminal() {
+            let mut stdout = io::stdout();
+            execute!(stdout, EnableBracketedPaste).is_ok()
+        } else {
+            false
+        };
+
+        Ok(Self { bracketed_paste })
     }
 }
 
 impl Drop for RawMode {
     fn drop(&mut self) {
+        if self.bracketed_paste {
+            let mut stdout = io::stdout();
+            let _ = execute!(stdout, DisableBracketedPaste);
+        }
         let _ = terminal::disable_raw_mode();
     }
 }
 
 fn copy_pty_output(
     reader: &mut dyn Read,
-    terminal_response_sender: &mpsc::Sender<Vec<u8>>,
+    pty_input_sender: &mpsc::Sender<Vec<u8>>,
 ) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
     let mut buffer = [0; 8192];
@@ -93,7 +153,7 @@ fn copy_pty_output(
             }
             Ok(count) => {
                 output_filter.write(&buffer[..count], &mut stdout, |response| {
-                    terminal_response_sender
+                    pty_input_sender
                         .send(response.to_vec())
                         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed"))
                 })?;
@@ -105,45 +165,45 @@ fn copy_pty_output(
     }
 }
 
+fn copy_pty_input(
+    writer: &mut dyn Write,
+    pty_input_receiver: &mpsc::Receiver<Vec<u8>>,
+) -> io::Result<()> {
+    for bytes in pty_input_receiver {
+        writer.write_all(&bytes)?;
+        writer.flush()?;
+    }
+
+    Ok(())
+}
+
 fn run_input_loop(
     session: &mut PtySession,
-    writer: &mut dyn Write,
     reader_done_receiver: &mpsc::Receiver<io::Result<()>>,
-    terminal_response_receiver: &mpsc::Receiver<Vec<u8>>,
-) -> Result<(), Box<dyn Error>> {
+    writer_done_receiver: &mpsc::Receiver<io::Result<()>>,
+    control_receiver: &mpsc::Receiver<LocalControlEvent>,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
     loop {
-        while let Ok(response) = terminal_response_receiver.try_recv() {
-            writer.write_all(&response)?;
-            writer.flush()?;
-        }
-
         if let Ok(reader_result) = reader_done_receiver.try_recv() {
             reader_result?;
-            return Ok(());
+            return Ok(session.wait()?);
         }
 
-        if session.try_wait()? {
-            return Ok(());
+        if let Ok(writer_result) = writer_done_receiver.try_recv() {
+            writer_result?;
         }
 
-        if !event::poll(Duration::from_millis(50))? {
-            continue;
-        }
-
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if let Some(bytes) = encode_key(key) {
-                    writer.write_all(&bytes)?;
-                    writer.flush()?;
-                }
+        while let Ok(control_event) = control_receiver.try_recv() {
+            match control_event {
+                LocalControlEvent::Resize(size) => session.resize(size)?,
             }
-            Event::Resize(columns, rows) => {
-                if let Ok(size) = PtySize::try_new(columns, rows) {
-                    session.resize(size)?;
-                }
-            }
-            _ => {}
         }
+
+        if let Some(status) = session.try_wait()? {
+            return Ok(status);
+        }
+
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -198,7 +258,16 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+fn encode_input_event(event: Event) -> Option<Vec<u8>> {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => encode_key(key),
+        Event::Paste(text) => Some(text.into_bytes()),
+        _ => None,
+    }
+}
+
 fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
     let terminal_key = match key.code {
         KeyCode::Char(character) if key.modifiers.contains(KeyModifiers::CONTROL) => {
             TerminalKey::Control(character)
@@ -223,14 +292,19 @@ fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
         _ => return None,
     };
 
-    encode_terminal_key(terminal_key)
+    let mut bytes = encode_terminal_key(terminal_key)?;
+    if alt && matches!(key.code, KeyCode::Char(_)) {
+        bytes.insert(0, 0x1b);
+    }
+
+    Some(bytes)
 }
 
 #[cfg(test)]
 mod tests {
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
-    use super::{TerminalOutputFilter, encode_key, resolve_local_size};
+    use super::{TerminalOutputFilter, encode_input_event, encode_key, resolve_local_size};
 
     #[test]
     fn encodes_text_input_as_utf8() {
@@ -273,6 +347,22 @@ mod tests {
         assert_eq!(
             encode_key(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE)).unwrap(),
             b"\x1b[24~"
+        );
+    }
+
+    #[test]
+    fn encodes_alt_text_with_escape_prefix() {
+        assert_eq!(
+            encode_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT)).unwrap(),
+            b"\x1bx"
+        );
+    }
+
+    #[test]
+    fn encodes_paste_event_as_utf8_bytes() {
+        assert_eq!(
+            encode_input_event(Event::Paste("line 1\n中".to_owned())).unwrap(),
+            "line 1\n中".as_bytes()
         );
     }
 
