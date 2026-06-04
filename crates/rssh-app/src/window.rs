@@ -30,6 +30,7 @@ const TERMINAL_COLUMNS: u16 = 80;
 const TERMINAL_ROWS: u16 = 24;
 const CELL_WIDTH: u32 = 8;
 const CELL_HEIGHT: u32 = 16;
+const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 const FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * CELL_WIDTH;
 const FRAME_HEIGHT: u32 = TERMINAL_ROWS as u32 * CELL_HEIGHT;
 
@@ -58,6 +59,7 @@ struct NativeWindowApp {
     renderer: PixelRenderer,
     runtime: TerminalRuntime,
     snapshot: TerminalRenderSnapshot,
+    window_title: String,
     frame_width: u32,
     frame_height: u32,
     frame_limit: Option<u64>,
@@ -87,6 +89,7 @@ impl NativeWindowApp {
             renderer: PixelRenderer::new(),
             runtime,
             snapshot,
+            window_title: DEFAULT_WINDOW_TITLE.to_owned(),
             frame_width: FRAME_WIDTH,
             frame_height: FRAME_HEIGHT,
             frame_limit,
@@ -112,7 +115,7 @@ impl NativeWindowApp {
         let window = Arc::new(
             event_loop.create_window(
                 Window::default_attributes()
-                    .with_title("R-SSH")
+                    .with_title(self.window_title.clone())
                     .with_inner_size(LogicalSize::new(
                         f64::from(FRAME_WIDTH),
                         f64::from(FRAME_HEIGHT),
@@ -162,9 +165,25 @@ impl NativeWindowApp {
         for response in self.runtime.feed_pty_output(bytes) {
             self.write_pty_bytes(&response)?;
         }
+        self.sync_window_title_from_runtime();
         self.snapshot = TerminalRenderSnapshot::from_terminal(self.runtime.terminal());
 
         Ok(())
+    }
+
+    fn sync_window_title_from_runtime(&mut self) {
+        let Some(title) = self.runtime.terminal().title().map(str::to_owned) else {
+            return;
+        };
+
+        if self.window_title == title {
+            return;
+        }
+
+        self.window_title = title;
+        if let Some(window) = &self.window {
+            window.set_title(&self.window_title);
+        }
     }
 
     fn spawn_pty(&mut self) -> Result<(), Box<dyn Error>> {
@@ -435,7 +454,9 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 mod tests {
     use winit::keyboard::{Key, ModifiersState, NamedKey};
 
-    use super::{demo_snapshot, encode_window_key, terminal_size_from_window_pixels};
+    use super::{
+        NativeWindowApp, demo_snapshot, encode_window_key, terminal_size_from_window_pixels,
+    };
 
     #[test]
     fn demo_snapshot_contains_visible_terminal_cells() {
@@ -500,12 +521,21 @@ mod tests {
 
     #[test]
     fn window_app_rebuilds_snapshot_from_pty_output() {
-        let mut app = super::NativeWindowApp::new(None);
+        let mut app = NativeWindowApp::new(None);
 
         app.handle_pty_output(b"live").unwrap();
 
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('l'));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('e'));
+    }
+
+    #[test]
+    fn window_app_tracks_runtime_title_from_pty_output() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+
+        assert_eq!(app.window_title, "PowerShell");
     }
 
     #[test]

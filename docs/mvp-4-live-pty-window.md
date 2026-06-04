@@ -23,6 +23,7 @@ in the native `winit` window.
 - PTY output updates the terminal runtime and rebuilds
   `TerminalRenderSnapshot` from the live terminal, including visible cursor
   state.
+- Native window title follows OSC `0`/`2` title updates from the active shell.
 - `winit` keyboard events are encoded and written to the active PTY writer.
 - `winit` resize events are converted to terminal cell geometry; the live
   terminal grid, PTY size, render buffer, and text-area size query response are
@@ -80,6 +81,7 @@ MVP 4 tests cover:
 - terminal runtime resize updates the grid and text-area size response
 - terminal response filtering for dynamic cursor position, device-attribute, status,
   text-area size, and screen character-size queries
+- native window title state from OSC `0`/`2` PTY output
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
 

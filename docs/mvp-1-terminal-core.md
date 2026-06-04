@@ -82,8 +82,8 @@ support the next PTY and SSH milestones.
 - Basic scroll-region scrolling:
   - scroll up (`SU`, `ESC[S`)
   - scroll down (`SD`, `ESC[T`)
-- OSC title sequences terminated by BEL or ST are ignored so shell title updates
-  do not appear as terminal text.
+- OSC title sequences terminated by BEL or ST update terminal title metadata
+  without appearing as terminal text.
 - DCS, SOS, PM, and APC control strings terminated by ST are ignored so
   unsupported terminal capability probes do not appear as terminal text.
 - C1 byte-form OSC (`0x9D`) and C1 ST (`0x9C`) are recognized for OSC and
@@ -157,7 +157,7 @@ cover:
 - CSI `REP` repeated printable character handling
 - CSI insert/delete line handling with scroll-region limits
 - CSI scroll up/down handling with scroll-region limits
-- OSC title sequence filtering for BEL and ST terminators
+- OSC title metadata tracking and text filtering for BEL and ST terminators
 - DCS/SOS/PM/APC control-string filtering with split-sequence buffering
 - C1 byte-form OSC/ST control-string filtering
 - SGR color/style parsing, including inverse video

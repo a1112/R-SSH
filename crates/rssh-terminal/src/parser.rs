@@ -88,6 +88,7 @@ impl TabStops {
 #[derive(Debug, Clone)]
 pub struct Terminal {
     grid: TerminalGrid,
+    title: Option<String>,
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
@@ -148,6 +149,7 @@ impl Terminal {
     pub fn new(size: TerminalSize) -> Self {
         Self {
             grid: TerminalGrid::new(size),
+            title: None,
             cursor_row: 0,
             cursor_column: 0,
             pending_wrap: false,
@@ -326,11 +328,11 @@ impl Terminal {
     }
 
     fn skip_osc(&mut self, chars: &[char], index: usize) -> Option<usize> {
-        self.skip_control_string(chars, index, 2, parse_osc)
+        self.apply_osc_sequence(chars, index, 2)
     }
 
     fn skip_c1_osc(&mut self, chars: &[char], index: usize) -> Option<usize> {
-        self.skip_control_string(chars, index, 1, parse_osc)
+        self.apply_osc_sequence(chars, index, 1)
     }
 
     fn skip_st_control_string(&mut self, chars: &[char], index: usize) -> Option<usize> {
@@ -339,6 +341,38 @@ impl Terminal {
 
     fn skip_c1_st_control_string(&mut self, chars: &[char], index: usize) -> Option<usize> {
         self.skip_control_string(chars, index, 1, parse_st_terminated_control_string)
+    }
+
+    fn apply_osc_sequence(
+        &mut self,
+        chars: &[char],
+        index: usize,
+        content_offset: usize,
+    ) -> Option<usize> {
+        let content_start = index + content_offset;
+        match parse_osc(chars, content_start) {
+            SequenceParse::Complete(sequence_end) => {
+                let content_end = osc_content_end(chars, content_start, sequence_end);
+                self.apply_osc_content(&chars[content_start..content_end]);
+                Some(sequence_end + 1)
+            }
+            SequenceParse::Cancelled(cancel_index) => Some(cancel_index + 1),
+            SequenceParse::Pending => {
+                self.pending_control.extend_from_slice(&chars[index..]);
+                None
+            }
+        }
+    }
+
+    fn apply_osc_content(&mut self, content: &[char]) {
+        let Some(separator) = content.iter().position(|ch| *ch == ';') else {
+            return;
+        };
+
+        let command = content[..separator].iter().collect::<String>();
+        if matches!(command.as_str(), "0" | "2") {
+            self.title = Some(content[separator + 1..].iter().collect());
+        }
     }
 
     fn skip_control_string(
@@ -361,6 +395,11 @@ impl Terminal {
     #[must_use]
     pub const fn grid(&self) -> &TerminalGrid {
         &self.grid
+    }
+
+    #[must_use]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
     }
 
     #[must_use]
@@ -1378,6 +1417,17 @@ fn parse_osc(chars: &[char], mut index: usize) -> SequenceParse<usize> {
     }
 
     SequenceParse::Pending
+}
+
+fn osc_content_end(chars: &[char], content_start: usize, sequence_end: usize) -> usize {
+    if sequence_end > content_start
+        && chars.get(sequence_end) == Some(&'\\')
+        && chars.get(sequence_end - 1) == Some(&'\u{1b}')
+    {
+        sequence_end - 1
+    } else {
+        sequence_end
+    }
 }
 
 fn parse_st_terminated_control_string(chars: &[char], mut index: usize) -> SequenceParse<usize> {

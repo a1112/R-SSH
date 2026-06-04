@@ -1014,27 +1014,29 @@ mod tests {
     }
 
     #[test]
-    fn terminal_ignores_osc_title_terminated_by_bel() {
+    fn terminal_tracks_osc_title_terminated_by_bel_without_rendering_it() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 1));
 
         terminal.feed(b"ab\x1b]0;cmd.exe\x07cd");
 
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));
+        assert_eq!(terminal.title(), Some("cmd.exe"));
     }
 
     #[test]
-    fn terminal_ignores_osc_title_terminated_by_st() {
+    fn terminal_tracks_osc_title_terminated_by_st_without_rendering_it() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 1));
 
         terminal.feed(b"ab\x1b]2;PowerShell\x1b\\cd");
 
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));
+        assert_eq!(terminal.title(), Some("PowerShell"));
     }
 
     #[test]
-    fn terminal_ignores_split_osc_title_across_feed_calls() {
+    fn terminal_tracks_split_osc_title_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 1));
 
         terminal.feed(b"ab\x1b]0;cmd");
@@ -1042,6 +1044,7 @@ mod tests {
 
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));
+        assert_eq!(terminal.title(), Some("cmd.exe"));
     }
 
     #[test]
@@ -1152,17 +1155,18 @@ mod tests {
     }
 
     #[test]
-    fn terminal_ignores_c1_osc_and_control_strings() {
+    fn terminal_tracks_c1_osc_title_and_ignores_other_control_strings() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 1));
 
         terminal.feed(b"ab\x9d0;title\x9c\x90$qm\x9ccd");
 
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));
+        assert_eq!(terminal.title(), Some("title"));
     }
 
     #[test]
-    fn terminal_ignores_split_c1_control_string_across_feed_calls() {
+    fn terminal_tracks_split_c1_osc_title_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 1));
 
         terminal.feed(b"ab\x9d0;ti");
@@ -1170,6 +1174,7 @@ mod tests {
 
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));
+        assert_eq!(terminal.title(), Some("title"));
     }
 
     #[test]
