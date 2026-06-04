@@ -1,13 +1,32 @@
 use rssh_core::TerminalSize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Color {
+    Default,
+    Indexed(u8),
+    Rgb(u8, u8, u8),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cell {
     pub ch: char,
+    pub foreground: Color,
+    pub background: Color,
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Self { ch: ' ' }
+        Self {
+            ch: ' ',
+            foreground: Color::Default,
+            background: Color::Default,
+            bold: false,
+            italic: false,
+            underline: false,
+        }
     }
 }
 
@@ -40,13 +59,37 @@ impl TerminalGrid {
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty()
     }
+
+    #[must_use]
+    pub fn get(&self, row: u16, column: u16) -> Option<&Cell> {
+        self.index(row, column)
+            .and_then(|index| self.cells.get(index))
+    }
+
+    pub fn set(&mut self, row: u16, column: u16, cell: Cell) -> bool {
+        let Some(index) = self.index(row, column) else {
+            return false;
+        };
+
+        self.cells[index] = cell;
+        true
+    }
+
+    #[must_use]
+    fn index(&self, row: u16, column: u16) -> Option<usize> {
+        if row >= self.size.rows || column >= self.size.columns {
+            return None;
+        }
+
+        Some(usize::from(row) * usize::from(self.size.columns) + usize::from(column))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use rssh_core::TerminalSize;
 
-    use super::TerminalGrid;
+    use super::{Cell, Color, TerminalGrid};
 
     #[test]
     fn grid_allocates_one_cell_per_terminal_slot() {
@@ -55,5 +98,50 @@ mod tests {
         assert_eq!(grid.size(), TerminalSize::new(80, 24));
         assert_eq!(grid.len(), 1920);
         assert!(!grid.is_empty());
+    }
+
+    #[test]
+    fn default_cell_has_terminal_defaults() {
+        let cell = Cell::default();
+
+        assert_eq!(cell.ch, ' ');
+        assert_eq!(cell.foreground, Color::Default);
+        assert_eq!(cell.background, Color::Default);
+        assert!(!cell.bold);
+        assert!(!cell.italic);
+        assert!(!cell.underline);
+    }
+
+    #[test]
+    fn grid_sets_and_reads_cells_by_position() {
+        let mut grid = TerminalGrid::new(TerminalSize::new(3, 2));
+        let cell = Cell {
+            ch: 'R',
+            foreground: Color::Indexed(2),
+            background: Color::Rgb(1, 2, 3),
+            bold: true,
+            italic: false,
+            underline: true,
+        };
+
+        assert!(grid.set(1, 2, cell.clone()));
+
+        assert_eq!(grid.get(1, 2), Some(&cell));
+    }
+
+    #[test]
+    fn grid_returns_none_for_out_of_bounds_reads() {
+        let grid = TerminalGrid::new(TerminalSize::new(3, 2));
+
+        assert_eq!(grid.get(2, 0), None);
+        assert_eq!(grid.get(0, 3), None);
+    }
+
+    #[test]
+    fn grid_rejects_out_of_bounds_writes() {
+        let mut grid = TerminalGrid::new(TerminalSize::new(3, 2));
+
+        assert!(!grid.set(2, 0, Cell::default()));
+        assert!(!grid.set(0, 3, Cell::default()));
     }
 }
