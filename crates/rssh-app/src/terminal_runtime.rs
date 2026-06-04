@@ -4,6 +4,7 @@ use rssh_terminal::Terminal;
 pub struct TerminalRuntime {
     terminal: Terminal,
     output_filter: TerminalOutputFilter,
+    mode_tracker: TerminalModeTracker,
 }
 
 impl TerminalRuntime {
@@ -12,10 +13,12 @@ impl TerminalRuntime {
         Self {
             terminal: Terminal::new(size),
             output_filter: TerminalOutputFilter::new(size),
+            mode_tracker: TerminalModeTracker::default(),
         }
     }
 
     pub fn feed_pty_output(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        self.mode_tracker.process(bytes);
         let output = self.output_filter.process(bytes);
 
         let mut responses = Vec::new();
@@ -42,6 +45,11 @@ impl TerminalRuntime {
     #[must_use]
     pub fn terminal(&self) -> &Terminal {
         &self.terminal
+    }
+
+    #[must_use]
+    pub fn application_cursor_keys(&self) -> bool {
+        self.mode_tracker.application_cursor_keys()
     }
 }
 
@@ -213,6 +221,110 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
         .unwrap_or(0)
 }
 
+#[derive(Default)]
+struct TerminalModeTracker {
+    pending: Vec<u8>,
+    application_cursor_keys: bool,
+}
+
+impl TerminalModeTracker {
+    const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
+
+    fn process(&mut self, bytes: &[u8]) {
+        self.pending.extend_from_slice(bytes);
+
+        loop {
+            let Some(start) = find_subslice(&self.pending, Self::CSI_PRIVATE_MODE_PREFIX) else {
+                self.retain_possible_prefix();
+                return;
+            };
+            if start > 0 {
+                self.pending.drain(..start);
+            }
+
+            match Self::parse_private_mode_sequence(&self.pending) {
+                ModeParse::Complete {
+                    modes,
+                    enabled,
+                    consumed,
+                } => {
+                    if modes.contains(&1) {
+                        self.application_cursor_keys = enabled;
+                    }
+                    self.pending.drain(..consumed);
+                }
+                ModeParse::Incomplete => return,
+                ModeParse::Invalid => {
+                    self.pending.drain(..1);
+                }
+            }
+        }
+    }
+
+    fn application_cursor_keys(&self) -> bool {
+        self.application_cursor_keys
+    }
+
+    fn parse_private_mode_sequence(bytes: &[u8]) -> ModeParse {
+        let mut cursor = Self::CSI_PRIVATE_MODE_PREFIX.len();
+        let mut modes = Vec::new();
+
+        loop {
+            if cursor >= bytes.len() {
+                return ModeParse::Incomplete;
+            }
+
+            let start = cursor;
+            let mut mode = 0u16;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                mode = mode
+                    .saturating_mul(10)
+                    .saturating_add(u16::from(bytes[cursor] - b'0'));
+                cursor += 1;
+            }
+
+            if cursor == start {
+                return ModeParse::Invalid;
+            }
+            modes.push(mode);
+
+            if cursor >= bytes.len() {
+                return ModeParse::Incomplete;
+            }
+
+            match bytes[cursor] {
+                b';' => cursor += 1,
+                b'h' | b'l' => {
+                    return ModeParse::Complete {
+                        modes,
+                        enabled: bytes[cursor] == b'h',
+                        consumed: cursor + 1,
+                    };
+                }
+                _ => return ModeParse::Invalid,
+            }
+        }
+    }
+
+    fn retain_possible_prefix(&mut self) {
+        let retained = suffix_prefix_len(&self.pending, Self::CSI_PRIVATE_MODE_PREFIX);
+        let writable = self.pending.len().saturating_sub(retained);
+        if writable > 0 {
+            self.pending.drain(..writable);
+        }
+    }
+}
+
+enum ModeParse {
+    Complete {
+        modes: Vec<u16>,
+        enabled: bool,
+        consumed: usize,
+    },
+    Incomplete,
+    Invalid,
+}
+
 #[cfg(test)]
 mod tests {
     use rssh_core::TerminalSize;
@@ -311,6 +423,30 @@ mod tests {
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
         assert!(!text.contains("[19t"));
+    }
+
+    #[test]
+    fn tracks_application_cursor_key_mode_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        assert!(!runtime.application_cursor_keys());
+
+        runtime.feed_pty_output(b"\x1b[?1h");
+        assert!(runtime.application_cursor_keys());
+
+        runtime.feed_pty_output(b"\x1b[?1l");
+        assert!(!runtime.application_cursor_keys());
+    }
+
+    #[test]
+    fn tracks_split_application_cursor_key_mode_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b[?");
+        assert!(!runtime.application_cursor_keys());
+
+        runtime.feed_pty_output(b"1h");
+        assert!(runtime.application_cursor_keys());
     }
 
     #[test]

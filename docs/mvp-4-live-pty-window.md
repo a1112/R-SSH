@@ -27,6 +27,8 @@ in the native `winit` window.
 - `winit` keyboard events are encoded and written to the active PTY writer,
   including Alt-prefixed text and Shift/Alt/Ctrl-modified navigation,
   editing, and function keys.
+- The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
+  and sends SS3 arrow-key sequences while it is enabled.
 - `winit` resize events are converted to terminal cell geometry; the live
   terminal grid, PTY size, render buffer, and text-area size query response are
   updated together.
@@ -84,6 +86,7 @@ MVP 4 tests cover:
 - terminal response filtering for dynamic cursor position, device-attribute, status,
   text-area size, and screen character-size queries
 - native window title state from OSC `0`/`2` PTY output
+- application cursor key mode tracking for native window input
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
 

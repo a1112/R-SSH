@@ -252,7 +252,12 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        let bytes = encode_window_key(&key.logical_key, key.text.as_deref(), self.modifiers);
+        let bytes = encode_window_key(
+            &key.logical_key,
+            key.text.as_deref(),
+            self.modifiers,
+            self.runtime.application_cursor_keys(),
+        );
         if !bytes.is_empty() {
             self.write_pty_bytes(&bytes)?;
         }
@@ -300,7 +305,12 @@ impl Drop for NativeWindowApp {
     }
 }
 
-fn encode_window_key(key: &Key, text: Option<&str>, modifiers: ModifiersState) -> Vec<u8> {
+fn encode_window_key(
+    key: &Key,
+    text: Option<&str>,
+    modifiers: ModifiersState,
+    application_cursor_keys: bool,
+) -> Vec<u8> {
     let alt = modifiers.alt_key();
 
     if modifiers.control_key() {
@@ -318,6 +328,12 @@ fn encode_window_key(key: &Key, text: Option<&str>, modifiers: ModifiersState) -
 
     if let Some(bytes) = encode_modified_window_key(key, modifiers) {
         return bytes;
+    }
+
+    if application_cursor_keys {
+        if let Some(bytes) = encode_application_cursor_key(key) {
+            return bytes;
+        }
     }
 
     if modifiers.shift_key() && matches!(key, Key::Named(NamedKey::Tab)) {
@@ -384,6 +400,20 @@ fn xterm_window_modifier(modifiers: ModifiersState) -> Option<u8> {
     }
 
     Some(1 + u8::from(shift) + u8::from(alt) * 2 + u8::from(control) * 4)
+}
+
+fn encode_application_cursor_key(key: &Key) -> Option<Vec<u8>> {
+    let Key::Named(named) = key else {
+        return None;
+    };
+
+    match named {
+        NamedKey::ArrowUp => Some(b"\x1bOA".to_vec()),
+        NamedKey::ArrowDown => Some(b"\x1bOB".to_vec()),
+        NamedKey::ArrowRight => Some(b"\x1bOC".to_vec()),
+        NamedKey::ArrowLeft => Some(b"\x1bOD".to_vec()),
+        _ => None,
+    }
 }
 
 fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
@@ -533,6 +563,7 @@ mod tests {
             &Key::Character("中".into()),
             Some("中"),
             ModifiersState::empty(),
+            false,
         );
 
         assert_eq!(bytes, "中".as_bytes());
@@ -540,14 +571,24 @@ mod tests {
 
     #[test]
     fn encodes_window_control_input_for_pty() {
-        let bytes = encode_window_key(&Key::Character("c".into()), None, ModifiersState::CONTROL);
+        let bytes = encode_window_key(
+            &Key::Character("c".into()),
+            None,
+            ModifiersState::CONTROL,
+            false,
+        );
 
         assert_eq!(bytes, vec![3]);
     }
 
     #[test]
     fn encodes_window_alt_text_with_escape_prefix() {
-        let bytes = encode_window_key(&Key::Character("x".into()), Some("x"), ModifiersState::ALT);
+        let bytes = encode_window_key(
+            &Key::Character("x".into()),
+            Some("x"),
+            ModifiersState::ALT,
+            false,
+        );
 
         assert_eq!(bytes, b"\x1bx");
     }
@@ -558,7 +599,8 @@ mod tests {
             encode_window_key(
                 &Key::Named(NamedKey::ArrowUp),
                 None,
-                ModifiersState::empty()
+                ModifiersState::empty(),
+                false
             ),
             b"\x1b[A"
         );
@@ -566,7 +608,8 @@ mod tests {
             encode_window_key(
                 &Key::Named(NamedKey::Enter),
                 Some("\r"),
-                ModifiersState::empty()
+                ModifiersState::empty(),
+                false
             ),
             b"\r"
         );
@@ -578,7 +621,8 @@ mod tests {
             encode_window_key(
                 &Key::Named(NamedKey::ArrowLeft),
                 None,
-                ModifiersState::CONTROL
+                ModifiersState::CONTROL,
+                false
             ),
             b"\x1b[1;5D"
         );
@@ -586,13 +630,41 @@ mod tests {
             encode_window_key(
                 &Key::Named(NamedKey::Delete),
                 None,
-                ModifiersState::SHIFT | ModifiersState::ALT
+                ModifiersState::SHIFT | ModifiersState::ALT,
+                false
             ),
             b"\x1b[3;4~"
         );
         assert_eq!(
-            encode_window_key(&Key::Named(NamedKey::F5), None, ModifiersState::SHIFT),
+            encode_window_key(
+                &Key::Named(NamedKey::F5),
+                None,
+                ModifiersState::SHIFT,
+                false
+            ),
             b"\x1b[15;2~"
+        );
+    }
+
+    #[test]
+    fn encodes_window_application_cursor_keys_when_enabled() {
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::ArrowUp),
+                None,
+                ModifiersState::empty(),
+                true
+            ),
+            b"\x1bOA"
+        );
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::ArrowUp),
+                None,
+                ModifiersState::CONTROL,
+                true
+            ),
+            b"\x1b[1;5A"
         );
     }
 
@@ -602,12 +674,18 @@ mod tests {
             encode_window_key(
                 &Key::Named(NamedKey::Tab),
                 Some("\t"),
-                ModifiersState::SHIFT
+                ModifiersState::SHIFT,
+                false
             ),
             b"\x1b[Z"
         );
         assert_eq!(
-            encode_window_key(&Key::Named(NamedKey::F12), None, ModifiersState::empty()),
+            encode_window_key(
+                &Key::Named(NamedKey::F12),
+                None,
+                ModifiersState::empty(),
+                false
+            ),
             b"\x1b[24~"
         );
     }
