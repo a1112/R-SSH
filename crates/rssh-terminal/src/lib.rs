@@ -227,6 +227,33 @@ mod tests {
     }
 
     #[test]
+    fn terminal_scroll_region_limits_linefeed_scrolling() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2;3r\x1b[3;1H\nzz");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "3333");
+        assert_eq!(row_text(&terminal, 2), "zz  ");
+        assert_eq!(row_text(&terminal, 3), "4444");
+        assert_eq!(terminal.cursor(), (2, 2));
+    }
+
+    #[test]
+    fn terminal_reset_scroll_region_restores_full_screen_scrolling() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333");
+        terminal.feed(b"\x1b[2;2r\x1b[r\x1b[3;1H\nzz");
+
+        assert_eq!(row_text(&terminal, 0), "2222");
+        assert_eq!(row_text(&terminal, 1), "3333");
+        assert_eq!(row_text(&terminal, 2), "zz  ");
+        assert_eq!(terminal.cursor(), (2, 2));
+    }
+
+    #[test]
     fn terminal_delays_auto_wrap_until_next_printable_character() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 

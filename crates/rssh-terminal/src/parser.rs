@@ -11,6 +11,8 @@ pub struct Terminal {
     pending_wrap: bool,
     pending_control: Vec<char>,
     saved_cursor: Option<SavedCursor>,
+    scroll_top: u16,
+    scroll_bottom: u16,
     style: Cell,
     damage: Vec<DamageRegion>,
 }
@@ -32,6 +34,8 @@ impl Terminal {
             pending_wrap: false,
             pending_control: Vec::new(),
             saved_cursor: None,
+            scroll_top: 0,
+            scroll_bottom: size.rows.saturating_sub(1),
             style: Cell::default(),
             damage: Vec::new(),
         }
@@ -121,11 +125,12 @@ impl Terminal {
             return;
         }
 
-        if self.cursor_row + 1 < rows {
+        let scroll_bottom = self.scroll_bottom.min(rows - 1);
+        if self.cursor_row == scroll_bottom {
+            self.scroll_up_region(self.scroll_top, scroll_bottom);
+            self.cursor_row = scroll_bottom;
+        } else if self.cursor_row + 1 < rows {
             self.cursor_row += 1;
-        } else {
-            self.scroll_up_one_line();
-            self.cursor_row = rows - 1;
         }
     }
 
@@ -145,25 +150,30 @@ impl Terminal {
         self.cursor_column = next_stop.min(columns - 1);
     }
 
-    fn scroll_up_one_line(&mut self) {
+    fn scroll_up_region(&mut self, top: u16, bottom: u16) {
         let size = self.grid.size();
         if size.rows == 0 || size.columns == 0 {
             return;
         }
 
-        for row in 1..size.rows {
+        let top = top.min(size.rows - 1);
+        let bottom = bottom.min(size.rows - 1);
+        if top >= bottom {
+            return;
+        }
+
+        for row in top.saturating_add(1)..=bottom {
             for column in 0..size.columns {
                 let cell = self.grid.get(row, column).cloned().unwrap_or_default();
                 self.grid.set(row - 1, column, cell);
             }
         }
 
-        let bottom_row = size.rows - 1;
         for column in 0..size.columns {
-            self.grid.set(bottom_row, column, Cell::default());
+            self.grid.set(bottom, column, Cell::default());
         }
 
-        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        self.record_damage(DamageRegion::new(0, top, size.columns, bottom - top + 1));
     }
 
     fn write_char(&mut self, ch: char) {
@@ -229,10 +239,38 @@ impl Terminal {
             'J' => self.erase_display(csi_mode(params)),
             'K' => self.erase_line(csi_mode(params)),
             'm' => self.apply_sgr(params),
+            'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
             _ => {}
         }
+    }
+
+    fn set_scroll_region(&mut self, params: &[char]) {
+        let rows = self.grid.size().rows;
+        if rows == 0 {
+            return;
+        }
+
+        let values = parse_csi_params(params);
+        let top = param_or_one(values.first().copied()).saturating_sub(1);
+        let bottom = values
+            .get(1)
+            .copied()
+            .filter(|value| *value != 0)
+            .unwrap_or(rows)
+            .saturating_sub(1)
+            .min(rows - 1);
+
+        if top >= bottom {
+            return;
+        }
+
+        self.scroll_top = top;
+        self.scroll_bottom = bottom;
+        self.cursor_row = 0;
+        self.cursor_column = 0;
+        self.pending_wrap = false;
     }
 
     fn save_cursor(&mut self) {

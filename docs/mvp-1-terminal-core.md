@@ -17,6 +17,9 @@ support the next PTY and SSH milestones.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
 - Delayed auto-wrap at the right edge, including bottom-row scroll on the next
   printable character.
+- Basic `DECSTBM` scroll-region handling with `ESC[<top>;<bottom>r`; linefeed
+  at the bottom margin scrolls only the configured region, and `ESC[r` restores
+  full-screen scrolling.
 - Basic CSI cursor handling:
   - absolute cursor positioning with `CUP`/`HVP` (`ESC[row;columnH` and
     `ESC[row;columnf`)
@@ -42,7 +45,7 @@ support the next PTY and SSH milestones.
 ## Explicit Non-Scope
 
 - Full VT/xterm compatibility.
-- Scrollback and configurable scroll-region behavior.
+- Scrollback storage and full scroll-region edge-case behavior.
 - Alternate screen.
 - Mouse modes.
 - Hyperlinks and OSC clipboard.
@@ -69,6 +72,7 @@ cover:
 - backspace and horizontal tab control handling
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
+- `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
 - CSI cursor positioning and relative cursor movement
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
