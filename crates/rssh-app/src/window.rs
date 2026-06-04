@@ -265,6 +265,14 @@ impl NativeWindowApp {
         Ok(())
     }
 
+    fn handle_focus_changed(&mut self, focused: bool) -> io::Result<()> {
+        if let Some(bytes) = encode_window_focus_event(focused, self.runtime.focus_reporting()) {
+            self.write_pty_bytes(&bytes)?;
+        }
+
+        Ok(())
+    }
+
     fn handle_window_resize(&mut self, size: PhysicalSize<u32>) -> Result<(), Box<dyn Error>> {
         if let Some(pixels) = self.pixels.as_mut() {
             pixels.resize_surface(size.width, size.height)?;
@@ -416,6 +424,18 @@ fn encode_application_cursor_key(key: &Key) -> Option<Vec<u8>> {
     }
 }
 
+fn encode_window_focus_event(focused: bool, focus_reporting: bool) -> Option<Vec<u8>> {
+    if !focus_reporting {
+        return None;
+    }
+
+    Some(if focused {
+        b"\x1b[I".to_vec()
+    } else {
+        b"\x1b[O".to_vec()
+    })
+}
+
 fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
     let Key::Named(named) = key else {
         return None;
@@ -522,6 +542,12 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
+            WindowEvent::Focused(focused) => {
+                if let Err(error) = self.handle_focus_changed(focused) {
+                    eprintln!("PTY focus error: {error}");
+                    event_loop.exit();
+                }
+            }
             WindowEvent::Resized(size) => {
                 if let Err(error) = self.handle_window_resize(size) {
                     eprintln!("resize error: {error}");
@@ -547,7 +573,8 @@ mod tests {
     use winit::keyboard::{Key, ModifiersState, NamedKey};
 
     use super::{
-        NativeWindowApp, demo_snapshot, encode_window_key, terminal_size_from_window_pixels,
+        NativeWindowApp, demo_snapshot, encode_window_focus_event, encode_window_key,
+        terminal_size_from_window_pixels,
     };
 
     #[test]
@@ -666,6 +693,19 @@ mod tests {
             ),
             b"\x1b[1;5A"
         );
+    }
+
+    #[test]
+    fn encodes_window_focus_events_when_enabled() {
+        assert_eq!(
+            encode_window_focus_event(true, true),
+            Some(b"\x1b[I".to_vec())
+        );
+        assert_eq!(
+            encode_window_focus_event(false, true),
+            Some(b"\x1b[O".to_vec())
+        );
+        assert_eq!(encode_window_focus_event(true, false), None);
     }
 
     #[test]

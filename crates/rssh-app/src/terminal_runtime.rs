@@ -51,6 +51,11 @@ impl TerminalRuntime {
     pub fn application_cursor_keys(&self) -> bool {
         self.mode_tracker.application_cursor_keys()
     }
+
+    #[must_use]
+    pub fn focus_reporting(&self) -> bool {
+        self.mode_tracker.focus_reporting()
+    }
 }
 
 struct TerminalOutputFilter {
@@ -225,6 +230,7 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
 struct TerminalModeTracker {
     pending: Vec<u8>,
     application_cursor_keys: bool,
+    focus_reporting: bool,
 }
 
 impl TerminalModeTracker {
@@ -251,6 +257,9 @@ impl TerminalModeTracker {
                     if modes.contains(&1) {
                         self.application_cursor_keys = enabled;
                     }
+                    if modes.contains(&1004) {
+                        self.focus_reporting = enabled;
+                    }
                     self.pending.drain(..consumed);
                 }
                 ModeParse::Incomplete => return,
@@ -263,6 +272,10 @@ impl TerminalModeTracker {
 
     fn application_cursor_keys(&self) -> bool {
         self.application_cursor_keys
+    }
+
+    fn focus_reporting(&self) -> bool {
+        self.focus_reporting
     }
 
     fn parse_private_mode_sequence(bytes: &[u8]) -> ModeParse {
@@ -447,6 +460,29 @@ mod tests {
 
         runtime.feed_pty_output(b"1h");
         assert!(runtime.application_cursor_keys());
+    }
+
+    #[test]
+    fn tracks_focus_reporting_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        assert!(!runtime.focus_reporting());
+
+        runtime.feed_pty_output(b"\x1b[?1004h");
+        assert!(runtime.focus_reporting());
+
+        runtime.feed_pty_output(b"\x1b[?1004l");
+        assert!(!runtime.focus_reporting());
+    }
+
+    #[test]
+    fn tracks_combined_private_input_modes_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b[?1;1004h");
+
+        assert!(runtime.application_cursor_keys());
+        assert!(runtime.focus_reporting());
     }
 
     #[test]
