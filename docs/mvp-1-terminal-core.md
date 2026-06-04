@@ -61,6 +61,8 @@ support the next PTY and SSH milestones.
 - Incomplete CSI, OSC title, DCS/SOS/PM/APC, and `ESC7`/`ESC8` sequences are
   retained across `Terminal::feed` calls so PTY chunk boundaries do not leak
   control bytes into the grid.
+- `CAN` and `SUB` cancel in-progress CSI, OSC, and ST-terminated control strings
+  so subsequent printable text is parsed normally.
 - Incomplete UTF-8 sequences are retained across `Terminal::feed` calls so PTY
   chunk boundaries do not create replacement characters.
 - Basic erase handling:
@@ -147,6 +149,7 @@ cover:
 - DEC Special Graphics line drawing and split `ESC(` sequence handling
 - split CSI, OSC title, DCS/SOS/PM/APC, and `ESC7`/`ESC8` sequences across
   `feed` calls
+- `CAN`/`SUB` cancellation for CSI, OSC, and ST-terminated control strings
 - split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
 - CSI insert/delete/erase character handling

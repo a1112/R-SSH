@@ -912,6 +912,27 @@ mod tests {
     }
 
     #[test]
+    fn terminal_can_cancels_csi_sequence() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"ab\x1b[2\x18cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd    ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn terminal_sub_cancels_split_csi_sequence() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"ab\x1b[2");
+        terminal.feed(b"\x1acd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd    ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
     fn terminal_erases_line_from_cursor() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 1));
 
@@ -1024,6 +1045,16 @@ mod tests {
     }
 
     #[test]
+    fn terminal_can_cancels_osc_title_sequence() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x1b]0;title\x18cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
     fn terminal_ignores_dcs_terminated_by_st() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 1));
 
@@ -1039,6 +1070,17 @@ mod tests {
 
         terminal.feed(b"ab\x1bP$q");
         terminal.feed(b"m\x1b\\cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(terminal.cursor(), (0, 4));
+    }
+
+    #[test]
+    fn terminal_sub_cancels_split_dcs_sequence() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"ab\x1bP$q");
+        terminal.feed(b"\x1acd");
 
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));

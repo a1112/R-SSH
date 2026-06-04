@@ -136,6 +136,13 @@ enum FeedAdvance {
     Pending,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SequenceParse<T> {
+    Complete(T),
+    Cancelled(usize),
+    Pending,
+}
+
 impl Terminal {
     #[must_use]
     pub fn new(size: TerminalSize) -> Self {
@@ -273,7 +280,7 @@ impl Terminal {
 
     fn consume_text_or_ascii_control(&mut self, ch: char, index: usize) -> usize {
         match ch {
-            '\0' | '\u{7}' => index + 1,
+            '\0' | '\u{7}' | '\u{18}' | '\u{1a}' => index + 1,
             '\u{8}' => {
                 self.backspace();
                 index + 1
@@ -305,12 +312,16 @@ impl Terminal {
         content_offset: usize,
     ) -> Option<usize> {
         let content_start = index + content_offset;
-        if let Some((command, sequence_end)) = parse_csi(chars, content_start) {
-            self.apply_csi(command, &chars[content_start..sequence_end]);
-            Some(sequence_end + 1)
-        } else {
-            self.pending_control.extend_from_slice(&chars[index..]);
-            None
+        match parse_csi(chars, content_start) {
+            SequenceParse::Complete((command, sequence_end)) => {
+                self.apply_csi(command, &chars[content_start..sequence_end]);
+                Some(sequence_end + 1)
+            }
+            SequenceParse::Cancelled(cancel_index) => Some(cancel_index + 1),
+            SequenceParse::Pending => {
+                self.pending_control.extend_from_slice(&chars[index..]);
+                None
+            }
         }
     }
 
@@ -335,13 +346,15 @@ impl Terminal {
         chars: &[char],
         index: usize,
         content_offset: usize,
-        parse: fn(&[char], usize) -> Option<usize>,
+        parse: fn(&[char], usize) -> SequenceParse<usize>,
     ) -> Option<usize> {
-        if let Some(sequence_end) = parse(chars, index + content_offset) {
-            Some(sequence_end + 1)
-        } else {
-            self.pending_control.extend_from_slice(&chars[index..]);
-            None
+        match parse(chars, index + content_offset) {
+            SequenceParse::Complete(sequence_end) => Some(sequence_end + 1),
+            SequenceParse::Cancelled(cancel_index) => Some(cancel_index + 1),
+            SequenceParse::Pending => {
+                self.pending_control.extend_from_slice(&chars[index..]);
+                None
+            }
         }
     }
 
@@ -1319,16 +1332,19 @@ fn default_tab_stops(size: TerminalSize) -> Vec<u16> {
     stops
 }
 
-fn parse_csi(chars: &[char], mut index: usize) -> Option<(char, usize)> {
+fn parse_csi(chars: &[char], mut index: usize) -> SequenceParse<(char, usize)> {
     while index < chars.len() {
         let ch = chars[index];
+        if is_cancel_control(ch) {
+            return SequenceParse::Cancelled(index);
+        }
         if ('@'..='~').contains(&ch) {
-            return Some((ch, index));
+            return SequenceParse::Complete((ch, index));
         }
         index += 1;
     }
 
-    None
+    SequenceParse::Pending
 }
 
 fn clamp_screen_state(screen: &mut ScreenState, size: TerminalSize) {
@@ -1349,32 +1365,42 @@ fn clamp_axis(value: u16, limit: u16) -> u16 {
     value.min(limit.saturating_sub(1))
 }
 
-fn parse_osc(chars: &[char], mut index: usize) -> Option<usize> {
+fn parse_osc(chars: &[char], mut index: usize) -> SequenceParse<usize> {
     while index < chars.len() {
         match chars[index] {
-            '\u{7}' | '\u{9c}' => return Some(index),
-            '\u{1b}' if chars.get(index + 1) == Some(&'\\') => return Some(index + 1),
+            '\u{7}' | '\u{9c}' => return SequenceParse::Complete(index),
+            '\u{1b}' if chars.get(index + 1) == Some(&'\\') => {
+                return SequenceParse::Complete(index + 1);
+            }
+            ch if is_cancel_control(ch) => return SequenceParse::Cancelled(index),
             _ => index += 1,
         }
     }
 
-    None
+    SequenceParse::Pending
 }
 
-fn parse_st_terminated_control_string(chars: &[char], mut index: usize) -> Option<usize> {
+fn parse_st_terminated_control_string(chars: &[char], mut index: usize) -> SequenceParse<usize> {
     while index < chars.len() {
         match chars[index] {
-            '\u{9c}' => return Some(index),
-            '\u{1b}' if chars.get(index + 1) == Some(&'\\') => return Some(index + 1),
+            '\u{9c}' => return SequenceParse::Complete(index),
+            '\u{1b}' if chars.get(index + 1) == Some(&'\\') => {
+                return SequenceParse::Complete(index + 1);
+            }
+            ch if is_cancel_control(ch) => return SequenceParse::Cancelled(index),
             _ => index += 1,
         }
     }
 
-    None
+    SequenceParse::Pending
 }
 
 fn is_c1_st_control_string(ch: char) -> bool {
     matches!(ch, '\u{90}' | '\u{98}' | '\u{9e}' | '\u{9f}')
+}
+
+fn is_cancel_control(ch: char) -> bool {
+    matches!(ch, '\u{18}' | '\u{1a}')
 }
 
 fn next_or_pending(next_index: Option<usize>) -> FeedAdvance {
