@@ -1,0 +1,13 @@
+[package]
+name = "rssh-ssh"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+rssh-core = { path = "../rssh-core" }
+
+[lints]
+workspace = true

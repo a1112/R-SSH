@@ -1,0 +1,44 @@
+[
+  {
+    "name": "alacritty",
+    "url": "https://github.com/alacritty/alacritty.git",
+    "commit": "aaf3bd7",
+    "localPath": "refs/alacritty",
+    "notes": "Rust terminal emulator reference for grid, parser boundary, and OpenGL rendering."
+  },
+  {
+    "name": "ghostty",
+    "url": "https://github.com/ghostty-org/ghostty.git",
+    "commit": "bfe633a",
+    "localPath": "refs/ghostty",
+    "notes": "Native terminal reference for VT core, platform integration, and libghostty direction."
+  },
+  {
+    "name": "libssh2",
+    "url": "https://github.com/libssh2/libssh2.git",
+    "commit": "44a66e8",
+    "localPath": "refs/libssh2",
+    "notes": "SSH protocol compatibility fallback reference."
+  },
+  {
+    "name": "russh",
+    "url": "https://github.com/Eugeny/russh.git",
+    "commit": "f1a0f18",
+    "localPath": "refs/russh",
+    "notes": "Pure Rust SSH protocol implementation reference."
+  },
+  {
+    "name": "wezterm",
+    "url": "https://github.com/wezterm/wezterm.git",
+    "commit": "577474d",
+    "localPath": "refs/wezterm",
+    "notes": "Rust reference for terminal core, GPU renderer, PTY, SSH, multiplexing, and font handling."
+  },
+  {
+    "name": "windows-terminal",
+    "url": "https://github.com/microsoft/terminal.git",
+    "commit": "93bdbfa",
+    "localPath": "refs/windows-terminal",
+    "notes": "Windows reference for terminal state, ConPTY integration, DirectWrite, and platform behavior."
+  }
+]

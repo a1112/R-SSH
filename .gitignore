@@ -1,0 +1,19 @@
+/target/
+
+# Local reference source cache. Keep only metadata committed.
+/refs/*
+!/refs/README.md
+!/refs/sources.json
+
+# Local editor and OS files.
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Runtime artifacts.
+*.log
+*.trace
+*.profraw
