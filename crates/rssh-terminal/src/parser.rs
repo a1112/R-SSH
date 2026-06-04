@@ -253,6 +253,7 @@ impl Terminal {
 
     fn apply_csi(&mut self, command: char, params: &[char]) {
         match command {
+            '@' => self.insert_blank_characters(csi_count(params)),
             'A' => self.move_cursor_up(csi_count(params)),
             'B' => self.move_cursor_down(csi_count(params)),
             'C' => self.move_cursor_forward(csi_count(params)),
@@ -260,6 +261,8 @@ impl Terminal {
             'H' | 'f' => self.position_cursor(params),
             'J' => self.erase_display(csi_mode(params)),
             'K' => self.erase_line(csi_mode(params)),
+            'P' => self.delete_characters(csi_count(params)),
+            'X' => self.erase_characters(csi_count(params)),
             'm' => self.apply_sgr(params),
             'r' => self.set_scroll_region(params),
             'h' => self.set_private_mode(params, true),
@@ -482,6 +485,86 @@ impl Terminal {
             2 => self.clear_cells(self.cursor_row, 0, columns),
             _ => {}
         }
+    }
+
+    fn insert_blank_characters(&mut self, count: u16) {
+        self.pending_wrap = false;
+        let size = self.grid.size();
+        if self.cursor_row >= size.rows || self.cursor_column >= size.columns || count == 0 {
+            return;
+        }
+
+        let count = count.min(size.columns - self.cursor_column);
+        let shift_end = size.columns - count;
+        for column in (self.cursor_column..shift_end).rev() {
+            let cell = self
+                .grid
+                .get(self.cursor_row, column)
+                .cloned()
+                .unwrap_or_default();
+            self.grid.set(self.cursor_row, column + count, cell);
+        }
+
+        for column in self.cursor_column..self.cursor_column + count {
+            self.grid.set(self.cursor_row, column, Cell::default());
+        }
+
+        self.record_damage(DamageRegion::new(
+            self.cursor_column,
+            self.cursor_row,
+            size.columns - self.cursor_column,
+            1,
+        ));
+    }
+
+    fn delete_characters(&mut self, count: u16) {
+        self.pending_wrap = false;
+        let size = self.grid.size();
+        if self.cursor_row >= size.rows || self.cursor_column >= size.columns || count == 0 {
+            return;
+        }
+
+        let count = count.min(size.columns - self.cursor_column);
+        let shift_end = size.columns - count;
+        for column in self.cursor_column..shift_end {
+            let cell = self
+                .grid
+                .get(self.cursor_row, column + count)
+                .cloned()
+                .unwrap_or_default();
+            self.grid.set(self.cursor_row, column, cell);
+        }
+
+        for column in shift_end..size.columns {
+            self.grid.set(self.cursor_row, column, Cell::default());
+        }
+
+        self.record_damage(DamageRegion::new(
+            self.cursor_column,
+            self.cursor_row,
+            size.columns - self.cursor_column,
+            1,
+        ));
+    }
+
+    fn erase_characters(&mut self, count: u16) {
+        self.pending_wrap = false;
+        let size = self.grid.size();
+        if self.cursor_row >= size.rows || self.cursor_column >= size.columns || count == 0 {
+            return;
+        }
+
+        let count = count.min(size.columns - self.cursor_column);
+        for column in self.cursor_column..self.cursor_column + count {
+            self.grid.set(self.cursor_row, column, Cell::default());
+        }
+
+        self.record_damage(DamageRegion::new(
+            self.cursor_column,
+            self.cursor_row,
+            count,
+            1,
+        ));
     }
 
     fn clear_cells(&mut self, row: u16, start_column: u16, end_column: u16) {

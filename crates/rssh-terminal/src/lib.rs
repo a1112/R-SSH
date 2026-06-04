@@ -432,6 +432,36 @@ mod tests {
     }
 
     #[test]
+    fn terminal_inserts_blank_characters_with_ich() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"abcdef\x1b[4D\x1b[2@");
+
+        assert_eq!(row_text(&terminal, 0), "a  bcd");
+        assert_eq!(terminal.cursor(), (0, 1));
+    }
+
+    #[test]
+    fn terminal_deletes_characters_with_dch() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"abcdef\x1b[3D\x1b[2P");
+
+        assert_eq!(row_text(&terminal, 0), "abef  ");
+        assert_eq!(terminal.cursor(), (0, 2));
+    }
+
+    #[test]
+    fn terminal_erases_characters_with_ech() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"abcdef\x1b[3D\x1b[2X");
+
+        assert_eq!(row_text(&terminal, 0), "ab  ef");
+        assert_eq!(terminal.cursor(), (0, 2));
+    }
+
+    #[test]
     fn terminal_erases_entire_display() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 

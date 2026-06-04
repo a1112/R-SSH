@@ -34,6 +34,10 @@ support the next PTY and SSH milestones.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
+- Basic character editing within the active row:
+  - insert blank characters (`ICH`, `ESC[@`)
+  - delete characters (`DCH`, `ESC[P`)
+  - erase characters (`ECH`, `ESC[X`)
 - OSC title sequences terminated by BEL or ST are ignored so shell title updates
   do not appear as terminal text.
 - Basic SGR handling:
@@ -82,6 +86,7 @@ cover:
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
 - CSI display and line erase handling
+- CSI insert/delete/erase character handling
 - OSC title sequence filtering for BEL and ST terminators
 - SGR color/style parsing, including inverse video
 - CJK wide-character layout
