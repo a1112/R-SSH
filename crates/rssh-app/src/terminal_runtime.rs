@@ -58,6 +58,11 @@ impl TerminalRuntime {
     }
 
     #[must_use]
+    pub fn bracketed_paste(&self) -> bool {
+        self.mode_tracker.bracketed_paste()
+    }
+
+    #[must_use]
     pub fn application_keypad(&self) -> bool {
         self.mode_tracker.application_keypad()
     }
@@ -289,9 +294,7 @@ impl MouseInputMode {
 struct TerminalModeTracker {
     pending: Vec<u8>,
     mouse_modes: MouseModes,
-    application_cursor_keys: bool,
-    application_keypad: bool,
-    focus_reporting: bool,
+    tracked_modes: TrackedTerminalModes,
 }
 
 impl TerminalModeTracker {
@@ -313,7 +316,8 @@ impl TerminalModeTracker {
 
             match start.sequence {
                 ModeSequence::ApplicationKeypad(enabled) => {
-                    self.application_keypad = enabled;
+                    self.tracked_modes
+                        .set(TrackedTerminalModes::APPLICATION_KEYPAD, enabled);
                     self.pending.drain(..2);
                 }
                 ModeSequence::CsiPrivateMode => {
@@ -328,8 +332,16 @@ impl TerminalModeTracker {
                                     continue;
                                 }
                                 match mode {
-                                    1 => self.application_cursor_keys = enabled,
-                                    1004 => self.focus_reporting = enabled,
+                                    1 => self.tracked_modes.set(
+                                        TrackedTerminalModes::APPLICATION_CURSOR_KEYS,
+                                        enabled,
+                                    ),
+                                    1004 => self
+                                        .tracked_modes
+                                        .set(TrackedTerminalModes::FOCUS_REPORTING, enabled),
+                                    2004 => self
+                                        .tracked_modes
+                                        .set(TrackedTerminalModes::BRACKETED_PASTE, enabled),
                                     _ => {}
                                 }
                             }
@@ -365,15 +377,23 @@ impl TerminalModeTracker {
     }
 
     fn application_cursor_keys(&self) -> bool {
-        self.application_cursor_keys
+        self.tracked_modes
+            .enabled(TrackedTerminalModes::APPLICATION_CURSOR_KEYS)
     }
 
     fn application_keypad(&self) -> bool {
-        self.application_keypad
+        self.tracked_modes
+            .enabled(TrackedTerminalModes::APPLICATION_KEYPAD)
     }
 
     fn focus_reporting(&self) -> bool {
-        self.focus_reporting
+        self.tracked_modes
+            .enabled(TrackedTerminalModes::FOCUS_REPORTING)
+    }
+
+    fn bracketed_paste(&self) -> bool {
+        self.tracked_modes
+            .enabled(TrackedTerminalModes::BRACKETED_PASTE)
     }
 
     fn mouse_input_mode(&self) -> MouseInputMode {
@@ -435,6 +455,28 @@ impl TerminalModeTracker {
         if writable > 0 {
             self.pending.drain(..writable);
         }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct TrackedTerminalModes(u8);
+
+impl TrackedTerminalModes {
+    const APPLICATION_CURSOR_KEYS: u8 = 1;
+    const APPLICATION_KEYPAD: u8 = 1 << 1;
+    const FOCUS_REPORTING: u8 = 1 << 2;
+    const BRACKETED_PASTE: u8 = 1 << 3;
+
+    fn set(&mut self, flag: u8, enabled: bool) {
+        if enabled {
+            self.0 |= flag;
+        } else {
+            self.0 &= !flag;
+        }
+    }
+
+    const fn enabled(self, flag: u8) -> bool {
+        self.0 & flag != 0
     }
 }
 
@@ -651,13 +693,27 @@ mod tests {
     }
 
     #[test]
+    fn tracks_bracketed_paste_mode_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        assert!(!runtime.bracketed_paste());
+
+        runtime.feed_pty_output(b"\x1b[?2004h");
+        assert!(runtime.bracketed_paste());
+
+        runtime.feed_pty_output(b"\x1b[?2004l");
+        assert!(!runtime.bracketed_paste());
+    }
+
+    #[test]
     fn tracks_combined_private_input_modes_from_pty_output() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
-        runtime.feed_pty_output(b"\x1b[?1;1004h");
+        runtime.feed_pty_output(b"\x1b[?1;1004;2004h");
 
         assert!(runtime.application_cursor_keys());
         assert!(runtime.focus_reporting());
+        assert!(runtime.bracketed_paste());
     }
 
     #[test]

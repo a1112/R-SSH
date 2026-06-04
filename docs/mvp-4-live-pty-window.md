@@ -27,6 +27,9 @@ in the native `winit` window.
 - `winit` keyboard events are encoded and written to the active PTY writer,
   including Alt-prefixed text and Shift/Alt/Ctrl-modified navigation,
   editing, and function keys.
+- The native window supports clipboard paste through `Ctrl+V`,
+  `Ctrl+Shift+V`, and `Shift+Insert`; pasted text is wrapped with bracketed
+  paste markers while the PTY has enabled `ESC[?2004h`.
 - The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
   and sends SS3 arrow-key sequences while it is enabled.
 - The native window tracks PTY-side application keypad mode (`ESC=` / `ESC>`)
@@ -92,6 +95,7 @@ cargo run -p rssh-app -- window --frames 3
 MVP 4 tests cover:
 
 - window text, control, navigation, Alt-text, and modified key encoding
+- native window clipboard paste encoding and paste shortcut detection
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
@@ -100,6 +104,7 @@ MVP 4 tests cover:
 - native window title state from OSC `0`/`2` PTY output
 - application cursor key mode tracking for native window input
 - application keypad mode tracking for native window numpad input
+- bracketed paste mode tracking for native window paste
 - focus reporting mode tracking and native window focus event encoding
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state

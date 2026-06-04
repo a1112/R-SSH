@@ -448,6 +448,11 @@ impl NativeWindowApp {
             return Ok(());
         }
 
+        if window_paste_shortcut(&key.logical_key, self.modifiers) {
+            self.handle_window_paste()?;
+            return Ok(());
+        }
+
         if self.handle_scrollback_shortcut(&key.logical_key, self.modifiers) {
             return Ok(());
         }
@@ -465,6 +470,19 @@ impl NativeWindowApp {
         }
 
         Ok(())
+    }
+
+    fn handle_window_paste(&mut self) -> io::Result<bool> {
+        let Some(text) = read_window_clipboard_text() else {
+            return Ok(false);
+        };
+        if text.is_empty() {
+            return Ok(false);
+        }
+
+        let bytes = encode_window_paste(&text, self.runtime.bracketed_paste());
+        self.write_pty_bytes(&bytes)?;
+        Ok(true)
     }
 
     fn handle_focus_changed(&mut self, focused: bool) -> io::Result<()> {
@@ -854,6 +872,32 @@ fn encode_window_focus_event(focused: bool, focus_reporting: bool) -> Option<Vec
     })
 }
 
+fn encode_window_paste(text: &str, bracketed_paste: bool) -> Vec<u8> {
+    if !bracketed_paste {
+        return text.as_bytes().to_vec();
+    }
+
+    let mut bytes = Vec::with_capacity(b"\x1b[200~".len() + text.len() + b"\x1b[201~".len());
+    bytes.extend_from_slice(b"\x1b[200~");
+    bytes.extend_from_slice(text.as_bytes());
+    bytes.extend_from_slice(b"\x1b[201~");
+    bytes
+}
+
+fn window_paste_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
+    let ctrl_v = modifiers.control_key()
+        && !modifiers.alt_key()
+        && matches!(key.as_ref(), Key::Character(character) if character.eq_ignore_ascii_case("v"));
+    let shift_insert =
+        modifiers == ModifiersState::SHIFT && matches!(key, Key::Named(NamedKey::Insert));
+
+    ctrl_v || shift_insert
+}
+
+fn read_window_clipboard_text() -> Option<String> {
+    arboard::Clipboard::new().ok()?.get_text().ok()
+}
+
 fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
     let Key::Named(named) = key else {
         return None;
@@ -1020,7 +1064,7 @@ mod tests {
     use super::{
         NativeWindowApp, WindowMouseEvent, WindowMouseEventKind, demo_snapshot,
         encode_window_focus_event, encode_window_key, encode_window_mouse_event,
-        terminal_size_from_window_pixels,
+        encode_window_paste, terminal_size_from_window_pixels, window_paste_shortcut,
     };
 
     #[test]
@@ -1070,6 +1114,35 @@ mod tests {
         );
 
         assert_eq!(bytes, b"\x1bx");
+    }
+
+    #[test]
+    fn encodes_window_paste_as_raw_or_bracketed_bytes() {
+        assert_eq!(encode_window_paste("plain\ntext", false), b"plain\ntext");
+        assert_eq!(
+            encode_window_paste("plain\ntext", true),
+            b"\x1b[200~plain\ntext\x1b[201~"
+        );
+    }
+
+    #[test]
+    fn recognizes_window_paste_shortcuts() {
+        assert!(window_paste_shortcut(
+            &Key::Character("v".into()),
+            ModifiersState::CONTROL
+        ));
+        assert!(window_paste_shortcut(
+            &Key::Character("V".into()),
+            ModifiersState::CONTROL | ModifiersState::SHIFT
+        ));
+        assert!(window_paste_shortcut(
+            &Key::Named(NamedKey::Insert),
+            ModifiersState::SHIFT
+        ));
+        assert!(!window_paste_shortcut(
+            &Key::Character("v".into()),
+            ModifiersState::empty()
+        ));
     }
 
     #[test]
