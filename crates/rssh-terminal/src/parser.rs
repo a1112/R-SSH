@@ -324,6 +324,8 @@ impl Terminal {
             'L' => self.insert_lines(csi_count(params)),
             'M' => self.delete_lines(csi_count(params)),
             'P' => self.delete_characters(csi_count(params)),
+            'S' => self.scroll_up(csi_count(params)),
+            'T' => self.scroll_down(csi_count(params)),
             'X' => self.erase_characters(csi_count(params)),
             'm' => self.apply_sgr(params),
             'r' => self.set_scroll_region(params),
@@ -581,6 +583,39 @@ impl Terminal {
         };
 
         self.scroll_up_region_by(top, bottom, count);
+    }
+
+    fn scroll_up(&mut self, count: u16) {
+        self.pending_wrap = false;
+        let Some((top, bottom)) = self.active_scroll_range() else {
+            return;
+        };
+
+        self.scroll_up_region_by(top, bottom, count);
+    }
+
+    fn scroll_down(&mut self, count: u16) {
+        self.pending_wrap = false;
+        let Some((top, bottom)) = self.active_scroll_range() else {
+            return;
+        };
+
+        self.scroll_down_region(top, bottom, count);
+    }
+
+    fn active_scroll_range(&self) -> Option<(u16, u16)> {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 {
+            return None;
+        }
+
+        let scroll_top = self.scroll_top.min(size.rows - 1);
+        let scroll_bottom = self.scroll_bottom.min(size.rows - 1);
+        if scroll_top > scroll_bottom {
+            return None;
+        }
+
+        Some((scroll_top, scroll_bottom))
     }
 
     fn active_scroll_range_from_cursor(&self) -> Option<(u16, u16)> {

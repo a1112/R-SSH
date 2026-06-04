@@ -47,6 +47,9 @@ support the next PTY and SSH milestones.
 - Basic line editing within the active scroll region:
   - insert lines (`IL`, `ESC[L`)
   - delete lines (`DL`, `ESC[M`)
+- Basic scroll-region scrolling:
+  - scroll up (`SU`, `ESC[S`)
+  - scroll down (`SD`, `ESC[T`)
 - OSC title sequences terminated by BEL or ST are ignored so shell title updates
   do not appear as terminal text.
 - Basic SGR handling:
@@ -100,6 +103,7 @@ cover:
 - CSI display and line erase handling
 - CSI insert/delete/erase character handling
 - CSI insert/delete line handling with scroll-region limits
+- CSI scroll up/down handling with scroll-region limits
 - OSC title sequence filtering for BEL and ST terminators
 - SGR color/style parsing, including inverse video
 - CJK wide-character layout

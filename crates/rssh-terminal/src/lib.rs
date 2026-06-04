@@ -397,6 +397,56 @@ mod tests {
     }
 
     #[test]
+    fn terminal_scrolls_up_with_su() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2S");
+
+        assert_eq!(row_text(&terminal, 0), "3333");
+        assert_eq!(row_text(&terminal, 1), "4444");
+        assert_eq!(row_text(&terminal, 2), "    ");
+        assert_eq!(row_text(&terminal, 3), "    ");
+        assert_eq!(terminal.cursor(), (3, 3));
+    }
+
+    #[test]
+    fn terminal_scrolls_down_with_sd() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2T");
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(row_text(&terminal, 2), "1111");
+        assert_eq!(row_text(&terminal, 3), "2222");
+        assert_eq!(terminal.cursor(), (3, 3));
+    }
+
+    #[test]
+    fn terminal_scrolls_up_and_down_only_within_scroll_region() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 5));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444\x1b[5;1H5555");
+        terminal.feed(b"\x1b[2;4r\x1b[S");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "3333");
+        assert_eq!(row_text(&terminal, 2), "4444");
+        assert_eq!(row_text(&terminal, 3), "    ");
+        assert_eq!(row_text(&terminal, 4), "5555");
+
+        terminal.feed(b"\x1b[T");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(row_text(&terminal, 2), "3333");
+        assert_eq!(row_text(&terminal, 3), "4444");
+        assert_eq!(row_text(&terminal, 4), "5555");
+    }
+
+    #[test]
     fn terminal_switches_to_alternate_screen_and_restores_main_screen() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 2));
 
