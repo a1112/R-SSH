@@ -61,6 +61,11 @@ impl TerminalRuntime {
     pub fn application_keypad(&self) -> bool {
         self.mode_tracker.application_keypad()
     }
+
+    #[must_use]
+    pub fn mouse_input_mode(&self) -> MouseInputMode {
+        self.mode_tracker.mouse_input_mode()
+    }
 }
 
 struct TerminalOutputFilter {
@@ -231,9 +236,59 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
         .unwrap_or(0)
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum MouseProtocolMode {
+    #[default]
+    X10,
+    Sgr,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum MouseReportingMode {
+    #[default]
+    None,
+    Normal,
+    ButtonEvent,
+    AnyEvent,
+}
+
+impl MouseReportingMode {
+    pub(crate) const fn is_enabled(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct MouseInputMode {
+    reporting: MouseReportingMode,
+    protocol: MouseProtocolMode,
+}
+
+impl MouseInputMode {
+    pub(crate) const fn new(reporting: MouseReportingMode, protocol: MouseProtocolMode) -> Self {
+        Self {
+            reporting,
+            protocol,
+        }
+    }
+
+    pub(crate) const fn reporting(self) -> MouseReportingMode {
+        self.reporting
+    }
+
+    pub(crate) const fn protocol(self) -> MouseProtocolMode {
+        self.protocol
+    }
+
+    pub(crate) const fn reporting_enabled(self) -> bool {
+        self.reporting.is_enabled()
+    }
+}
+
 #[derive(Default)]
 struct TerminalModeTracker {
     pending: Vec<u8>,
+    mouse_modes: MouseModes,
     application_cursor_keys: bool,
     application_keypad: bool,
     focus_reporting: bool,
@@ -268,11 +323,15 @@ impl TerminalModeTracker {
                             enabled,
                             consumed,
                         } => {
-                            if modes.contains(&1) {
-                                self.application_cursor_keys = enabled;
-                            }
-                            if modes.contains(&1004) {
-                                self.focus_reporting = enabled;
+                            for mode in modes {
+                                if self.mouse_modes.set(mode, enabled) {
+                                    continue;
+                                }
+                                match mode {
+                                    1 => self.application_cursor_keys = enabled,
+                                    1004 => self.focus_reporting = enabled,
+                                    _ => {}
+                                }
                             }
                             self.pending.drain(..consumed);
                         }
@@ -315,6 +374,10 @@ impl TerminalModeTracker {
 
     fn focus_reporting(&self) -> bool {
         self.focus_reporting
+    }
+
+    fn mouse_input_mode(&self) -> MouseInputMode {
+        self.mouse_modes.input_mode()
     }
 
     fn parse_private_mode_sequence(bytes: &[u8]) -> ModeParse {
@@ -375,6 +438,59 @@ impl TerminalModeTracker {
     }
 }
 
+#[derive(Default)]
+struct MouseModes(u8);
+
+impl MouseModes {
+    const NORMAL: u8 = 1;
+    const BUTTON_EVENT: u8 = 1 << 1;
+    const ANY_EVENT: u8 = 1 << 2;
+    const SGR_PROTOCOL: u8 = 1 << 3;
+
+    fn set(&mut self, mode: u16, enabled: bool) -> bool {
+        let Some(mask) = Self::mask(mode) else {
+            return false;
+        };
+
+        if enabled {
+            self.0 |= mask;
+        } else {
+            self.0 &= !mask;
+        }
+
+        true
+    }
+
+    fn input_mode(&self) -> MouseInputMode {
+        let reporting = if self.0 & Self::ANY_EVENT != 0 {
+            MouseReportingMode::AnyEvent
+        } else if self.0 & Self::BUTTON_EVENT != 0 {
+            MouseReportingMode::ButtonEvent
+        } else if self.0 & Self::NORMAL != 0 {
+            MouseReportingMode::Normal
+        } else {
+            MouseReportingMode::None
+        };
+        let protocol = if self.0 & Self::SGR_PROTOCOL != 0 {
+            MouseProtocolMode::Sgr
+        } else {
+            MouseProtocolMode::X10
+        };
+
+        MouseInputMode::new(reporting, protocol)
+    }
+
+    const fn mask(mode: u16) -> Option<u8> {
+        match mode {
+            1000 => Some(Self::NORMAL),
+            1002 => Some(Self::BUTTON_EVENT),
+            1003 => Some(Self::ANY_EVENT),
+            1006 => Some(Self::SGR_PROTOCOL),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ModeSequenceStart {
     index: usize,
@@ -401,7 +517,7 @@ enum ModeParse {
 mod tests {
     use rssh_core::TerminalSize;
 
-    use super::TerminalRuntime;
+    use super::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalRuntime};
 
     #[test]
     fn feeds_plain_pty_output_into_terminal_grid() {
@@ -542,6 +658,37 @@ mod tests {
 
         assert!(runtime.application_cursor_keys());
         assert!(runtime.focus_reporting());
+    }
+
+    #[test]
+    fn tracks_mouse_reporting_modes_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        assert_eq!(runtime.mouse_input_mode(), MouseInputMode::default());
+
+        runtime.feed_pty_output(b"\x1b[?1000;1006h");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Sgr)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1002h");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::ButtonEvent, MouseProtocolMode::Sgr)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1006l");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::ButtonEvent, MouseProtocolMode::X10)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1002;1000l");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::None, MouseProtocolMode::X10)
+        );
     }
 
     #[test]

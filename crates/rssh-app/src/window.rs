@@ -13,8 +13,8 @@ use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use rssh_terminal::Terminal;
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalSize},
-    event::{ElementState, MouseScrollDelta, WindowEvent},
+    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
+    event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::Window,
@@ -23,7 +23,7 @@ use winit::{
 use crate::{
     cli::WindowOptions,
     terminal_input::{TerminalKey, encode_terminal_key},
-    terminal_runtime::TerminalRuntime,
+    terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalRuntime},
 };
 
 const TERMINAL_COLUMNS: u16 = 80;
@@ -70,6 +70,7 @@ struct NativeWindowApp {
     reader_thread: Option<thread::JoinHandle<()>>,
     modifiers: ModifiersState,
     scrollback_offset: usize,
+    mouse_position: Option<(u16, u16)>,
 }
 
 #[derive(Debug)]
@@ -101,6 +102,7 @@ impl NativeWindowApp {
             reader_thread: None,
             modifiers: ModifiersState::empty(),
             scrollback_offset: 0,
+            mouse_position: None,
         }
     }
 
@@ -219,6 +221,66 @@ impl NativeWindowApp {
 
         self.scroll_viewport_lines(lines);
         true
+    }
+
+    fn handle_window_mouse_wheel(&mut self, delta: MouseScrollDelta) -> io::Result<bool> {
+        let mode = self.runtime.mouse_input_mode();
+        if mode.reporting_enabled() {
+            if let Some((column, row)) = self.mouse_position {
+                let Some(kind) = window_mouse_wheel_kind(delta) else {
+                    return Ok(false);
+                };
+                if let Some(bytes) = encode_window_mouse_event(
+                    WindowMouseEvent {
+                        kind,
+                        column,
+                        row,
+                        modifiers: self.modifiers,
+                    },
+                    mode,
+                ) {
+                    self.write_pty_bytes(&bytes)?;
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+
+        Ok(self.handle_mouse_wheel(delta))
+    }
+
+    fn handle_mouse_input(&mut self, state: ElementState, button: MouseButton) -> io::Result<bool> {
+        let mode = self.runtime.mouse_input_mode();
+        if !mode.reporting_enabled() {
+            return Ok(false);
+        }
+
+        let Some((column, row)) = self.mouse_position else {
+            return Ok(false);
+        };
+        let kind = match state {
+            ElementState::Pressed => WindowMouseEventKind::Down(button),
+            ElementState::Released => WindowMouseEventKind::Up(button),
+        };
+
+        let Some(bytes) = encode_window_mouse_event(
+            WindowMouseEvent {
+                kind,
+                column,
+                row,
+                modifiers: self.modifiers,
+            },
+            mode,
+        ) else {
+            return Ok(false);
+        };
+
+        self.write_pty_bytes(&bytes)?;
+        Ok(true)
+    }
+
+    fn update_mouse_position(&mut self, position: PhysicalPosition<f64>) {
+        self.mouse_position = window_mouse_cell(position);
     }
 
     fn handle_scrollback_shortcut(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
@@ -483,6 +545,162 @@ fn signed_scroll_direction(value: impl Into<f64>) -> isize {
     }
 }
 
+#[derive(Clone, Copy)]
+struct WindowMouseEvent {
+    kind: WindowMouseEventKind,
+    column: u16,
+    row: u16,
+    modifiers: ModifiersState,
+}
+
+#[derive(Clone, Copy)]
+enum WindowMouseEventKind {
+    Down(MouseButton),
+    Up(MouseButton),
+    ScrollUp,
+    ScrollDown,
+    ScrollLeft,
+    ScrollRight,
+}
+
+fn encode_window_mouse_event(event: WindowMouseEvent, mode: MouseInputMode) -> Option<Vec<u8>> {
+    if !window_mouse_reporting_allows(event.kind, mode.reporting()) {
+        return None;
+    }
+
+    let mut code = match event.kind {
+        WindowMouseEventKind::Down(button) | WindowMouseEventKind::Up(button) => {
+            window_mouse_button_code(button)?
+        }
+        WindowMouseEventKind::ScrollUp => 64,
+        WindowMouseEventKind::ScrollDown => 65,
+        WindowMouseEventKind::ScrollLeft => 66,
+        WindowMouseEventKind::ScrollRight => 67,
+    };
+
+    if event.modifiers.shift_key() {
+        code += 4;
+    }
+    if event.modifiers.alt_key() {
+        code += 8;
+    }
+    if event.modifiers.control_key() {
+        code += 16;
+    }
+
+    let column = event.column.checked_add(1)?;
+    let row = event.row.checked_add(1)?;
+
+    match mode.protocol() {
+        MouseProtocolMode::Sgr => {
+            let final_byte = if matches!(event.kind, WindowMouseEventKind::Up(_)) {
+                b'm'
+            } else {
+                b'M'
+            };
+            Some(format!("\x1b[<{code};{column};{row}{}", final_byte as char).into_bytes())
+        }
+        MouseProtocolMode::X10 => encode_legacy_window_mouse_event(event.kind, code, column, row),
+    }
+}
+
+fn window_mouse_reporting_allows(
+    kind: WindowMouseEventKind,
+    reporting: MouseReportingMode,
+) -> bool {
+    match reporting {
+        MouseReportingMode::None => false,
+        MouseReportingMode::Normal
+        | MouseReportingMode::ButtonEvent
+        | MouseReportingMode::AnyEvent => {
+            matches!(
+                kind,
+                WindowMouseEventKind::Down(_)
+                    | WindowMouseEventKind::Up(_)
+                    | WindowMouseEventKind::ScrollUp
+                    | WindowMouseEventKind::ScrollDown
+                    | WindowMouseEventKind::ScrollLeft
+                    | WindowMouseEventKind::ScrollRight
+            )
+        }
+    }
+}
+
+fn encode_legacy_window_mouse_event(
+    kind: WindowMouseEventKind,
+    mut code: u16,
+    column: u16,
+    row: u16,
+) -> Option<Vec<u8>> {
+    if matches!(kind, WindowMouseEventKind::Up(_)) {
+        code = 3 + (code & !0b11);
+    }
+
+    Some(vec![
+        0x1b,
+        b'[',
+        b'M',
+        legacy_mouse_byte(code)?,
+        legacy_mouse_byte(column)?,
+        legacy_mouse_byte(row)?,
+    ])
+}
+
+fn legacy_mouse_byte(value: u16) -> Option<u8> {
+    u8::try_from(value.checked_add(32)?).ok()
+}
+
+const fn window_mouse_button_code(button: MouseButton) -> Option<u16> {
+    match button {
+        MouseButton::Left => Some(0),
+        MouseButton::Middle => Some(1),
+        MouseButton::Right => Some(2),
+        _ => None,
+    }
+}
+
+fn window_mouse_wheel_kind(delta: MouseScrollDelta) -> Option<WindowMouseEventKind> {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => wheel_kind_from_axes(f64::from(x), f64::from(y)),
+        MouseScrollDelta::PixelDelta(position) => wheel_kind_from_axes(position.x, position.y),
+    }
+}
+
+fn wheel_kind_from_axes(x: f64, y: f64) -> Option<WindowMouseEventKind> {
+    if y > 0.0 {
+        Some(WindowMouseEventKind::ScrollUp)
+    } else if y < 0.0 {
+        Some(WindowMouseEventKind::ScrollDown)
+    } else if x > 0.0 {
+        Some(WindowMouseEventKind::ScrollRight)
+    } else if x < 0.0 {
+        Some(WindowMouseEventKind::ScrollLeft)
+    } else {
+        None
+    }
+}
+
+fn window_mouse_cell(position: PhysicalPosition<f64>) -> Option<(u16, u16)> {
+    Some((
+        pixel_axis_to_cell(position.x, CELL_WIDTH)?,
+        pixel_axis_to_cell(position.y, CELL_HEIGHT)?,
+    ))
+}
+
+fn pixel_axis_to_cell(value: f64, cell_size: u32) -> Option<u16> {
+    if !value.is_finite() || value < 0.0 {
+        return None;
+    }
+
+    let cell = (value / f64::from(cell_size)).floor();
+    if cell > f64::from(u16::MAX) {
+        return None;
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Some(cell as u16)
+}
+
 fn encode_modified_window_key(key: &Key, modifiers: ModifiersState) -> Option<Vec<u8>> {
     let modifier = xterm_window_modifier(modifiers)?;
 
@@ -696,13 +914,27 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     event_loop.exit();
                 }
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                if self.handle_mouse_wheel(delta) {
+            WindowEvent::CursorMoved { position, .. } => {
+                self.update_mouse_position(position);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if let Err(error) = self.handle_mouse_input(state, button) {
+                    eprintln!("PTY mouse error: {error}");
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => match self.handle_window_mouse_wheel(delta) {
+                Ok(true) => {
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
                 }
-            }
+                Ok(false) => {}
+                Err(error) => {
+                    eprintln!("PTY mouse error: {error}");
+                    event_loop.exit();
+                }
+            },
             WindowEvent::Resized(size) => {
                 if let Err(error) = self.handle_window_resize(size) {
                     eprintln!("resize error: {error}");
@@ -725,11 +957,14 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
-    use winit::event::MouseScrollDelta;
+    use winit::event::{MouseButton, MouseScrollDelta};
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
 
+    use crate::terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
+
     use super::{
-        NativeWindowApp, demo_snapshot, encode_window_focus_event, encode_window_key,
+        NativeWindowApp, WindowMouseEvent, WindowMouseEventKind, demo_snapshot,
+        encode_window_focus_event, encode_window_key, encode_window_mouse_event,
         terminal_size_from_window_pixels,
     };
 
@@ -882,6 +1117,99 @@ mod tests {
             Some(b"\x1b[O".to_vec())
         );
         assert_eq!(encode_window_focus_event(true, false), None);
+    }
+
+    #[test]
+    fn encodes_window_mouse_events_as_sgr_sequences_when_enabled() {
+        let mode = MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Sgr);
+
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Down(MouseButton::Left),
+                    column: 2,
+                    row: 1,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[<0;3;2M"
+        );
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Up(MouseButton::Left),
+                    column: 2,
+                    row: 1,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[<0;3;2m"
+        );
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::ScrollDown,
+                    column: 2,
+                    row: 1,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[<65;3;2M"
+        );
+    }
+
+    #[test]
+    fn encodes_window_mouse_events_as_legacy_sequences_when_sgr_is_disabled() {
+        let mode = MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::X10);
+
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Down(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[M !!"
+        );
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Up(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[M#!!"
+        );
+    }
+
+    #[test]
+    fn ignores_window_mouse_events_when_reporting_is_disabled() {
+        assert!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Down(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: ModifiersState::empty(),
+                },
+                MouseInputMode::default(),
+            )
+            .is_none()
+        );
     }
 
     #[test]
