@@ -751,6 +751,27 @@ mod tests {
         assert_eq!(terminal.cursor(), (0, 3));
     }
 
+    #[test]
+    fn terminal_maps_dec_special_graphics_line_drawing() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"\x1b(0lqk\x1b(Babc");
+
+        assert_eq!(row_text(&terminal, 0), "┌─┐abc  ");
+        assert_eq!(terminal.cursor(), (0, 6));
+    }
+
+    #[test]
+    fn terminal_handles_split_dec_special_graphics_sequence() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"\x1b(");
+        terminal.feed(b"0x\x1b(Bx");
+
+        assert_eq!(row_text(&terminal, 0), "│x  ");
+        assert_eq!(terminal.cursor(), (0, 2));
+    }
+
     fn row_text(terminal: &Terminal, row: u16) -> String {
         let grid = terminal.grid();
         let mut text = String::new();

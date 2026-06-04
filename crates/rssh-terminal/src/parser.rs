@@ -3,6 +3,12 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::{Cell, Color, TerminalGrid};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CharacterSet {
+    Ascii,
+    DecSpecialGraphics,
+}
+
 #[derive(Debug, Clone)]
 pub struct Terminal {
     grid: TerminalGrid,
@@ -16,6 +22,7 @@ pub struct Terminal {
     cursor_visible: bool,
     scroll_top: u16,
     scroll_bottom: u16,
+    character_set: CharacterSet,
     style: Cell,
     damage: Vec<DamageRegion>,
 }
@@ -30,6 +37,7 @@ struct ScreenState {
     cursor_visible: bool,
     scroll_top: u16,
     scroll_bottom: u16,
+    character_set: CharacterSet,
     style: Cell,
 }
 
@@ -55,6 +63,7 @@ impl Terminal {
             cursor_visible: true,
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
+            character_set: CharacterSet::Ascii,
             style: Cell::default(),
             damage: Vec::new(),
         }
@@ -86,6 +95,17 @@ impl Terminal {
                 '\u{1b}' if chars.get(index + 1) == Some(&']') => {
                     if let Some(sequence_end) = parse_osc(&chars, index + 2) {
                         index = sequence_end + 1;
+                    } else {
+                        self.pending_control.extend_from_slice(&chars[index..]);
+                        break;
+                    }
+                }
+                '\u{1b}' if chars.get(index + 1) == Some(&'(') => {
+                    if let Some(selector) = chars.get(index + 2).copied() {
+                        if let Some(character_set) = parse_g0_character_set(selector) {
+                            self.character_set = character_set;
+                        }
+                        index += 3;
                     } else {
                         self.pending_control.extend_from_slice(&chars[index..]);
                         break;
@@ -259,6 +279,7 @@ impl Terminal {
     }
 
     fn write_char(&mut self, ch: char) {
+        let ch = self.map_graphic_character(ch);
         let width = display_width(ch);
         if width == 0 {
             return;
@@ -385,6 +406,7 @@ impl Terminal {
             cursor_visible: self.cursor_visible,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
+            character_set: self.character_set,
             style: self.style.clone(),
         }
     }
@@ -398,6 +420,7 @@ impl Terminal {
         self.cursor_visible = screen.cursor_visible;
         self.scroll_top = screen.scroll_top;
         self.scroll_bottom = screen.scroll_bottom;
+        self.character_set = screen.character_set;
         self.style = screen.style;
         self.clamp_to_size();
     }
@@ -864,6 +887,45 @@ impl Terminal {
         }
 
         self.damage.push(region);
+    }
+
+    fn map_graphic_character(&self, ch: char) -> char {
+        match self.character_set {
+            CharacterSet::Ascii => ch,
+            CharacterSet::DecSpecialGraphics => map_dec_special_graphics(ch),
+        }
+    }
+}
+
+fn parse_g0_character_set(selector: char) -> Option<CharacterSet> {
+    match selector {
+        'B' => Some(CharacterSet::Ascii),
+        '0' => Some(CharacterSet::DecSpecialGraphics),
+        _ => None,
+    }
+}
+
+fn map_dec_special_graphics(ch: char) -> char {
+    match ch {
+        '`' => '◆',
+        'a' => '▒',
+        'j' => '┘',
+        'k' => '┐',
+        'l' => '┌',
+        'm' => '└',
+        'n' => '┼',
+        'o' => '⎺',
+        'p' => '⎻',
+        'q' => '─',
+        'r' => '⎼',
+        's' => '⎽',
+        't' => '├',
+        'u' => '┤',
+        'v' => '┴',
+        'w' => '┬',
+        'x' => '│',
+        '~' => '·',
+        _ => ch,
     }
 }
 

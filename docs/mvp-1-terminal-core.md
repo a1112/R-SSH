@@ -32,6 +32,8 @@ support the next PTY and SSH milestones.
   - relative cursor movement with `CUU`, `CUD`, `CUF`, and `CUB`
 - Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`.
 - Cursor visibility tracking for `DECSET ?25` and `DECRST ?25`.
+- G0 character-set switching for DEC Special Graphics (`ESC(0` / `ESC(B`),
+  with common box-drawing glyph mapping.
 - Incomplete CSI, OSC title, and `ESC7`/`ESC8` sequences are retained across
   `Terminal::feed` calls so PTY chunk boundaries do not leak control bytes into
   the grid.
@@ -98,6 +100,7 @@ cover:
 - CSI cursor positioning and relative cursor movement
 - `?25h/l` cursor visibility tracking
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
+- DEC Special Graphics line drawing and split `ESC(` sequence handling
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
 - split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
