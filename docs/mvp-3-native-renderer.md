@@ -6,11 +6,14 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
 
 ## Completed Scope
 
-- `rssh-renderer` converts `rssh-terminal::TerminalGrid` into a
-  `TerminalRenderSnapshot`.
+- `rssh-renderer` converts `rssh-terminal::TerminalGrid` or
+  `rssh-terminal::Terminal` into a `TerminalRenderSnapshot`.
 - `TerminalRenderSnapshot` keeps row, column, character, foreground,
   background, and basic style flags for visible cells.
+- `TerminalRenderSnapshot` carries visible cursor row/column when built from a
+  `Terminal`.
 - `PixelRenderer` draws snapshot cells into an RGBA framebuffer.
+- `PixelRenderer` draws a basic block cursor for visible cursor snapshots.
 - The renderer uses `font8x8` for a minimal built-in glyph path.
 - `rssh-app` starts a native `winit` window by default.
 - `pixels` presents the renderer framebuffer through a GPU-backed window
@@ -58,15 +61,16 @@ cargo run -p rssh-app -- window --frames 1
 Renderer-specific tests cover:
 
 - terminal grid to render snapshot conversion
+- terminal cursor to render snapshot conversion
 - preservation of cell position and style metadata
 - glyph foreground pixels drawn into an RGBA target
+- blank-cell cursor pixels drawn into an RGBA target
 
 ## Explicit Non-Scope
 
 - GPU text shaping with `cosmic-text`.
 - Glyph atlas caching.
 - Scrollback rendering.
-- Cursor rendering.
 - Selection and mouse interaction.
 - Live PTY streaming into the native window.
 - SSH session rendering.

@@ -280,6 +280,19 @@ mod tests {
     }
 
     #[test]
+    fn terminal_tracks_cursor_visibility_private_mode() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        assert!(terminal.cursor_visible());
+
+        terminal.feed(b"\x1b[?25l");
+        assert!(!terminal.cursor_visible());
+
+        terminal.feed(b"\x1b[?25h");
+        assert!(terminal.cursor_visible());
+    }
+
+    #[test]
     fn terminal_delays_auto_wrap_until_next_printable_character() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 

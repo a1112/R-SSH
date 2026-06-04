@@ -20,7 +20,8 @@ in the native `winit` window.
 - PTY output is read on a background thread and delivered to the UI thread with
   `winit::EventLoopProxy`.
 - PTY output updates the terminal runtime and rebuilds
-  `TerminalRenderSnapshot` from the live terminal grid.
+  `TerminalRenderSnapshot` from the live terminal, including visible cursor
+  state.
 - `winit` keyboard events are encoded and written to the active PTY writer.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
@@ -74,7 +75,7 @@ MVP 4 tests cover:
 - PTY output feeding into the shared terminal runtime
 - terminal response filtering for cursor position, device-attribute, status,
   and text-area size queries
-- native window snapshot rebuilds from runtime output
+- native window snapshot rebuilds from runtime output, including cursor state
 
 ## Metrics Design
 
@@ -101,7 +102,7 @@ Recommended MVP 5 targets:
 
 - SSH protocol sessions in the native window.
 - Scrollback rendering and search.
-- Cursor rendering and selection.
+- Selection.
 - Mouse input.
 - Terminal resize from window cell geometry.
 - GPU text shaping, glyph atlas caching, and font fallback.
@@ -112,8 +113,7 @@ Recommended MVP 5 targets:
 MVP 5 should replace the minimal bitmap-font renderer with a production-grade
 text rendering path and add basic terminal UX:
 
-1. Render cursor state.
-2. Track dirty regions instead of rebuilding the full snapshot each chunk.
-3. Resize the PTY from window dimensions.
-4. Add scrollback storage and viewport rendering.
-5. Start collecting the metrics listed above in smoke and benchmark commands.
+1. Track dirty regions instead of rebuilding the full snapshot each chunk.
+2. Resize the PTY from window dimensions.
+3. Add scrollback storage and viewport rendering.
+4. Start collecting the metrics listed above in smoke and benchmark commands.

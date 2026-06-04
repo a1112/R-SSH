@@ -49,7 +49,7 @@ pub fn demo_snapshot() -> TerminalRenderSnapshot {
     terminal.feed(b"\x1b[1;32mR-SSH\x1b[0m native renderer\r\n");
     terminal.feed(b"winit window + renderer terminal grid");
 
-    TerminalRenderSnapshot::from_grid(terminal.grid())
+    TerminalRenderSnapshot::from_terminal(&terminal)
 }
 
 struct NativeWindowApp {
@@ -77,7 +77,7 @@ enum WindowUserEvent {
 impl NativeWindowApp {
     fn new(frame_limit: Option<u64>) -> Self {
         let runtime = TerminalRuntime::new(TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS));
-        let snapshot = TerminalRenderSnapshot::from_grid(runtime.terminal().grid());
+        let snapshot = TerminalRenderSnapshot::from_terminal(runtime.terminal());
 
         Self {
             window: None,
@@ -158,7 +158,7 @@ impl NativeWindowApp {
         for response in self.runtime.feed_pty_output(bytes) {
             self.write_pty_bytes(&response)?;
         }
-        self.snapshot = TerminalRenderSnapshot::from_grid(self.runtime.terminal().grid());
+        self.snapshot = TerminalRenderSnapshot::from_terminal(self.runtime.terminal());
 
         Ok(())
     }

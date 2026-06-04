@@ -1,6 +1,6 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 pub use rssh_core::DamageRegion;
-use rssh_terminal::{Color, TerminalGrid};
+use rssh_terminal::{Color, Terminal, TerminalGrid};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderCell {
@@ -14,9 +14,16 @@ pub struct RenderCell {
     pub underline: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderCursor {
+    pub row: u16,
+    pub column: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalRenderSnapshot {
     cells: Vec<RenderCell>,
+    cursor: Option<RenderCursor>,
 }
 
 pub struct PixelRenderer;
@@ -88,6 +95,20 @@ impl PixelRenderer {
                     );
                 }
             }
+        }
+
+        if let Some(cursor) = snapshot.cursor() {
+            let origin_x = u32::from(cursor.column).saturating_mul(cell_width);
+            let origin_y = u32::from(cursor.row).saturating_mul(cell_height);
+            surface.fill_rect(
+                Rect {
+                    x: origin_x,
+                    y: origin_y,
+                    width: cell_width,
+                    height: cell_height,
+                },
+                default_foreground(),
+            );
         }
     }
 }
@@ -176,6 +197,22 @@ const fn default_background() -> [u8; 4] {
 impl TerminalRenderSnapshot {
     #[must_use]
     pub fn from_grid(grid: &TerminalGrid) -> Self {
+        Self::from_grid_with_cursor(grid, None)
+    }
+
+    #[must_use]
+    pub fn from_terminal(terminal: &Terminal) -> Self {
+        let cursor = if terminal.cursor_visible() {
+            let (row, column) = terminal.cursor();
+            Some(RenderCursor { row, column })
+        } else {
+            None
+        };
+
+        Self::from_grid_with_cursor(terminal.grid(), cursor)
+    }
+
+    fn from_grid_with_cursor(grid: &TerminalGrid, cursor: Option<RenderCursor>) -> Self {
         let size = grid.size();
         let mut cells = Vec::new();
 
@@ -202,19 +239,24 @@ impl TerminalRenderSnapshot {
             }
         }
 
-        Self { cells }
+        Self { cells, cursor }
     }
 
     #[must_use]
     pub fn cells(&self) -> &[RenderCell] {
         &self.cells
     }
+
+    #[must_use]
+    pub const fn cursor(&self) -> Option<RenderCursor> {
+        self.cursor
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use rssh_core::TerminalSize;
-    use rssh_terminal::{Cell, Color, TerminalGrid};
+    use rssh_terminal::{Cell, Color, Terminal, TerminalGrid};
 
     use super::{DamageRegion, PixelRenderer, TerminalRenderSnapshot};
 
@@ -277,6 +319,45 @@ mod tests {
                 .chunks_exact(4)
                 .any(|pixel| pixel == [255, 0, 0, 255]),
             "renderer did not draw a red glyph pixel"
+        );
+    }
+
+    #[test]
+    fn render_snapshot_exposes_terminal_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"ab\nc");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        let cursor = snapshot.cursor().expect("cursor should be visible");
+        assert_eq!(cursor.row, 1);
+        assert_eq!(cursor.column, 1);
+    }
+
+    #[test]
+    fn render_snapshot_omits_hidden_terminal_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"\x1b[?25l");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(snapshot.cursor().is_none());
+    }
+
+    #[test]
+    fn pixel_renderer_draws_blank_cursor_cell() {
+        let terminal = Terminal::new(TerminalSize::new(1, 1));
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert!(
+            target
+                .chunks_exact(4)
+                .any(|pixel| pixel == [229, 229, 229, 255]),
+            "renderer did not draw a visible cursor block"
         );
     }
 }

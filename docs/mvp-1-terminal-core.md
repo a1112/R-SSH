@@ -27,6 +27,7 @@ support the next PTY and SSH milestones.
     `ESC[row;columnf`)
   - relative cursor movement with `CUU`, `CUD`, `CUF`, and `CUB`
 - Cursor save/restore with both `ESC7`/`ESC8` and CSI `s`/`u`.
+- Cursor visibility tracking for `DECSET ?25` and `DECRST ?25`.
 - Incomplete CSI, OSC title, and `ESC7`/`ESC8` sequences are retained across
   `Terminal::feed` calls so PTY chunk boundaries do not leak control bytes into
   the grid.
@@ -77,6 +78,7 @@ cover:
 - `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
 - `?1049` alternate-screen enter/exit with main screen restoration
 - CSI cursor positioning and relative cursor movement
+- `?25h/l` cursor visibility tracking
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
 - CSI display and line erase handling

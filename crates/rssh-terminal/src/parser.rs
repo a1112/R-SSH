@@ -12,6 +12,7 @@ pub struct Terminal {
     pending_control: Vec<char>,
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
+    cursor_visible: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     style: Cell,
@@ -25,6 +26,7 @@ struct ScreenState {
     cursor_column: u16,
     pending_wrap: bool,
     saved_cursor: Option<SavedCursor>,
+    cursor_visible: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     style: Cell,
@@ -48,6 +50,7 @@ impl Terminal {
             pending_control: Vec::new(),
             saved_cursor: None,
             main_screen: None,
+            cursor_visible: true,
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
             style: Cell::default(),
@@ -125,6 +128,11 @@ impl Terminal {
     #[must_use]
     pub const fn cursor(&self) -> (u16, u16) {
         (self.cursor_row, self.cursor_column)
+    }
+
+    #[must_use]
+    pub const fn cursor_visible(&self) -> bool {
+        self.cursor_visible
     }
 
     pub fn take_damage(&mut self) -> Vec<DamageRegion> {
@@ -268,8 +276,10 @@ impl Terminal {
         };
 
         for value in values {
-            if value == 1049 {
-                self.set_alternate_screen(enabled);
+            match value {
+                25 => self.cursor_visible = enabled,
+                1049 => self.set_alternate_screen(enabled),
+                _ => {}
             }
         }
     }
@@ -287,6 +297,7 @@ impl Terminal {
             self.cursor_column = 0;
             self.pending_wrap = false;
             self.saved_cursor = None;
+            self.cursor_visible = true;
             self.scroll_top = 0;
             self.scroll_bottom = size.rows.saturating_sub(1);
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
@@ -304,6 +315,7 @@ impl Terminal {
             cursor_column: self.cursor_column,
             pending_wrap: self.pending_wrap,
             saved_cursor: self.saved_cursor,
+            cursor_visible: self.cursor_visible,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
             style: self.style.clone(),
@@ -316,6 +328,7 @@ impl Terminal {
         self.cursor_column = screen.cursor_column;
         self.pending_wrap = screen.pending_wrap;
         self.saved_cursor = screen.saved_cursor;
+        self.cursor_visible = screen.cursor_visible;
         self.scroll_top = screen.scroll_top;
         self.scroll_bottom = screen.scroll_bottom;
         self.style = screen.style;
