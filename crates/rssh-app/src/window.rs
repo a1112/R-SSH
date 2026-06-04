@@ -16,7 +16,7 @@ use winit::{
     dpi::{LogicalSize, PhysicalSize},
     event::{ElementState, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{Key, ModifiersState, NamedKey},
+    keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::Window,
 };
 
@@ -254,9 +254,11 @@ impl NativeWindowApp {
 
         let bytes = encode_window_key(
             &key.logical_key,
+            key.physical_key,
             key.text.as_deref(),
             self.modifiers,
             self.runtime.application_cursor_keys(),
+            self.runtime.application_keypad(),
         );
         if !bytes.is_empty() {
             self.write_pty_bytes(&bytes)?;
@@ -315,9 +317,11 @@ impl Drop for NativeWindowApp {
 
 fn encode_window_key(
     key: &Key,
+    physical_key: PhysicalKey,
     text: Option<&str>,
     modifiers: ModifiersState,
     application_cursor_keys: bool,
+    application_keypad: bool,
 ) -> Vec<u8> {
     let alt = modifiers.alt_key();
 
@@ -336,6 +340,12 @@ fn encode_window_key(
 
     if let Some(bytes) = encode_modified_window_key(key, modifiers) {
         return bytes;
+    }
+
+    if application_keypad {
+        if let Some(bytes) = encode_application_keypad_key(physical_key) {
+            return bytes;
+        }
     }
 
     if application_cursor_keys {
@@ -408,6 +418,36 @@ fn xterm_window_modifier(modifiers: ModifiersState) -> Option<u8> {
     }
 
     Some(1 + u8::from(shift) + u8::from(alt) * 2 + u8::from(control) * 4)
+}
+
+fn encode_application_keypad_key(physical_key: PhysicalKey) -> Option<Vec<u8>> {
+    let PhysicalKey::Code(code) = physical_key else {
+        return None;
+    };
+
+    let final_byte = match code {
+        WinitKeyCode::NumpadEnter => b'M',
+        WinitKeyCode::NumpadMultiply => b'j',
+        WinitKeyCode::NumpadAdd => b'k',
+        WinitKeyCode::NumpadComma => b'l',
+        WinitKeyCode::NumpadSubtract => b'm',
+        WinitKeyCode::NumpadDecimal => b'n',
+        WinitKeyCode::NumpadDivide => b'o',
+        WinitKeyCode::Numpad0 => b'p',
+        WinitKeyCode::Numpad1 => b'q',
+        WinitKeyCode::Numpad2 => b'r',
+        WinitKeyCode::Numpad3 => b's',
+        WinitKeyCode::Numpad4 => b't',
+        WinitKeyCode::Numpad5 => b'u',
+        WinitKeyCode::Numpad6 => b'v',
+        WinitKeyCode::Numpad7 => b'w',
+        WinitKeyCode::Numpad8 => b'x',
+        WinitKeyCode::Numpad9 => b'y',
+        WinitKeyCode::NumpadEqual => b'X',
+        _ => return None,
+    };
+
+    Some(vec![0x1b, b'O', final_byte])
 }
 
 fn encode_application_cursor_key(key: &Key) -> Option<Vec<u8>> {
@@ -570,7 +610,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
-    use winit::keyboard::{Key, ModifiersState, NamedKey};
+    use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
 
     use super::{
         NativeWindowApp, demo_snapshot, encode_window_focus_event, encode_window_key,
@@ -588,8 +628,10 @@ mod tests {
     fn encodes_window_text_input_for_pty() {
         let bytes = encode_window_key(
             &Key::Character("中".into()),
+            PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
             Some("中"),
             ModifiersState::empty(),
+            false,
             false,
         );
 
@@ -600,8 +642,10 @@ mod tests {
     fn encodes_window_control_input_for_pty() {
         let bytes = encode_window_key(
             &Key::Character("c".into()),
+            PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
             None,
             ModifiersState::CONTROL,
+            false,
             false,
         );
 
@@ -612,8 +656,10 @@ mod tests {
     fn encodes_window_alt_text_with_escape_prefix() {
         let bytes = encode_window_key(
             &Key::Character("x".into()),
+            PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
             Some("x"),
             ModifiersState::ALT,
+            false,
             false,
         );
 
@@ -625,8 +671,10 @@ mod tests {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::ArrowUp),
+                PhysicalKey::Code(WinitKeyCode::ArrowUp),
                 None,
                 ModifiersState::empty(),
+                false,
                 false
             ),
             b"\x1b[A"
@@ -634,8 +682,10 @@ mod tests {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::Enter),
+                PhysicalKey::Code(WinitKeyCode::Enter),
                 Some("\r"),
                 ModifiersState::empty(),
+                false,
                 false
             ),
             b"\r"
@@ -647,8 +697,10 @@ mod tests {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::ArrowLeft),
+                PhysicalKey::Code(WinitKeyCode::ArrowLeft),
                 None,
                 ModifiersState::CONTROL,
+                false,
                 false
             ),
             b"\x1b[1;5D"
@@ -656,8 +708,10 @@ mod tests {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::Delete),
+                PhysicalKey::Code(WinitKeyCode::Delete),
                 None,
                 ModifiersState::SHIFT | ModifiersState::ALT,
+                false,
                 false
             ),
             b"\x1b[3;4~"
@@ -665,8 +719,10 @@ mod tests {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::F5),
+                PhysicalKey::Code(WinitKeyCode::F5),
                 None,
                 ModifiersState::SHIFT,
+                false,
                 false
             ),
             b"\x1b[15;2~"
@@ -678,18 +734,22 @@ mod tests {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::ArrowUp),
+                PhysicalKey::Code(WinitKeyCode::ArrowUp),
                 None,
                 ModifiersState::empty(),
-                true
+                true,
+                false
             ),
             b"\x1bOA"
         );
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::ArrowUp),
+                PhysicalKey::Code(WinitKeyCode::ArrowUp),
                 None,
                 ModifiersState::CONTROL,
-                true
+                true,
+                false
             ),
             b"\x1b[1;5A"
         );
@@ -709,12 +769,51 @@ mod tests {
     }
 
     #[test]
+    fn encodes_window_application_keypad_keys_when_enabled() {
+        assert_eq!(
+            encode_window_key(
+                &Key::Character("1".into()),
+                PhysicalKey::Code(WinitKeyCode::Numpad1),
+                Some("1"),
+                ModifiersState::empty(),
+                false,
+                true
+            ),
+            b"\x1bOq"
+        );
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::Enter),
+                PhysicalKey::Code(WinitKeyCode::NumpadEnter),
+                Some("\r"),
+                ModifiersState::empty(),
+                false,
+                true
+            ),
+            b"\x1bOM"
+        );
+        assert!(
+            encode_window_key(
+                &Key::Character("1".into()),
+                PhysicalKey::Code(WinitKeyCode::Numpad1),
+                Some("1"),
+                ModifiersState::CONTROL,
+                false,
+                true
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
     fn encodes_window_backtab_and_function_keys_for_pty() {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::Tab),
+                PhysicalKey::Code(WinitKeyCode::Tab),
                 Some("\t"),
                 ModifiersState::SHIFT,
+                false,
                 false
             ),
             b"\x1b[Z"
@@ -722,8 +821,10 @@ mod tests {
         assert_eq!(
             encode_window_key(
                 &Key::Named(NamedKey::F12),
+                PhysicalKey::Code(WinitKeyCode::F12),
                 None,
                 ModifiersState::empty(),
+                false,
                 false
             ),
             b"\x1b[24~"

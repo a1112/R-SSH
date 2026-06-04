@@ -56,6 +56,11 @@ impl TerminalRuntime {
     pub fn focus_reporting(&self) -> bool {
         self.mode_tracker.focus_reporting()
     }
+
+    #[must_use]
+    pub fn application_keypad(&self) -> bool {
+        self.mode_tracker.application_keypad()
+    }
 }
 
 struct TerminalOutputFilter {
@@ -230,48 +235,82 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
 struct TerminalModeTracker {
     pending: Vec<u8>,
     application_cursor_keys: bool,
+    application_keypad: bool,
     focus_reporting: bool,
 }
 
 impl TerminalModeTracker {
+    const APPLICATION_KEYPAD_PREFIX: &'static [u8] = b"\x1b=";
     const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
+    const NUMERIC_KEYPAD_PREFIX: &'static [u8] = b"\x1b>";
 
     fn process(&mut self, bytes: &[u8]) {
         self.pending.extend_from_slice(bytes);
 
         loop {
-            let Some(start) = find_subslice(&self.pending, Self::CSI_PRIVATE_MODE_PREFIX) else {
+            let Some(start) = self.find_next_mode_start() else {
                 self.retain_possible_prefix();
                 return;
             };
-            if start > 0 {
-                self.pending.drain(..start);
+            if start.index > 0 {
+                self.pending.drain(..start.index);
             }
 
-            match Self::parse_private_mode_sequence(&self.pending) {
-                ModeParse::Complete {
-                    modes,
-                    enabled,
-                    consumed,
-                } => {
-                    if modes.contains(&1) {
-                        self.application_cursor_keys = enabled;
-                    }
-                    if modes.contains(&1004) {
-                        self.focus_reporting = enabled;
-                    }
-                    self.pending.drain(..consumed);
+            match start.sequence {
+                ModeSequence::ApplicationKeypad(enabled) => {
+                    self.application_keypad = enabled;
+                    self.pending.drain(..2);
                 }
-                ModeParse::Incomplete => return,
-                ModeParse::Invalid => {
-                    self.pending.drain(..1);
+                ModeSequence::CsiPrivateMode => {
+                    match Self::parse_private_mode_sequence(&self.pending) {
+                        ModeParse::Complete {
+                            modes,
+                            enabled,
+                            consumed,
+                        } => {
+                            if modes.contains(&1) {
+                                self.application_cursor_keys = enabled;
+                            }
+                            if modes.contains(&1004) {
+                                self.focus_reporting = enabled;
+                            }
+                            self.pending.drain(..consumed);
+                        }
+                        ModeParse::Incomplete => return,
+                        ModeParse::Invalid => {
+                            self.pending.drain(..1);
+                        }
+                    }
                 }
             }
         }
     }
 
+    fn find_next_mode_start(&self) -> Option<ModeSequenceStart> {
+        [
+            (Self::CSI_PRIVATE_MODE_PREFIX, ModeSequence::CsiPrivateMode),
+            (
+                Self::APPLICATION_KEYPAD_PREFIX,
+                ModeSequence::ApplicationKeypad(true),
+            ),
+            (
+                Self::NUMERIC_KEYPAD_PREFIX,
+                ModeSequence::ApplicationKeypad(false),
+            ),
+        ]
+        .into_iter()
+        .filter_map(|(prefix, sequence)| {
+            find_subslice(&self.pending, prefix).map(|index| ModeSequenceStart { index, sequence })
+        })
+        .min_by_key(|start| start.index)
+    }
+
     fn application_cursor_keys(&self) -> bool {
         self.application_cursor_keys
+    }
+
+    fn application_keypad(&self) -> bool {
+        self.application_keypad
     }
 
     fn focus_reporting(&self) -> bool {
@@ -320,12 +359,32 @@ impl TerminalModeTracker {
     }
 
     fn retain_possible_prefix(&mut self) {
-        let retained = suffix_prefix_len(&self.pending, Self::CSI_PRIVATE_MODE_PREFIX);
+        let retained = [
+            Self::CSI_PRIVATE_MODE_PREFIX,
+            Self::APPLICATION_KEYPAD_PREFIX,
+            Self::NUMERIC_KEYPAD_PREFIX,
+        ]
+        .into_iter()
+        .map(|prefix| suffix_prefix_len(&self.pending, prefix))
+        .max()
+        .unwrap_or(0);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct ModeSequenceStart {
+    index: usize,
+    sequence: ModeSequence,
+}
+
+#[derive(Clone, Copy)]
+enum ModeSequence {
+    CsiPrivateMode,
+    ApplicationKeypad(bool),
 }
 
 enum ModeParse {
@@ -483,6 +542,30 @@ mod tests {
 
         assert!(runtime.application_cursor_keys());
         assert!(runtime.focus_reporting());
+    }
+
+    #[test]
+    fn tracks_application_keypad_mode_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        assert!(!runtime.application_keypad());
+
+        runtime.feed_pty_output(b"\x1b=");
+        assert!(runtime.application_keypad());
+
+        runtime.feed_pty_output(b"\x1b>");
+        assert!(!runtime.application_keypad());
+    }
+
+    #[test]
+    fn tracks_split_application_keypad_mode_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b");
+        assert!(!runtime.application_keypad());
+
+        runtime.feed_pty_output(b"=");
+        assert!(runtime.application_keypad());
     }
 
     #[test]

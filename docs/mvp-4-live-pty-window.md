@@ -29,6 +29,8 @@ in the native `winit` window.
   editing, and function keys.
 - The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
   and sends SS3 arrow-key sequences while it is enabled.
+- The native window tracks PTY-side application keypad mode (`ESC=` / `ESC>`)
+  and sends SS3 keypad sequences for physical numpad keys while it is enabled.
 - The native window tracks PTY-side focus reporting (`ESC[?1004h/l`) and
   reports focus gained/lost events back to the active PTY.
 - `winit` resize events are converted to terminal cell geometry; the live
@@ -89,6 +91,7 @@ MVP 4 tests cover:
   text-area size, and screen character-size queries
 - native window title state from OSC `0`/`2` PTY output
 - application cursor key mode tracking for native window input
+- application keypad mode tracking for native window numpad input
 - focus reporting mode tracking and native window focus event encoding
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
