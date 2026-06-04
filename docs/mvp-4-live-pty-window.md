@@ -36,6 +36,8 @@ in the native `winit` window.
 - `winit` resize events are converted to terminal cell geometry; the live
   terminal grid, PTY size, render buffer, and text-area size query response are
   updated together.
+- The native window can render the terminal scrollback viewport and mouse-wheel
+  events move that viewport up or down through available history.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
 
@@ -95,6 +97,7 @@ MVP 4 tests cover:
 - focus reporting mode tracking and native window focus event encoding
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
+- native window scrollback viewport clamping and mouse-wheel movement
 
 ## Metrics Design
 
@@ -130,9 +133,9 @@ Recommended MVP 5 targets:
 
 MVP 5 should replace the minimal bitmap-font renderer with a production-grade
 text rendering path and add basic terminal UX. The terminal core now has bounded
-main-screen scrollback storage and the renderer can build scrollback viewport
-snapshots; the native window still needs user controls for that viewport.
+main-screen scrollback storage, the renderer can build scrollback viewport
+snapshots, and the native window can move that viewport with mouse-wheel input.
 
 1. Track dirty regions instead of rebuilding the full snapshot each chunk.
-2. Wire scrollback viewport controls into the native window.
+2. Add keyboard shortcuts and scrollbar/status affordances for scrollback.
 3. Start collecting the metrics listed above in smoke and benchmark commands.

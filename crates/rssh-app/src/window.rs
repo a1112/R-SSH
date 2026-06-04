@@ -14,7 +14,7 @@ use rssh_terminal::Terminal;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalSize},
-    event::{ElementState, WindowEvent},
+    event::{ElementState, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::Window,
@@ -69,6 +69,7 @@ struct NativeWindowApp {
     writer: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     modifiers: ModifiersState,
+    scrollback_offset: usize,
 }
 
 #[derive(Debug)]
@@ -99,6 +100,7 @@ impl NativeWindowApp {
             writer: None,
             reader_thread: None,
             modifiers: ModifiersState::empty(),
+            scrollback_offset: 0,
         }
     }
 
@@ -166,9 +168,47 @@ impl NativeWindowApp {
             self.write_pty_bytes(&response)?;
         }
         self.sync_window_title_from_runtime();
-        self.snapshot = TerminalRenderSnapshot::from_terminal(self.runtime.terminal());
+        self.refresh_snapshot();
 
         Ok(())
+    }
+
+    fn refresh_snapshot(&mut self) {
+        self.scrollback_offset = self
+            .scrollback_offset
+            .min(self.runtime.terminal().scrollback().len());
+        self.snapshot = TerminalRenderSnapshot::from_terminal_viewport(
+            self.runtime.terminal(),
+            self.scrollback_offset,
+        );
+    }
+
+    fn scroll_viewport_lines(&mut self, lines: isize) {
+        let history_len = self.runtime.terminal().scrollback().len();
+        let next_offset = if lines.is_positive() {
+            self.scrollback_offset
+                .saturating_add(lines.unsigned_abs())
+                .min(history_len)
+        } else {
+            self.scrollback_offset.saturating_sub(lines.unsigned_abs())
+        };
+
+        if next_offset == self.scrollback_offset {
+            return;
+        }
+
+        self.scrollback_offset = next_offset;
+        self.refresh_snapshot();
+    }
+
+    fn handle_mouse_wheel(&mut self, delta: MouseScrollDelta) -> bool {
+        let lines = scrollback_lines_from_mouse_delta(delta);
+        if lines == 0 {
+            return false;
+        }
+
+        self.scroll_viewport_lines(lines);
+        true
     }
 
     fn sync_window_title_from_runtime(&mut self) {
@@ -293,7 +333,7 @@ impl NativeWindowApp {
             let pty_size = PtySize::try_new(terminal_size.columns, terminal_size.rows)?;
             session.resize(pty_size)?;
         }
-        self.snapshot = TerminalRenderSnapshot::from_terminal(self.runtime.terminal());
+        self.refresh_snapshot();
 
         Ok(())
     }
@@ -373,6 +413,26 @@ fn encode_window_key(
     }
 
     bytes
+}
+
+fn scrollback_lines_from_mouse_delta(delta: MouseScrollDelta) -> isize {
+    match delta {
+        MouseScrollDelta::LineDelta(_, y) => signed_scroll_direction(y),
+        MouseScrollDelta::PixelDelta(position) => {
+            signed_scroll_direction(position.y / f64::from(CELL_HEIGHT))
+        }
+    }
+}
+
+fn signed_scroll_direction(value: impl Into<f64>) -> isize {
+    let value = value.into();
+    if value > 0.0 {
+        1
+    } else if value < 0.0 {
+        -1
+    } else {
+        0
+    }
 }
 
 fn encode_modified_window_key(key: &Key, modifiers: ModifiersState) -> Option<Vec<u8>> {
@@ -588,6 +648,13 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     event_loop.exit();
                 }
             }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if self.handle_mouse_wheel(delta) {
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+            }
             WindowEvent::Resized(size) => {
                 if let Err(error) = self.handle_window_resize(size) {
                     eprintln!("resize error: {error}");
@@ -610,6 +677,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
+    use winit::event::MouseScrollDelta;
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
 
     use super::{
@@ -839,6 +907,54 @@ mod tests {
 
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('l'));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('e'));
+    }
+
+    #[test]
+    fn window_app_scrolls_snapshot_to_scrollback_lines() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+
+        app.handle_pty_output(b"ab\ncd\nef").unwrap();
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
+
+        app.scroll_viewport_lines(1);
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+        assert_eq!(snapshot_char(&app.snapshot, 1, 0), Some('c'));
+        assert!(app.snapshot.cursor().is_none());
+
+        app.scroll_viewport_lines(-1);
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
+        assert!(app.snapshot.cursor().is_some());
+    }
+
+    #[test]
+    fn window_app_clamps_scrollback_viewport_to_available_history() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"ab\ncd\nef").unwrap();
+
+        app.scroll_viewport_lines(99);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+
+        app.scroll_viewport_lines(-99);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
+    }
+
+    #[test]
+    fn window_app_mouse_wheel_scrolls_scrollback_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"ab\ncd\nef").unwrap();
+
+        assert!(app.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0)));
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+
+        assert!(app.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, -1.0)));
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
     }
 
     #[test]
