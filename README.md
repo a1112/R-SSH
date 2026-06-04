@@ -5,9 +5,10 @@ target product shape is closer to XShell than to a web terminal: native window,
 GPU text rendering, direct SSH protocol integration, session management, SFTP,
 tunnels, logging, and secure key storage.
 
-The repository now includes MVP 1 for the terminal core: a styled cell model,
-grid read/write access, basic text/newline parsing, basic SGR color/style
-handling, wide CJK glyph placement, and terminal damage tracking.
+The repository now includes MVP 1 for the terminal core and MVP 2 for a
+console-hosted local terminal path. The current app can start a local shell
+through the platform PTY, forward keyboard input, stream shell output, and feed
+real PTY bytes into the terminal grid in integration tests.
 
 ## Technical Direction
 
@@ -39,12 +40,15 @@ refs/                 Local reference source cache, ignored by Git
 ```powershell
 cargo fmt --all
 cargo test --workspace
+cargo run -p rssh-app -- local
 ```
 
 ## MVP Status
 
 - MVP 1: Terminal core baseline is complete. See `docs/mvp-1-terminal-core.md`.
-- MVP 2: Local PTY and SSH shell wiring is next.
+- MVP 2: Local terminal path is complete as a console-hosted prototype. See
+  `docs/mvp-2-local-terminal.md`.
+- MVP 3: Native window and renderer prototype is next.
 
 ## Reference Sources
 

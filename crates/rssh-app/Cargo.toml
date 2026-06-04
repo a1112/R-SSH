@@ -7,6 +7,12 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+crossterm = "0.29"
+rssh-pty = { path = "../rssh-pty" }
+
+[dev-dependencies]
+rssh-core = { path = "../rssh-core" }
+rssh-terminal = { path = "../rssh-terminal" }
 
 [lints]
 workspace = true
