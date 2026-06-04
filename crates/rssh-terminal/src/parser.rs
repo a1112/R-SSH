@@ -261,6 +261,8 @@ impl Terminal {
             'H' | 'f' => self.position_cursor(params),
             'J' => self.erase_display(csi_mode(params)),
             'K' => self.erase_line(csi_mode(params)),
+            'L' => self.insert_lines(csi_count(params)),
+            'M' => self.delete_lines(csi_count(params)),
             'P' => self.delete_characters(csi_count(params)),
             'X' => self.erase_characters(csi_count(params)),
             'm' => self.apply_sgr(params),
@@ -485,6 +487,104 @@ impl Terminal {
             2 => self.clear_cells(self.cursor_row, 0, columns),
             _ => {}
         }
+    }
+
+    fn insert_lines(&mut self, count: u16) {
+        self.pending_wrap = false;
+        let Some((top, bottom)) = self.active_scroll_range_from_cursor() else {
+            return;
+        };
+
+        self.scroll_down_region(top, bottom, count);
+    }
+
+    fn delete_lines(&mut self, count: u16) {
+        self.pending_wrap = false;
+        let Some((top, bottom)) = self.active_scroll_range_from_cursor() else {
+            return;
+        };
+
+        self.scroll_up_region_by(top, bottom, count);
+    }
+
+    fn active_scroll_range_from_cursor(&self) -> Option<(u16, u16)> {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 {
+            return None;
+        }
+
+        let scroll_top = self.scroll_top.min(size.rows - 1);
+        let scroll_bottom = self.scroll_bottom.min(size.rows - 1);
+        if self.cursor_row < scroll_top || self.cursor_row > scroll_bottom {
+            return None;
+        }
+
+        Some((self.cursor_row, scroll_bottom))
+    }
+
+    fn scroll_down_region(&mut self, top: u16, bottom: u16, count: u16) {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 || top > bottom || count == 0 {
+            return;
+        }
+
+        let height = bottom - top + 1;
+        let count = count.min(height);
+
+        if count < height {
+            let shift_bottom = bottom - count;
+            for row in (top..=shift_bottom).rev() {
+                for column in 0..size.columns {
+                    let cell = self.grid.get(row, column).cloned().unwrap_or_default();
+                    self.grid.set(row + count, column, cell);
+                }
+            }
+        }
+
+        for row in top..top + count {
+            for column in 0..size.columns {
+                self.grid.set(row, column, Cell::default());
+            }
+        }
+
+        self.record_damage(DamageRegion::new(0, top, size.columns, height));
+    }
+
+    fn scroll_up_region_by(&mut self, top: u16, bottom: u16, count: u16) {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 || top > bottom || count == 0 {
+            return;
+        }
+
+        let height = bottom - top + 1;
+        let count = count.min(height);
+
+        if count < height {
+            let shift_bottom = bottom - count;
+            for row in top..=shift_bottom {
+                for column in 0..size.columns {
+                    let cell = self
+                        .grid
+                        .get(row + count, column)
+                        .cloned()
+                        .unwrap_or_default();
+                    self.grid.set(row, column, cell);
+                }
+            }
+        }
+
+        let blank_start = if count == height {
+            top
+        } else {
+            bottom - count + 1
+        };
+        for row in blank_start..=bottom {
+            for column in 0..size.columns {
+                self.grid.set(row, column, Cell::default());
+            }
+        }
+
+        self.record_damage(DamageRegion::new(0, top, size.columns, height));
     }
 
     fn insert_blank_characters(&mut self, count: u16) {

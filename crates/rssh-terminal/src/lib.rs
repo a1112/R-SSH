@@ -259,6 +259,64 @@ mod tests {
     }
 
     #[test]
+    fn terminal_inserts_lines_with_il() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2;1H\x1b[2L");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(row_text(&terminal, 2), "    ");
+        assert_eq!(row_text(&terminal, 3), "2222");
+        assert_eq!(terminal.cursor(), (1, 0));
+    }
+
+    #[test]
+    fn terminal_deletes_lines_with_dl() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2;1H\x1b[2M");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "4444");
+        assert_eq!(row_text(&terminal, 2), "    ");
+        assert_eq!(row_text(&terminal, 3), "    ");
+        assert_eq!(terminal.cursor(), (1, 0));
+    }
+
+    #[test]
+    fn terminal_inserts_lines_only_within_scroll_region() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 5));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444\x1b[5;1H5555");
+        terminal.feed(b"\x1b[2;4r\x1b[3;1H\x1b[L");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "2222");
+        assert_eq!(row_text(&terminal, 2), "    ");
+        assert_eq!(row_text(&terminal, 3), "3333");
+        assert_eq!(row_text(&terminal, 4), "5555");
+        assert_eq!(terminal.cursor(), (2, 0));
+    }
+
+    #[test]
+    fn terminal_deletes_lines_only_within_scroll_region() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 5));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444\x1b[5;1H5555");
+        terminal.feed(b"\x1b[2;4r\x1b[2;1H\x1b[M");
+
+        assert_eq!(row_text(&terminal, 0), "1111");
+        assert_eq!(row_text(&terminal, 1), "3333");
+        assert_eq!(row_text(&terminal, 2), "4444");
+        assert_eq!(row_text(&terminal, 3), "    ");
+        assert_eq!(row_text(&terminal, 4), "5555");
+        assert_eq!(terminal.cursor(), (1, 0));
+    }
+
+    #[test]
     fn terminal_switches_to_alternate_screen_and_restores_main_screen() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 2));
 

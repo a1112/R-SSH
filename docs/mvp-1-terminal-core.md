@@ -38,6 +38,9 @@ support the next PTY and SSH milestones.
   - insert blank characters (`ICH`, `ESC[@`)
   - delete characters (`DCH`, `ESC[P`)
   - erase characters (`ECH`, `ESC[X`)
+- Basic line editing within the active scroll region:
+  - insert lines (`IL`, `ESC[L`)
+  - delete lines (`DL`, `ESC[M`)
 - OSC title sequences terminated by BEL or ST are ignored so shell title updates
   do not appear as terminal text.
 - Basic SGR handling:
@@ -87,6 +90,7 @@ cover:
 - split CSI, OSC title, and `ESC7`/`ESC8` sequences across `feed` calls
 - CSI display and line erase handling
 - CSI insert/delete/erase character handling
+- CSI insert/delete line handling with scroll-region limits
 - OSC title sequence filtering for BEL and ST terminators
 - SGR color/style parsing, including inverse video
 - CJK wide-character layout
