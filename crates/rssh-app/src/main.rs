@@ -1,5 +1,7 @@
 mod cli;
 mod local;
+mod terminal_input;
+mod terminal_runtime;
 mod window;
 
 use std::{env, process::ExitCode};

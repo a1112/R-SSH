@@ -6,9 +6,11 @@ GPU text rendering, direct SSH protocol integration, session management, SFTP,
 tunnels, logging, and secure key storage.
 
 The repository now includes MVP 1 for the terminal core, MVP 2 for a
-console-hosted local terminal path, and MVP 3 for a native `winit` renderer demo.
-The current app can start a native window, render terminal grid cells through
-the renderer, and still run a local shell through the platform PTY path.
+console-hosted local terminal path, MVP 3 for a native `winit` renderer demo,
+and MVP 4 for a live PTY session inside the native window. The current app can
+start a native window, spawn the platform shell through the local PTY layer,
+feed PTY output into the terminal grid, render live terminal cells, and write
+keyboard input back to the PTY.
 
 ## Technical Direction
 
@@ -41,7 +43,7 @@ refs/                 Local reference source cache, ignored by Git
 cargo fmt --all
 cargo test --workspace
 cargo run -p rssh-app
-cargo run -p rssh-app -- window --frames 1
+cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- local
 ```
 
@@ -52,7 +54,8 @@ cargo run -p rssh-app -- local
   `docs/mvp-2-local-terminal.md`.
 - MVP 3: Native window renderer demo is complete. See
   `docs/mvp-3-native-renderer.md`.
-- MVP 4: Live PTY session inside the native renderer is next.
+- MVP 4: Live PTY session inside the native renderer is complete. See
+  `docs/mvp-4-live-pty-window.md`.
 
 ## Reference Sources
 

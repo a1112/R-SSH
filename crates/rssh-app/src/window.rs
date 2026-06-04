@@ -1,18 +1,30 @@
-use std::{error::Error, sync::Arc};
+use std::{
+    error::Error,
+    io::{self, Read, Write},
+    sync::Arc,
+    thread,
+};
 
 use pixels::{Pixels, SurfaceTexture};
 use rssh_core::TerminalSize;
+use rssh_pty::{PtyCommand, PtySession, PtySize};
 use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
+#[cfg(test)]
 use rssh_terminal::Terminal;
 use winit::{
     application::ApplicationHandler,
     dpi::LogicalSize,
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop},
+    event::{ElementState, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    keyboard::{Key, ModifiersState, NamedKey},
     window::Window,
 };
 
-use crate::cli::WindowOptions;
+use crate::{
+    cli::WindowOptions,
+    terminal_input::{TerminalKey, encode_terminal_key},
+    terminal_runtime::TerminalRuntime,
+};
 
 const TERMINAL_COLUMNS: u16 = 80;
 const TERMINAL_ROWS: u16 = 24;
@@ -22,14 +34,16 @@ const FRAME_WIDTH: u32 = TERMINAL_COLUMNS as u32 * CELL_WIDTH;
 const FRAME_HEIGHT: u32 = TERMINAL_ROWS as u32 * CELL_HEIGHT;
 
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
-    let event_loop = EventLoop::new()?;
-    let mut app = NativeWindowApp::new(options.frame_limit);
+    let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
+    let event_proxy = event_loop.create_proxy();
+    let mut app = NativeWindowApp::with_event_proxy(options.frame_limit, event_proxy);
 
     event_loop.run_app(&mut app)?;
 
     Ok(())
 }
 
+#[cfg(test)]
 pub fn demo_snapshot() -> TerminalRenderSnapshot {
     let mut terminal = Terminal::new(TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS));
     terminal.feed(b"\x1b[1;32mR-SSH\x1b[0m native renderer\r\n");
@@ -42,21 +56,52 @@ struct NativeWindowApp {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     renderer: PixelRenderer,
+    runtime: TerminalRuntime,
     snapshot: TerminalRenderSnapshot,
     frame_limit: Option<u64>,
     rendered_frames: u64,
+    event_proxy: Option<EventLoopProxy<WindowUserEvent>>,
+    session: Option<PtySession>,
+    writer: Option<Box<dyn Write + Send>>,
+    reader_thread: Option<thread::JoinHandle<()>>,
+    modifiers: ModifiersState,
+}
+
+#[derive(Debug)]
+enum WindowUserEvent {
+    Output(Vec<u8>),
+    Exited,
+    ReadError(String),
 }
 
 impl NativeWindowApp {
     fn new(frame_limit: Option<u64>) -> Self {
+        let runtime = TerminalRuntime::new(TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS));
+        let snapshot = TerminalRenderSnapshot::from_grid(runtime.terminal().grid());
+
         Self {
             window: None,
             pixels: None,
             renderer: PixelRenderer::new(),
-            snapshot: demo_snapshot(),
+            runtime,
+            snapshot,
             frame_limit,
             rendered_frames: 0,
+            event_proxy: None,
+            session: None,
+            writer: None,
+            reader_thread: None,
+            modifiers: ModifiersState::empty(),
         }
+    }
+
+    fn with_event_proxy(
+        frame_limit: Option<u64>,
+        event_proxy: EventLoopProxy<WindowUserEvent>,
+    ) -> Self {
+        let mut app = Self::new(frame_limit);
+        app.event_proxy = Some(event_proxy);
+        app
     }
 
     fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<(), Box<dyn Error>> {
@@ -108,9 +153,152 @@ impl NativeWindowApp {
             event_loop.exit();
         }
     }
+
+    fn handle_pty_output(&mut self, bytes: &[u8]) -> io::Result<()> {
+        for response in self.runtime.feed_pty_output(bytes) {
+            self.write_pty_bytes(&response)?;
+        }
+        self.snapshot = TerminalRenderSnapshot::from_grid(self.runtime.terminal().grid());
+
+        Ok(())
+    }
+
+    fn spawn_pty(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.session.is_some() {
+            return Ok(());
+        }
+
+        let Some(event_proxy) = self.event_proxy.clone() else {
+            return Err(Box::new(io::Error::other(
+                "window event proxy is not configured",
+            )));
+        };
+
+        let size = PtySize::try_new(TERMINAL_COLUMNS, TERMINAL_ROWS)?;
+        let mut session = PtySession::spawn(&PtyCommand::default_shell(), size)?;
+        let mut reader = session.take_reader()?;
+        let writer = session.take_writer()?;
+
+        let reader_thread = thread::spawn(move || {
+            let mut buffer = [0; 8192];
+
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => {
+                        let _ = event_proxy.send_event(WindowUserEvent::Exited);
+                        break;
+                    }
+                    Ok(count) => {
+                        if event_proxy
+                            .send_event(WindowUserEvent::Output(buffer[..count].to_vec()))
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(error) => {
+                        let _ =
+                            event_proxy.send_event(WindowUserEvent::ReadError(error.to_string()));
+                        break;
+                    }
+                }
+            }
+        });
+
+        self.writer = Some(writer);
+        self.reader_thread = Some(reader_thread);
+        self.session = Some(session);
+
+        Ok(())
+    }
+
+    fn write_pty_bytes(&mut self, bytes: &[u8]) -> io::Result<()> {
+        let Some(writer) = self.writer.as_mut() else {
+            return Ok(());
+        };
+
+        writer.write_all(bytes)?;
+        writer.flush()?;
+
+        Ok(())
+    }
+
+    fn handle_keyboard_input(&mut self, key: &winit::event::KeyEvent) -> io::Result<()> {
+        if key.state != ElementState::Pressed {
+            return Ok(());
+        }
+
+        let bytes = encode_window_key(&key.logical_key, key.text.as_deref(), self.modifiers);
+        if !bytes.is_empty() {
+            self.write_pty_bytes(&bytes)?;
+        }
+
+        Ok(())
+    }
 }
 
-impl ApplicationHandler for NativeWindowApp {
+impl Drop for NativeWindowApp {
+    fn drop(&mut self) {
+        self.writer.take();
+
+        if let Some(session) = self.session.as_mut() {
+            let _ = session.kill();
+            let _ = session.wait();
+        }
+        self.session.take();
+
+        if let Some(reader_thread) = self.reader_thread.take() {
+            let _ = reader_thread.join();
+        }
+    }
+}
+
+fn encode_window_key(key: &Key, text: Option<&str>, modifiers: ModifiersState) -> Vec<u8> {
+    if modifiers.control_key() {
+        if let Key::Character(character) = key.as_ref() {
+            if let Some(character) = character.chars().next() {
+                return encode_terminal_key(TerminalKey::Control(character)).unwrap_or_default();
+            }
+        }
+    }
+
+    if let Some(key) = named_terminal_key(key) {
+        return encode_terminal_key(key).unwrap_or_default();
+    }
+
+    text.unwrap_or_default()
+        .chars()
+        .filter_map(|character| encode_terminal_key(TerminalKey::Text(character)))
+        .flatten()
+        .collect()
+}
+
+fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
+    let Key::Named(named) = key else {
+        return None;
+    };
+
+    match named {
+        NamedKey::Enter => Some(TerminalKey::Enter),
+        NamedKey::Backspace => Some(TerminalKey::Backspace),
+        NamedKey::Tab => Some(TerminalKey::Tab),
+        NamedKey::Escape => Some(TerminalKey::Escape),
+        NamedKey::ArrowLeft => Some(TerminalKey::Left),
+        NamedKey::ArrowRight => Some(TerminalKey::Right),
+        NamedKey::ArrowUp => Some(TerminalKey::Up),
+        NamedKey::ArrowDown => Some(TerminalKey::Down),
+        NamedKey::Home => Some(TerminalKey::Home),
+        NamedKey::End => Some(TerminalKey::End),
+        NamedKey::Delete => Some(TerminalKey::Delete),
+        NamedKey::Insert => Some(TerminalKey::Insert),
+        NamedKey::PageUp => Some(TerminalKey::PageUp),
+        NamedKey::PageDown => Some(TerminalKey::PageDown),
+        _ => None,
+    }
+}
+
+impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -122,8 +310,35 @@ impl ApplicationHandler for NativeWindowApp {
             return;
         }
 
+        if let Err(error) = self.spawn_pty() {
+            eprintln!("PTY error: {error}");
+            event_loop.exit();
+            return;
+        }
+
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WindowUserEvent) {
+        match event {
+            WindowUserEvent::Output(bytes) => {
+                if let Err(error) = self.handle_pty_output(&bytes) {
+                    eprintln!("PTY write error: {error}");
+                    event_loop.exit();
+                    return;
+                }
+
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            WindowUserEvent::Exited => event_loop.exit(),
+            WindowUserEvent::ReadError(error) => {
+                eprintln!("PTY read error: {error}");
+                event_loop.exit();
+            }
         }
     }
 
@@ -135,6 +350,15 @@ impl ApplicationHandler for NativeWindowApp {
     ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let Err(error) = self.handle_keyboard_input(&event) {
+                    eprintln!("PTY input error: {error}");
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers.state();
+            }
             WindowEvent::Resized(size) => {
                 if let Some(pixels) = self.pixels.as_mut() {
                     if let Err(error) = pixels.resize_surface(size.width, size.height) {
@@ -159,12 +383,74 @@ impl ApplicationHandler for NativeWindowApp {
 
 #[cfg(test)]
 mod tests {
-    use super::demo_snapshot;
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+
+    use super::{demo_snapshot, encode_window_key};
 
     #[test]
     fn demo_snapshot_contains_visible_terminal_cells() {
         let snapshot = demo_snapshot();
 
         assert!(!snapshot.cells().is_empty());
+    }
+
+    #[test]
+    fn encodes_window_text_input_for_pty() {
+        let bytes = encode_window_key(
+            &Key::Character("中".into()),
+            Some("中"),
+            ModifiersState::empty(),
+        );
+
+        assert_eq!(bytes, "中".as_bytes());
+    }
+
+    #[test]
+    fn encodes_window_control_input_for_pty() {
+        let bytes = encode_window_key(&Key::Character("c".into()), None, ModifiersState::CONTROL);
+
+        assert_eq!(bytes, vec![3]);
+    }
+
+    #[test]
+    fn encodes_window_named_keys_for_pty() {
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::ArrowUp),
+                None,
+                ModifiersState::empty()
+            ),
+            b"\x1b[A"
+        );
+        assert_eq!(
+            encode_window_key(
+                &Key::Named(NamedKey::Enter),
+                Some("\r"),
+                ModifiersState::empty()
+            ),
+            b"\r"
+        );
+    }
+
+    #[test]
+    fn window_app_rebuilds_snapshot_from_pty_output() {
+        let mut app = super::NativeWindowApp::new(None);
+
+        app.handle_pty_output(b"live").unwrap();
+
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('l'));
+        assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('e'));
+    }
+
+    fn snapshot_char(
+        snapshot: &rssh_renderer::TerminalRenderSnapshot,
+        row: u16,
+        column: u16,
+    ) -> Option<char> {
+        snapshot
+            .cells()
+            .iter()
+            .find(|cell| cell.row == row && cell.column == column)
+            .map(|cell| cell.ch)
     }
 }

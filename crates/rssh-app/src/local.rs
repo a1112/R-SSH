@@ -12,7 +12,10 @@ use crossterm::{
 };
 use rssh_pty::{PtySession, PtySize};
 
-use crate::cli::LocalOptions;
+use crate::{
+    cli::LocalOptions,
+    terminal_input::{TerminalKey, encode_terminal_key},
+};
 
 pub fn run(options: &LocalOptions) -> Result<(), Box<dyn Error>> {
     let mut session = PtySession::spawn(&options.command, options.size)?;
@@ -180,41 +183,29 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
-    match key.code {
+    let terminal_key = match key.code {
         KeyCode::Char(character) if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            encode_control_char(character)
+            TerminalKey::Control(character)
         }
-        KeyCode::Char(character) => {
-            let mut bytes = Vec::new();
-            let mut buffer = [0; 4];
-            bytes.extend_from_slice(character.encode_utf8(&mut buffer).as_bytes());
-            Some(bytes)
-        }
-        KeyCode::Enter => Some(b"\r".to_vec()),
-        KeyCode::Backspace => Some(vec![0x7f]),
-        KeyCode::Tab => Some(b"\t".to_vec()),
-        KeyCode::Esc => Some(vec![0x1b]),
-        KeyCode::Left => Some(b"\x1b[D".to_vec()),
-        KeyCode::Right => Some(b"\x1b[C".to_vec()),
-        KeyCode::Up => Some(b"\x1b[A".to_vec()),
-        KeyCode::Down => Some(b"\x1b[B".to_vec()),
-        KeyCode::Home => Some(b"\x1b[H".to_vec()),
-        KeyCode::End => Some(b"\x1b[F".to_vec()),
-        KeyCode::Delete => Some(b"\x1b[3~".to_vec()),
-        KeyCode::Insert => Some(b"\x1b[2~".to_vec()),
-        KeyCode::PageUp => Some(b"\x1b[5~".to_vec()),
-        KeyCode::PageDown => Some(b"\x1b[6~".to_vec()),
-        _ => None,
-    }
-}
+        KeyCode::Char(character) => TerminalKey::Text(character),
+        KeyCode::Enter => TerminalKey::Enter,
+        KeyCode::Backspace => TerminalKey::Backspace,
+        KeyCode::Tab => TerminalKey::Tab,
+        KeyCode::Esc => TerminalKey::Escape,
+        KeyCode::Left => TerminalKey::Left,
+        KeyCode::Right => TerminalKey::Right,
+        KeyCode::Up => TerminalKey::Up,
+        KeyCode::Down => TerminalKey::Down,
+        KeyCode::Home => TerminalKey::Home,
+        KeyCode::End => TerminalKey::End,
+        KeyCode::Delete => TerminalKey::Delete,
+        KeyCode::Insert => TerminalKey::Insert,
+        KeyCode::PageUp => TerminalKey::PageUp,
+        KeyCode::PageDown => TerminalKey::PageDown,
+        _ => return None,
+    };
 
-fn encode_control_char(character: char) -> Option<Vec<u8>> {
-    let lower = character.to_ascii_lowercase();
-    if !lower.is_ascii_lowercase() {
-        return None;
-    }
-
-    Some(vec![lower as u8 - b'a' + 1])
+    encode_terminal_key(terminal_key)
 }
 
 #[cfg(test)]
