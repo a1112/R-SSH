@@ -116,7 +116,7 @@ enum LocalControlEvent {
     SetApplicationCursorKeys(bool),
     SetApplicationKeypad(bool),
     SetBracketedPaste(bool),
-    SetMouseReporting(MouseReportingMode),
+    SetMouseReporting(MouseInputMode),
     SetFocusReporting(bool),
 }
 
@@ -135,7 +135,7 @@ impl InputReporting {
             .with_application_cursor_keys(self.application_cursor_keys_enabled())
             .with_application_keypad(self.application_keypad_enabled())
             .with_bracketed_paste(self.bracketed_paste_enabled())
-            .with_mouse_reporting_mode(self.mouse_reporting_mode())
+            .with_mouse_input_mode(self.mouse_input_mode())
             .with_focus_reporting(self.focus_enabled())
     }
 
@@ -151,15 +151,15 @@ impl InputReporting {
         self.bracketed_paste.load(Ordering::Relaxed)
     }
 
-    fn mouse_reporting_mode(&self) -> MouseReportingMode {
-        MouseReportingMode::from_bits(self.mouse.load(Ordering::Relaxed))
+    fn mouse_input_mode(&self) -> MouseInputMode {
+        MouseInputMode::from_bits(self.mouse.load(Ordering::Relaxed))
     }
 
     fn focus_enabled(&self) -> bool {
         self.focus.load(Ordering::Relaxed)
     }
 
-    fn set_mouse(&self, mode: MouseReportingMode) {
+    fn set_mouse(&self, mode: MouseInputMode) {
         self.mouse.store(mode.bits(), Ordering::Relaxed);
     }
 
@@ -444,11 +444,11 @@ fn run_input_loop(
                 }
                 LocalControlEvent::SetMouseReporting(mode) => {
                     let mode = if allow_application_reporting
-                        && raw_mode.set_mouse_capture(mode.is_enabled())?
+                        && raw_mode.set_mouse_capture(mode.reporting_enabled())?
                     {
                         mode
                     } else {
-                        MouseReportingMode::None
+                        mode.with_reporting(MouseReportingMode::None)
                     };
                     runtime_state.input_reporting.set_mouse(mode);
                 }
@@ -480,8 +480,31 @@ enum TerminalModeChange {
     ApplicationCursorKeys(bool),
     ApplicationKeypad(bool),
     BracketedPaste(bool),
-    Mouse(MouseReportingMode),
+    Mouse(MouseInputMode),
     Focus(bool),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum MouseProtocolMode {
+    #[default]
+    X10,
+    Sgr,
+}
+
+impl MouseProtocolMode {
+    const fn bits(self) -> u8 {
+        match self {
+            Self::X10 => 0,
+            Self::Sgr => 1,
+        }
+    }
+
+    const fn from_bits(bits: u8) -> Self {
+        match bits {
+            1 => Self::Sgr,
+            _ => Self::X10,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -534,6 +557,46 @@ impl MouseReportingMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct MouseInputMode {
+    reporting: MouseReportingMode,
+    protocol: MouseProtocolMode,
+}
+
+impl MouseInputMode {
+    const PROTOCOL_SHIFT: u8 = 2;
+
+    const fn new(reporting: MouseReportingMode, protocol: MouseProtocolMode) -> Self {
+        Self {
+            reporting,
+            protocol,
+        }
+    }
+
+    const fn bits(self) -> u8 {
+        self.reporting.bits() | (self.protocol.bits() << Self::PROTOCOL_SHIFT)
+    }
+
+    const fn from_bits(bits: u8) -> Self {
+        Self {
+            reporting: MouseReportingMode::from_bits(bits & 0b11),
+            protocol: MouseProtocolMode::from_bits((bits >> Self::PROTOCOL_SHIFT) & 1),
+        }
+    }
+
+    const fn reporting_enabled(self) -> bool {
+        self.reporting.is_enabled()
+    }
+
+    const fn allows(self, event_kind: MouseEventKind) -> bool {
+        self.reporting.allows(event_kind)
+    }
+
+    const fn with_reporting(self, reporting: MouseReportingMode) -> Self {
+        Self { reporting, ..self }
+    }
+}
+
 #[derive(Default)]
 struct TerminalModeTracker {
     pending: Vec<u8>,
@@ -569,8 +632,17 @@ impl TerminalModeTracker {
                         enabled,
                         consumed,
                     } => {
+                        let before_mouse = self.mouse_input_mode();
+                        let mut saw_mouse_mode = false;
                         for mode in modes {
-                            self.apply_mode(mode, enabled, &mut emit);
+                            if self.mouse_modes.set(mode, enabled) {
+                                saw_mouse_mode = true;
+                            } else {
+                                self.apply_mode(mode, enabled, &mut emit);
+                            }
+                        }
+                        if saw_mouse_mode {
+                            self.emit_mouse_change(before_mouse, &mut emit);
                         }
                         self.pending.drain(..consumed);
                     }
@@ -653,7 +725,6 @@ impl TerminalModeTracker {
                     emit(TerminalModeChange::ApplicationCursorKeys(enabled));
                 }
             }
-            1000 | 1002 | 1003 => self.set_mouse_mode(mode, enabled, emit),
             1004 => {
                 if self.tracked_modes.set(TrackedTerminalModes::FOCUS, enabled) {
                     emit(TerminalModeChange::Focus(enabled));
@@ -680,22 +751,15 @@ impl TerminalModeTracker {
         }
     }
 
-    fn set_mouse_mode(
-        &mut self,
-        mode: u16,
-        enabled: bool,
-        emit: &mut impl FnMut(TerminalModeChange),
-    ) {
-        let before = self.mouse_reporting_mode();
-        self.mouse_modes.set(mode, enabled);
-        let after = self.mouse_reporting_mode();
-        if before != after {
+    fn emit_mouse_change(&self, before: MouseInputMode, emit: &mut impl FnMut(TerminalModeChange)) {
+        let after = self.mouse_input_mode();
+        if before != after && (before.reporting_enabled() || after.reporting_enabled()) {
             emit(TerminalModeChange::Mouse(after));
         }
     }
 
-    fn mouse_reporting_mode(&self) -> MouseReportingMode {
-        self.mouse_modes.reporting_mode()
+    fn mouse_input_mode(&self) -> MouseInputMode {
+        self.mouse_modes.input_mode()
     }
 
     fn retain_possible_prefix(&mut self) {
@@ -722,10 +786,11 @@ impl MouseModes {
     const NORMAL: u8 = 1;
     const BUTTON_EVENT: u8 = 1 << 1;
     const ANY_EVENT: u8 = 1 << 2;
+    const SGR_PROTOCOL: u8 = 1 << 3;
 
-    fn set(&mut self, mode: u16, enabled: bool) {
+    fn set(&mut self, mode: u16, enabled: bool) -> bool {
         let Some(mask) = Self::mask(mode) else {
-            return;
+            return false;
         };
 
         if enabled {
@@ -733,10 +798,12 @@ impl MouseModes {
         } else {
             self.0 &= !mask;
         }
+
+        true
     }
 
-    fn reporting_mode(&self) -> MouseReportingMode {
-        if self.0 & Self::ANY_EVENT != 0 {
+    fn input_mode(&self) -> MouseInputMode {
+        let reporting = if self.0 & Self::ANY_EVENT != 0 {
             MouseReportingMode::AnyEvent
         } else if self.0 & Self::BUTTON_EVENT != 0 {
             MouseReportingMode::ButtonEvent
@@ -744,7 +811,14 @@ impl MouseModes {
             MouseReportingMode::Normal
         } else {
             MouseReportingMode::None
-        }
+        };
+        let protocol = if self.0 & Self::SGR_PROTOCOL != 0 {
+            MouseProtocolMode::Sgr
+        } else {
+            MouseProtocolMode::X10
+        };
+
+        MouseInputMode::new(reporting, protocol)
     }
 
     const fn mask(mode: u16) -> Option<u8> {
@@ -752,6 +826,7 @@ impl MouseModes {
             1000 => Some(Self::NORMAL),
             1002 => Some(Self::BUTTON_EVENT),
             1003 => Some(Self::ANY_EVENT),
+            1006 => Some(Self::SGR_PROTOCOL),
             _ => None,
         }
     }
@@ -991,7 +1066,7 @@ impl InputModes {
     const APPLICATION_KEYPAD: u8 = 1 << 1;
     const BRACKETED_PASTE: u8 = 1 << 2;
     const FOCUS_REPORTING: u8 = 1 << 3;
-    const MOUSE_REPORTING_MASK: u8 = 0b0011_0000;
+    const MOUSE_INPUT_MASK: u8 = 0b0111_0000;
     const MOUSE_REPORTING_SHIFT: u8 = 4;
 
     fn application_cursor_keys(self) -> bool {
@@ -1007,13 +1082,11 @@ impl InputModes {
     }
 
     fn mouse_reporting(self) -> bool {
-        self.mouse_reporting_mode().is_enabled()
+        self.mouse_input_mode().reporting_enabled()
     }
 
-    fn mouse_reporting_mode(self) -> MouseReportingMode {
-        MouseReportingMode::from_bits(
-            (self.0 & Self::MOUSE_REPORTING_MASK) >> Self::MOUSE_REPORTING_SHIFT,
-        )
+    fn mouse_input_mode(self) -> MouseInputMode {
+        MouseInputMode::from_bits((self.0 & Self::MOUSE_INPUT_MASK) >> Self::MOUSE_REPORTING_SHIFT)
     }
 
     fn focus_reporting(self) -> bool {
@@ -1032,8 +1105,8 @@ impl InputModes {
         self.with_flag(Self::BRACKETED_PASTE, enabled)
     }
 
-    fn with_mouse_reporting_mode(mut self, mode: MouseReportingMode) -> Self {
-        self.0 &= !Self::MOUSE_REPORTING_MASK;
+    fn with_mouse_input_mode(mut self, mode: MouseInputMode) -> Self {
+        self.0 &= !Self::MOUSE_INPUT_MASK;
         self.0 |= mode.bits() << Self::MOUSE_REPORTING_SHIFT;
         self
     }
@@ -1066,7 +1139,7 @@ fn encode_input_event(event: Event, modes: InputModes) -> Option<Vec<u8>> {
         Event::Paste(text) if modes.bracketed_paste() => Some(encode_bracketed_paste(&text)),
         Event::Paste(text) => Some(text.into_bytes()),
         Event::Mouse(event) if modes.mouse_reporting() => {
-            encode_mouse_event(event, modes.mouse_reporting_mode())
+            encode_mouse_event(event, modes.mouse_input_mode())
         }
         Event::FocusGained if modes.focus_reporting() => Some(b"\x1b[I".to_vec()),
         Event::FocusLost if modes.focus_reporting() => Some(b"\x1b[O".to_vec()),
@@ -1082,7 +1155,7 @@ fn encode_bracketed_paste(text: &str) -> Vec<u8> {
     bytes
 }
 
-fn encode_mouse_event(event: MouseEvent, mode: MouseReportingMode) -> Option<Vec<u8>> {
+fn encode_mouse_event(event: MouseEvent, mode: MouseInputMode) -> Option<Vec<u8>> {
     if !mode.allows(event.kind) {
         return None;
     }
@@ -1107,15 +1180,44 @@ fn encode_mouse_event(event: MouseEvent, mode: MouseReportingMode) -> Option<Vec
         code += 16;
     }
 
-    let final_byte = if matches!(event.kind, MouseEventKind::Up(_)) {
-        b'm'
-    } else {
-        b'M'
-    };
     let column = event.column.checked_add(1)?;
     let row = event.row.checked_add(1)?;
 
-    Some(format!("\x1b[<{code};{column};{row}{}", final_byte as char).into_bytes())
+    match mode.protocol {
+        MouseProtocolMode::Sgr => {
+            let final_byte = if matches!(event.kind, MouseEventKind::Up(_)) {
+                b'm'
+            } else {
+                b'M'
+            };
+            Some(format!("\x1b[<{code};{column};{row}{}", final_byte as char).into_bytes())
+        }
+        MouseProtocolMode::X10 => encode_legacy_mouse_event(event.kind, code, column, row),
+    }
+}
+
+fn encode_legacy_mouse_event(
+    kind: MouseEventKind,
+    mut code: u16,
+    column: u16,
+    row: u16,
+) -> Option<Vec<u8>> {
+    if matches!(kind, MouseEventKind::Up(_)) {
+        code = 3 + (code & !0b11);
+    }
+
+    Some(vec![
+        0x1b,
+        b'[',
+        b'M',
+        legacy_mouse_byte(code)?,
+        legacy_mouse_byte(column)?,
+        legacy_mouse_byte(row)?,
+    ])
+}
+
+fn legacy_mouse_byte(value: u16) -> Option<u8> {
+    u8::try_from(value.checked_add(32)?).ok()
 }
 
 const fn mouse_button_code(button: MouseButton) -> u16 {
@@ -1286,8 +1388,9 @@ mod tests {
     };
 
     use super::{
-        InputModes, MouseReportingMode, TerminalModeChange, TerminalModeTracker,
-        TerminalOutputFilter, encode_input_event, encode_key, resolve_local_size,
+        InputModes, MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange,
+        TerminalModeTracker, TerminalOutputFilter, encode_input_event, encode_key,
+        resolve_local_size,
     };
 
     #[test]
@@ -1431,7 +1534,10 @@ mod tests {
 
     #[test]
     fn encodes_mouse_events_as_sgr_sequences_when_enabled() {
-        let modes = InputModes::default().with_mouse_reporting_mode(MouseReportingMode::Normal);
+        let modes = InputModes::default().with_mouse_input_mode(MouseInputMode::new(
+            MouseReportingMode::Normal,
+            MouseProtocolMode::Sgr,
+        ));
 
         assert_eq!(
             encode_input_event(left_mouse_down(), modes).unwrap(),
@@ -1457,15 +1563,38 @@ mod tests {
     }
 
     #[test]
+    fn encodes_mouse_events_as_legacy_sequences_without_sgr_protocol() {
+        let modes = InputModes::default().with_mouse_input_mode(MouseInputMode::new(
+            MouseReportingMode::Normal,
+            MouseProtocolMode::X10,
+        ));
+
+        assert_eq!(
+            encode_input_event(left_mouse_down(), modes).unwrap(),
+            b"\x1b[M !\""
+        );
+        assert_eq!(
+            encode_input_event(left_mouse_release(), modes).unwrap(),
+            b"\x1b[M#!\""
+        );
+    }
+
+    #[test]
     fn normal_mouse_reporting_ignores_motion_without_buttons() {
-        let modes = InputModes::default().with_mouse_reporting_mode(MouseReportingMode::Normal);
+        let modes = InputModes::default().with_mouse_input_mode(MouseInputMode::new(
+            MouseReportingMode::Normal,
+            MouseProtocolMode::X10,
+        ));
 
         assert!(encode_input_event(mouse_moved(), modes).is_none());
     }
 
     #[test]
     fn any_event_mouse_reporting_encodes_motion_without_buttons() {
-        let modes = InputModes::default().with_mouse_reporting_mode(MouseReportingMode::AnyEvent);
+        let modes = InputModes::default().with_mouse_input_mode(MouseInputMode::new(
+            MouseReportingMode::AnyEvent,
+            MouseProtocolMode::Sgr,
+        ));
 
         assert_eq!(
             encode_input_event(mouse_moved(), modes).unwrap(),
@@ -1492,7 +1621,10 @@ mod tests {
         assert!(
             encode_input_event(
                 Event::FocusGained,
-                InputModes::default().with_mouse_reporting_mode(MouseReportingMode::Normal)
+                InputModes::default().with_mouse_input_mode(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::X10,
+                ))
             )
             .is_none()
         );
@@ -1520,8 +1652,14 @@ mod tests {
         assert_eq!(
             changes,
             vec![
-                TerminalModeChange::Mouse(MouseReportingMode::Normal),
-                TerminalModeChange::Mouse(MouseReportingMode::None)
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::Sgr,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::None,
+                    MouseProtocolMode::Sgr,
+                ))
             ]
         );
     }
@@ -1538,8 +1676,46 @@ mod tests {
         assert_eq!(
             changes,
             vec![
-                TerminalModeChange::Mouse(MouseReportingMode::ButtonEvent),
-                TerminalModeChange::Mouse(MouseReportingMode::None)
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::ButtonEvent,
+                    MouseProtocolMode::Sgr,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::ButtonEvent,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::None,
+                    MouseProtocolMode::X10,
+                ))
+            ]
+        );
+    }
+
+    #[test]
+    fn tracks_sgr_mouse_protocol_from_pty_output() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?1000h", |change| changes.push(change));
+        tracker.process(b"\x1b[?1006h", |change| changes.push(change));
+        tracker.process(b"\x1b[?1006l", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::Sgr,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::X10,
+                ))
             ]
         );
     }
@@ -1559,12 +1735,30 @@ mod tests {
         assert_eq!(
             changes,
             vec![
-                TerminalModeChange::Mouse(MouseReportingMode::Normal),
-                TerminalModeChange::Mouse(MouseReportingMode::ButtonEvent),
-                TerminalModeChange::Mouse(MouseReportingMode::AnyEvent),
-                TerminalModeChange::Mouse(MouseReportingMode::ButtonEvent),
-                TerminalModeChange::Mouse(MouseReportingMode::Normal),
-                TerminalModeChange::Mouse(MouseReportingMode::None)
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::ButtonEvent,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::AnyEvent,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::ButtonEvent,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::None,
+                    MouseProtocolMode::X10,
+                ))
             ]
         );
     }

@@ -38,9 +38,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   events are wrapped as `ESC[200~...ESC[201~` until `ESC[?2004l`.
 - `rssh-app local --mouse` allows terminal applications to enable and disable
   host mouse capture and focus events through xterm PTY output modes, then
-  forwards active reports as xterm SGR mouse and focus sequences. Mouse mode
+  forwards active reports as xterm mouse and focus sequences. Mouse mode
   granularity follows xterm `1000` button, `1002` button-event, and `1003`
-  any-event reporting.
+  any-event reporting. Mouse encoding uses legacy `CSI M` by default and SGR
+  extended coordinates after `ESC[?1006h`.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
 - The app answers standard and DEC private cursor-position queries (`ESC[6n`
@@ -92,6 +93,9 @@ Mouse movement reporting follows the active xterm mode: `1000` reports button
 and wheel events, `1002` adds drag events, and `1003` also reports motion
 without buttons.
 
+Mouse coordinate encoding follows `ESC[?1006h` / `ESC[?1006l`: SGR mouse is
+used while `1006` is enabled, otherwise the legacy `CSI M` form is used.
+
 Bracketed paste wrapping follows PTY-side `ESC[?2004h` and `ESC[?2004l`
 automatically.
 
@@ -131,8 +135,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   `rssh-terminal` grid state within 5 seconds.
 - Input coverage: unit tests cover printable UTF-8, raw paste, bracketed paste,
   Enter, Ctrl+C, arrow key encoding, application cursor keys, modified
-  navigation/editing/function keys, Alt+text, Shift+Tab, F1-F12, SGR mouse, and
-  focus events.
+  navigation/editing/function keys, Alt+text, Shift+Tab, F1-F12, legacy and SGR
+  mouse, and focus events.
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
 - Fast-exit output drain: ignored integration tests repeatedly run
   `rssh-app local --mouse -- <echo command>` and verify the final output marker
@@ -142,7 +146,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   response-query chunks.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
-  reporting granularity.
+  reporting granularity and `1006` SGR protocol toggling.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
 - Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`
