@@ -28,6 +28,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   - Alt+text as ESC-prefixed text
   - arrow keys, Home, End, Insert, Delete, Page Up, Page Down
   - F1 through F12
+  - Shift/Alt/Ctrl-modified navigation, editing, and function keys as xterm CSI
+    modifier sequences
 - Paste events are forwarded to the PTY as UTF-8 bytes by default. When the
   PTY-side application enables xterm bracketed paste with `ESC[?2004h`, paste
   events are wrapped as `ESC[200~...ESC[201~` until `ESC[?2004l`.
@@ -106,8 +108,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Terminal ingestion: PTY output containing a marker is visible in
   `rssh-terminal` grid state within 5 seconds.
 - Input coverage: unit tests cover printable UTF-8, raw paste, bracketed paste,
-  Enter, Ctrl+C, arrow key encoding, Alt+text, Shift+Tab, F1-F12, SGR mouse, and
-  focus events.
+  Enter, Ctrl+C, arrow key encoding, modified navigation/editing/function keys,
+  Alt+text, Shift+Tab, F1-F12, SGR mouse, and focus events.
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
 - Control-sequence response: unit tests cover normal output, `ESC[6n`,
   `ESC[c`, `ESC[>c`, `ESC[5n`, and split response-query chunks.

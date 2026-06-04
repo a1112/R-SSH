@@ -709,6 +709,10 @@ const fn mouse_button_code(button: MouseButton) -> u16 {
 
 fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
     let alt = key.modifiers.contains(KeyModifiers::ALT);
+    if let Some(bytes) = encode_modified_key(key) {
+        return Some(bytes);
+    }
+
     let terminal_key = match key.code {
         KeyCode::Char(character) if key.modifiers.contains(KeyModifiers::CONTROL) => {
             TerminalKey::Control(character)
@@ -739,6 +743,56 @@ fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
     }
 
     Some(bytes)
+}
+
+fn encode_modified_key(key: KeyEvent) -> Option<Vec<u8>> {
+    let modifier = xterm_modifier(key.modifiers)?;
+
+    match key.code {
+        KeyCode::Left => Some(format!("\x1b[1;{modifier}D").into_bytes()),
+        KeyCode::Right => Some(format!("\x1b[1;{modifier}C").into_bytes()),
+        KeyCode::Up => Some(format!("\x1b[1;{modifier}A").into_bytes()),
+        KeyCode::Down => Some(format!("\x1b[1;{modifier}B").into_bytes()),
+        KeyCode::Home => Some(format!("\x1b[1;{modifier}H").into_bytes()),
+        KeyCode::End => Some(format!("\x1b[1;{modifier}F").into_bytes()),
+        KeyCode::Insert => Some(format!("\x1b[2;{modifier}~").into_bytes()),
+        KeyCode::Delete => Some(format!("\x1b[3;{modifier}~").into_bytes()),
+        KeyCode::PageUp => Some(format!("\x1b[5;{modifier}~").into_bytes()),
+        KeyCode::PageDown => Some(format!("\x1b[6;{modifier}~").into_bytes()),
+        KeyCode::F(1) => Some(format!("\x1b[1;{modifier}P").into_bytes()),
+        KeyCode::F(2) => Some(format!("\x1b[1;{modifier}Q").into_bytes()),
+        KeyCode::F(3) => Some(format!("\x1b[1;{modifier}R").into_bytes()),
+        KeyCode::F(4) => Some(format!("\x1b[1;{modifier}S").into_bytes()),
+        KeyCode::F(key) => modified_tilde_function_key(key, modifier),
+        _ => None,
+    }
+}
+
+fn modified_tilde_function_key(key: u8, modifier: u8) -> Option<Vec<u8>> {
+    let base = match key {
+        5 => 15,
+        6 => 17,
+        7 => 18,
+        8 => 19,
+        9 => 20,
+        10 => 21,
+        11 => 23,
+        12 => 24,
+        _ => return None,
+    };
+
+    Some(format!("\x1b[{base};{modifier}~").into_bytes())
+}
+
+fn xterm_modifier(modifiers: KeyModifiers) -> Option<u8> {
+    let shift = modifiers.contains(KeyModifiers::SHIFT);
+    let alt = modifiers.contains(KeyModifiers::ALT);
+    let control = modifiers.contains(KeyModifiers::CONTROL);
+    if !(shift || alt || control) {
+        return None;
+    }
+
+    Some(1 + u8::from(shift) + u8::from(alt) * 2 + u8::from(control) * 4)
 }
 
 #[cfg(test)]
@@ -781,6 +835,30 @@ mod tests {
         assert_eq!(
             encode_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap(),
             b"\x1b[A"
+        );
+    }
+
+    #[test]
+    fn encodes_modified_navigation_keys_as_xterm_sequences() {
+        assert_eq!(
+            encode_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL)).unwrap(),
+            b"\x1b[1;5D"
+        );
+        assert_eq!(
+            encode_key(KeyEvent::new(
+                KeyCode::Right,
+                KeyModifiers::SHIFT | KeyModifiers::ALT
+            ))
+            .unwrap(),
+            b"\x1b[1;4C"
+        );
+        assert_eq!(
+            encode_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::CONTROL)).unwrap(),
+            b"\x1b[3;5~"
+        );
+        assert_eq!(
+            encode_key(KeyEvent::new(KeyCode::F(5), KeyModifiers::SHIFT)).unwrap(),
+            b"\x1b[15;2~"
         );
     }
 
