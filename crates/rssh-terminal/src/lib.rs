@@ -111,6 +111,33 @@ impl TerminalGrid {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScrollbackLine {
+    cells: Vec<Cell>,
+}
+
+impl ScrollbackLine {
+    #[must_use]
+    pub(crate) const fn from_cells(cells: Vec<Cell>) -> Self {
+        Self { cells }
+    }
+
+    #[must_use]
+    pub fn cells(&self) -> &[Cell] {
+        &self.cells
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.cells.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rssh_core::{DamageRegion, TerminalSize};
@@ -394,6 +421,40 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "cd  ");
         assert_eq!(row_text(&terminal, 1), "ef  ");
         assert_eq!(terminal.cursor(), (1, 2));
+    }
+
+    #[test]
+    fn terminal_records_full_screen_scrolled_lines_in_scrollback() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"ab\ncd\nef");
+
+        assert_eq!(terminal.scrollback().len(), 1);
+        assert_eq!(scrollback_text(&terminal, 0), "ab  ");
+        assert_eq!(row_text(&terminal, 0), "cd  ");
+        assert_eq!(row_text(&terminal, 1), "ef  ");
+    }
+
+    #[test]
+    fn terminal_does_not_record_scroll_region_lines_in_scrollback() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 4));
+
+        terminal.feed(b"\x1b[1;1H1111\x1b[2;1H2222\x1b[3;1H3333\x1b[4;1H4444");
+        terminal.feed(b"\x1b[2;3r\x1b[3;1H\nzz");
+
+        assert!(terminal.scrollback().is_empty());
+        assert_eq!(row_text(&terminal, 1), "3333");
+        assert_eq!(row_text(&terminal, 2), "zz  ");
+    }
+
+    #[test]
+    fn terminal_does_not_record_alternate_screen_scrolls_in_scrollback() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"main\x1b[?1049halt\nmore\ndone\x1b[?1049l");
+
+        assert!(terminal.scrollback().is_empty());
+        assert_eq!(row_text(&terminal, 0), "main");
     }
 
     #[test]
@@ -1218,5 +1279,13 @@ mod tests {
         }
 
         text
+    }
+
+    fn scrollback_text(terminal: &Terminal, index: usize) -> String {
+        terminal.scrollback()[index]
+            .cells()
+            .iter()
+            .map(|cell| cell.ch)
+            .collect()
     }
 }

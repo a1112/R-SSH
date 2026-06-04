@@ -1,6 +1,6 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 pub use rssh_core::DamageRegion;
-use rssh_terminal::{Color, Terminal, TerminalGrid};
+use rssh_terminal::{Cell, Color, Terminal, TerminalGrid};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
@@ -211,14 +211,40 @@ impl TerminalRenderSnapshot {
 
     #[must_use]
     pub fn from_terminal(terminal: &Terminal) -> Self {
+        Self::from_terminal_viewport(terminal, 0)
+    }
+
+    #[must_use]
+    pub fn from_terminal_viewport(terminal: &Terminal, scrollback_offset: usize) -> Self {
+        let grid = terminal.grid();
+        let size = grid.size();
+        let scrollback = terminal.scrollback();
+        let offset = scrollback_offset.min(scrollback.len());
+        let first_source_row = scrollback.len().saturating_sub(offset);
         let cursor = if terminal.cursor_visible() {
             let (row, column) = terminal.cursor();
-            Some(RenderCursor { row, column })
+            (offset == 0).then_some(RenderCursor { row, column })
         } else {
             None
         };
 
-        Self::from_grid_with_cursor(terminal.grid(), cursor)
+        let mut cells = Vec::new();
+        for viewport_row in 0..size.rows {
+            let source_row = first_source_row + usize::from(viewport_row);
+            if source_row < scrollback.len() {
+                append_render_cells(
+                    &mut cells,
+                    viewport_row,
+                    scrollback[source_row].cells(),
+                    size.columns,
+                );
+            } else {
+                let grid_row = source_row - scrollback.len();
+                append_grid_row(&mut cells, grid, viewport_row, grid_row, size.columns);
+            }
+        }
+
+        Self { cells, cursor }
     }
 
     fn from_grid_with_cursor(grid: &TerminalGrid, cursor: Option<RenderCursor>) -> Self {
@@ -261,6 +287,61 @@ impl TerminalRenderSnapshot {
     pub const fn cursor(&self) -> Option<RenderCursor> {
         self.cursor
     }
+}
+
+fn append_grid_row(
+    cells: &mut Vec<RenderCell>,
+    grid: &TerminalGrid,
+    viewport_row: u16,
+    grid_row: usize,
+    columns: u16,
+) {
+    let Ok(grid_row) = u16::try_from(grid_row) else {
+        return;
+    };
+
+    if grid_row >= grid.size().rows {
+        return;
+    }
+
+    for column in 0..columns {
+        let Some(cell) = grid.get(grid_row, column) else {
+            continue;
+        };
+        append_render_cell(cells, viewport_row, column, cell);
+    }
+}
+
+fn append_render_cells(
+    cells: &mut Vec<RenderCell>,
+    viewport_row: u16,
+    source_cells: &[Cell],
+    columns: u16,
+) {
+    for (column, cell) in source_cells.iter().take(usize::from(columns)).enumerate() {
+        let Ok(column) = u16::try_from(column) else {
+            continue;
+        };
+        append_render_cell(cells, viewport_row, column, cell);
+    }
+}
+
+fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: &Cell) {
+    if cell.ch == ' ' {
+        return;
+    }
+
+    cells.push(RenderCell {
+        row,
+        column,
+        ch: cell.ch,
+        foreground: cell.foreground,
+        background: cell.background,
+        bold: cell.bold,
+        italic: cell.italic,
+        underline: cell.underline,
+        inverse: cell.inverse,
+    });
 }
 
 #[cfg(test)]
@@ -403,6 +484,24 @@ mod tests {
         let cursor = snapshot.cursor().expect("cursor should be visible");
         assert_eq!(cursor.row, 1);
         assert_eq!(cursor.column, 1);
+    }
+
+    #[test]
+    fn render_snapshot_can_show_scrollback_viewport() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.feed(b"ab\ncd\nef");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal_viewport(&terminal, 1);
+
+        assert_eq!(
+            snapshot
+                .cells()
+                .iter()
+                .map(|cell| (cell.row, cell.column, cell.ch))
+                .collect::<Vec<_>>(),
+            vec![(0, 0, 'a'), (0, 1, 'b'), (1, 0, 'c'), (1, 1, 'd')]
+        );
+        assert!(snapshot.cursor().is_none());
     }
 
     #[test]

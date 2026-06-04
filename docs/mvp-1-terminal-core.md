@@ -98,11 +98,14 @@ support the next PTY and SSH milestones.
   resets the active scroll region, and marks the resized viewport damaged.
 - Merged terminal damage regions for changed cells.
 - Shared `DamageRegion` in `rssh-core`, re-exported by `rssh-renderer`.
+- Bounded main-screen scrollback storage records lines that leave the top of the
+  full primary screen during normal upward scrolling. Local scroll regions and
+  alternate-screen output do not pollute the primary scrollback.
 
 ## Explicit Non-Scope
 
 - Full VT/xterm compatibility.
-- Scrollback storage and full scroll-region edge-case behavior.
+- Interactive scrollback UI/search and full scroll-region edge-case behavior.
 - Full alternate-screen edge-case behavior beyond `?1049`.
 - Mouse modes.
 - Hyperlinks and OSC clipboard.
@@ -164,6 +167,8 @@ cover:
 - CJK wide-character layout
 - terminal grid resize growth/shrink, cursor clamping, and resize damage
 - merged damage tracking
+- bounded main-screen scrollback capture, excluding local scroll regions and
+  alternate-screen output
 
 ## Next Milestone
 

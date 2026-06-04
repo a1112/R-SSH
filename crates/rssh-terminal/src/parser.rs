@@ -1,7 +1,9 @@
 use rssh_core::{DamageRegion, TerminalSize};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{Cell, Color, TerminalGrid};
+use crate::{Cell, Color, ScrollbackLine, TerminalGrid};
+
+const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterSet {
@@ -88,6 +90,7 @@ impl TabStops {
 #[derive(Debug, Clone)]
 pub struct Terminal {
     grid: TerminalGrid,
+    scrollback: Vec<ScrollbackLine>,
     title: Option<String>,
     cursor_row: u16,
     cursor_column: u16,
@@ -149,6 +152,7 @@ impl Terminal {
     pub fn new(size: TerminalSize) -> Self {
         Self {
             grid: TerminalGrid::new(size),
+            scrollback: Vec::new(),
             title: None,
             cursor_row: 0,
             cursor_column: 0,
@@ -398,6 +402,11 @@ impl Terminal {
     }
 
     #[must_use]
+    pub fn scrollback(&self) -> &[ScrollbackLine] {
+        &self.scrollback
+    }
+
+    #[must_use]
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
@@ -434,6 +443,7 @@ impl Terminal {
     fn reset_terminal(&mut self) {
         let size = self.grid.size();
         self.grid = TerminalGrid::new(size);
+        self.scrollback.clear();
         self.cursor_row = 0;
         self.cursor_column = 0;
         self.pending_wrap = false;
@@ -557,6 +567,10 @@ impl Terminal {
             return;
         }
 
+        if self.should_record_scrollback_for_scroll(top, bottom) {
+            self.record_scrollback_line(top);
+        }
+
         for row in top.saturating_add(1)..=bottom {
             for column in 0..size.columns {
                 let cell = self.grid.get(row, column).cloned().unwrap_or_default();
@@ -569,6 +583,27 @@ impl Terminal {
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, bottom - top + 1));
+    }
+
+    fn should_record_scrollback_for_scroll(&self, top: u16, bottom: u16) -> bool {
+        let size = self.grid.size();
+        self.main_screen.is_none()
+            && top == 0
+            && bottom == size.rows.saturating_sub(1)
+            && size.columns > 0
+    }
+
+    fn record_scrollback_line(&mut self, row: u16) {
+        let size = self.grid.size();
+        let cells = (0..size.columns)
+            .map(|column| self.grid.get(row, column).cloned().unwrap_or_default())
+            .collect();
+
+        self.scrollback.push(ScrollbackLine::from_cells(cells));
+        if self.scrollback.len() > DEFAULT_SCROLLBACK_LIMIT {
+            let overflow = self.scrollback.len() - DEFAULT_SCROLLBACK_LIMIT;
+            self.scrollback.drain(..overflow);
+        }
     }
 
     fn write_char(&mut self, ch: char) {

@@ -129,8 +129,10 @@ Recommended MVP 5 targets:
 ## Next Milestone
 
 MVP 5 should replace the minimal bitmap-font renderer with a production-grade
-text rendering path and add basic terminal UX:
+text rendering path and add basic terminal UX. The terminal core now has bounded
+main-screen scrollback storage and the renderer can build scrollback viewport
+snapshots; the native window still needs user controls for that viewport.
 
 1. Track dirty regions instead of rebuilding the full snapshot each chunk.
-2. Add scrollback storage and viewport rendering.
+2. Wire scrollback viewport controls into the native window.
 3. Start collecting the metrics listed above in smoke and benchmark commands.
