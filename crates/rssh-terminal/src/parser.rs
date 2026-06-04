@@ -20,6 +20,7 @@ pub struct Terminal {
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
     cursor_visible: bool,
+    auto_wrap: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     character_set: CharacterSet,
@@ -35,6 +36,7 @@ struct ScreenState {
     pending_wrap: bool,
     saved_cursor: Option<SavedCursor>,
     cursor_visible: bool,
+    auto_wrap: bool,
     scroll_top: u16,
     scroll_bottom: u16,
     character_set: CharacterSet,
@@ -61,6 +63,7 @@ impl Terminal {
             saved_cursor: None,
             main_screen: None,
             cursor_visible: true,
+            auto_wrap: true,
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
             character_set: CharacterSet::Ascii,
@@ -285,11 +288,13 @@ impl Terminal {
             return;
         }
 
-        if self.pending_wrap {
+        if self.pending_wrap && self.auto_wrap {
             self.newline();
+        } else if self.pending_wrap {
+            self.pending_wrap = false;
         }
 
-        if self.cursor_column.saturating_add(width) > self.grid.size().columns {
+        if self.cursor_column.saturating_add(width) > self.grid.size().columns && self.auto_wrap {
             self.newline();
         }
 
@@ -325,7 +330,7 @@ impl Terminal {
         let next_column = self.cursor_column.saturating_add(width);
         if next_column >= self.grid.size().columns {
             self.cursor_column = self.grid.size().columns.saturating_sub(1);
-            self.pending_wrap = true;
+            self.pending_wrap = self.auto_wrap;
         } else {
             self.cursor_column = next_column;
             self.pending_wrap = false;
@@ -369,10 +374,18 @@ impl Terminal {
 
         for value in values {
             match value {
+                7 => self.set_auto_wrap(enabled),
                 25 => self.cursor_visible = enabled,
                 1049 => self.set_alternate_screen(enabled),
                 _ => {}
             }
+        }
+    }
+
+    fn set_auto_wrap(&mut self, enabled: bool) {
+        self.auto_wrap = enabled;
+        if !enabled {
+            self.pending_wrap = false;
         }
     }
 
@@ -408,6 +421,7 @@ impl Terminal {
             pending_wrap: self.pending_wrap,
             saved_cursor: self.saved_cursor,
             cursor_visible: self.cursor_visible,
+            auto_wrap: self.auto_wrap,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
             character_set: self.character_set,
@@ -422,6 +436,7 @@ impl Terminal {
         self.pending_wrap = screen.pending_wrap;
         self.saved_cursor = screen.saved_cursor;
         self.cursor_visible = screen.cursor_visible;
+        self.auto_wrap = screen.auto_wrap;
         self.scroll_top = screen.scroll_top;
         self.scroll_bottom = screen.scroll_bottom;
         self.character_set = screen.character_set;

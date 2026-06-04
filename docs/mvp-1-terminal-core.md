@@ -21,6 +21,8 @@ support the next PTY and SSH milestones.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
 - Delayed auto-wrap at the right edge, including bottom-row scroll on the next
   printable character.
+- Auto-wrap mode tracking with `DECSET ?7` and `DECRST ?7`; disabled auto-wrap
+  keeps the cursor at the right edge and overwrites the last column.
 - Basic `DECSTBM` scroll-region handling with `ESC[<top>;<bottom>r`; linefeed
   at the bottom margin scrolls only the configured region, and `ESC[r` restores
   full-screen scrolling.
@@ -98,6 +100,7 @@ cover:
 - backspace and horizontal tab control handling
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
+- `?7h/l` auto-wrap mode tracking at the right edge
 - `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
 - `?1049` alternate-screen enter/exit with main screen restoration
 - CSI cursor positioning, line movement, and relative cursor movement

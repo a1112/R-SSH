@@ -514,6 +514,28 @@ mod tests {
     }
 
     #[test]
+    fn terminal_wrap_mode_can_disable_auto_wrap_at_right_edge() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"abc\x1b[?7ldef");
+
+        assert_eq!(row_text(&terminal, 0), "abcf");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_wrap_mode_can_reenable_auto_wrap_at_right_edge() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"ab\x1b[?7lcd\x1b[?7hef");
+
+        assert_eq!(row_text(&terminal, 0), "abce");
+        assert_eq!(row_text(&terminal, 1), "f   ");
+        assert_eq!(terminal.cursor(), (1, 1));
+    }
+
+    #[test]
     fn terminal_applies_basic_sgr_colors_and_styles() {
         let mut terminal = Terminal::new(TerminalSize::new(5, 1));
 
