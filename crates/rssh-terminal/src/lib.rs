@@ -186,6 +186,34 @@ mod tests {
     }
 
     #[test]
+    fn terminal_delays_auto_wrap_until_next_printable_character() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"abcd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(terminal.cursor(), (0, 3));
+
+        terminal.feed(b"e");
+
+        assert_eq!(row_text(&terminal, 0), "abcd");
+        assert_eq!(row_text(&terminal, 1), "e   ");
+        assert_eq!(terminal.cursor(), (1, 1));
+    }
+
+    #[test]
+    fn terminal_auto_wrap_scrolls_at_bottom_row() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"abcdefghi");
+
+        assert_eq!(row_text(&terminal, 0), "efgh");
+        assert_eq!(row_text(&terminal, 1), "i   ");
+        assert_eq!(terminal.cursor(), (1, 1));
+    }
+
+    #[test]
     fn terminal_applies_basic_sgr_colors_and_styles() {
         let mut terminal = Terminal::new(TerminalSize::new(5, 1));
 

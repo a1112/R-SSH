@@ -13,6 +13,8 @@ support the next PTY and SSH milestones.
 - `Terminal::feed` for printable UTF-8 text.
 - Newline and carriage-return handling.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
+- Delayed auto-wrap at the right edge, including bottom-row scroll on the next
+  printable character.
 - Basic CSI cursor handling:
   - absolute cursor positioning with `CUP`/`HVP` (`ESC[row;columnH` and
     `ESC[row;columnf`)
@@ -57,6 +59,7 @@ cover:
 - plain text parsing
 - newline parsing
 - bottom-row linefeed scrolling
+- delayed auto-wrap and bottom-row auto-wrap scrolling
 - CSI cursor positioning and relative cursor movement
 - CSI display and line erase handling
 - SGR color/style parsing

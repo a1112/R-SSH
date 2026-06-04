@@ -8,6 +8,7 @@ pub struct Terminal {
     grid: TerminalGrid,
     cursor_row: u16,
     cursor_column: u16,
+    pending_wrap: bool,
     style: Cell,
     damage: Vec<DamageRegion>,
 }
@@ -19,6 +20,7 @@ impl Terminal {
             grid: TerminalGrid::new(size),
             cursor_row: 0,
             cursor_column: 0,
+            pending_wrap: false,
             style: Cell::default(),
             damage: Vec::new(),
         }
@@ -45,6 +47,7 @@ impl Terminal {
                 }
                 '\r' => {
                     self.cursor_column = 0;
+                    self.pending_wrap = false;
                     index += 1;
                 }
                 ch => {
@@ -71,6 +74,7 @@ impl Terminal {
 
     fn newline(&mut self) {
         self.cursor_column = 0;
+        self.pending_wrap = false;
         let rows = self.grid.size().rows;
         if rows == 0 {
             return;
@@ -111,6 +115,10 @@ impl Terminal {
             return;
         }
 
+        if self.pending_wrap {
+            self.newline();
+        }
+
         if self.cursor_column.saturating_add(width) > self.grid.size().columns {
             self.newline();
         }
@@ -144,12 +152,13 @@ impl Terminal {
     }
 
     fn advance_cursor(&mut self, width: u16) {
-        self.cursor_column = self.cursor_column.saturating_add(width);
-        if self.cursor_column >= self.grid.size().columns {
-            self.cursor_column = 0;
-            if self.cursor_row + 1 < self.grid.size().rows {
-                self.cursor_row += 1;
-            }
+        let next_column = self.cursor_column.saturating_add(width);
+        if next_column >= self.grid.size().columns {
+            self.cursor_column = self.grid.size().columns.saturating_sub(1);
+            self.pending_wrap = true;
+        } else {
+            self.cursor_column = next_column;
+            self.pending_wrap = false;
         }
     }
 
@@ -168,10 +177,12 @@ impl Terminal {
     }
 
     fn move_cursor_up(&mut self, count: u16) {
+        self.pending_wrap = false;
         self.cursor_row = self.cursor_row.saturating_sub(count);
     }
 
     fn move_cursor_down(&mut self, count: u16) {
+        self.pending_wrap = false;
         let rows = self.grid.size().rows;
         if rows == 0 {
             return;
@@ -181,6 +192,7 @@ impl Terminal {
     }
 
     fn move_cursor_forward(&mut self, count: u16) {
+        self.pending_wrap = false;
         let columns = self.grid.size().columns;
         if columns == 0 {
             return;
@@ -190,10 +202,12 @@ impl Terminal {
     }
 
     fn move_cursor_back(&mut self, count: u16) {
+        self.pending_wrap = false;
         self.cursor_column = self.cursor_column.saturating_sub(count);
     }
 
     fn position_cursor(&mut self, params: &[char]) {
+        self.pending_wrap = false;
         let values = parse_csi_params(params);
         let rows = self.grid.size().rows;
         let columns = self.grid.size().columns;
