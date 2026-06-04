@@ -177,12 +177,16 @@ impl Terminal {
                     }
                 }
                 '\u{1b}' if chars.get(index + 1) == Some(&']') => {
-                    if let Some(sequence_end) = parse_osc(&chars, index + 2) {
-                        index = sequence_end + 1;
-                    } else {
-                        self.pending_control.extend_from_slice(&chars[index..]);
+                    let Some(next_index) = self.skip_osc(&chars, index) else {
                         break;
-                    }
+                    };
+                    index = next_index;
+                }
+                '\u{1b}' if chars.get(index + 1) == Some(&'P') => {
+                    let Some(next_index) = self.skip_dcs(&chars, index) else {
+                        break;
+                    };
+                    index = next_index;
                 }
                 '\u{1b}' if chars.get(index + 1) == Some(&'(') => {
                     if let Some(selector) = chars.get(index + 2).copied() {
@@ -249,6 +253,29 @@ impl Terminal {
                     index += 1;
                 }
             }
+        }
+    }
+
+    fn skip_osc(&mut self, chars: &[char], index: usize) -> Option<usize> {
+        self.skip_control_string(chars, index, 2, parse_osc)
+    }
+
+    fn skip_dcs(&mut self, chars: &[char], index: usize) -> Option<usize> {
+        self.skip_control_string(chars, index, 2, parse_st_terminated_control_string)
+    }
+
+    fn skip_control_string(
+        &mut self,
+        chars: &[char],
+        index: usize,
+        content_offset: usize,
+        parse: fn(&[char], usize) -> Option<usize>,
+    ) -> Option<usize> {
+        if let Some(sequence_end) = parse(chars, index + content_offset) {
+            Some(sequence_end + 1)
+        } else {
+            self.pending_control.extend_from_slice(&chars[index..]);
+            None
         }
     }
 
@@ -1260,6 +1287,17 @@ fn parse_osc(chars: &[char], mut index: usize) -> Option<usize> {
     while index < chars.len() {
         match chars[index] {
             '\u{7}' => return Some(index),
+            '\u{1b}' if chars.get(index + 1) == Some(&'\\') => return Some(index + 1),
+            _ => index += 1,
+        }
+    }
+
+    None
+}
+
+fn parse_st_terminated_control_string(chars: &[char], mut index: usize) -> Option<usize> {
+    while index < chars.len() {
+        match chars[index] {
             '\u{1b}' if chars.get(index + 1) == Some(&'\\') => return Some(index + 1),
             _ => index += 1,
         }
