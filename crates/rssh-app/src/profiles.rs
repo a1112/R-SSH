@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, error::Error, fs, io};
 
 use serde::Deserialize;
 
-use crate::cli::{self, AppCommand, ProfileOptions};
+use crate::cli::{self, AppCommand, ProfileListOptions, ProfileOptions};
 
 #[derive(Deserialize)]
 struct ProfileDocument {
@@ -37,9 +37,28 @@ struct ProfileDefinition {
     download: Option<Vec<String>>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProfileSummary {
+    pub name: String,
+    pub kind: String,
+}
+
 pub fn load_command(options: &ProfileOptions) -> Result<AppCommand, Box<dyn Error>> {
     let contents = fs::read_to_string(&options.file)?;
     command_from_toml(&options.name, &contents).map_err(profile_error)
+}
+
+pub fn list_profiles(options: &ProfileListOptions) -> Result<Vec<ProfileSummary>, Box<dyn Error>> {
+    let contents = fs::read_to_string(&options.file)?;
+    summaries_from_toml(&contents).map_err(profile_error)
+}
+
+pub fn print_profile_list(options: &ProfileListOptions) -> Result<(), Box<dyn Error>> {
+    for profile in list_profiles(options)? {
+        println!("{}\t{}", profile.name, profile.kind);
+    }
+
+    Ok(())
 }
 
 fn command_from_toml(name: &str, contents: &str) -> Result<AppCommand, String> {
@@ -51,6 +70,20 @@ fn command_from_toml(name: &str, contents: &str) -> Result<AppCommand, String> {
         .ok_or_else(|| format!("profile not found: {name}"))?;
 
     profile.to_command()
+}
+
+fn summaries_from_toml(contents: &str) -> Result<Vec<ProfileSummary>, String> {
+    let document =
+        toml::from_str::<ProfileDocument>(contents).map_err(|error| error.to_string())?;
+
+    Ok(document
+        .profiles
+        .into_iter()
+        .map(|(name, profile)| ProfileSummary {
+            name,
+            kind: profile.kind,
+        })
+        .collect())
 }
 
 impl ProfileDefinition {
@@ -479,6 +512,42 @@ command = ["cmd.exe", "/K", "echo", "window-profile-smoke"]
                 ]),
                 log: Some(PathBuf::from("window.log")),
             })
+        );
+    }
+
+    #[test]
+    fn lists_profile_names_and_kinds_from_toml_file() {
+        let file = temp_profile_file(
+            "list-profile",
+            r#"
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+auth = "agent"
+
+[profiles.local-smoke]
+kind = "local"
+command = ["pwsh", "-NoLogo"]
+"#,
+        );
+
+        let profiles =
+            super::list_profiles(&crate::cli::ProfileListOptions { file: file.clone() }).unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            profiles,
+            vec![
+                super::ProfileSummary {
+                    name: "local-smoke".to_owned(),
+                    kind: "local".to_owned(),
+                },
+                super::ProfileSummary {
+                    name: "prod-shell".to_owned(),
+                    kind: "ssh".to_owned(),
+                },
+            ]
         );
     }
 }
