@@ -61,6 +61,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - The app answers text-area size query `ESC[18t` with
   `ESC[8;<rows>;<columns>t` and screen character-size query `ESC[19t` with
   `ESC[9;<rows>;<columns>t`, including equivalent C1 CSI query forms.
+- The app answers xterm window pixel-size query `ESC[14t` with
+  `ESC[4;<pixel-height>;<pixel-width>t` and character-cell pixel-size query
+  `ESC[16t` with `ESC[6;16;8t`; equivalent C1 CSI forms are handled too.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - After a fast child-process exit, `rssh-app local` briefly drains PTY reader
@@ -163,9 +166,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   `rssh-app local --mouse -- <echo command>` and verify the final output marker
   is present every time.
 - Control-sequence response: unit tests cover normal output, dynamic `ESC[6n`
-  and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, `ESC[19t`, and split
-  response-query chunks. C1 CSI equivalents for cursor, device/status, and size
-  queries are also covered.
+  and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[14t`, `ESC[16t`,
+  `ESC[18t`, `ESC[19t`, and split response-query chunks. C1 CSI equivalents
+  for cursor, device/status, and size queries are also covered.
 - Session logging: unit tests cover teeing visible terminal output to a log
   writer, omitting non-visible control sequences from the log while preserving
   them for the host console, and smoke checks can verify `--log` writes command

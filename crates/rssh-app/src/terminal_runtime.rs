@@ -128,6 +128,8 @@ enum FilteredOutputEvent {
 }
 
 impl TerminalOutputFilter {
+    const CELL_HEIGHT_PIXELS: u16 = 16;
+    const CELL_WIDTH_PIXELS: u16 = 8;
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
@@ -168,6 +170,22 @@ impl TerminalOutputFilter {
         TerminalQueryResponse {
             query: b"\x9b5n",
             response: TerminalResponse::Static(b"\x1b[0n"),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[14t",
+            response: TerminalResponse::WindowPixelSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b14t",
+            response: TerminalResponse::WindowPixelSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[16t",
+            response: TerminalResponse::CharacterCellSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b16t",
+            response: TerminalResponse::CharacterCellSize,
         },
         TerminalQueryResponse {
             query: b"\x1b[18t",
@@ -254,6 +272,8 @@ struct TerminalQueryResponse {
 enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
+    WindowPixelSize,
+    CharacterCellSize,
     TextAreaSize,
     ScreenSize,
 }
@@ -280,6 +300,18 @@ impl TerminalResponse {
                     .into_bytes()
                 }
             }
+            TerminalResponse::WindowPixelSize => format!(
+                "\x1b[4;{};{}t",
+                u32::from(size.rows) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
+                u32::from(size.columns) * u32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS)
+            )
+            .into_bytes(),
+            TerminalResponse::CharacterCellSize => format!(
+                "\x1b[6;{};{}t",
+                TerminalOutputFilter::CELL_HEIGHT_PIXELS,
+                TerminalOutputFilter::CELL_WIDTH_PIXELS
+            )
+            .into_bytes(),
             TerminalResponse::TextAreaSize => {
                 format!("\x1b[8;{};{}t", size.rows, size.columns).into_bytes()
             }
@@ -559,6 +591,32 @@ mod tests {
     }
 
     #[test]
+    fn answers_window_pixel_size_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"before\x1b[14tafter");
+
+        assert_eq!(responses, vec![b"\x1b[4;688;1056t".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[14t"));
+    }
+
+    #[test]
+    fn answers_character_cell_size_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"before\x1b[16tafter");
+
+        assert_eq!(responses, vec![b"\x1b[6;16;8t".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[16t"));
+    }
+
+    #[test]
     fn answers_screen_size_query() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
@@ -580,6 +638,17 @@ mod tests {
 
         assert_eq!(text_area, vec![b"\x1b[8;43;132t".to_vec()]);
         assert_eq!(screen, vec![b"\x1b[9;43;132t".to_vec()]);
+    }
+
+    #[test]
+    fn answers_c1_window_pixel_and_cell_size_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let window_pixels = runtime.feed_pty_output(b"\x9b14t");
+        let cell_pixels = runtime.feed_pty_output(b"\x9b16t");
+
+        assert_eq!(window_pixels, vec![b"\x1b[4;688;1056t".to_vec()]);
+        assert_eq!(cell_pixels, vec![b"\x1b[6;16;8t".to_vec()]);
     }
 
     #[test]

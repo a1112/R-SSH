@@ -532,6 +532,8 @@ struct TerminalOutputFilter {
 }
 
 impl TerminalOutputFilter {
+    const CELL_HEIGHT_PIXELS: u16 = 16;
+    const CELL_WIDTH_PIXELS: u16 = 8;
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
@@ -572,6 +574,22 @@ impl TerminalOutputFilter {
         TerminalQueryResponse {
             query: b"\x9b5n",
             response: TerminalResponse::Static(b"\x1b[0n"),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[14t",
+            response: TerminalResponse::WindowPixelSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b14t",
+            response: TerminalResponse::WindowPixelSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[16t",
+            response: TerminalResponse::CharacterCellSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b16t",
+            response: TerminalResponse::CharacterCellSize,
         },
         TerminalQueryResponse {
             query: b"\x1b[18t",
@@ -684,6 +702,21 @@ impl TerminalOutputFilter {
                     .into_bytes()
                 }
             }
+            TerminalResponse::WindowPixelSize => {
+                let size = self.size.snapshot();
+                format!(
+                    "\x1b[4;{};{}t",
+                    u32::from(size.rows()) * u32::from(Self::CELL_HEIGHT_PIXELS),
+                    u32::from(size.columns()) * u32::from(Self::CELL_WIDTH_PIXELS)
+                )
+                .into_bytes()
+            }
+            TerminalResponse::CharacterCellSize => format!(
+                "\x1b[6;{};{}t",
+                Self::CELL_HEIGHT_PIXELS,
+                Self::CELL_WIDTH_PIXELS
+            )
+            .into_bytes(),
             TerminalResponse::TextAreaSize => {
                 let size = self.size.snapshot();
                 format!("\x1b[8;{};{}t", size.rows(), size.columns()).into_bytes()
@@ -713,6 +746,8 @@ struct TerminalQueryResponse {
 enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
+    WindowPixelSize,
+    CharacterCellSize,
     TextAreaSize,
     ScreenSize,
 }
@@ -1789,6 +1824,42 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_window_pixel_size_query() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[14tafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[4;688;1056t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_character_cell_size_query() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[16tafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[6;16;8t");
+    }
+
+    #[test]
     fn terminal_output_filter_answers_screen_size_query() {
         let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
         let mut output = Vec::new();
@@ -1826,6 +1897,28 @@ mod tests {
 
         assert_eq!(output, b"before middleafter");
         assert_eq!(responses, b"\x1b[8;43;132t\x1b[9;43;132t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_window_pixel_and_cell_size_queries() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x9b14t middle\x9b16tafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middleafter");
+        assert_eq!(responses, b"\x1b[4;688;1056t\x1b[6;16;8t");
     }
 
     #[test]
