@@ -56,7 +56,7 @@ in the native `winit` window.
   7-bit OSC 52 (`ESC]52;...`) and C1 OSC 52 (`0x9d52;...`) forms, including
   BEL, ST, and C1 ST terminators. OSC 52-like bytes embedded inside unrelated
   OSC or ST-terminated control-string payloads are ignored by the clipboard
-  tracker.
+  tracker, including split payloads.
 - `rssh-app window --osc52 off|write|read-write` controls whether PTY-side
   OSC 52 clipboard writes and read queries are allowed.
 - The native window supports basic local text selection when PTY mouse
@@ -194,7 +194,7 @@ MVP 4 tests cover:
 - OSC default foreground/background and indexed palette color query responses
   in the shared terminal runtime, including tracked OSC color-setting state
   and ignored OSC color-setting bytes embedded inside ST-terminated
-  control-string payloads
+  control-string payloads split across PTY chunks
 - OSC 8 hyperlink metadata in the shared terminal runtime, including C1 OSC/ST
   forms and visible-output filtering
 - XTGETTCAP terminal-capability query responses for colors, terminal name,

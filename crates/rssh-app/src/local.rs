@@ -2052,6 +2052,9 @@ impl TerminalColorState {
             .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
             .max()
             .unwrap_or(0);
+        let retained = retained
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -4027,6 +4030,34 @@ mod tests {
         filter
             .write(
                 b"\x1bPpayload \x1b]10;rgb:11/22/33\x1b\\ after\x1b]10;?\x07",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1bPpayload \x1b]10;rgb:11/22/33\x1b\\ after");
+        assert_eq!(responses, b"\x1b]10;rgb:e5e5/e5e5/e5e5\x07");
+    }
+
+    #[test]
+    fn terminal_output_filter_ignores_split_osc_color_changes_inside_st_control_strings() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"\x1bPpayload ", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(
+                b"\x1b]10;rgb:11/22/33\x1b\\ after\x1b]10;?\x07",
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);

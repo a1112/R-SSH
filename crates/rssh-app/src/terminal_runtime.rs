@@ -1248,6 +1248,9 @@ impl TerminalColorState {
             .map(|prefix| suffix_prefix_len(&self.pending, prefix))
             .max()
             .unwrap_or(0);
+        let retained = retained
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -1541,6 +1544,9 @@ impl TerminalClipboardTracker {
             .map(|prefix| suffix_prefix_len(&self.pending, prefix))
             .max()
             .unwrap_or(0);
+        let retained = retained
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -2057,6 +2063,23 @@ mod tests {
     }
 
     #[test]
+    fn ignores_split_osc_color_changes_inside_st_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let first = runtime.feed_pty_output_with_display(b"\x1bPpayload ");
+        let second =
+            runtime.feed_pty_output_with_display(b"\x1b]10;rgb:11/22/33\x1b\\ after\x1b]10;?\x07");
+
+        assert!(first.responses.is_empty());
+        assert!(first.display.is_empty());
+        assert_eq!(
+            second.responses,
+            vec![b"\x1b]10;rgb:e5e5/e5e5/e5e5\x07".to_vec()]
+        );
+        assert_eq!(second.display, b" after");
+    }
+
+    #[test]
     fn answers_xtgettcap_queries_without_feeding_them_to_terminal() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
@@ -2243,6 +2266,17 @@ mod tests {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         runtime.feed_pty_output(b"\x1bPpayload \x1b]52;c;Y29weQ==\x1b\\");
+
+        assert!(runtime.take_clipboard_texts().is_empty());
+        assert!(runtime.take_clipboard_queries().is_empty());
+    }
+
+    #[test]
+    fn ignores_split_osc52_clipboard_text_inside_st_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1bPpayload ");
+        runtime.feed_pty_output(b"\x1b]52;c;Y29weQ==\x1b\\");
 
         assert!(runtime.take_clipboard_texts().is_empty());
         assert!(runtime.take_clipboard_queries().is_empty());

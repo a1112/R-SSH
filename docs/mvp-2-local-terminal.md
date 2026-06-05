@@ -100,7 +100,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   xterm-compatible palette. OSC `10`, `11`, and `4` color-setting sequences
   update the tracked state, and BEL, ST, and C1 ST terminators are preserved in
   responses. OSC color-setting bytes embedded inside unrelated OSC or
-  ST-terminated control-string payloads are ignored by the color tracker.
+  ST-terminated control-string payloads are ignored by the color tracker,
+  including when the payload is split across PTY chunks.
 - The console path handles OSC 52 clipboard writes and read queries, decoding
   PTY-side base64 clipboard payloads into the system clipboard and answering
   `?` queries with base64-encoded clipboard content. Both 7-bit OSC 52
@@ -108,7 +109,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   BEL, ST, and C1 ST terminators. OSC 52 control sequences are removed from
   console display output. If PTY output ends in an incomplete OSC 52 sequence
   or partial OSC 52 prefix, the pending control bytes are dropped during flush
-  instead of leaking to the host console.
+  instead of leaking to the host console. OSC 52-like bytes embedded inside
+  split ST-terminated control-string payloads are not treated as clipboard
+  operations.
 - OSC 8 hyperlink sequences are consumed by the console output filter and fed
   into the mirrored terminal state, so hyperlink metadata is preserved without
   writing OSC 8 control bytes to the host console. Both 7-bit OSC 8 and C1 OSC
@@ -252,12 +255,14 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - OSC query response: unit tests cover default foreground/background and indexed
   palette color queries, including BEL, ST, and C1 OSC/ST forms. Unit tests also
   cover color-setting sequences followed by matching queries, and color-setting
-  bytes embedded inside ST-terminated control-string payloads.
+  bytes embedded inside ST-terminated control-string payloads split across PTY
+  chunks.
 - OSC 52 clipboard: unit tests cover console-path clipboard writes and
   clipboard query responses without writing OSC 52 control bytes to console
   output, including C1 OSC 52 write/query forms and split C1 OSC 52 payloads,
-  plus `off` and `write` policy enforcement. EOF flushing is covered for
-  incomplete OSC 52 sequences and partial prefixes.
+  plus `off` and `write` policy enforcement. Unit tests also cover OSC 52-like
+  bytes embedded inside unrelated control-string payloads. EOF flushing is
+  covered for incomplete OSC 52 sequences and partial prefixes.
 - OSC 8 hyperlinks: unit tests cover full and split OSC 8 sequences, including
   C1 OSC 8 forms, verifying that console output omits the control bytes while
   the mirrored terminal keeps hyperlink metadata on linked cells. EOF flushing
