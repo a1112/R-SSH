@@ -894,6 +894,7 @@ impl TerminalOutputFilter {
             .max(xtgettcap_query_suffix_len(pending))
             .max(osc52_clipboard_sequence_suffix_len(pending))
             .max(osc8_hyperlink_sequence_suffix_len(pending))
+            .max(incomplete_osc_control_sequence_suffix_len(pending))
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
@@ -1178,12 +1179,36 @@ fn find_incomplete_prefixed_sequence_start(bytes: &[u8], prefix: &[u8]) -> Optio
 
 fn find_incomplete_control_sequence_start(bytes: &[u8]) -> Option<usize> {
     [
+        find_incomplete_osc_control_sequence_start(bytes),
         find_incomplete_osc8_hyperlink_start(bytes),
         find_incomplete_osc52_clipboard_start(bytes),
     ]
     .into_iter()
     .flatten()
     .min()
+}
+
+fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_osc_control_sequence_start(bytes)
+        .map_or(0, |start| bytes.len() - start)
+        .max(suffix_len_matching_prefix(bytes, b"\x1b]"))
+}
+
+fn find_incomplete_osc_control_sequence_start(bytes: &[u8]) -> Option<usize> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let Some((relative_index, prefix_len)) = find_next_osc_start(&bytes[offset..]) else {
+            break;
+        };
+        let index = offset + relative_index;
+        let content_start = index + prefix_len;
+        let Some(terminator) = find_osc_color_terminator(&bytes[content_start..]) else {
+            return Some(index);
+        };
+        offset = content_start + terminator.index + terminator.length;
+    }
+
+    None
 }
 
 struct Osc52ClipboardSequence {
@@ -3086,6 +3111,55 @@ mod tests {
         assert_eq!(output, b"a");
         assert!(responses.is_empty());
         assert_eq!(filter.mirror.grid().get(0, 0).unwrap().ch, 'a');
+    }
+
+    #[test]
+    fn terminal_output_filter_holds_split_osc_title_until_terminated() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b]0;op", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+        assert_eq!(filter.mirror.title(), None);
+
+        filter
+            .write(b"s\x07after", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before\x1b]0;ops\x07after");
+        assert!(responses.is_empty());
+        assert_eq!(filter.mirror.title(), Some("ops"));
+    }
+
+    #[test]
+    fn terminal_output_filter_drops_incomplete_osc_title_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b]0;ops", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+        assert_eq!(filter.mirror.title(), None);
     }
 
     #[test]

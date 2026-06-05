@@ -59,6 +59,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   file while still streaming raw output to the host console; non-visible control
   sequences such as OSC title updates and BEL are omitted from the
   visible-output log.
+- The console output filter holds incomplete OSC control strings across PTY
+  chunks before writing them to the host console, and drops incomplete OSC
+  control strings during EOF flush so half-written OSC bytes do not pollute the
+  host console.
 - The app answers standard and DEC private cursor-position queries (`ESC[6n`
   and `ESC[?6n`) with the current mirrored terminal cursor position so shells
   and TUI programs can complete position handshakes. Equivalent 8-bit C1 CSI
@@ -250,6 +254,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   writer, omitting non-visible control sequences from the log while preserving
   them for the host console, and smoke checks can verify `--log` writes command
   output to disk.
+- OSC chunking: unit tests cover split OSC title sequences so incomplete OSC
+  control strings are held until terminated, plus EOF flushing for incomplete
+  OSC control strings.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
   reporting granularity, `1006` SGR protocol toggling, and C1 CSI private mode
