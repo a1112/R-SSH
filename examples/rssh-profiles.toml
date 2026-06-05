@@ -11,6 +11,8 @@ kind = "local"
 cols = 100
 rows = 30
 command = ["powershell", "-NoProfile", "-Command", "Write-Output rssh-profile-smoke"]
+# Optional: uncomment to write visible terminal output to a file.
+# log = "local-smoke.log"
 
 [profiles.prod-shell]
 kind = "ssh"
@@ -19,6 +21,7 @@ user = "ops"
 auth = "agent"
 cols = 120
 rows = 32
+# log = "prod-shell.log"
 
 [profiles.prod-tunnel]
 kind = "ssh"

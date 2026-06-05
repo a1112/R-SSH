@@ -56,6 +56,8 @@ contract that a future in-process `russh` adapter must satisfy.
   console runtime as an interim remote-session backend. It maps host, user, port,
   private-key path, and password-preferred authentication into OpenSSH arguments
   without placing password or passphrase secrets on the command line.
+- `rssh-app ssh --log PATH` reuses the local PTY console logger to write visible
+  SSH/OpenSSH output to a session log file.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
   back through the existing local or SSH CLI parser, so profile startup keeps the
   same validation and secret-handling rules as direct command-line startup.
@@ -111,6 +113,12 @@ Prefer an interactive password prompt:
 cargo run -p rssh-app -- ssh --host example.com --user ops --password
 ```
 
+Write an SSH session log:
+
+```powershell
+cargo run -p rssh-app -- ssh --target prod --log prod.log
+```
+
 For password authentication, R-SSH asks OpenSSH to prefer password and
 keyboard-interactive authentication, then OpenSSH prompts inside the terminal.
 R-SSH does not accept password or key-passphrase values on the process command
@@ -133,6 +141,7 @@ user = "ops"
 auth = "agent"
 cols = 120
 rows = 32
+log = "prod.log"
 
 [profiles.local-smoke]
 kind = "local"
@@ -146,6 +155,7 @@ cargo test -p rssh-ssh
 cargo test -p rssh-app ssh_
 cargo test -p rssh-app ssh_runner
 cargo test -p rssh-app profile
+cargo test -p rssh-app log
 ```
 
 SSH-boundary tests cover:
@@ -174,6 +184,7 @@ SSH-boundary tests cover:
   prompt policy, secret non-leakage, PTY size, and mouse support
 - app-level profile command parsing and TOML profile loading for local and SSH
   startup paths
+- app-level local and SSH log path parsing plus visible-output log tee behavior
 
 ## Explicit Non-Scope
 

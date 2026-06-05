@@ -44,6 +44,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   extended coordinates after `ESC[?1006h`.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
+- `rssh-app local --log PATH` writes visible terminal output to a session log
+  file while still streaming it to the host console.
 - The app answers standard and DEC private cursor-position queries (`ESC[6n`
   and `ESC[?6n`) with the current mirrored terminal cursor position so shells
   and TUI programs can complete position handshakes.
@@ -84,6 +86,12 @@ Run with mouse/focus reporting enabled:
 
 ```powershell
 cargo run -p rssh-app -- local --mouse
+```
+
+Write a session log:
+
+```powershell
+cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 ```
 
 Mouse and focus events are forwarded only after the PTY-side application enables
@@ -145,6 +153,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Control-sequence response: unit tests cover normal output, dynamic `ESC[6n`
   and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, `ESC[19t`, and split
   response-query chunks.
+- Session logging: unit tests cover teeing visible terminal output to a log
+  writer, and smoke checks can verify `--log` writes command output to disk.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
   reporting granularity and `1006` SGR protocol toggling.

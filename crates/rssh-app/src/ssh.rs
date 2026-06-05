@@ -124,6 +124,7 @@ fn local_options_for_options(options: &SshOptions) -> Result<LocalOptions, Box<d
         command: openssh_command_for_options(options),
         size: Some(PtySize::try_new(size.columns, size.rows)?),
         mouse: true,
+        log: options.log.clone(),
     })
 }
 
@@ -134,6 +135,7 @@ fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions
         remote_command: Vec::new(),
         forwards: Vec::new(),
         no_shell: false,
+        log: None,
     })
 }
 
@@ -226,6 +228,7 @@ mod tests {
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
                 no_shell: false,
+                log: None,
             },
             &mut connector,
             &mut io::empty(),
@@ -257,6 +260,7 @@ mod tests {
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
                 no_shell: false,
+                log: None,
             },
             &mut connector,
             &mut input,
@@ -361,6 +365,7 @@ mod tests {
             remote_command: Vec::new(),
             forwards: Vec::new(),
             no_shell: false,
+            log: None,
         };
 
         let command = super::openssh_command_for_options(&options);
@@ -393,6 +398,7 @@ mod tests {
             remote_command: vec!["uname".to_owned(), "-a".to_owned()],
             forwards: Vec::new(),
             no_shell: false,
+            log: None,
         };
 
         let command = super::openssh_command_for_options(&options);
@@ -417,6 +423,7 @@ mod tests {
                 crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned()),
             ],
             no_shell: true,
+            log: None,
         };
 
         let command = super::openssh_command_for_options(&options);
@@ -500,6 +507,7 @@ mod tests {
             remote_command: Vec::new(),
             forwards: Vec::new(),
             no_shell: false,
+            log: None,
         }
     }
 }

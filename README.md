@@ -49,6 +49,7 @@ cargo run -p rssh-app -- local
 cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
+cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 cargo run -p rssh-app -- ssh --target prod
 cargo run -p rssh-app -- ssh --target prod -- uname -a
@@ -56,6 +57,7 @@ cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.internal:5432 --no-shell
 cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
+cargo run -p rssh-app -- ssh --target prod --log prod.log
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
 cargo test -p rssh-ssh
@@ -65,6 +67,8 @@ cargo test -p rssh-ssh
 applications to negotiate xterm mouse/focus reporting through PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
 The console path also answers basic terminal status and device-attribute queries.
+Use `--log PATH` on `local` or `ssh` to tee visible terminal output to a session
+log file.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
@@ -81,7 +85,7 @@ forward specs for tunnels. Add `--no-shell` when the session should only keep
 the tunnel open.
 `profile NAME --file PATH` loads a TOML session profile and then starts the
 same local or SSH runtime. See `examples/rssh-profiles.toml` for the current
-file format.
+file format, including the optional `log = "path"` field.
 
 ## MVP Status
 

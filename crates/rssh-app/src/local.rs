@@ -1,5 +1,6 @@
 use std::{
     error::Error,
+    fs::File,
     io::{self, IsTerminal, Read, Write},
     sync::{
         Arc,
@@ -32,6 +33,10 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut session = PtySession::spawn(&options.command, size)?;
     let mut reader = session.take_reader()?;
     let mut writer = session.take_writer()?;
+    let mut log_file = match &options.log {
+        Some(path) => Some(File::create(path)?),
+        None => None,
+    };
     let (reader_done_sender, reader_done_receiver) = mpsc::channel();
     let (writer_done_sender, writer_done_receiver) = mpsc::channel();
     let (pty_input_sender, pty_input_receiver) = mpsc::channel();
@@ -47,6 +52,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
             &terminal_response_sender,
             &output_control_sender,
             output_terminal_size,
+            log_file.as_mut().map(|file| file as &mut dyn Write),
         );
         let _ = reader_done_sender.send(result);
     });
@@ -339,8 +345,10 @@ fn copy_pty_output(
     pty_input_sender: &mpsc::Sender<Vec<u8>>,
     control_sender: &mpsc::Sender<LocalControlEvent>,
     terminal_size: SharedTerminalSize,
+    log: Option<&mut dyn Write>,
 ) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
+    let mut output = SessionLogWriter::new(&mut stdout, log);
     let mut buffer = [0; 8192];
     let mut output_filter = TerminalOutputFilter::with_shared_size(terminal_size);
     let mut mode_tracker = TerminalModeTracker::default();
@@ -348,8 +356,8 @@ fn copy_pty_output(
     loop {
         match reader.read(&mut buffer) {
             Ok(0) => {
-                output_filter.flush(&mut stdout)?;
-                stdout.flush()?;
+                output_filter.flush(&mut output)?;
+                output.flush()?;
                 return Ok(());
             }
             Ok(count) => {
@@ -373,16 +381,47 @@ fn copy_pty_output(
                     };
                     let _ = control_sender.send(event);
                 });
-                output_filter.write(&buffer[..count], &mut stdout, |response| {
+                output_filter.write(&buffer[..count], &mut output, |response| {
                     pty_input_sender
                         .send(response.to_vec())
                         .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed"))
                 })?;
-                stdout.flush()?;
+                output.flush()?;
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error),
         }
+    }
+}
+
+struct SessionLogWriter<'screen, 'log> {
+    screen: &'screen mut dyn Write,
+    log: Option<&'log mut dyn Write>,
+}
+
+impl<'screen, 'log> SessionLogWriter<'screen, 'log> {
+    fn new(screen: &'screen mut dyn Write, log: Option<&'log mut dyn Write>) -> Self {
+        Self { screen, log }
+    }
+}
+
+impl Write for SessionLogWriter<'_, '_> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let count = self.screen.write(buffer)?;
+        if count > 0 {
+            if let Some(log) = self.log.as_mut() {
+                log.write_all(&buffer[..count])?;
+            }
+        }
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.screen.flush()?;
+        if let Some(log) = self.log.as_mut() {
+            log.flush()?;
+        }
+        Ok(())
     }
 }
 
@@ -1391,6 +1430,8 @@ fn xterm_modifier(modifiers: KeyModifiers) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write;
+
     use crossterm::event::{
         Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton,
         MouseEvent, MouseEventKind,
@@ -1928,6 +1969,19 @@ mod tests {
 
         assert_eq!(output, b"beforeafter");
         assert_eq!(responses, b"\x1b[1;7R");
+    }
+
+    #[test]
+    fn session_log_writer_records_visible_output() {
+        let mut screen = Vec::new();
+        let mut log = Vec::new();
+        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+
+        output.write_all(b"visible").unwrap();
+        output.flush().unwrap();
+
+        assert_eq!(screen, b"visible");
+        assert_eq!(log, b"visible");
     }
 
     #[test]

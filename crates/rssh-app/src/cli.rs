@@ -22,6 +22,7 @@ pub struct LocalOptions {
     pub command: PtyCommand,
     pub size: Option<PtySize>,
     pub mouse: bool,
+    pub log: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -36,6 +37,7 @@ pub struct SshOptions {
     pub remote_command: Vec<String>,
     pub forwards: Vec<SshForward>,
     pub no_shell: bool,
+    pub log: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -72,6 +74,7 @@ struct SshParseState {
     remote_command: Vec<String>,
     forwards: Vec<SshForward>,
     no_shell: bool,
+    log: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -137,13 +140,14 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
     let mut columns = None;
     let mut rows = None;
     let mut mouse = false;
+    let mut log = None;
     let mut command_args = Vec::new();
     let mut index = 0;
 
@@ -159,6 +163,13 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
             }
             "--mouse" => {
                 mouse = true;
+            }
+            "--log" => {
+                index += 1;
+                log = Some(PathBuf::from(required_option_value(
+                    args.get(index),
+                    "--log",
+                )?));
             }
             "--" => {
                 command_args.extend(args[index + 1..].iter().cloned());
@@ -190,6 +201,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         command,
         size,
         mouse,
+        log,
     }))
 }
 
@@ -319,6 +331,13 @@ fn parse_ssh_option(
         "--no-shell" => {
             state.no_shell = true;
         }
+        "--log" => {
+            *index += 1;
+            state.log = Some(PathBuf::from(required_option_value(
+                args.get(*index),
+                "--log",
+            )?));
+        }
         value => return Err(format!("unexpected ssh option: {value}")),
     }
 
@@ -337,6 +356,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         remote_command,
         forwards,
         no_shell,
+        log,
     } = state;
 
     if no_shell && !remote_command.is_empty() {
@@ -372,6 +392,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         remote_command,
         forwards,
         no_shell,
+        log,
     })
 }
 
@@ -624,6 +645,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_local_log_path() {
+        let parsed = parse_args(["rssh-app", "local", "--log", "session.log"]).unwrap();
+
+        let AppCommand::Local(options) = parsed else {
+            panic!("expected local command");
+        };
+
+        assert_eq!(options.log, Some(std::path::PathBuf::from("session.log")));
+    }
+
+    #[test]
     fn parses_ssh_agent_connection_request() {
         let parsed =
             parse_args(["rssh-app", "ssh", "--host", "example.com", "--user", "ops"]).unwrap();
@@ -739,6 +771,18 @@ mod tests {
 
         assert_eq!(request.config.host, "example.com");
         assert_eq!(options.remote_command, ["whoami"]);
+    }
+
+    #[test]
+    fn parses_ssh_log_path() {
+        let parsed =
+            parse_args(["rssh-app", "ssh", "--target", "prod", "--log", "ssh.log"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(options.log, Some(std::path::PathBuf::from("ssh.log")));
     }
 
     #[test]

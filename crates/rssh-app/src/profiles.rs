@@ -20,6 +20,7 @@ struct ProfileDefinition {
     cols: Option<u16>,
     rows: Option<u16>,
     mouse: Option<bool>,
+    log: Option<String>,
     command: Option<Vec<String>>,
     auth: Option<String>,
     key: Option<String>,
@@ -64,6 +65,7 @@ impl ProfileDefinition {
         if self.mouse.unwrap_or(false) {
             args.push("--mouse".to_owned());
         }
+        append_optional(args, "--log", self.log.as_ref());
         append_command(args, self.command.as_ref(), "local command")?;
         Ok(())
     }
@@ -76,6 +78,7 @@ impl ProfileDefinition {
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
         append_auth_args(args, self.auth.as_deref(), self.key.as_ref())?;
+        append_optional(args, "--log", self.log.as_ref());
         append_forwards(args, "--local-forward", self.local_forward.as_ref());
         append_forwards(args, "--remote-forward", self.remote_forward.as_ref());
         append_forwards(args, "--dynamic-forward", self.dynamic_forward.as_ref());
@@ -232,6 +235,7 @@ dynamic_forward = ["127.0.0.1:1080"]
                     SshForward::Dynamic("127.0.0.1:1080".to_owned()),
                 ],
                 no_shell: false,
+                log: None,
             })
         );
     }
@@ -246,6 +250,7 @@ kind = "local"
 cols = 100
 rows = 32
 mouse = true
+log = "dev.log"
 command = ["pwsh", "-NoLogo"]
 "#,
         );
@@ -264,6 +269,7 @@ command = ["pwsh", "-NoLogo"]
                 command: rssh_pty::PtyCommand::new("pwsh").with_args(["-NoLogo"]),
                 size: Some(rssh_pty::PtySize::try_new(100, 32).unwrap()),
                 mouse: true,
+                log: Some(PathBuf::from("dev.log")),
             })
         );
     }
