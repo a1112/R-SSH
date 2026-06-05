@@ -40,8 +40,8 @@ channel contract that a future `russh` adapter must satisfy.
   including host, user, port, initial terminal size, password auth, private-key
   auth with optional passphrase, and agent auth.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
-  a connector, streams shell output to the local console, and closes the shell
-  session after EOF.
+  a connector, writes local input bytes into the shell session, streams shell
+  output to the local console, and closes the shell session after EOF.
 
 ## Run
 
@@ -74,6 +74,7 @@ SSH-boundary tests cover:
 - app-level SSH command parsing for agent, password, and private-key requests
 - missing host/user and conflicting authentication rejection
 - app-level SSH runner behavior with a mock connector and shell session
+- app-level SSH runner input forwarding into a mock shell session
 
 ## Explicit Non-Scope
 

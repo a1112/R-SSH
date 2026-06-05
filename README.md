@@ -71,7 +71,7 @@ The console path also answers basic terminal status and device-attribute queries
   rendering, and input-write metrics with `window --metrics`; the SSH crate now
   has a validated config, authentication request model, connector entry point,
   shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
-  runner path. See
+  runner path for local input and remote output. See
   `docs/mvp-5-ssh-session-boundary.md`.
 
 ## Reference Sources
