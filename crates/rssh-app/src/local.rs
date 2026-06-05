@@ -1981,6 +1981,10 @@ impl TerminalColorState {
                 self.retain_possible_prefix();
                 return;
             };
+            if is_inside_osc_or_st_control_string(&self.pending, index) {
+                self.pending.drain(..index.saturating_add(1));
+                continue;
+            }
             if index > 0 {
                 self.pending.drain(..index);
             }
@@ -3987,6 +3991,28 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_ignores_osc_color_changes_inside_st_control_strings() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1bPpayload \x1b]10;rgb:11/22/33\x1b\\ after\x1b]10;?\x07",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1bPpayload \x1b]10;rgb:11/22/33\x1b\\ after");
+        assert_eq!(responses, b"\x1b]10;rgb:e5e5/e5e5/e5e5\x07");
+    }
+
+    #[test]
     fn terminal_output_filter_answers_xtgettcap_queries() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -4144,6 +4170,39 @@ mod tests {
         assert_eq!(output, b"beforeafter");
         assert!(responses.is_empty());
         assert_eq!(writes, vec!["copy"]);
+    }
+
+    #[test]
+    fn terminal_output_filter_ignores_osc52_inside_control_strings() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"\x1b]0;title \x1b]52;c;Y29weQ==\x07\x1bPpayload \x1b]52;c;?\x1b\\done",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("copy".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            output,
+            b"\x1b]0;title \x1b]52;c;Y29weQ==\x07\x1bPpayload \x1b]52;c;?\x1b\\done"
+        );
+        assert!(responses.is_empty());
+        assert!(writes.is_empty());
     }
 
     #[test]

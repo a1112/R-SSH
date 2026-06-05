@@ -1177,6 +1177,10 @@ impl TerminalColorState {
                 self.retain_possible_prefix();
                 return;
             };
+            if is_inside_osc_or_st_control_string(&self.pending, index) {
+                self.pending.drain(..index.saturating_add(1));
+                continue;
+            }
             if index > 0 {
                 self.pending.drain(..index);
             }
@@ -2035,6 +2039,21 @@ mod tests {
             ]
         );
         assert_eq!(output.display, b"before middle after done");
+    }
+
+    #[test]
+    fn ignores_osc_color_changes_inside_st_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"\x1bPpayload \x1b]10;rgb:11/22/33\x1b\\ after\x1b]10;?\x07",
+        );
+
+        assert_eq!(
+            output.responses,
+            vec![b"\x1b]10;rgb:e5e5/e5e5/e5e5\x07".to_vec()]
+        );
+        assert_eq!(output.display, b" after");
     }
 
     #[test]

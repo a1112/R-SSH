@@ -192,6 +192,8 @@ MVP 4 tests cover:
   shared terminal runtime
 - OSC default foreground/background and indexed palette color query responses
   in the shared terminal runtime, including tracked OSC color-setting state
+  and ignored OSC color-setting bytes embedded inside ST-terminated
+  control-string payloads
 - OSC 8 hyperlink metadata in the shared terminal runtime, including C1 OSC/ST
   forms and visible-output filtering
 - XTGETTCAP terminal-capability query responses for colors, terminal name,
