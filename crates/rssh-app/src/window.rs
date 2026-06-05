@@ -824,20 +824,32 @@ impl NativeWindowApp {
     }
 
     fn effective_window_title(&self) -> String {
-        let Some(search) = &self.search else {
-            return self.window_title.clone();
-        };
+        let mut title = self.window_title.clone();
 
-        if search.query.is_empty() {
-            format!("{} - Search", self.window_title)
-        } else if search.current.is_some() {
-            format!("{} - Search: {}", self.window_title, search.query)
-        } else {
-            format!(
-                "{} - Search: {} (no match)",
-                self.window_title, search.query
-            )
+        if let Some(status) = self.scrollback_status() {
+            title.push_str(" - ");
+            title.push_str(&status);
         }
+
+        if let Some(search) = &self.search {
+            title.push_str(" - ");
+            title.push_str(&search_status(search));
+        }
+
+        title
+    }
+
+    fn scrollback_status(&self) -> Option<String> {
+        let history_len = self.runtime.terminal().scrollback().len();
+        if history_len == 0 || self.scrollback_offset == 0 {
+            return None;
+        }
+
+        Some(format!(
+            "Scrollback {}/{}",
+            self.scrollback_offset.min(history_len),
+            history_len
+        ))
     }
 
     fn apply_window_title(&self) {
@@ -1372,6 +1384,16 @@ fn is_word_selection_character(character: char) -> bool {
 struct WindowSearch {
     query: String,
     current: Option<WindowSearchMatch>,
+}
+
+fn search_status(search: &WindowSearch) -> String {
+    if search.query.is_empty() {
+        "Search".to_owned()
+    } else if search.current.is_some() {
+        format!("Search: {}", search.query)
+    } else {
+        format!("Search: {} (no match)", search.query)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2557,6 +2579,39 @@ mod tests {
 
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('d'));
         assert!(app.snapshot.cursor().is_some());
+    }
+
+    #[test]
+    fn window_title_shows_scrollback_position() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\nbb\ncc\ndd\nee").unwrap();
+
+        assert_eq!(app.runtime.terminal().scrollback().len(), 3);
+        assert_eq!(app.effective_window_title(), "R-SSH");
+
+        app.scroll_viewport_lines(1);
+        assert_eq!(app.effective_window_title(), "R-SSH - Scrollback 1/3");
+
+        app.scroll_viewport_lines(99);
+        assert_eq!(app.effective_window_title(), "R-SSH - Scrollback 3/3");
+
+        app.scroll_viewport_lines(-99);
+        assert_eq!(app.effective_window_title(), "R-SSH");
+    }
+
+    #[test]
+    fn window_title_combines_scrollback_and_search_status() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 2));
+        app.handle_pty_output(b"alpha\r\nbeta\r\ngamma").unwrap();
+
+        assert!(app.update_search_query("alpha"));
+
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH - Scrollback 1/1 - Search: alpha"
+        );
     }
 
     #[test]

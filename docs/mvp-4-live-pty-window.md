@@ -60,6 +60,8 @@ in the native `winit` window.
 - `Shift+PageUp`, `Shift+PageDown`, `Shift+Home`, and `Shift+End` navigate the
   native scrollback viewport while unmodified page/navigation keys remain
   available to the active PTY application.
+- The native window title shows `Scrollback current/total` while the viewport
+  is above the live bottom, including when search has moved to a history match.
 - The native window tracks PTY-side xterm mouse modes (`1000`/`1002`/`1003`
   and `1006`) and forwards button, wheel, drag, and any-motion events as
   legacy or SGR mouse reports when reporting is enabled.
@@ -181,6 +183,8 @@ MVP 4 tests cover:
 - renderer xterm 256-color palette mapping for indexed terminal colors
 - native window scrollback viewport clamping and mouse-wheel movement
 - native window Shift scrollback shortcuts without stealing unmodified page keys
+- native window scrollback position status in the title, including combined
+  scrollback and search status
 - native window xterm mouse-mode tracking and button/wheel/drag/motion report
   encoding
 
@@ -231,5 +235,5 @@ snapshots, and the native window can move that viewport with mouse-wheel input
 and Shift page/navigation shortcuts.
 
 1. Track dirty regions instead of rebuilding the full snapshot each chunk.
-2. Add scrollbar/status affordances for scrollback.
+2. Replace title-only scrollback position with a real scrollbar or status area.
 3. Start collecting the metrics listed above in smoke and benchmark commands.
