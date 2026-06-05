@@ -4,7 +4,7 @@ use rssh_core::TerminalSize;
 
 mod russh_client;
 
-pub use russh_client::RusshChannelOpener;
+pub use russh_client::{RusshChannelOpener, RusshClientHandler, RusshHostKeyPolicy};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshConfigError {
@@ -569,6 +569,8 @@ mod tests {
         SshSessionStartup, SshShellConnector, SshShellSession, SshStartupError,
     };
 
+    use crate::RusshHostKeyPolicy;
+
     #[test]
     fn session_config_keeps_terminal_size() {
         let config = SshSessionConfig::new("example.com", 22, "ops", TerminalSize::new(100, 40));
@@ -881,6 +883,22 @@ mod tests {
         let config = opener.client_config();
 
         assert!(config.keepalive_interval.is_some());
+    }
+
+    #[test]
+    fn russh_channel_opener_defaults_to_rejecting_unknown_host_keys() {
+        let opener = super::RusshChannelOpener::default();
+
+        assert_eq!(opener.host_key_policy(), RusshHostKeyPolicy::RejectUnknown);
+    }
+
+    #[test]
+    fn russh_channel_opener_can_be_configured_to_accept_unknown_host_keys() {
+        let opener = super::RusshChannelOpener::default()
+            .with_host_key_policy(RusshHostKeyPolicy::AcceptUnknown);
+
+        assert_eq!(opener.host_key_policy(), RusshHostKeyPolicy::AcceptUnknown);
+        assert!(opener.into_handler().accepts_unknown_host_keys());
     }
 
     fn valid_config() -> SshSessionConfig {

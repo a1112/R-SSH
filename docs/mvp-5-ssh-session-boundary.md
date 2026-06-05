@@ -63,6 +63,12 @@ contract that a future in-process `russh` adapter must satisfy.
 - `RusshChannelOpener` starts the in-process native SSH adapter surface with a
   real `russh::client::Config`. The dependency is configured with the `ring`
   crypto backend so Windows builds do not require NASM for `aws-lc-rs`.
+- `RusshHostKeyPolicy` carries the native adapter's host-key decision rule.
+  `RusshChannelOpener` defaults to `RejectUnknown`; callers must explicitly opt
+  into `AcceptUnknown` for insecure local fixtures or test-only connections.
+- `RusshClientHandler` implements `russh::client::Handler::check_server_key`
+  from that policy, giving the future `russh` connection path a tested
+  host-key gate before authentication and channel opening are wired in.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
@@ -221,6 +227,8 @@ SSH-boundary tests cover:
 - `run_shell_with_io` behavior for streaming remote output, forwarding local
   input, and closing the shell session
 - `RusshChannelOpener` construction against a real `russh::client::Config`
+- `RusshHostKeyPolicy` defaults and explicit insecure/test-only accept-unknown
+  host-key behavior through the `russh` client handler
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
@@ -244,9 +252,10 @@ SSH-boundary tests cover:
 ## Explicit Non-Scope
 
 - Complete in-process native `russh` network connections.
-- Executing password, key, agent, and host-key authentication through `russh`.
+- Executing password, key, and agent authentication through `russh`.
+- Known-host file storage and persisted host-key trust decisions.
 - Full `russh` adapter channel wiring beyond the initial opener/config surface.
-- SFTP, in-process native tunnels, reconnects, and known-host storage.
+- SFTP, in-process native tunnels, and reconnects.
 
 ## Next Milestone
 
