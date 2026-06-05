@@ -26,7 +26,7 @@ struct ProfileDefinition {
     rows: Option<u16>,
     frames: Option<u64>,
     mouse: Option<bool>,
-    metrics: Option<bool>,
+    metrics: Option<ProfileMetrics>,
     preflight: Option<bool>,
     osc52: Option<String>,
     log: Option<String>,
@@ -41,6 +41,13 @@ struct ProfileDefinition {
     recursive: Option<bool>,
     upload: Option<Vec<String>>,
     download: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ProfileMetrics {
+    Enabled(bool),
+    Format(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -334,7 +341,7 @@ impl ProfileDefinition {
     fn append_local_args(&self, args: &mut Vec<String>) -> Result<(), String> {
         args.push("local".to_owned());
         self.append_preflight(args);
-        self.append_metrics(args);
+        self.append_console_metrics(args)?;
         append_dimensions(args, self.cols, self.rows);
         if self.mouse.unwrap_or(false) {
             args.push("--mouse".to_owned());
@@ -350,7 +357,7 @@ impl ProfileDefinition {
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
         self.append_preflight(args);
-        self.append_metrics(args);
+        self.append_console_metrics(args)?;
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -372,7 +379,7 @@ impl ProfileDefinition {
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
         self.append_preflight(args);
-        self.append_metrics(args);
+        self.append_console_metrics(args)?;
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -386,7 +393,7 @@ impl ProfileDefinition {
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
         self.append_preflight(args);
-        self.append_metrics(args);
+        self.append_console_metrics(args)?;
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -406,9 +413,23 @@ impl ProfileDefinition {
         }
     }
 
-    fn append_metrics(&self, args: &mut Vec<String>) {
-        if self.metrics.unwrap_or(false) {
-            args.push("--metrics".to_owned());
+    fn append_console_metrics(&self, args: &mut Vec<String>) -> Result<(), String> {
+        if let Some(flag) = self.metrics_flag()? {
+            args.push(flag.to_owned());
+        }
+
+        Ok(())
+    }
+
+    fn metrics_flag(&self) -> Result<Option<&'static str>, String> {
+        match self.metrics.as_ref() {
+            None | Some(ProfileMetrics::Enabled(false)) => Ok(None),
+            Some(ProfileMetrics::Enabled(true)) => Ok(Some("--metrics")),
+            Some(ProfileMetrics::Format(format)) if format == "text" => Ok(Some("--metrics")),
+            Some(ProfileMetrics::Format(format)) if format == "json" => Ok(Some("--metrics-json")),
+            Some(ProfileMetrics::Format(format)) => Err(format!(
+                "invalid metrics format: {format}; expected true, false, \"text\", or \"json\""
+            )),
         }
     }
 
@@ -416,7 +437,14 @@ impl ProfileDefinition {
         args.push("window".to_owned());
         append_optional_u64(args, "--frames", self.frames);
         append_optional(args, "--osc52", self.osc52.as_ref());
-        self.append_metrics(args);
+        match self.metrics_flag()? {
+            Some("--metrics") => args.push("--metrics".to_owned()),
+            Some("--metrics-json") => {
+                return Err("window metrics does not support json format".to_owned());
+            }
+            Some(_) => unreachable!("validated metrics flag"),
+            None => {}
+        }
         append_optional(args, "--log", self.log.as_ref());
         append_command(args, self.command.as_ref(), "window command")?;
         Ok(())
@@ -827,6 +855,29 @@ upload = ["local", "/tmp/remote"]
                 "local",
                 "/tmp/remote"
             ]
+        );
+    }
+
+    #[test]
+    fn console_profiles_can_enable_json_metrics() {
+        let contents = r#"
+[profiles.local-dev]
+kind = "local"
+metrics = "json"
+
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+metrics = "json"
+"#;
+
+        assert_eq!(
+            super::args_from_toml("local-dev", contents).unwrap(),
+            ["rssh-app", "local", "--metrics-json"]
+        );
+        assert_eq!(
+            super::args_from_toml("prod-shell", contents).unwrap(),
+            ["rssh-app", "ssh", "--target", "prod", "--metrics-json"]
         );
     }
 

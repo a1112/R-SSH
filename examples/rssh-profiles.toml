@@ -42,7 +42,7 @@
 [profiles.local-smoke]
 kind = "local"
 preflight = true
-metrics = true
+metrics = "json"
 cols = 100
 rows = 30
 osc52 = "write"

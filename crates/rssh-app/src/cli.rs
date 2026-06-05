@@ -43,6 +43,7 @@ pub struct LocalOptions {
 pub struct ConsoleOptions {
     pub preflight: bool,
     pub metrics: bool,
+    pub metrics_json: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -261,7 +262,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--preflight] [--metrics] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--preflight] [--metrics] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--preflight] [--metrics] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -289,6 +290,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
     let mut mouse = false;
     let mut preflight = false;
     let mut metrics = false;
+    let mut metrics_json = false;
     let mut osc52_policy = Osc52Policy::default();
     let mut log = None;
     let mut command_args = Vec::new();
@@ -311,7 +313,10 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
                 preflight = true;
             }
             "--metrics" => {
-                metrics = true;
+                set_console_metrics(&mut metrics, &mut metrics_json, "--metrics")?;
+            }
+            "--metrics-json" => {
+                set_console_metrics(&mut metrics, &mut metrics_json, "--metrics-json")?;
             }
             "--osc52" => {
                 index += 1;
@@ -354,7 +359,11 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         command,
         size,
         mouse,
-        console: ConsoleOptions { preflight, metrics },
+        console: ConsoleOptions {
+            preflight,
+            metrics,
+            metrics_json,
+        },
         osc52_policy,
         log,
     }))
@@ -565,6 +574,28 @@ fn set_scp_transfer(transfer: &mut Option<ScpTransfer>, next: ScpTransfer) -> Re
     Ok(())
 }
 
+fn set_console_metrics(
+    metrics: &mut bool,
+    metrics_json: &mut bool,
+    selected: &str,
+) -> Result<(), String> {
+    if *metrics || *metrics_json {
+        return Err("only one console metrics format can be selected".to_owned());
+    }
+
+    match selected {
+        "--metrics" => *metrics = true,
+        "--metrics-json" => *metrics_json = true,
+        _ => unreachable!("validated console metrics flag"),
+    }
+
+    Ok(())
+}
+
+fn set_ssh_console_metrics(console: &mut ConsoleOptions, selected: &str) -> Result<(), String> {
+    set_console_metrics(&mut console.metrics, &mut console.metrics_json, selected)
+}
+
 fn parse_sftp_option(
     args: &[String],
     index: &mut usize,
@@ -619,8 +650,8 @@ fn parse_sftp_option(
         "--preflight" => {
             state.console.preflight = true;
         }
-        "--metrics" => {
-            state.console.metrics = true;
+        metrics_flag @ ("--metrics" | "--metrics-json") => {
+            set_ssh_console_metrics(&mut state.console, metrics_flag)?;
         }
         "--log" => {
             *index += 1;
@@ -720,8 +751,8 @@ fn parse_ssh_option(
         "--preflight" => {
             state.console.preflight = true;
         }
-        "--metrics" => {
-            state.console.metrics = true;
+        metrics_flag @ ("--metrics" | "--metrics-json") => {
+            set_ssh_console_metrics(&mut state.console, metrics_flag)?;
         }
         "--accept-unknown-host-key" | "--trust-on-first-use" => {
             parse_native_host_key_policy(args[*index].as_str(), state)?;
@@ -1333,6 +1364,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_local_metrics_json() {
+        let parsed = parse_args(["rssh-app", "local", "--metrics-json"]).unwrap();
+
+        let AppCommand::Local(options) = parsed else {
+            panic!("expected local command");
+        };
+
+        assert!(options.console.metrics_json);
+    }
+
+    #[test]
     fn parses_local_log_path() {
         let parsed = parse_args(["rssh-app", "local", "--log", "session.log"]).unwrap();
 
@@ -1631,6 +1673,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_ssh_metrics_json() {
+        let parsed = parse_args(["rssh-app", "ssh", "--target", "prod", "--metrics-json"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert!(options.console.metrics_json);
+    }
+
+    #[test]
     fn parses_ssh_osc52_policy() {
         let parsed = parse_args(["rssh-app", "ssh", "--target", "prod", "--osc52", "off"]).unwrap();
 
@@ -1826,6 +1879,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_sftp_metrics_json() {
+        let parsed =
+            parse_args(["rssh-app", "sftp", "--target", "prod", "--metrics-json"]).unwrap();
+
+        let AppCommand::Sftp(options) = parsed else {
+            panic!("expected sftp command");
+        };
+
+        assert!(options.console.metrics_json);
+    }
+
+    #[test]
     fn parses_scp_upload_for_openssh_config_target() {
         let parsed = parse_args([
             "rssh-app",
@@ -1911,6 +1976,27 @@ mod tests {
         };
 
         assert!(options.console.metrics);
+    }
+
+    #[test]
+    fn parses_scp_metrics_json() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "--target",
+            "prod",
+            "--metrics-json",
+            "--upload",
+            "local.txt",
+            "/tmp/remote.txt",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert!(options.console.metrics_json);
     }
 
     #[test]

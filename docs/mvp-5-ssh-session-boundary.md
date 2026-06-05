@@ -170,6 +170,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app local --metrics`, `ssh --metrics`, `sftp --metrics`, and
   `scp --metrics` print console runtime metrics after the PTY-backed child
   process exits: command, elapsed time, exit code, signal, and success state.
+- `rssh-app local --metrics-json`, `ssh --metrics-json`, `sftp --metrics-json`,
+  and `scp --metrics-json` print the same console runtime metrics as JSON for
+  launchers, scripts, and desktop UI health views.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
   back through the existing local, native-window, SSH, SFTP, or SCP CLI parser, so
   profile startup keeps the same validation and secret-handling rules as direct
@@ -313,6 +316,7 @@ cargo run -p rssh-app -- doctor
 cargo run -p rssh-app -- doctor --json
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
+cargo run -p rssh-app -- local --metrics-json -- cmd.exe /C echo console-metrics-json-smoke
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --json --file examples/rssh-profiles.toml

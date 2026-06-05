@@ -23,6 +23,7 @@ use crossterm::{
 use rssh_core::TerminalSize;
 use rssh_pty::{PtyExitStatus, PtySession, PtySize};
 use rssh_terminal::{Cell, Color, CursorShape, Terminal};
+use serde::Serialize;
 
 use crate::{
     cli::{LocalOptions, Osc52Policy},
@@ -94,7 +95,19 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     drop(pty_input_sender);
     drop(session);
 
-    if options.console.metrics {
+    if options.console.metrics_json {
+        if let Ok(status) = &run_result {
+            println!(
+                "{}",
+                LocalMetricsSnapshot::from_status(
+                    &options.command,
+                    metrics_started_at.elapsed(),
+                    status
+                )
+                .json_report()?
+            );
+        }
+    } else if options.console.metrics {
         if let Ok(status) = &run_result {
             print!(
                 "{}",
@@ -229,6 +242,7 @@ impl LocalRuntimeState {
     }
 }
 
+#[derive(Serialize)]
 struct LocalMetricsSnapshot {
     command: String,
     elapsed_ms: u128,
@@ -269,6 +283,10 @@ success={}
             self.success
         )
     }
+
+    fn json_report(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
 }
 
 fn command_line(command: &rssh_pty::PtyCommand) -> String {
@@ -294,14 +312,29 @@ mod metrics_tests {
 
         assert_eq!(
             report,
-            "\
-R-SSH console metrics
-command=cmd.exe /C echo hi
-elapsed_ms=42
-exit_code=0
-signal=none
-success=true
-"
+            "R-SSH console metrics\n\
+command=cmd.exe /C echo hi\n\
+elapsed_ms=42\n\
+exit_code=0\n\
+signal=none\n\
+success=true\n"
+        );
+    }
+
+    #[test]
+    fn console_metrics_json_report_is_machine_readable() {
+        let command = rssh_pty::PtyCommand::new("cmd.exe").with_args(["/C", "echo hi"]);
+        let report = super::LocalMetricsSnapshot::from_status(
+            &command,
+            std::time::Duration::from_millis(42),
+            &PtyExitStatus::from_exit_code(0),
+        )
+        .json_report()
+        .unwrap();
+
+        assert_eq!(
+            report,
+            "{\"command\":\"cmd.exe /C echo hi\",\"elapsed_ms\":42,\"exit_code\":0,\"signal\":null,\"success\":true}"
         );
     }
 }
