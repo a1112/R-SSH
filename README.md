@@ -121,8 +121,9 @@ Add `--preflight` to `local`, `ssh`, `sftp`, or `scp` when startup should run
 the same console dependency check before spawning the PTY child process.
 Add `--metrics` to `local`, `ssh`, `sftp`, or `scp` to print human-readable
 console runtime metrics after the PTY child process exits, including command,
-PTY backend, startup columns/rows, elapsed time, exit code, signal, and success
-state, plus PTY input/output bytes, terminal output bytes, and resize events.
+PTY backend, startup columns/rows, final session state, elapsed time, exit code,
+signal, and success state, plus PTY input/output bytes, terminal output bytes,
+and resize events.
 Use `--metrics-json` on the same commands when a launcher, script, or desktop
 UI should consume the metrics as JSON.
 `ssh` currently starts the system OpenSSH client inside the same PTY console

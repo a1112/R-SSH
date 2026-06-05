@@ -20,7 +20,10 @@ use crossterm::{
     },
     execute, terminal,
 };
-use rssh_core::TerminalSize;
+use rssh_core::{
+    SessionId, TerminalSize,
+    session::{SessionLifecycle, SessionState},
+};
 use rssh_pty::{PtyBackend, PtyExitStatus, PtySession, PtySize};
 use rssh_terminal::{Cell, Color, CursorShape, Terminal};
 use serde::Serialize;
@@ -36,6 +39,8 @@ use crate::{
     visible_output::TerminalVisibleOutputFilter,
 };
 
+const LOCAL_CONSOLE_SESSION_ID: SessionId = SessionId::new(1);
+
 pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     if options.console.preflight {
         diagnostics::ensure_console_dependencies()?;
@@ -43,7 +48,10 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 
     let metrics_started_at = Instant::now();
     let size = resolve_local_size(options.size);
+    let mut lifecycle = SessionLifecycle::new(LOCAL_CONSOLE_SESSION_ID);
+    lifecycle.start_connecting()?;
     let mut session = PtySession::spawn(&options.command, size)?;
+    lifecycle.mark_connected()?;
     let mut reader = session.take_reader()?;
     let mut writer = session.take_writer()?;
     let mut log_file = match &options.log {
@@ -97,6 +105,13 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     );
 
     drop(pty_input_sender);
+
+    if run_result.is_ok() {
+        lifecycle.mark_disconnected()?;
+        lifecycle.close()?;
+    }
+
+    let session_state = lifecycle.state();
     drop(session);
 
     if options.console.metrics_json {
@@ -108,6 +123,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
                     size,
                     metrics.snapshot(),
                     metrics_started_at.elapsed(),
+                    session_state,
                     status
                 )
                 .json_report()?
@@ -122,6 +138,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
                     size,
                     metrics.snapshot(),
                     metrics_started_at.elapsed(),
+                    session_state,
                     status
                 )
                 .report()
@@ -302,6 +319,7 @@ struct LocalMetricsSnapshot {
     backend: String,
     columns: u16,
     rows: u16,
+    session_state: String,
     pty_input_bytes: u64,
     pty_output_bytes: u64,
     terminal_output_bytes: u64,
@@ -318,6 +336,7 @@ impl LocalMetricsSnapshot {
         size: PtySize,
         counters: LocalMetricsCountersSnapshot,
         elapsed: Duration,
+        session_state: SessionState,
         status: &PtyExitStatus,
     ) -> Self {
         Self {
@@ -325,6 +344,7 @@ impl LocalMetricsSnapshot {
             backend: format!("{:?}", PtyBackend::current_platform()),
             columns: size.columns(),
             rows: size.rows(),
+            session_state: session_state.as_str().to_owned(),
             pty_input_bytes: counters.pty_input_bytes,
             pty_output_bytes: counters.pty_output_bytes,
             terminal_output_bytes: counters.terminal_output_bytes,
@@ -344,6 +364,7 @@ command={}
 backend={}
 columns={}
 rows={}
+session_state={}
 pty_input_bytes={}
 pty_output_bytes={}
 terminal_output_bytes={}
@@ -357,6 +378,7 @@ success={}
             self.backend,
             self.columns,
             self.rows,
+            self.session_state,
             self.pty_input_bytes,
             self.pty_output_bytes,
             self.terminal_output_bytes,
@@ -382,6 +404,7 @@ fn command_line(command: &rssh_pty::PtyCommand) -> String {
 
 #[cfg(test)]
 mod metrics_tests {
+    use rssh_core::session::SessionState;
     use rssh_pty::{PtyBackend, PtyExitStatus};
 
     #[test]
@@ -397,6 +420,7 @@ mod metrics_tests {
                 resize_events: 2,
             },
             std::time::Duration::from_millis(42),
+            SessionState::Closed,
             &PtyExitStatus::from_exit_code(0),
         )
         .report();
@@ -411,6 +435,7 @@ command=cmd.exe /C echo hi\n\
 backend={expected_backend}\n\
 columns=100\n\
 rows=30\n\
+session_state=closed\n\
 pty_input_bytes=3\n\
 pty_output_bytes=8\n\
 terminal_output_bytes=5\n\
@@ -436,6 +461,7 @@ success=true\n"
                 resize_events: 2,
             },
             std::time::Duration::from_millis(42),
+            SessionState::Closed,
             &PtyExitStatus::from_exit_code(0),
         )
         .json_report()
@@ -446,7 +472,7 @@ success=true\n"
         assert_eq!(
             report,
             format!(
-                "{{\"command\":\"cmd.exe /C echo hi\",\"backend\":\"{expected_backend}\",\"columns\":100,\"rows\":30,\"pty_input_bytes\":3,\"pty_output_bytes\":8,\"terminal_output_bytes\":5,\"resize_events\":2,\"elapsed_ms\":42,\"exit_code\":0,\"signal\":null,\"success\":true}}"
+                "{{\"command\":\"cmd.exe /C echo hi\",\"backend\":\"{expected_backend}\",\"columns\":100,\"rows\":30,\"session_state\":\"closed\",\"pty_input_bytes\":3,\"pty_output_bytes\":8,\"terminal_output_bytes\":5,\"resize_events\":2,\"elapsed_ms\":42,\"exit_code\":0,\"signal\":null,\"success\":true}}"
             )
         );
     }
