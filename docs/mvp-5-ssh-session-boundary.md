@@ -44,6 +44,12 @@ contract that a future in-process `russh` adapter must satisfy.
 - `SshChannelSession` adapts any `SshChannel` implementation into the existing
   `SshShellSession` trait, giving the future `russh` adapter a small tested
   integration point before real network wiring starts.
+- `SshChannelOpener` models the backend step that connects, authenticates,
+  requests the remote PTY, and opens a shell channel.
+- `SshChannelConnector` implements `SshShellConnector` for any
+  `SshChannelOpener`, wrapping the opened channel in `SshChannelSession` so the
+  app-facing shell-session contract stays stable while the native backend is
+  introduced.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
@@ -189,6 +195,8 @@ SSH-boundary tests cover:
 - shell-session trait shape with a mock channel
 - `SshChannelSession` delegation from a mock lower-level channel into the
   `SshShellSession` read/write/resize/keepalive/close contract
+- `SshChannelConnector` delegation from a mock channel opener into an
+  app-facing `SshShellSession`
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
@@ -223,8 +231,8 @@ path while adding a `russh` shell adapter behind `SshShellConnector`,
 `SshChannel`, and `SshShellSession`:
 
 1. Add a loopback SSH fixture.
-2. Connect and authenticate through `russh`.
-3. Request a remote PTY using `SshSessionConfig::initial_size`.
-4. Wrap the opened shell channel in `SshChannelSession`.
+2. Implement a `russh`-backed `SshChannelOpener`.
+3. Connect and authenticate through `russh`.
+4. Request a remote PTY using `SshSessionConfig::initial_size`.
 5. Feed SSH channel bytes into the existing terminal runtime used by the local
    PTY window.
