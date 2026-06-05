@@ -1,19 +1,23 @@
 use std::{
     error::Error,
     io::{self, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
 use rssh_ssh::{
-    RusshChannelOpener, RusshHostKeyPolicy, SshAuthMethod, SshChannelConnector, SshConnectRequest,
-    SshSessionStartup, SshShellConnector,
+    RusshChannelOpener, RusshHostKeyPolicy, RusshPrivateKeyAuth, SshAuthMethod,
+    SshChannelConnector, SshConnectRequest, SshSessionStartup, SshShellConnector,
 };
 
 use crate::{
     cli::{LocalOptions, NativeHostKeyPolicy, OpenSshTarget, SshForward, SshOptions, SshTarget},
     local,
 };
+
+type SecretPrompt<'a> = dyn FnMut() -> Result<String, Box<dyn Error>> + 'a;
+type KeyPassphrasePrompt<'a> = dyn FnMut(&Path) -> Result<String, Box<dyn Error>> + 'a;
+type KeyPassphraseDetector<'a> = dyn FnMut(&Path) -> Result<bool, Box<dyn Error>> + 'a;
 
 pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     if options.native {
@@ -84,9 +88,26 @@ fn native_request_for_options(options: &SshOptions) -> Result<SshConnectRequest,
     })
 }
 
+#[cfg(test)]
 fn native_request_for_options_with_password_prompt(
     options: &SshOptions,
-    password_prompt: &mut dyn FnMut() -> Result<String, Box<dyn Error>>,
+    password_prompt: &mut SecretPrompt<'_>,
+) -> Result<SshConnectRequest, Box<dyn Error>> {
+    native_request_for_options_with_secret_prompts(
+        options,
+        password_prompt,
+        &mut |_| {
+            Err("native SSH private-key passphrase prompt requires a passphrase provider".into())
+        },
+        &mut native_key_needs_passphrase,
+    )
+}
+
+fn native_request_for_options_with_secret_prompts(
+    options: &SshOptions,
+    password_prompt: &mut SecretPrompt<'_>,
+    key_passphrase_prompt: &mut KeyPassphrasePrompt<'_>,
+    key_needs_passphrase: &mut KeyPassphraseDetector<'_>,
 ) -> Result<SshConnectRequest, Box<dyn Error>> {
     let SshTarget::Direct(request) = &options.target else {
         return Err("native SSH connector only supports direct SSH targets".into());
@@ -107,6 +128,11 @@ fn native_request_for_options_with_password_prompt(
     let mut request = request.clone().with_startup(startup);
     if matches!(request.auth, SshAuthMethod::PasswordPrompt) {
         request.auth = SshAuthMethod::password(password_prompt()?)?;
+    }
+    if let SshAuthMethod::PrivateKey { path, passphrase } = &mut request.auth {
+        if passphrase.is_none() && key_needs_passphrase(path)? {
+            *passphrase = Some(key_passphrase_prompt(path)?);
+        }
     }
 
     Ok(request)
@@ -249,11 +275,36 @@ fn run_native_with_connector_and_io(
 fn run_native_with_connector_prompt_and_io(
     options: &SshOptions,
     connector: &mut dyn SshShellConnector,
-    password_prompt: &mut dyn FnMut() -> Result<String, Box<dyn Error>>,
+    password_prompt: &mut SecretPrompt<'_>,
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
-    let request = native_request_for_options_with_password_prompt(options, password_prompt)?;
+    run_native_with_connector_secret_prompts_and_io(
+        options,
+        connector,
+        password_prompt,
+        &mut native_key_passphrase_prompt,
+        &mut native_key_needs_passphrase,
+        input,
+        output,
+    )
+}
+
+fn run_native_with_connector_secret_prompts_and_io(
+    options: &SshOptions,
+    connector: &mut dyn SshShellConnector,
+    password_prompt: &mut SecretPrompt<'_>,
+    key_passphrase_prompt: &mut KeyPassphrasePrompt<'_>,
+    key_needs_passphrase: &mut KeyPassphraseDetector<'_>,
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let request = native_request_for_options_with_secret_prompts(
+        options,
+        password_prompt,
+        key_passphrase_prompt,
+        key_needs_passphrase,
+    )?;
     rssh_ssh::run_shell_with_io(connector, request, input, output)?;
 
     Ok(PtyExitStatus::from_exit_code(0))
@@ -271,10 +322,20 @@ fn native_password_prompt(options: &SshOptions) -> Result<String, Box<dyn Error>
     .map_err(Into::into)
 }
 
+fn native_key_passphrase_prompt(path: &Path) -> Result<String, Box<dyn Error>> {
+    rpassword::prompt_password(format!("Passphrase for key {}: ", path.display()))
+        .map_err(Into::into)
+}
+
+fn native_key_needs_passphrase(path: &Path) -> Result<bool, Box<dyn Error>> {
+    RusshPrivateKeyAuth::needs_passphrase(path).map_err(Into::into)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
         io,
+        path::{Path, PathBuf},
         sync::{Arc, Mutex},
     };
 
@@ -526,6 +587,58 @@ mod tests {
             request.auth,
             rssh_ssh::SshAuthMethod::Password {
                 password: "secret".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn native_ssh_runner_resolves_private_key_passphrase_before_connecting() {
+        let key_path = PathBuf::from("C:/Users/ops/.ssh/id_ed25519");
+        let request = SshConnectRequest::private_key(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+            key_path.clone(),
+            None::<String>,
+        )
+        .unwrap();
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        super::run_native_with_connector_secret_prompts_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut || Err("password prompt should not be used".into()),
+            &mut |path: &Path| {
+                assert_eq!(path, key_path.as_path());
+                Ok("key-secret".to_owned())
+            },
+            &mut |path: &Path| {
+                assert_eq!(path, key_path.as_path());
+                Ok(true)
+            },
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        let state = state.lock().unwrap();
+        let request = state.last_request.as_ref().unwrap();
+        assert_eq!(
+            request.auth,
+            rssh_ssh::SshAuthMethod::PrivateKey {
+                path: key_path,
+                passphrase: Some("key-secret".to_owned()),
             }
         );
     }

@@ -89,7 +89,8 @@ contract that a future in-process `russh` adapter must satisfy.
   crate-local session contract, so failed authentication becomes an
   `SshSessionError` before channel opening.
 - `RusshPrivateKeyAuth` loads OpenSSH-compatible private-key files, including
-  encrypted keys when a passphrase is already present in the request.
+  encrypted keys when a passphrase is present, and can detect whether a key
+  needs a passphrase before authentication starts.
 - `RusshChannelOpener::authenticate_async` starts the real native
   authentication path. Password-value authentication is wired through
   `russh::client::Handle::authenticate_password`; private-key authentication is
@@ -117,7 +118,8 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app ssh --native --host ...` selects the in-process russh path for
   direct targets. The native app path uses `RusshChannelOpener` through
   `SshChannelConnector`, prompts for a password when `--password` is selected,
-  supports `--key PATH` for private-key authentication, supports
+  supports `--key PATH` for private-key authentication, prompts for encrypted
+  private-key passphrases before connecting through russh, supports
   `--trust-on-first-use` for user `.ssh/known_hosts` persistence, and keeps
   `--accept-unknown-host-key` for insecure/test-only unknown-host-key
   acceptance.
@@ -224,8 +226,9 @@ cargo run -p rssh-app -- ssh --target prod --log prod.log
 
 For password authentication, R-SSH asks OpenSSH to prefer password and
 keyboard-interactive authentication, then OpenSSH prompts inside the terminal.
-R-SSH does not accept password or key-passphrase values on the process command
-line.
+For native encrypted private-key authentication, R-SSH prompts for the key
+passphrase before starting the russh authentication step. R-SSH does not accept
+password or key-passphrase values on the process command line.
 
 Start from a reusable profile file:
 
@@ -300,7 +303,8 @@ SSH-boundary tests cover:
   agent authentication branches
 - `RusshAuthOutcome` success/failure normalization from russh authentication
   results
-- `RusshPrivateKeyAuth` loading of unencrypted and encrypted private-key files
+- `RusshPrivateKeyAuth` loading of unencrypted and encrypted private-key files,
+  plus encrypted-key passphrase detection
 - `RusshChannelOpener::authenticate_async` API shape against the real russh
   password and public-key authentication entry points
 - `RusshChannelOpener::open_session_channel_async` API shape against
@@ -315,6 +319,8 @@ SSH-boundary tests cover:
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - app-level native SSH backend selection with `--native`
 - app-level native password prompt resolution before connecting through russh
+- app-level native encrypted private-key passphrase prompt resolution before
+  connecting through russh
 - explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
 - explicit `--trust-on-first-use` parsing, native host-key policy mapping, and
   default `.ssh/known_hosts` path selection
@@ -343,7 +349,6 @@ SSH-boundary tests cover:
 
 - Switching the app-level `rssh-app ssh` command from the OpenSSH PTY
   compatibility path to the native russh adapter by default.
-- Prompting for encrypted private-key passphrases in the native app path.
 - Executing agent authentication through `russh`.
 - SFTP, in-process native tunnels, and reconnects.
 

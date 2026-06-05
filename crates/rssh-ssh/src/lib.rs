@@ -1133,6 +1133,26 @@ mod tests {
     }
 
     #[test]
+    fn russh_private_key_auth_detects_encrypted_private_key_file() {
+        let path = temp_private_key_path("encrypted-needs-passphrase");
+        std::fs::write(&path, TEST_ENCRYPTED_ED25519_PRIVATE_KEY).unwrap();
+
+        assert!(RusshPrivateKeyAuth::needs_passphrase(&path).unwrap());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn russh_private_key_auth_reports_unencrypted_private_key_file_does_not_need_passphrase() {
+        let path = temp_private_key_path("plain-no-passphrase");
+        std::fs::write(&path, TEST_ED25519_PRIVATE_KEY).unwrap();
+
+        assert!(!RusshPrivateKeyAuth::needs_passphrase(&path).unwrap());
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn russh_auth_plan_maps_agent_authentication() {
         let request = SshConnectRequest::agent(valid_config());
 

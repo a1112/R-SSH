@@ -113,6 +113,19 @@ impl RusshPrivateKeyAuth {
         Ok(Self { key: Arc::new(key) })
     }
 
+    /// Returns whether a private key requires a passphrase to decrypt.
+    ///
+    /// # Errors
+    ///
+    /// Returns russh key errors when the key file cannot be read or decoded.
+    pub fn needs_passphrase(path: impl AsRef<std::path::Path>) -> Result<bool, russh::keys::Error> {
+        match Self::load(path, None) {
+            Ok(_) => Ok(false),
+            Err(russh::keys::Error::KeyIsEncrypted) => Ok(true),
+            Err(error) => Err(error),
+        }
+    }
+
     #[must_use]
     pub fn algorithm(&self) -> russh::keys::ssh_key::Algorithm {
         self.key.algorithm()
