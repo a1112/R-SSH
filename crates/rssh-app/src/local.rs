@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use crossterm::{
     event::{
         self, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
@@ -386,11 +387,17 @@ fn copy_pty_output(
                     };
                     let _ = control_sender.send(event);
                 });
-                output_filter.write(&buffer[..count], &mut output, |response| {
-                    pty_input_sender
-                        .send(response.to_vec())
-                        .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed"))
-                })?;
+                output_filter.write_with_clipboard(
+                    &buffer[..count],
+                    &mut output,
+                    |response| {
+                        pty_input_sender.send(response.to_vec()).map_err(|_| {
+                            io::Error::new(io::ErrorKind::BrokenPipe, "PTY input closed")
+                        })
+                    },
+                    write_local_clipboard_text,
+                    read_local_clipboard_text,
+                )?;
                 output.flush()?;
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -684,11 +691,23 @@ impl TerminalOutputFilter {
         }
     }
 
+    #[cfg(test)]
     fn write(
         &mut self,
         bytes: &[u8],
         output: &mut dyn Write,
+        respond: impl FnMut(&[u8]) -> io::Result<()>,
+    ) -> io::Result<()> {
+        self.write_with_clipboard(bytes, output, respond, |_| false, || None)
+    }
+
+    fn write_with_clipboard(
+        &mut self,
+        bytes: &[u8],
+        output: &mut dyn Write,
         mut respond: impl FnMut(&[u8]) -> io::Result<()>,
+        mut write_clipboard: impl FnMut(&str) -> bool,
+        mut read_clipboard: impl FnMut() -> Option<String>,
     ) -> io::Result<()> {
         self.mode_tracker.process_without_emitting(bytes);
         self.color_state.process(bytes);
@@ -697,8 +716,21 @@ impl TerminalOutputFilter {
         while let Some((index, response)) = self.find_next_response() {
             output.write_all(&self.pending[..index])?;
             self.feed_mirror_through_output(index);
-            let response_bytes = self.response_bytes(response.response);
-            respond(&response_bytes)?;
+            match response.response {
+                TerminalResponse::Osc52Write(text) => {
+                    let _ = write_clipboard(&text);
+                }
+                TerminalResponse::Osc52Query(selection) => {
+                    if let Some(text) = read_clipboard() {
+                        let response_bytes = encode_osc52_clipboard_response(&selection, &text);
+                        respond(&response_bytes)?;
+                    }
+                }
+                response => {
+                    let response_bytes = self.response_bytes(response);
+                    respond(&response_bytes)?;
+                }
+            }
             self.pending.drain(..index + response.consumed);
         }
 
@@ -788,6 +820,7 @@ impl TerminalOutputFilter {
                 )
             },
         );
+        let osc52_response = self.find_osc52_response();
 
         static_response
             .into_iter()
@@ -795,7 +828,31 @@ impl TerminalOutputFilter {
             .chain(osc_color_response)
             .chain(decrqss_response)
             .chain(xtgettcap_response)
+            .chain(osc52_response)
             .min_by_key(|(index, _)| *index)
+    }
+
+    fn find_osc52_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
+        find_osc52_clipboard_sequence(&self.pending).map(
+            |Osc52ClipboardSequence {
+                 index,
+                 consumed,
+                 sequence,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: match sequence {
+                            ClipboardSequence::Write(text) => TerminalResponse::Osc52Write(text),
+                            ClipboardSequence::Query(selection) => {
+                                TerminalResponse::Osc52Query(selection)
+                            }
+                        },
+                    },
+                )
+            },
+        )
     }
 
     fn suffix_len_matching_query_prefix(pending: &[u8]) -> usize {
@@ -809,6 +866,7 @@ impl TerminalOutputFilter {
             .max(osc_color_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
+            .max(osc52_clipboard_sequence_suffix_len(pending))
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
@@ -891,6 +949,7 @@ impl TerminalOutputFilter {
             TerminalResponse::Decrqss(query) => query.response(&self.mirror),
             TerminalResponse::XtGetTcap(query) => query.response(),
             TerminalResponse::XtVersion => xtversion_response(),
+            TerminalResponse::Osc52Write(_) | TerminalResponse::Osc52Query(_) => Vec::new(),
         }
     }
 
@@ -931,10 +990,31 @@ enum TerminalResponse {
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
     XtVersion,
+    Osc52Write(String),
+    Osc52Query(String),
 }
 
 fn xtversion_response() -> Vec<u8> {
     format!("\x1bP>|R-SSH {}\x1b\\", env!("CARGO_PKG_VERSION")).into_bytes()
+}
+
+fn encode_osc52_clipboard_response(selection: &str, text: &str) -> Vec<u8> {
+    format!(
+        "\x1b]52;{};{}\x07",
+        selection,
+        STANDARD.encode(text.as_bytes())
+    )
+    .into_bytes()
+}
+
+fn read_local_clipboard_text() -> Option<String> {
+    arboard::Clipboard::new().ok()?.get_text().ok()
+}
+
+fn write_local_clipboard_text(text: &str) -> bool {
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_text(text.to_owned()))
+        .is_ok()
 }
 
 fn osc_title_response(kind: u8, title: Option<&str>) -> Vec<u8> {
@@ -967,6 +1047,88 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+struct Osc52ClipboardSequence {
+    index: usize,
+    consumed: usize,
+    sequence: ClipboardSequence,
+}
+
+enum ClipboardSequence {
+    Write(String),
+    Query(String),
+}
+
+fn find_osc52_clipboard_sequence(bytes: &[u8]) -> Option<Osc52ClipboardSequence> {
+    let mut match_sequence = None;
+    for (prefix, prefix_len) in [(b"\x1b]52;".as_slice(), 5), (b"\x9d52;".as_slice(), 4)] {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                break;
+            };
+            let index = offset + relative_index;
+            if let Some(sequence) = parse_osc52_clipboard_sequence(bytes, index, prefix_len) {
+                if match_sequence
+                    .as_ref()
+                    .is_none_or(|current: &Osc52ClipboardSequence| sequence.index < current.index)
+                {
+                    match_sequence = Some(sequence);
+                }
+            }
+            offset = index.saturating_add(1);
+        }
+    }
+    match_sequence
+}
+
+fn parse_osc52_clipboard_sequence(
+    bytes: &[u8],
+    index: usize,
+    prefix_len: usize,
+) -> Option<Osc52ClipboardSequence> {
+    let content_start = index + prefix_len;
+    let terminator = find_osc_color_terminator(&bytes[content_start..])?;
+    let content_end = content_start + terminator.index;
+    let sequence = parse_osc52_clipboard_content(&bytes[content_start..content_end])?;
+
+    Some(Osc52ClipboardSequence {
+        index,
+        consumed: content_end + terminator.length - index,
+        sequence,
+    })
+}
+
+fn parse_osc52_clipboard_content(content: &[u8]) -> Option<ClipboardSequence> {
+    let separator = content.iter().position(|byte| *byte == b';')?;
+    let selection = String::from_utf8(content[..separator].to_vec()).ok()?;
+    let payload = &content[separator + 1..];
+    if payload == b"?" {
+        return Some(ClipboardSequence::Query(selection));
+    }
+
+    let decoded = STANDARD.decode(payload).ok()?;
+    let text = String::from_utf8(decoded).ok()?;
+    Some(ClipboardSequence::Write(text))
+}
+
+fn osc52_clipboard_sequence_suffix_len(bytes: &[u8]) -> usize {
+    (1..=bytes.len())
+        .rev()
+        .find(|&length| is_osc52_clipboard_sequence_prefix(&bytes[bytes.len() - length..]))
+        .unwrap_or(0)
+}
+
+fn is_osc52_clipboard_sequence_prefix(bytes: &[u8]) -> bool {
+    [b"\x1b]52;".as_slice(), b"\x9d52;".as_slice()]
+        .into_iter()
+        .any(|prefix| {
+            if prefix.starts_with(bytes) {
+                return true;
+            }
+            bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
+        })
 }
 
 struct DecrqssQuery {
@@ -3263,6 +3425,59 @@ mod tests {
             responses,
             b"\x1bP>|R-SSH 0.1.0\x1b\\\x1bP>|R-SSH 0.1.0\x1b\\\x1bP>|R-SSH 0.1.0\x1b\\"
         );
+    }
+
+    #[test]
+    fn terminal_output_filter_writes_osc52_clipboard_text() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x1b]52;c;Y29weQ==\x07after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert!(responses.is_empty());
+        assert_eq!(writes, vec!["copy"]);
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_osc52_clipboard_query() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x1b]52;c;?\x07after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |_| true,
+                || Some("copy".to_owned()),
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b]52;c;Y29weQ==\x07");
     }
 
     #[test]

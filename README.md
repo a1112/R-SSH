@@ -76,6 +76,9 @@ Bracketed paste mode is negotiated from PTY output automatically.
 The console path also answers basic terminal status and device-attribute queries.
 XTGETTCAP capability replies include terminal name, 256-color/true-color
 markers, OSC 52 clipboard support, and current column/row counts.
+OSC 52 clipboard writes and read queries are handled in the console path so
+local and OpenSSH-backed terminal programs can use terminal clipboard
+integration.
 PTY-backed local, window, and OpenSSH child processes receive
 `TERM=xterm-256color` and `COLORTERM=truecolor` by default.
 Use `--log PATH` on `local` or `ssh` to tee visible terminal output to a session
