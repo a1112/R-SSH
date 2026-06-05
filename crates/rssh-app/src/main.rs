@@ -33,6 +33,10 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
     match command {
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Profile(options) => run_command(profiles::load_command(&options)?),
+        AppCommand::ProfileCheck(options) => {
+            profiles::print_profile_check(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::ProfileList(options) => {
             profiles::print_profile_list(&options)?;
             Ok(ExitCode::SUCCESS)

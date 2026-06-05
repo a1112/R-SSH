@@ -164,6 +164,9 @@ contract that a future in-process `russh` adapter must satisfy.
   command-line startup.
 - `rssh-app profile --list --file PATH` prints configured profile names and
   kinds so console users can discover saved sessions before starting one.
+- `rssh-app profile --check --file PATH` validates every configured profile
+  through the same parser used for startup without opening a local process or
+  network connection.
 
 ## Run
 
@@ -279,6 +282,7 @@ password or key-passphrase values on the process command line.
 Start from a reusable profile file:
 
 ```powershell
+cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, error::Error, fs, io};
 
 use serde::Deserialize;
 
-use crate::cli::{self, AppCommand, ProfileListOptions, ProfileOptions};
+use crate::cli::{self, AppCommand, ProfileCheckOptions, ProfileListOptions, ProfileOptions};
 
 #[derive(Deserialize)]
 struct ProfileDocument {
@@ -53,6 +53,18 @@ pub fn list_profiles(options: &ProfileListOptions) -> Result<Vec<ProfileSummary>
     summaries_from_toml(&contents).map_err(profile_error)
 }
 
+pub fn check_profiles(options: &ProfileCheckOptions) -> Result<(), Box<dyn Error>> {
+    let contents = fs::read_to_string(&options.file)?;
+    validate_profiles_from_toml(&contents).map_err(profile_error)
+}
+
+pub fn print_profile_check(options: &ProfileCheckOptions) -> Result<(), Box<dyn Error>> {
+    check_profiles(options)?;
+    println!("profile check ok");
+
+    Ok(())
+}
+
 pub fn print_profile_list(options: &ProfileListOptions) -> Result<(), Box<dyn Error>> {
     for profile in list_profiles(options)? {
         println!("{}\t{}", profile.name, profile.kind);
@@ -84,6 +96,27 @@ fn summaries_from_toml(contents: &str) -> Result<Vec<ProfileSummary>, String> {
             kind: profile.kind,
         })
         .collect())
+}
+
+fn validate_profiles_from_toml(contents: &str) -> Result<(), String> {
+    let document =
+        toml::from_str::<ProfileDocument>(contents).map_err(|error| error.to_string())?;
+    let errors = document
+        .profiles
+        .iter()
+        .filter_map(|(name, profile)| {
+            profile
+                .to_command()
+                .err()
+                .map(|error| format!("{name} ({}): {error}", profile.kind))
+        })
+        .collect::<Vec<_>>();
+
+    if errors.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!("profile check failed: {}", errors.join("; ")))
 }
 
 impl ProfileDefinition {
@@ -548,6 +581,32 @@ command = ["pwsh", "-NoLogo"]
                     kind: "ssh".to_owned(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn checks_all_profiles_and_reports_invalid_entries() {
+        let file = temp_profile_file(
+            "check-profile",
+            r#"
+[profiles.good]
+kind = "local"
+command = ["pwsh", "-NoLogo"]
+
+[profiles.bad]
+kind = "ssh"
+auth = "agent"
+"#,
+        );
+
+        let error = super::check_profiles(&crate::cli::ProfileCheckOptions { file: file.clone() })
+            .unwrap_err();
+
+        remove_file(&file);
+
+        assert_eq!(
+            error.to_string(),
+            "profile check failed: bad (ssh): --host or --target is required"
         );
     }
 }

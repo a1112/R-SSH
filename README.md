@@ -70,6 +70,7 @@ cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.
 cargo run -p rssh-app -- sftp --target prod --log sftp.log
 cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --download /tmp/remote.txt local.txt
+cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
@@ -137,6 +138,8 @@ same local, native-window, SSH, SFTP, or SCP runtime. See
 `kind = "scp"`, and the optional `log = "path"` field.
 Use `profile --list --file PATH` to print available profile names and kinds
 before launching one.
+Use `profile --check --file PATH` to validate every configured profile without
+starting a local process or network connection.
 
 ## MVP Status
 
