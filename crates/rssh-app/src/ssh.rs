@@ -5,14 +5,20 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
     thread,
+    time::{Duration, Instant},
 };
 
+use rssh_core::{
+    SessionId,
+    session::{SessionLifecycle, SessionState},
+};
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
 use rssh_ssh::{
     RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshHostKeyPolicy, RusshPrivateKeyAuth,
     RusshRemoteTcpIpForwardPlan, SshAuthMethod, SshChannelConnector, SshConnectRequest,
     SshSessionConfig, SshSessionStartup, SshShellConnector,
 };
+use serde::Serialize;
 
 use crate::{
     cli::{LocalOptions, NativeHostKeyPolicy, OpenSshTarget, SshForward, SshOptions, SshTarget},
@@ -23,6 +29,8 @@ type SecretPrompt<'a> = dyn FnMut(&SshConnectRequest) -> Result<String, Box<dyn 
 type KeyPassphrasePrompt<'a> = dyn FnMut(&Path) -> Result<String, Box<dyn Error>> + 'a;
 type KeyPassphraseDetector<'a> = dyn FnMut(&Path) -> Result<bool, Box<dyn Error>> + 'a;
 type OpenSshConfigResolver<'a> = dyn FnMut(&OpenSshTarget) -> Result<String, Box<dyn Error>> + 'a;
+
+const NATIVE_SSH_SESSION_ID: SessionId = SessionId::new(2);
 
 struct NativeSecretPrompts<'a> {
     password_prompt: &'a mut SecretPrompt<'a>,
@@ -818,9 +826,14 @@ fn run_native_with_connector_and_io(
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
-    run_with_connector_and_io(options, connector, input, output)?;
-
-    Ok(PtyExitStatus::from_exit_code(0))
+    let mut forward_starter = RejectingNativeLocalForwardStarter;
+    run_native_with_connector_forward_starter_and_io(
+        options,
+        connector,
+        &mut forward_starter,
+        input,
+        output,
+    )
 }
 
 #[cfg(test)]
@@ -962,6 +975,9 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let metrics_started_at = Instant::now();
+    let mut lifecycle = SessionLifecycle::new(NATIVE_SSH_SESSION_ID);
+    lifecycle.start_connecting()?;
     let forward_plan = native_forward_plan_for_options(options)?;
     let request = native_request_for_options_with_resolver_secret_prompts(
         options,
@@ -986,12 +1002,143 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
         for handle in &mut forward_handles {
             handle.wait()?;
         }
-        return Ok(PtyExitStatus::from_exit_code(0));
+        return finish_native_ssh_success(
+            options,
+            &request,
+            &mut lifecycle,
+            metrics_started_at.elapsed(),
+            output,
+        );
     }
 
-    rssh_ssh::run_shell_with_io(connector, request, input, output)?;
+    rssh_ssh::run_shell_with_io(connector, request.clone(), input, output)?;
 
-    Ok(PtyExitStatus::from_exit_code(0))
+    finish_native_ssh_success(
+        options,
+        &request,
+        &mut lifecycle,
+        metrics_started_at.elapsed(),
+        output,
+    )
+}
+
+fn finish_native_ssh_success(
+    options: &SshOptions,
+    request: &SshConnectRequest,
+    lifecycle: &mut SessionLifecycle,
+    elapsed: Duration,
+    output: &mut dyn Write,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
+    lifecycle.mark_connected()?;
+    lifecycle.mark_disconnected()?;
+    lifecycle.close()?;
+
+    let status = PtyExitStatus::from_exit_code(0);
+    write_native_ssh_metrics_if_requested(
+        options,
+        request,
+        lifecycle.state(),
+        elapsed,
+        &status,
+        output,
+    )?;
+
+    Ok(status)
+}
+
+fn write_native_ssh_metrics_if_requested(
+    options: &SshOptions,
+    request: &SshConnectRequest,
+    session_state: SessionState,
+    elapsed: Duration,
+    status: &PtyExitStatus,
+    output: &mut dyn Write,
+) -> Result<(), Box<dyn Error>> {
+    if !options.console.metrics && !options.console.metrics_json {
+        return Ok(());
+    }
+
+    let snapshot = NativeSshMetricsSnapshot::from_status(request, elapsed, session_state, status);
+    if options.console.metrics_json {
+        writeln!(output, "{}", snapshot.json_report()?)?;
+    } else {
+        write!(output, "{}", snapshot.report())?;
+    }
+    output.flush()?;
+
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct NativeSshMetricsSnapshot {
+    backend: String,
+    host: String,
+    username: String,
+    port: u16,
+    columns: u16,
+    rows: u16,
+    session_state: String,
+    elapsed_ms: u128,
+    exit_code: u32,
+    signal: Option<String>,
+    success: bool,
+}
+
+impl NativeSshMetricsSnapshot {
+    fn from_status(
+        request: &SshConnectRequest,
+        elapsed: Duration,
+        session_state: SessionState,
+        status: &PtyExitStatus,
+    ) -> Self {
+        Self {
+            backend: "NativeRussh".to_owned(),
+            host: request.config.host.clone(),
+            username: request.config.username.clone(),
+            port: request.config.port,
+            columns: request.config.initial_size.columns,
+            rows: request.config.initial_size.rows,
+            session_state: session_state.as_str().to_owned(),
+            elapsed_ms: elapsed.as_millis(),
+            exit_code: status.exit_code(),
+            signal: status.signal().map(str::to_owned),
+            success: status.success(),
+        }
+    }
+
+    fn report(&self) -> String {
+        format!(
+            "\
+R-SSH native SSH metrics
+backend={}
+host={}
+username={}
+port={}
+columns={}
+rows={}
+session_state={}
+elapsed_ms={}
+exit_code={}
+signal={}
+success={}
+",
+            self.backend,
+            self.host,
+            self.username,
+            self.port,
+            self.columns,
+            self.rows,
+            self.session_state,
+            self.elapsed_ms,
+            self.exit_code,
+            self.signal.as_deref().unwrap_or("none"),
+            self.success
+        )
+    }
+
+    fn json_report(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
 }
 
 #[cfg(test)]
@@ -1233,6 +1380,57 @@ mod tests {
         assert_eq!(state.last_request.as_ref(), Some(&request));
         assert_eq!(output, b"remote\n");
         assert!(state.closed);
+    }
+
+    #[test]
+    fn native_ssh_runner_prints_json_metrics_when_requested() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(100, 30))
+                .unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        let status = super::run_native_with_connector_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                console: crate::cli::ConsoleOptions {
+                    metrics_json: true,
+                    ..crate::cli::ConsoleOptions::default()
+                },
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        assert!(status.success());
+        let output = String::from_utf8(output).unwrap();
+        let mut lines = output.lines();
+        assert_eq!(lines.next(), Some("remote"));
+        let metrics: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+
+        assert_eq!(metrics["backend"], "NativeRussh");
+        assert_eq!(metrics["host"], "example.com");
+        assert_eq!(metrics["username"], "ops");
+        assert_eq!(metrics["port"], 22);
+        assert_eq!(metrics["columns"], 100);
+        assert_eq!(metrics["rows"], 30);
+        assert_eq!(metrics["session_state"], "closed");
+        assert_eq!(metrics["exit_code"], 0);
+        assert_eq!(metrics["signal"], serde_json::Value::Null);
+        assert_eq!(metrics["success"], true);
     }
 
     #[test]

@@ -175,6 +175,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app local --metrics-json`, `ssh --metrics-json`, `sftp --metrics-json`,
   and `scp --metrics-json` print the same console runtime metrics as JSON for
   launchers, scripts, and desktop UI health views.
+- `rssh-app ssh --native --metrics` and `--metrics-json` print native russh
+  runtime metrics with backend, resolved host/user/port, startup columns/rows,
+  final session state, elapsed time, exit code, signal, and success state.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
   back through the existing local, native-window, SSH, SFTP, or SCP CLI parser, so
   profile startup keeps the same validation and secret-handling rules as direct
@@ -442,6 +445,7 @@ SSH-boundary tests cover:
   forward starter
 - native dynamic-forward bind parsing, SOCKS5 no-auth CONNECT parsing, and
   dynamic-forward startup before shell startup
+- native SSH text and JSON metrics for russh shell sessions
 - native OpenSSH config-target parsing through resolved `ssh -G` output before
   connecting through russh
 - explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
