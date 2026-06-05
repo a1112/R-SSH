@@ -18,6 +18,9 @@
 # Preview a profile as the resolved startup command:
 #   cargo run -p rssh-app -- profile --show prod-shell --file examples/rssh-profiles.toml
 #
+# Preview a profile as a machine-readable launch plan:
+#   cargo run -p rssh-app -- profile --show prod-shell --json --file examples/rssh-profiles.toml
+#
 # Run the local smoke profile:
 #   cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 #

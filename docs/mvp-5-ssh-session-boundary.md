@@ -177,6 +177,8 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app profile --show NAME --file PATH` prints the resolved `rssh-app`
   command line for a profile without starting a local process or network
   connection.
+- `rssh-app profile --show NAME --json --file PATH` prints the same single
+  launch plan as machine-readable name, kind, command, and argv fields.
 
 ## Run
 
@@ -298,6 +300,7 @@ cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --verbose --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --json --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --show prod-shell --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile --show prod-shell --json --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml

@@ -76,6 +76,7 @@ cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --verbose --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --json --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --show prod-shell --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile --show prod-shell --json --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
@@ -147,7 +148,8 @@ before launching one; add `--verbose` to include each profile's resolved
 `rssh-app` command line, or `--json` for machine-readable output with the
 resolved command string and argv array.
 Use `profile --show NAME --file PATH` to preview the resolved `rssh-app`
-command line without starting a local process or network connection.
+command line without starting a local process or network connection; add
+`--json` to return the single launch plan as name, kind, command, and argv.
 Use `profile --check --file PATH` to validate every configured profile without
 starting a local process or network connection.
 

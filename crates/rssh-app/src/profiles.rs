@@ -68,9 +68,33 @@ pub fn profile_command_line(options: &ProfileShowOptions) -> Result<String, Box<
 }
 
 pub fn print_profile_show(options: &ProfileShowOptions) -> Result<(), Box<dyn Error>> {
+    if options.json {
+        println!("{}", profile_show_json(options)?);
+        return Ok(());
+    }
+
     println!("{}", profile_command_line(options)?);
 
     Ok(())
+}
+
+pub fn profile_show_json(options: &ProfileShowOptions) -> Result<String, Box<dyn Error>> {
+    let contents = fs::read_to_string(&options.file)?;
+    let document = toml::from_str::<ProfileDocument>(&contents)
+        .map_err(|error| profile_error(error.to_string()))?;
+    let profile = document
+        .profiles
+        .get(&options.name)
+        .ok_or_else(|| profile_error(format!("profile not found: {}", options.name)))?;
+    let argv = profile.to_args().map_err(profile_error)?;
+    let entry = ProfileListJsonEntry {
+        name: options.name.clone(),
+        kind: profile.kind.clone(),
+        command: command_line_from_args(&argv),
+        argv,
+    };
+
+    Ok(serde_json::to_string(&entry)?)
 }
 
 pub fn list_profiles(options: &ProfileListOptions) -> Result<Vec<ProfileSummary>, Box<dyn Error>> {
@@ -859,6 +883,7 @@ log = "prod.log"
         let command_line = super::profile_command_line(&crate::cli::ProfileShowOptions {
             name: "prod".to_owned(),
             file: file.clone(),
+            json: false,
         })
         .unwrap();
 
@@ -867,6 +892,34 @@ log = "prod.log"
         assert_eq!(
             command_line,
             "rssh-app ssh --target prod --agent --log prod.log"
+        );
+    }
+
+    #[test]
+    fn shows_profile_as_json_with_resolved_command() {
+        let file = temp_profile_file(
+            "show-json-profile",
+            r#"
+[profiles.prod]
+kind = "ssh"
+target = "prod"
+auth = "agent"
+log = "prod.log"
+"#,
+        );
+
+        let json = super::profile_show_json(&crate::cli::ProfileShowOptions {
+            name: "prod".to_owned(),
+            file: file.clone(),
+            json: true,
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            json,
+            "{\"name\":\"prod\",\"kind\":\"ssh\",\"command\":\"rssh-app ssh --target prod --agent --log prod.log\",\"argv\":[\"rssh-app\",\"ssh\",\"--target\",\"prod\",\"--agent\",\"--log\",\"prod.log\"]}"
         );
     }
 }

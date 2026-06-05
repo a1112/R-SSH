@@ -60,6 +60,7 @@ pub struct ProfileListOptions {
 pub struct ProfileShowOptions {
     pub name: String,
     pub file: PathBuf,
+    pub json: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -235,7 +236,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -375,8 +376,8 @@ fn parse_profile(args: &[String]) -> Result<AppCommand, String> {
         return Err("profile --verbose requires --list".to_owned());
     }
 
-    if json && !list {
-        return Err("profile --json requires --list".to_owned());
+    if json && !(list || show) {
+        return Err("profile --json requires --list or --show".to_owned());
     }
 
     if json && verbose {
@@ -412,7 +413,11 @@ fn parse_profile(args: &[String]) -> Result<AppCommand, String> {
         let Some(name) = name else {
             return Err("profile --show requires a profile name".to_owned());
         };
-        return Ok(AppCommand::ProfileShow(ProfileShowOptions { name, file }));
+        return Ok(AppCommand::ProfileShow(ProfileShowOptions {
+            name,
+            file,
+            json,
+        }));
     }
 
     let Some(name) = name else {
@@ -1039,6 +1044,28 @@ mod tests {
             AppCommand::ProfileShow(super::ProfileShowOptions {
                 name: "prod".to_owned(),
                 file: std::path::PathBuf::from("profiles.toml"),
+                json: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_json_profile_show_command_with_config_file() {
+        assert_eq!(
+            parse_args([
+                "rssh-app",
+                "profile",
+                "--show",
+                "prod",
+                "--json",
+                "--file",
+                "profiles.toml"
+            ])
+            .unwrap(),
+            AppCommand::ProfileShow(super::ProfileShowOptions {
+                name: "prod".to_owned(),
+                file: std::path::PathBuf::from("profiles.toml"),
+                json: true,
             })
         );
     }
