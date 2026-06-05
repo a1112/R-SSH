@@ -1,7 +1,9 @@
 use std::{
     collections::VecDeque,
+    future::Future,
     io::{Read, Seek, SeekFrom, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
+    pin::Pin,
     sync::Arc,
     time::Duration,
 };
@@ -175,6 +177,52 @@ impl RusshAuthOutcome {
 
         Err(SshSessionError::new("SSH authentication failed"))
     }
+}
+
+type RusshAuthFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<russh::client::AuthResult, SshSessionError>> + 'a>>;
+
+trait RusshAuthenticationBackend {
+    fn authenticate_password<'a>(
+        &'a mut self,
+        username: &'a str,
+        password: &'a str,
+    ) -> RusshAuthFuture<'a>;
+
+    fn authenticate_private_key<'a>(
+        &'a mut self,
+        username: &'a str,
+        path: &'a Path,
+        passphrase: Option<&'a str>,
+    ) -> RusshAuthFuture<'a>;
+
+    fn authenticate_agent<'a>(&'a mut self, username: &'a str) -> RusshAuthFuture<'a>;
+}
+
+async fn authenticate_auth_plan_with_backend(
+    backend: &mut impl RusshAuthenticationBackend,
+    auth_plan: &RusshAuthPlan,
+) -> Result<RusshAuthOutcome, SshSessionError> {
+    let result = match auth_plan.request() {
+        RusshAuthRequest::Password { password } => {
+            backend
+                .authenticate_password(auth_plan.username(), password)
+                .await?
+        }
+        RusshAuthRequest::PasswordPrompt => {
+            return Err(SshSessionError::new(
+                "SSH password prompt authentication is not wired into russh yet",
+            ));
+        }
+        RusshAuthRequest::PrivateKey { path, passphrase } => {
+            backend
+                .authenticate_private_key(auth_plan.username(), path, passphrase.as_deref())
+                .await?
+        }
+        RusshAuthRequest::Agent => backend.authenticate_agent(auth_plan.username()).await?,
+    };
+
+    RusshAuthOutcome::from_auth_result(&result)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -448,50 +496,8 @@ impl RusshChannelOpener {
         handle: &mut russh::client::Handle<RusshClientHandler>,
         auth_plan: &RusshAuthPlan,
     ) -> Result<RusshAuthOutcome, SshSessionError> {
-        match auth_plan.request() {
-            RusshAuthRequest::Password { password } => {
-                let result = handle
-                    .authenticate_password(auth_plan.username(), password)
-                    .await
-                    .map_err(|error| {
-                        SshSessionError::new(format!("SSH password authentication failed: {error}"))
-                    })?;
-                RusshAuthOutcome::from_auth_result(&result)
-            }
-            RusshAuthRequest::PasswordPrompt => Err(SshSessionError::new(
-                "SSH password prompt authentication is not wired into russh yet",
-            )),
-            RusshAuthRequest::PrivateKey { path, passphrase } => {
-                let key =
-                    RusshPrivateKeyAuth::load(path, passphrase.as_deref()).map_err(|error| {
-                        SshSessionError::new(format!("SSH private-key load failed: {error}"))
-                    })?;
-                let rsa_hash = handle
-                    .best_supported_rsa_hash()
-                    .await
-                    .map_err(|error| {
-                        SshSessionError::new(format!(
-                            "SSH private-key algorithm negotiation failed: {error}"
-                        ))
-                    })?
-                    .flatten();
-                let result = handle
-                    .authenticate_publickey(
-                        auth_plan.username(),
-                        key.into_private_key_with_hash_alg(rsa_hash),
-                    )
-                    .await
-                    .map_err(|error| {
-                        SshSessionError::new(format!(
-                            "SSH private-key authentication failed: {error}"
-                        ))
-                    })?;
-                RusshAuthOutcome::from_auth_result(&result)
-            }
-            RusshAuthRequest::Agent => Err(SshSessionError::new(
-                "SSH agent authentication is not wired into russh yet",
-            )),
-        }
+        let mut backend = RusshHandleAuthenticationBackend { handle };
+        authenticate_auth_plan_with_backend(&mut backend, auth_plan).await
     }
 
     /// Opens a russh session channel on an authenticated handle.
@@ -563,6 +569,150 @@ impl RusshChannelOpener {
 
         Ok(())
     }
+}
+
+struct RusshHandleAuthenticationBackend<'a> {
+    handle: &'a mut russh::client::Handle<RusshClientHandler>,
+}
+
+impl RusshAuthenticationBackend for RusshHandleAuthenticationBackend<'_> {
+    fn authenticate_password<'a>(
+        &'a mut self,
+        username: &'a str,
+        password: &'a str,
+    ) -> RusshAuthFuture<'a> {
+        Box::pin(async move {
+            self.handle
+                .authenticate_password(username, password)
+                .await
+                .map_err(|error| {
+                    SshSessionError::new(format!("SSH password authentication failed: {error}"))
+                })
+        })
+    }
+
+    fn authenticate_private_key<'a>(
+        &'a mut self,
+        username: &'a str,
+        path: &'a Path,
+        passphrase: Option<&'a str>,
+    ) -> RusshAuthFuture<'a> {
+        Box::pin(async move {
+            let key = RusshPrivateKeyAuth::load(path, passphrase).map_err(|error| {
+                SshSessionError::new(format!("SSH private-key load failed: {error}"))
+            })?;
+            let rsa_hash = self
+                .handle
+                .best_supported_rsa_hash()
+                .await
+                .map_err(|error| {
+                    SshSessionError::new(format!(
+                        "SSH private-key algorithm negotiation failed: {error}"
+                    ))
+                })?
+                .flatten();
+            self.handle
+                .authenticate_publickey(username, key.into_private_key_with_hash_alg(rsa_hash))
+                .await
+                .map_err(|error| {
+                    SshSessionError::new(format!("SSH private-key authentication failed: {error}"))
+                })
+        })
+    }
+
+    fn authenticate_agent<'a>(&'a mut self, username: &'a str) -> RusshAuthFuture<'a> {
+        Box::pin(async move { authenticate_agent_with_default_client(self.handle, username).await })
+    }
+}
+
+type DynamicAgentClient<'a> = russh::keys::agent::client::AgentClient<
+    Box<dyn russh::keys::agent::client::AgentStream + Send + Unpin + 'a>,
+>;
+
+#[cfg(unix)]
+async fn connect_default_agent_client() -> Result<DynamicAgentClient<'static>, russh::keys::Error> {
+    russh::keys::agent::client::AgentClient::connect_env()
+        .await
+        .map(russh::keys::agent::client::AgentClient::dynamic)
+}
+
+#[cfg(windows)]
+async fn connect_default_agent_client() -> Result<DynamicAgentClient<'static>, russh::keys::Error> {
+    if let Ok(path) = std::env::var("SSH_AUTH_SOCK") {
+        return russh::keys::agent::client::AgentClient::connect_named_pipe(path)
+            .await
+            .map(russh::keys::agent::client::AgentClient::dynamic);
+    }
+
+    if let Ok(client) = russh::keys::agent::client::AgentClient::connect_pageant().await {
+        return Ok(client.dynamic());
+    }
+
+    russh::keys::agent::client::AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent")
+        .await
+        .map(russh::keys::agent::client::AgentClient::dynamic)
+}
+
+async fn authenticate_agent_with_default_client(
+    handle: &mut russh::client::Handle<RusshClientHandler>,
+    username: &str,
+) -> Result<russh::client::AuthResult, SshSessionError> {
+    let mut agent = connect_default_agent_client()
+        .await
+        .map_err(|error| SshSessionError::new(format!("SSH agent connection failed: {error}")))?;
+
+    authenticate_agent_with_client(handle, username, &mut agent).await
+}
+
+async fn authenticate_agent_with_client<S>(
+    handle: &mut russh::client::Handle<RusshClientHandler>,
+    username: &str,
+    agent: &mut russh::keys::agent::client::AgentClient<S>,
+) -> Result<russh::client::AuthResult, SshSessionError>
+where
+    S: russh::keys::agent::client::AgentStream + Send + Unpin,
+{
+    let identities = agent.request_identities().await.map_err(|error| {
+        SshSessionError::new(format!("SSH agent identity lookup failed: {error}"))
+    })?;
+    if identities.is_empty() {
+        return Err(SshSessionError::new("SSH agent has no identities"));
+    }
+
+    let rsa_hash = handle
+        .best_supported_rsa_hash()
+        .await
+        .map_err(|error| {
+            SshSessionError::new(format!("SSH agent algorithm negotiation failed: {error}"))
+        })?
+        .flatten();
+
+    for identity in identities {
+        let result = match identity {
+            russh::keys::agent::AgentIdentity::PublicKey { key, .. } => {
+                handle
+                    .authenticate_publickey_with(username, key, rsa_hash, agent)
+                    .await
+            }
+            russh::keys::agent::AgentIdentity::Certificate { certificate, .. } => {
+                handle
+                    .authenticate_certificate_with(username, certificate, rsa_hash, agent)
+                    .await
+            }
+        }
+        .map_err(|error| {
+            SshSessionError::new(format!("SSH agent authentication failed: {error}"))
+        })?;
+
+        if result.success() {
+            return Ok(result);
+        }
+    }
+
+    Ok(russh::client::AuthResult::Failure {
+        remaining_methods: russh::MethodSet::empty(),
+        partial_success: false,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -744,5 +894,69 @@ impl SshChannelOpener for RusshChannelOpener {
         })?;
 
         Ok(RusshSshChannel::new(channel, handle, runtime))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{future::Future, path::Path, pin::Pin};
+
+    use rssh_core::TerminalSize;
+
+    use super::*;
+    use crate::{SshConnectRequest, SshSessionConfig};
+
+    type TestAuthFuture<'a> =
+        Pin<Box<dyn Future<Output = Result<russh::client::AuthResult, SshSessionError>> + 'a>>;
+
+    #[derive(Default)]
+    struct MockAuthBackend {
+        calls: Vec<String>,
+    }
+
+    impl RusshAuthenticationBackend for MockAuthBackend {
+        fn authenticate_password<'a>(
+            &'a mut self,
+            username: &'a str,
+            _password: &'a str,
+        ) -> TestAuthFuture<'a> {
+            self.calls.push(format!("password:{username}"));
+            Box::pin(async { Ok(russh::client::AuthResult::Success) })
+        }
+
+        fn authenticate_private_key<'a>(
+            &'a mut self,
+            username: &'a str,
+            _path: &'a Path,
+            _passphrase: Option<&'a str>,
+        ) -> TestAuthFuture<'a> {
+            self.calls.push(format!("private-key:{username}"));
+            Box::pin(async { Ok(russh::client::AuthResult::Success) })
+        }
+
+        fn authenticate_agent<'a>(&'a mut self, username: &'a str) -> TestAuthFuture<'a> {
+            self.calls.push(format!("agent:{username}"));
+            Box::pin(async { Ok(russh::client::AuthResult::Success) })
+        }
+    }
+
+    #[test]
+    fn authenticate_auth_plan_uses_agent_backend_for_agent_authentication() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let plan = RusshAuthPlan::from_request(&request);
+        let mut backend = MockAuthBackend::default();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let outcome = runtime
+            .block_on(authenticate_auth_plan_with_backend(&mut backend, &plan))
+            .unwrap();
+
+        assert_eq!(outcome, RusshAuthOutcome::Authenticated);
+        assert_eq!(backend.calls, ["agent:ops"]);
     }
 }

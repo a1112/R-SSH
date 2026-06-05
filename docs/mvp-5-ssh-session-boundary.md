@@ -95,8 +95,9 @@ contract that a future in-process `russh` adapter must satisfy.
   authentication path. Password-value authentication is wired through
   `russh::client::Handle::authenticate_password`; private-key authentication is
   wired through `russh::client::Handle::authenticate_publickey`; password-prompt
-  is resolved by the app before calling the native opener. Agent auth still
-  returns an explicit not-wired error.
+  is resolved by the app before calling the native opener. Agent authentication
+  is wired through the system SSH agent and russh's external-signer
+  public-key/certificate authentication entry points.
 - `RusshChannelOpener::open_session_channel_async` opens a real
   `russh::Channel` with `channel_open_session` after authentication.
 - `RusshChannelOpener::start_channel_async` sends the planned PTY, shell, and
@@ -119,10 +120,10 @@ contract that a future in-process `russh` adapter must satisfy.
   direct targets. The native app path uses `RusshChannelOpener` through
   `SshChannelConnector`, prompts for a password when `--password` is selected,
   supports `--key PATH` for private-key authentication, prompts for encrypted
-  private-key passphrases before connecting through russh, supports
-  `--trust-on-first-use` for user `.ssh/known_hosts` persistence, and keeps
-  `--accept-unknown-host-key` for insecure/test-only unknown-host-key
-  acceptance.
+  private-key passphrases before connecting through russh, supports agent
+  authentication through `--agent`, supports `--trust-on-first-use` for user
+  `.ssh/known_hosts` persistence, and keeps `--accept-unknown-host-key` for
+  insecure/test-only unknown-host-key acceptance.
 - `rssh-app ssh --target NAME` can reuse an existing OpenSSH `Host NAME`
   configuration entry, with optional user, port, key, password-prompt, and size
   overrides.
@@ -156,6 +157,12 @@ client:
 
 ```powershell
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
+```
+
+Start a native russh SSH request with system-agent authentication:
+
+```powershell
+cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --agent
 ```
 
 Show the SSH startup options:
@@ -321,6 +328,7 @@ SSH-boundary tests cover:
 - app-level native password prompt resolution before connecting through russh
 - app-level native encrypted private-key passphrase prompt resolution before
   connecting through russh
+- native russh agent-auth dispatch through the authentication backend
 - explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
 - explicit `--trust-on-first-use` parsing, native host-key policy mapping, and
   default `.ssh/known_hosts` path selection
@@ -349,7 +357,6 @@ SSH-boundary tests cover:
 
 - Switching the app-level `rssh-app ssh` command from the OpenSSH PTY
   compatibility path to the native russh adapter by default.
-- Executing agent authentication through `russh`.
 - SFTP, in-process native tunnels, and reconnects.
 
 ## Next Milestone

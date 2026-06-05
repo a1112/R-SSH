@@ -96,13 +96,13 @@ known-host handling, agent, key prompts, and password prompts without exposing
 secrets in the R-SSH command line.
 Add `--native` with `--host` to use the experimental in-process `russh` path
 instead of spawning OpenSSH. The native path currently supports direct targets
-with password prompting or private-key authentication, including encrypted
+with agent, password-prompt, or private-key authentication, including encrypted
 private-key passphrase prompts. Use
 `--trust-on-first-use` to record a first-time host key in the user's
 `.ssh/known_hosts` file and verify it on later connections.
 `--accept-unknown-host-key` remains available for insecure test servers only.
-Native forwarding, OpenSSH `Host` targets, and agent auth are still kept on the
-OpenSSH compatibility path.
+Native forwarding and OpenSSH `Host` targets are still kept on the OpenSSH
+compatibility path.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing
