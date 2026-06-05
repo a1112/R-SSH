@@ -107,9 +107,9 @@ PTY-backed local, window, and OpenSSH child processes receive
 `TERM=xterm-256color` and `COLORTERM=truecolor` by default.
 Use `--log PATH` on `local`, `ssh`, `sftp`, or `scp` to tee visible terminal
 output to a session log file.
-Use `doctor` before launching console sessions to verify that the local default
-shell plus `ssh`, `sftp`, and `scp` are available; add `--json` for a
-machine-readable report.
+Use `doctor` before launching console sessions to report the selected PTY
+backend and verify that the local default shell plus `ssh`, `sftp`, and `scp`
+are available; add `--json` for a machine-readable report.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing

@@ -8,7 +8,7 @@ use std::{
 use serde::Serialize;
 
 use crate::cli::DoctorOptions;
-use rssh_pty::PtyCommand;
+use rssh_pty::{PtyBackend, PtyCommand};
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct DoctorReport {
@@ -20,6 +20,8 @@ pub struct DoctorReport {
 pub struct DoctorCheck {
     pub name: String,
     pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
@@ -74,16 +76,26 @@ pub fn diagnose_console_dependencies_in_paths_for_shell(
     default_shell: &str,
 ) -> DoctorReport {
     let default_shell_path = resolve_command_path(default_shell, paths);
-    let mut checks = vec![DoctorCheck {
-        name: "default-shell".to_owned(),
-        ok: default_shell_path.is_some(),
-        path: default_shell_path.map(|path| path.display().to_string()),
-    }];
+    let mut checks = vec![
+        DoctorCheck {
+            name: "pty-backend".to_owned(),
+            ok: true,
+            detail: Some(pty_backend_name(PtyBackend::current_platform()).to_owned()),
+            path: None,
+        },
+        DoctorCheck {
+            name: "default-shell".to_owned(),
+            ok: default_shell_path.is_some(),
+            detail: None,
+            path: default_shell_path.map(|path| path.display().to_string()),
+        },
+    ];
     checks.extend(REQUIRED_CONSOLE_TOOLS.iter().map(|tool| {
         let path = find_command_in_paths(tool, paths);
         DoctorCheck {
             name: (*tool).to_owned(),
             ok: path.is_some(),
+            detail: None,
             path: path.map(|path| path.display().to_string()),
         }
     }));
@@ -91,6 +103,13 @@ pub fn diagnose_console_dependencies_in_paths_for_shell(
     DoctorReport {
         ok: checks.iter().all(|check| check.ok),
         checks,
+    }
+}
+
+fn pty_backend_name(backend: PtyBackend) -> &'static str {
+    match backend {
+        PtyBackend::WindowsConpty => "windows-conpty",
+        PtyBackend::UnixPty => "unix-pty",
     }
 }
 
@@ -183,15 +202,22 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
 
         assert!(report.ok);
-        assert_eq!(report.checks.len(), 4);
+        assert_eq!(report.checks.len(), 5);
         assert!(report.checks.iter().all(|check| check.ok));
+        assert!(matches!(
+            report
+                .checks
+                .first()
+                .and_then(|check| check.detail.as_deref()),
+            Some("windows-conpty" | "unix-pty")
+        ));
         assert_eq!(
             report
                 .checks
                 .iter()
                 .map(|check| check.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["default-shell", "ssh", "sftp", "scp"]
+            vec!["pty-backend", "default-shell", "ssh", "sftp", "scp"]
         );
     }
 
@@ -202,6 +228,7 @@ mod tests {
             checks: vec![super::DoctorCheck {
                 name: "ssh".to_owned(),
                 ok: false,
+                detail: None,
                 path: None,
             }],
         };
