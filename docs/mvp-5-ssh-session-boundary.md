@@ -169,7 +169,8 @@ contract that a future in-process `russh` adapter must satisfy.
   the PTY-backed child process.
 - `rssh-app local --metrics`, `ssh --metrics`, `sftp --metrics`, and
   `scp --metrics` print console runtime metrics after the PTY-backed child
-  process exits: command, elapsed time, exit code, signal, and success state.
+  process exits: command, PTY backend, startup columns/rows, elapsed time, exit
+  code, signal, and success state.
 - `rssh-app local --metrics-json`, `ssh --metrics-json`, `sftp --metrics-json`,
   and `scp --metrics-json` print the same console runtime metrics as JSON for
   launchers, scripts, and desktop UI health views.

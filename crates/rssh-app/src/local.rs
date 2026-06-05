@@ -21,7 +21,7 @@ use crossterm::{
     execute, terminal,
 };
 use rssh_core::TerminalSize;
-use rssh_pty::{PtyExitStatus, PtySession, PtySize};
+use rssh_pty::{PtyBackend, PtyExitStatus, PtySession, PtySize};
 use rssh_terminal::{Cell, Color, CursorShape, Terminal};
 use serde::Serialize;
 
@@ -101,6 +101,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
                 "{}",
                 LocalMetricsSnapshot::from_status(
                     &options.command,
+                    size,
                     metrics_started_at.elapsed(),
                     status
                 )
@@ -113,6 +114,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
                 "{}",
                 LocalMetricsSnapshot::from_status(
                     &options.command,
+                    size,
                     metrics_started_at.elapsed(),
                     status
                 )
@@ -245,6 +247,9 @@ impl LocalRuntimeState {
 #[derive(Serialize)]
 struct LocalMetricsSnapshot {
     command: String,
+    backend: String,
+    columns: u16,
+    rows: u16,
     elapsed_ms: u128,
     exit_code: u32,
     signal: Option<String>,
@@ -254,11 +259,15 @@ struct LocalMetricsSnapshot {
 impl LocalMetricsSnapshot {
     fn from_status(
         command: &rssh_pty::PtyCommand,
+        size: PtySize,
         elapsed: Duration,
         status: &PtyExitStatus,
     ) -> Self {
         Self {
             command: command_line(command),
+            backend: format!("{:?}", PtyBackend::current_platform()),
+            columns: size.columns(),
+            rows: size.rows(),
             elapsed_ms: elapsed.as_millis(),
             exit_code: status.exit_code(),
             signal: status.signal().map(str::to_owned),
@@ -271,12 +280,18 @@ impl LocalMetricsSnapshot {
             "\
 R-SSH console metrics
 command={}
+backend={}
+columns={}
+rows={}
 elapsed_ms={}
 exit_code={}
 signal={}
 success={}
 ",
             self.command,
+            self.backend,
+            self.columns,
+            self.rows,
             self.elapsed_ms,
             self.exit_code,
             self.signal.as_deref().unwrap_or("none"),
@@ -298,26 +313,34 @@ fn command_line(command: &rssh_pty::PtyCommand) -> String {
 
 #[cfg(test)]
 mod metrics_tests {
-    use rssh_pty::PtyExitStatus;
+    use rssh_pty::{PtyBackend, PtyExitStatus};
 
     #[test]
     fn console_metrics_report_includes_command_timing_and_exit_status() {
         let command = rssh_pty::PtyCommand::new("cmd.exe").with_args(["/C", "echo hi"]);
         let report = super::LocalMetricsSnapshot::from_status(
             &command,
+            rssh_pty::PtySize::try_new(100, 30).unwrap(),
             std::time::Duration::from_millis(42),
             &PtyExitStatus::from_exit_code(0),
         )
         .report();
 
+        let expected_backend = format!("{:?}", PtyBackend::current_platform());
+
         assert_eq!(
             report,
-            "R-SSH console metrics\n\
+            format!(
+                "R-SSH console metrics\n\
 command=cmd.exe /C echo hi\n\
+backend={expected_backend}\n\
+columns=100\n\
+rows=30\n\
 elapsed_ms=42\n\
 exit_code=0\n\
 signal=none\n\
 success=true\n"
+            )
         );
     }
 
@@ -326,15 +349,20 @@ success=true\n"
         let command = rssh_pty::PtyCommand::new("cmd.exe").with_args(["/C", "echo hi"]);
         let report = super::LocalMetricsSnapshot::from_status(
             &command,
+            rssh_pty::PtySize::try_new(100, 30).unwrap(),
             std::time::Duration::from_millis(42),
             &PtyExitStatus::from_exit_code(0),
         )
         .json_report()
         .unwrap();
 
+        let expected_backend = format!("{:?}", PtyBackend::current_platform());
+
         assert_eq!(
             report,
-            "{\"command\":\"cmd.exe /C echo hi\",\"elapsed_ms\":42,\"exit_code\":0,\"signal\":null,\"success\":true}"
+            format!(
+                "{{\"command\":\"cmd.exe /C echo hi\",\"backend\":\"{expected_backend}\",\"columns\":100,\"rows\":30,\"elapsed_ms\":42,\"exit_code\":0,\"signal\":null,\"success\":true}}"
+            )
         );
     }
 }
