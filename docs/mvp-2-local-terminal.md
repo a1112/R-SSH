@@ -81,6 +81,11 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   xterm-compatible palette. OSC `10`, `11`, and `4` color-setting sequences
   update the tracked state, and BEL, ST, and C1 ST terminators are preserved in
   responses.
+- The app answers xterm XTGETTCAP terminal-capability queries
+  (`DCS + q <hex-cap> ST`) for common compatibility probes, including
+  `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, and `Ms` OSC 52
+  clipboard template support. Unsupported capabilities return `DCS 0+r ST`,
+  and C1 DCS/ST forms are handled too.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - After a fast child-process exit, `rssh-app local` briefly drains PTY reader
@@ -190,6 +195,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - OSC query response: unit tests cover default foreground/background and indexed
   palette color queries, including BEL, ST, and C1 OSC/ST forms. Unit tests also
   cover color-setting sequences followed by matching queries.
+- XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
+  queries for colors, terminal name, true-color marker, and unknown capability
+  fallback.
 - Session logging: unit tests cover teeing visible terminal output to a log
   writer, omitting non-visible control sequences from the log while preserving
   them for the host console, and smoke checks can verify `--log` writes command

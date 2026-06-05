@@ -295,7 +295,7 @@ impl TerminalOutputFilter {
                         index,
                         MatchedTerminalResponse {
                             consumed: response.query.len(),
-                            response: response.response,
+                            response: response.response.clone(),
                         },
                     )
                 })
@@ -331,11 +331,27 @@ impl TerminalOutputFilter {
                 )
             },
         );
+        let xtgettcap_response = find_xtgettcap_query(&self.pending).map(
+            |XtGetTcapQuery {
+                 index,
+                 consumed,
+                 response,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::XtGetTcap(response),
+                    },
+                )
+            },
+        );
 
         static_response
             .into_iter()
             .chain(mode_response)
             .chain(osc_color_response)
+            .chain(xtgettcap_response)
             .min_by_key(|(index, _)| *index)
     }
 
@@ -348,6 +364,7 @@ impl TerminalOutputFilter {
         static_query_suffix
             .max(private_mode_status_query_suffix_len(pending))
             .max(osc_color_query_suffix_len(pending))
+            .max(xtgettcap_query_suffix_len(pending))
     }
 
     fn response_bytes(
@@ -371,7 +388,7 @@ struct MatchedTerminalResponse {
     response: TerminalResponse,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
@@ -386,6 +403,7 @@ enum TerminalResponse {
     WindowTitle,
     PrivateModeStatus(u16),
     OscColor(OscColorResponse),
+    XtGetTcap(XtGetTcapResponse),
 }
 
 impl TerminalResponse {
@@ -449,6 +467,7 @@ impl TerminalResponse {
                 format!("\x1b[?{};{}$y", mode, modes.private_mode_report_value(mode)).into_bytes()
             }
             TerminalResponse::OscColor(query) => color_state.response(query),
+            TerminalResponse::XtGetTcap(query) => query.response(),
         }
     }
 }
@@ -473,6 +492,164 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+struct XtGetTcapQuery {
+    index: usize,
+    consumed: usize,
+    response: XtGetTcapResponse,
+}
+
+#[derive(Clone)]
+struct XtGetTcapResponse {
+    entries: Vec<XtGetTcapEntry>,
+    terminator: OscResponseTerminator,
+}
+
+#[derive(Clone)]
+struct XtGetTcapEntry {
+    name_hex: Vec<u8>,
+    value_hex: &'static [u8],
+}
+
+impl XtGetTcapResponse {
+    fn response(&self) -> Vec<u8> {
+        let mut response = if self.entries.is_empty() {
+            b"\x1bP0+r".to_vec()
+        } else {
+            let mut bytes = b"\x1bP1+r".to_vec();
+            for (index, entry) in self.entries.iter().enumerate() {
+                if index > 0 {
+                    bytes.push(b';');
+                }
+                bytes.extend_from_slice(&entry.name_hex);
+                bytes.push(b'=');
+                bytes.extend_from_slice(entry.value_hex);
+            }
+            bytes
+        };
+        response.extend_from_slice(self.terminator.bytes());
+        response
+    }
+}
+
+fn find_xtgettcap_query(bytes: &[u8]) -> Option<XtGetTcapQuery> {
+    let mut match_query = None;
+    for (prefix, prefix_len) in [(b"\x1bP".as_slice(), 2), (b"\x90".as_slice(), 1)] {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                break;
+            };
+            let index = offset + relative_index;
+            if let Some(query) = parse_xtgettcap_query(bytes, index, prefix_len) {
+                if match_query
+                    .as_ref()
+                    .is_none_or(|current: &XtGetTcapQuery| query.index < current.index)
+                {
+                    match_query = Some(query);
+                }
+            }
+            offset = index.saturating_add(1);
+        }
+    }
+    match_query
+}
+
+fn parse_xtgettcap_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<XtGetTcapQuery> {
+    let content_start = index + prefix_len;
+    let rest = bytes.get(content_start..)?;
+    let body = rest.strip_prefix(b"+q")?;
+    let terminator = find_xtgettcap_terminator(body)?;
+    let content = &body[..terminator.index];
+    let entries = content
+        .split(|byte| *byte == b';')
+        .filter_map(parse_xtgettcap_entry)
+        .collect();
+
+    Some(XtGetTcapQuery {
+        index,
+        consumed: prefix_len + b"+q".len() + terminator.index + terminator.length,
+        response: XtGetTcapResponse {
+            entries,
+            terminator: terminator.response_terminator,
+        },
+    })
+}
+
+fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
+    let st = find_subslice(bytes, b"\x1b\\").map(|index| OscColorTerminator {
+        index,
+        length: 2,
+        response_terminator: OscResponseTerminator::St,
+    });
+    let c1_st = bytes
+        .iter()
+        .position(|byte| *byte == 0x9c)
+        .map(|index| OscColorTerminator {
+            index,
+            length: 1,
+            response_terminator: OscResponseTerminator::C1St,
+        });
+
+    [st, c1_st]
+        .into_iter()
+        .flatten()
+        .min_by_key(|terminator| terminator.index)
+}
+
+fn parse_xtgettcap_entry(name_hex: &[u8]) -> Option<XtGetTcapEntry> {
+    let name = decode_ascii_hex(name_hex)?;
+    let value_hex = xtgettcap_value_hex(&name)?;
+    Some(XtGetTcapEntry {
+        name_hex: name_hex.to_vec(),
+        value_hex,
+    })
+}
+
+fn xtgettcap_value_hex(name: &[u8]) -> Option<&'static [u8]> {
+    match name {
+        b"Co" | b"colors" => Some(b"323536"),
+        b"TN" => Some(b"787465726d2d323536636f6c6f72"),
+        b"RGB" => Some(b"524742"),
+        b"Ms" => Some(b"1b5d35323b25703125733b257032257307"),
+        _ => None,
+    }
+}
+
+fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
+    if bytes.is_empty() || bytes.len() % 2 != 0 {
+        return None;
+    }
+    bytes
+        .chunks_exact(2)
+        .map(|pair| Some(parse_hex_digit(pair[0])? * 16 + parse_hex_digit(pair[1])?))
+        .collect()
+}
+
+fn xtgettcap_query_suffix_len(bytes: &[u8]) -> usize {
+    (1..=bytes.len())
+        .rev()
+        .find(|&length| is_xtgettcap_query_prefix(&bytes[bytes.len() - length..]))
+        .unwrap_or(0)
+}
+
+fn is_xtgettcap_query_prefix(bytes: &[u8]) -> bool {
+    let Some(rest) = bytes
+        .strip_prefix(b"\x1bP")
+        .or_else(|| bytes.strip_prefix(b"\x90"))
+    else {
+        return b"\x1bP".starts_with(bytes) || b"\x90".starts_with(bytes);
+    };
+    if !b"+q".starts_with(rest) && !rest.starts_with(b"+q") {
+        return false;
+    }
+    if let Some(body) = rest.strip_prefix(b"+q") {
+        return body
+            .iter()
+            .all(|byte| byte.is_ascii_hexdigit() || *byte == b';');
+    }
+    true
 }
 
 struct OscColorQuery {
@@ -1430,6 +1607,29 @@ mod tests {
             ]
         );
         assert_eq!(output.display, b"before middle after done");
+    }
+
+    #[test]
+    fn answers_xtgettcap_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"before\x1bP+q436f\x1b\\ middle\x90+q544e;524742\x9c after\x1bP+q626164\x1b\\done",
+        );
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1bP1+r436f=323536\x1b\\".to_vec(),
+                b"\x1bP1+r544e=787465726d2d323536636f6c6f72;524742=524742\x9c".to_vec(),
+                b"\x1bP0+r\x1b\\".to_vec(),
+            ]
+        );
+        assert_eq!(output.display, b"before middle afterdone");
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("before middle afterdone"));
+        assert!(!text.contains("+q"));
     }
 
     #[test]
