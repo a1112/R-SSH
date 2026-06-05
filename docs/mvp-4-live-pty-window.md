@@ -11,11 +11,10 @@ in the native `winit` window.
   `rssh-terminal::Terminal`.
 - The runtime filters terminal cursor position, device-attribute, status,
   window state/position, window/screen pixel-size, character-cell pixel-size,
-  text-area size, screen character-size, icon-label, and window-title queries,
-  then returns responses that are written back to the PTY. Standard and DEC
-  private cursor-position responses use the current terminal grid cursor.
-  Equivalent 8-bit C1 CSI query forms are handled through the same runtime
-  path.
+  text-area size, screen character-size, icon-label, window-title, and OSC color
+  queries, then returns responses that are written back to the PTY. Standard and
+  DEC private cursor-position responses use the current terminal grid cursor.
+  Equivalent 8-bit C1 CSI query forms are handled through the same runtime path.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
@@ -174,6 +173,8 @@ MVP 4 tests cover:
 - C1 CSI cursor, device/status, window state/position, window/screen pixel-size,
   character-cell size, text-area/screen size, and title query responses in the
   shared terminal runtime
+- OSC default foreground/background and indexed palette color query responses
+  in the shared terminal runtime
 - DECRQM private-mode status query responses for application cursor keys, mouse,
   SGR mouse, focus, bracketed paste, and unknown modes
 - native window OSC 52 policy parsing and write/query enforcement
