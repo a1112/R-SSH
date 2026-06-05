@@ -19,6 +19,14 @@ type SecretPrompt<'a> = dyn FnMut() -> Result<String, Box<dyn Error>> + 'a;
 type KeyPassphrasePrompt<'a> = dyn FnMut(&Path) -> Result<String, Box<dyn Error>> + 'a;
 type KeyPassphraseDetector<'a> = dyn FnMut(&Path) -> Result<bool, Box<dyn Error>> + 'a;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLocalForward {
+    bind_host: String,
+    bind_port: u16,
+    target_host: String,
+    target_port: u16,
+}
+
 pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     if options.native {
         return run_native(options);
@@ -113,8 +121,9 @@ fn native_request_for_options_with_secret_prompts(
         return Err("native SSH connector only supports direct SSH targets".into());
     };
 
-    if !options.forwards.is_empty() {
-        return Err("native SSH forwarding is not wired yet".into());
+    let local_forwards = native_local_forward_plan_for_options(options)?;
+    if !local_forwards.is_empty() {
+        return Err("native SSH local forwarding listener is not wired yet".into());
     }
 
     let startup = if options.no_shell {
@@ -136,6 +145,62 @@ fn native_request_for_options_with_secret_prompts(
     }
 
     Ok(request)
+}
+
+fn native_local_forward_plan_for_options(
+    options: &SshOptions,
+) -> Result<Vec<NativeLocalForward>, Box<dyn Error>> {
+    options
+        .forwards
+        .iter()
+        .map(|forward| match forward {
+            SshForward::Local(spec) => parse_native_local_forward(spec),
+            SshForward::Remote(_) | SshForward::Dynamic(_) => {
+                Err("native SSH only supports local forwarding plans so far".into())
+            }
+        })
+        .collect()
+}
+
+fn parse_native_local_forward(spec: &str) -> Result<NativeLocalForward, Box<dyn Error>> {
+    let parts = spec.split(':').collect::<Vec<_>>();
+    let (bind_host, bind_port, target_host, target_port) = match parts.as_slice() {
+        [bind_port, target_host, target_port] => {
+            ("127.0.0.1", *bind_port, *target_host, *target_port)
+        }
+        [bind_host, bind_port, target_host, target_port] => {
+            (*bind_host, *bind_port, *target_host, *target_port)
+        }
+        _ => {
+            return Err(format!(
+                "invalid native local-forward spec {spec:?}; expected [bind_host:]bind_port:target_host:target_port"
+            )
+            .into());
+        }
+    };
+
+    if bind_host.trim().is_empty() || target_host.trim().is_empty() {
+        return Err(
+            format!("invalid native local-forward spec {spec:?}; host cannot be empty").into(),
+        );
+    }
+
+    Ok(NativeLocalForward {
+        bind_host: bind_host.to_owned(),
+        bind_port: parse_forward_port(bind_port, "bind port")?,
+        target_host: target_host.to_owned(),
+        target_port: parse_forward_port(target_port, "target port")?,
+    })
+}
+
+fn parse_forward_port(value: &str, name: &str) -> Result<u16, Box<dyn Error>> {
+    let port = value
+        .parse::<u16>()
+        .map_err(|_| format!("invalid native local-forward {name}: {value}"))?;
+    if port == 0 {
+        return Err(format!("invalid native local-forward {name}: {value}").into());
+    }
+    Ok(port)
 }
 
 #[must_use]
@@ -548,7 +613,67 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains("native SSH forwarding"));
+        assert!(
+            error
+                .to_string()
+                .contains("native SSH local forwarding listener")
+        );
+    }
+
+    #[test]
+    fn native_local_forward_plan_parses_bind_and_target_endpoint() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+
+        let plan = super::native_local_forward_plan_for_options(&SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: vec![crate::cli::SshForward::Local(
+                "127.0.0.1:15432:db.internal:5432".to_owned(),
+            )],
+            no_shell: true,
+            native: true,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+            osc52_policy: Osc52Policy::default(),
+            log: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            plan,
+            [super::NativeLocalForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: 15432,
+                target_host: "db.internal".to_owned(),
+                target_port: 5432,
+            }]
+        );
+    }
+
+    #[test]
+    fn native_forward_plan_rejects_remote_and_dynamic_forwards() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+
+        let error = super::native_local_forward_plan_for_options(&SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: vec![crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned())],
+            no_shell: true,
+            native: true,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+            osc52_policy: Osc52Policy::default(),
+            log: None,
+        })
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("native SSH only supports local forwarding")
+        );
     }
 
     #[test]

@@ -101,8 +101,9 @@ private-key passphrase prompts. Use
 `--trust-on-first-use` to record a first-time host key in the user's
 `.ssh/known_hosts` file and verify it on later connections.
 `--accept-unknown-host-key` remains available for insecure test servers only.
-Native forwarding and OpenSSH `Host` targets are still kept on the OpenSSH
-compatibility path.
+Native local-forward specs are parsed into an in-process tunnel plan, but the
+native listener/data pump is not wired yet; OpenSSH `Host` targets and working
+tunnels are still kept on the OpenSSH compatibility path.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing

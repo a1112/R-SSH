@@ -136,6 +136,10 @@ contract that a future in-process `russh` adapter must satisfy.
   `--no-shell` maps to OpenSSH `-N` for tunnel-only sessions. The injectable
   native connector path maps the same direct SSH request to
   `SshSessionStartup::NoShell`.
+- The native app path parses OpenSSH-style local-forward specs into a
+  structured native tunnel plan with bind host, bind port, target host, and
+  target port. Native remote and dynamic forwarding remain rejected until those
+  tunnel types are implemented.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
@@ -329,11 +333,12 @@ SSH-boundary tests cover:
 - app-level native encrypted private-key passphrase prompt resolution before
   connecting through russh
 - native russh agent-auth dispatch through the authentication backend
+- native local-forward spec parsing into bind and target endpoints
 - explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
 - explicit `--trust-on-first-use` parsing, native host-key policy mapping, and
   default `.ssh/known_hosts` path selection
-- rejection of `--native --target` and native forwarding until those native
-  features are wired
+- rejection of `--native --target`, native remote forwarding, native dynamic
+  forwarding, and native local forwarding before the listener/data pump is wired
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
   password-prompt, and size overrides
@@ -357,7 +362,7 @@ SSH-boundary tests cover:
 
 - Switching the app-level `rssh-app ssh` command from the OpenSSH PTY
   compatibility path to the native russh adapter by default.
-- SFTP, in-process native tunnels, and reconnects.
+- SFTP, complete in-process native tunnels, and reconnects.
 
 ## Next Milestone
 
