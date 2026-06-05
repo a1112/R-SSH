@@ -87,7 +87,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - The console path handles OSC 52 clipboard writes and read queries, decoding
   PTY-side base64 clipboard payloads into the system clipboard and answering
   `?` queries with base64-encoded clipboard content. OSC 52 control sequences
-  are removed from console display output.
+  are removed from console display output. If PTY output ends in an incomplete
+  OSC 52 sequence, the pending control bytes are dropped during flush instead
+  of leaking to the host console.
 - OSC 8 hyperlink sequences are consumed by the console output filter and fed
   into the mirrored terminal state, so hyperlink metadata is preserved without
   writing OSC 8 control bytes to the host console. If PTY output ends in an
@@ -230,7 +232,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   cover color-setting sequences followed by matching queries.
 - OSC 52 clipboard: unit tests cover console-path clipboard writes and
   clipboard query responses without writing OSC 52 control bytes to console
-  output, plus `off` and `write` policy enforcement.
+  output, plus `off` and `write` policy enforcement. EOF flushing is covered
+  for incomplete OSC 52 sequences.
 - OSC 8 hyperlinks: unit tests cover full and split OSC 8 sequences, verifying
   that console output omits the control bytes while the mirrored terminal keeps
   hyperlink metadata on linked cells. EOF flushing is covered for incomplete

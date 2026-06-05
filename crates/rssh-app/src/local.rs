@@ -897,7 +897,7 @@ impl TerminalOutputFilter {
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
-        if let Some(drop_start) = find_incomplete_osc8_hyperlink_start(&self.pending) {
+        if let Some(drop_start) = find_incomplete_control_sequence_start(&self.pending) {
             output.write_all(&self.pending[..drop_start])?;
             self.feed_mirror_through_output(drop_start);
             self.pending.clear();
@@ -1161,6 +1161,29 @@ fn find_incomplete_osc8_hyperlink_start(bytes: &[u8]) -> Option<usize> {
             })
         })
         .min()
+}
+
+fn find_incomplete_osc52_clipboard_start(bytes: &[u8]) -> Option<usize> {
+    [b"\x1b]52;".as_slice(), b"\x9d52;".as_slice()]
+        .into_iter()
+        .filter_map(|prefix| {
+            find_subslice(bytes, prefix).and_then(|index| {
+                find_osc_color_terminator(&bytes[index + prefix.len()..])
+                    .is_none()
+                    .then_some(index)
+            })
+        })
+        .min()
+}
+
+fn find_incomplete_control_sequence_start(bytes: &[u8]) -> Option<usize> {
+    [
+        find_incomplete_osc8_hyperlink_start(bytes),
+        find_incomplete_osc52_clipboard_start(bytes),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 struct Osc52ClipboardSequence {
@@ -3686,6 +3709,36 @@ mod tests {
 
         assert_eq!(output, b"beforeafter");
         assert_eq!(responses, b"\x1b]52;c;Y29weQ==\x07");
+    }
+
+    #[test]
+    fn terminal_output_filter_drops_incomplete_osc52_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x1b]52;c;Y29weQ==",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("copy".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+        assert!(writes.is_empty());
     }
 
     #[test]
