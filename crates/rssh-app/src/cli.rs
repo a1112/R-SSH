@@ -443,9 +443,6 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         (None, None) => return Err("--host or --target is required".to_owned()),
     };
 
-    if native && matches!(target, SshTarget::OpenSsh(_)) {
-        return Err("--native requires --host and cannot use --target".to_owned());
-    }
     if matches!(native_host_key_policy, NativeHostKeyPolicy::AcceptUnknown) && !native {
         return Err("--accept-unknown-host-key requires --native".to_owned());
     }
@@ -1313,10 +1310,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_ssh_native_openssh_config_target() {
-        let error = parse_args(["rssh-app", "ssh", "--native", "--target", "prod"]).unwrap_err();
+    fn parses_ssh_native_openssh_config_target() {
+        let parsed = parse_args(["rssh-app", "ssh", "--native", "--target", "prod"]).unwrap();
 
-        assert!(error.contains("--native requires --host"));
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+        assert!(options.native);
+        assert!(matches!(options.target, super::SshTarget::OpenSsh(_)));
     }
 
     #[test]

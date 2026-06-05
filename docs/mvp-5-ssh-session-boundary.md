@@ -126,7 +126,8 @@ contract that a future in-process `russh` adapter must satisfy.
   insecure/test-only unknown-host-key acceptance.
 - `rssh-app ssh --target NAME` can reuse an existing OpenSSH `Host NAME`
   configuration entry, with optional user, port, key, password-prompt, and size
-  overrides.
+  overrides. The native path resolves `--target` through `ssh -G` before
+  connecting through russh.
 - `rssh-app ssh ... -- <command> [args...]` appends a remote command after the
   OpenSSH target. The injectable native connector path maps the same direct
   SSH request to `SshSessionStartup::Command`, while omitting `--` keeps the
@@ -342,10 +343,12 @@ SSH-boundary tests cover:
   forward starter
 - native dynamic-forward bind parsing, SOCKS5 no-auth CONNECT parsing, and
   dynamic-forward startup before shell startup
+- native OpenSSH config-target parsing through resolved `ssh -G` output before
+  connecting through russh
 - explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
 - explicit `--trust-on-first-use` parsing, native host-key policy mapping, and
   default `.ssh/known_hosts` path selection
-- rejection of `--native --target` and native remote forwarding
+- rejection of native remote forwarding
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
   password-prompt, and size overrides

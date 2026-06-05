@@ -94,17 +94,17 @@ log file.
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
 secrets in the R-SSH command line.
-Add `--native` with `--host` to use the experimental in-process `russh` path
-instead of spawning OpenSSH. The native path currently supports direct targets
-with agent, password-prompt, or private-key authentication, including encrypted
+Add `--native` to use the experimental in-process `russh` path instead of
+spawning an interactive OpenSSH session. The native path supports `--host`
+direct targets and `--target NAME` entries resolved through `ssh -G`, with
+agent, password-prompt, or private-key authentication, including encrypted
 private-key passphrase prompts. Use
 `--trust-on-first-use` to record a first-time host key in the user's
 `.ssh/known_hosts` file and verify it on later connections.
 `--accept-unknown-host-key` remains available for insecure test servers only.
 Native `--local-forward` and `--dynamic-forward` start in-process listeners and
 open russh `direct-tcpip` channels for accepted local TCP or SOCKS5 CONNECT
-requests. OpenSSH `Host` targets and remote forwarding are still kept on the
-OpenSSH compatibility path.
+requests. Remote forwarding is still kept on the OpenSSH compatibility path.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing
