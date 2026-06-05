@@ -15,6 +15,9 @@ in the native `winit` window.
   responses use the current terminal grid cursor.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
+- `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
+  console and native-window runtimes, including 7-bit CSI and 8-bit C1 CSI
+  private mode toggles.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
   separate input mapping.
 - `rssh-app window` starts the platform default shell in a local PTY, and
@@ -189,6 +192,7 @@ MVP 4 tests cover:
 - application keypad mode tracking for native window numpad input
 - bracketed paste mode tracking for native window paste
 - focus reporting mode tracking and native window focus event encoding
+- C1 CSI private input mode tracking in the shared local/window mode tracker
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
 - native window cursor shape propagation for block, underline, and bar cursors

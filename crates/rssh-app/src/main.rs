@@ -3,6 +3,7 @@ mod local;
 mod profiles;
 mod ssh;
 mod terminal_input;
+mod terminal_modes;
 mod terminal_runtime;
 mod visible_output;
 mod window;

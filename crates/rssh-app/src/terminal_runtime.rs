@@ -2,7 +2,10 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::TerminalSize;
 use rssh_terminal::Terminal;
 
-use crate::visible_output::TerminalVisibleOutputFilter;
+use crate::{
+    terminal_modes::{MouseInputMode, TerminalModeTracker},
+    visible_output::TerminalVisibleOutputFilter,
+};
 
 pub struct TerminalRuntime {
     terminal: Terminal,
@@ -37,7 +40,7 @@ impl TerminalRuntime {
 
     pub(crate) fn feed_pty_output_with_display(&mut self, bytes: &[u8]) -> TerminalRuntimeOutput {
         self.clipboard_tracker.process(bytes);
-        self.mode_tracker.process(bytes);
+        self.mode_tracker.process_without_emitting(bytes);
         let output = self.output_filter.process(bytes);
 
         let mut responses = Vec::new();
@@ -373,325 +376,13 @@ fn parse_osc52_clipboard_content(content: &[u8]) -> Option<ClipboardSequence> {
     Some(ClipboardSequence::Write(text))
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum MouseProtocolMode {
-    #[default]
-    X10,
-    Sgr,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) enum MouseReportingMode {
-    #[default]
-    None,
-    Normal,
-    ButtonEvent,
-    AnyEvent,
-}
-
-impl MouseReportingMode {
-    pub(crate) const fn is_enabled(self) -> bool {
-        !matches!(self, Self::None)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct MouseInputMode {
-    reporting: MouseReportingMode,
-    protocol: MouseProtocolMode,
-}
-
-impl MouseInputMode {
-    pub(crate) const fn new(reporting: MouseReportingMode, protocol: MouseProtocolMode) -> Self {
-        Self {
-            reporting,
-            protocol,
-        }
-    }
-
-    pub(crate) const fn reporting(self) -> MouseReportingMode {
-        self.reporting
-    }
-
-    pub(crate) const fn protocol(self) -> MouseProtocolMode {
-        self.protocol
-    }
-
-    pub(crate) const fn reporting_enabled(self) -> bool {
-        self.reporting.is_enabled()
-    }
-}
-
-#[derive(Default)]
-struct TerminalModeTracker {
-    pending: Vec<u8>,
-    mouse_modes: MouseModes,
-    tracked_modes: TrackedTerminalModes,
-}
-
-impl TerminalModeTracker {
-    const APPLICATION_KEYPAD_PREFIX: &'static [u8] = b"\x1b=";
-    const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
-    const NUMERIC_KEYPAD_PREFIX: &'static [u8] = b"\x1b>";
-
-    fn process(&mut self, bytes: &[u8]) {
-        self.pending.extend_from_slice(bytes);
-
-        loop {
-            let Some(start) = self.find_next_mode_start() else {
-                self.retain_possible_prefix();
-                return;
-            };
-            if start.index > 0 {
-                self.pending.drain(..start.index);
-            }
-
-            match start.sequence {
-                ModeSequence::ApplicationKeypad(enabled) => {
-                    self.tracked_modes
-                        .set(TrackedTerminalModes::APPLICATION_KEYPAD, enabled);
-                    self.pending.drain(..2);
-                }
-                ModeSequence::CsiPrivateMode => {
-                    match Self::parse_private_mode_sequence(&self.pending) {
-                        ModeParse::Complete {
-                            modes,
-                            enabled,
-                            consumed,
-                        } => {
-                            for mode in modes {
-                                if self.mouse_modes.set(mode, enabled) {
-                                    continue;
-                                }
-                                match mode {
-                                    1 => self.tracked_modes.set(
-                                        TrackedTerminalModes::APPLICATION_CURSOR_KEYS,
-                                        enabled,
-                                    ),
-                                    1004 => self
-                                        .tracked_modes
-                                        .set(TrackedTerminalModes::FOCUS_REPORTING, enabled),
-                                    2004 => self
-                                        .tracked_modes
-                                        .set(TrackedTerminalModes::BRACKETED_PASTE, enabled),
-                                    _ => {}
-                                }
-                            }
-                            self.pending.drain(..consumed);
-                        }
-                        ModeParse::Incomplete => return,
-                        ModeParse::Invalid => {
-                            self.pending.drain(..1);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn find_next_mode_start(&self) -> Option<ModeSequenceStart> {
-        [
-            (Self::CSI_PRIVATE_MODE_PREFIX, ModeSequence::CsiPrivateMode),
-            (
-                Self::APPLICATION_KEYPAD_PREFIX,
-                ModeSequence::ApplicationKeypad(true),
-            ),
-            (
-                Self::NUMERIC_KEYPAD_PREFIX,
-                ModeSequence::ApplicationKeypad(false),
-            ),
-        ]
-        .into_iter()
-        .filter_map(|(prefix, sequence)| {
-            find_subslice(&self.pending, prefix).map(|index| ModeSequenceStart { index, sequence })
-        })
-        .min_by_key(|start| start.index)
-    }
-
-    fn application_cursor_keys(&self) -> bool {
-        self.tracked_modes
-            .enabled(TrackedTerminalModes::APPLICATION_CURSOR_KEYS)
-    }
-
-    fn application_keypad(&self) -> bool {
-        self.tracked_modes
-            .enabled(TrackedTerminalModes::APPLICATION_KEYPAD)
-    }
-
-    fn focus_reporting(&self) -> bool {
-        self.tracked_modes
-            .enabled(TrackedTerminalModes::FOCUS_REPORTING)
-    }
-
-    fn bracketed_paste(&self) -> bool {
-        self.tracked_modes
-            .enabled(TrackedTerminalModes::BRACKETED_PASTE)
-    }
-
-    fn mouse_input_mode(&self) -> MouseInputMode {
-        self.mouse_modes.input_mode()
-    }
-
-    fn parse_private_mode_sequence(bytes: &[u8]) -> ModeParse {
-        let mut cursor = Self::CSI_PRIVATE_MODE_PREFIX.len();
-        let mut modes = Vec::new();
-
-        loop {
-            if cursor >= bytes.len() {
-                return ModeParse::Incomplete;
-            }
-
-            let start = cursor;
-            let mut mode = 0u16;
-            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-                mode = mode
-                    .saturating_mul(10)
-                    .saturating_add(u16::from(bytes[cursor] - b'0'));
-                cursor += 1;
-            }
-
-            if cursor == start {
-                return ModeParse::Invalid;
-            }
-            modes.push(mode);
-
-            if cursor >= bytes.len() {
-                return ModeParse::Incomplete;
-            }
-
-            match bytes[cursor] {
-                b';' => cursor += 1,
-                b'h' | b'l' => {
-                    return ModeParse::Complete {
-                        modes,
-                        enabled: bytes[cursor] == b'h',
-                        consumed: cursor + 1,
-                    };
-                }
-                _ => return ModeParse::Invalid,
-            }
-        }
-    }
-
-    fn retain_possible_prefix(&mut self) {
-        let retained = [
-            Self::CSI_PRIVATE_MODE_PREFIX,
-            Self::APPLICATION_KEYPAD_PREFIX,
-            Self::NUMERIC_KEYPAD_PREFIX,
-        ]
-        .into_iter()
-        .map(|prefix| suffix_prefix_len(&self.pending, prefix))
-        .max()
-        .unwrap_or(0);
-        let writable = self.pending.len().saturating_sub(retained);
-        if writable > 0 {
-            self.pending.drain(..writable);
-        }
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-struct TrackedTerminalModes(u8);
-
-impl TrackedTerminalModes {
-    const APPLICATION_CURSOR_KEYS: u8 = 1;
-    const APPLICATION_KEYPAD: u8 = 1 << 1;
-    const FOCUS_REPORTING: u8 = 1 << 2;
-    const BRACKETED_PASTE: u8 = 1 << 3;
-
-    fn set(&mut self, flag: u8, enabled: bool) {
-        if enabled {
-            self.0 |= flag;
-        } else {
-            self.0 &= !flag;
-        }
-    }
-
-    const fn enabled(self, flag: u8) -> bool {
-        self.0 & flag != 0
-    }
-}
-
-#[derive(Default)]
-struct MouseModes(u8);
-
-impl MouseModes {
-    const NORMAL: u8 = 1;
-    const BUTTON_EVENT: u8 = 1 << 1;
-    const ANY_EVENT: u8 = 1 << 2;
-    const SGR_PROTOCOL: u8 = 1 << 3;
-
-    fn set(&mut self, mode: u16, enabled: bool) -> bool {
-        let Some(mask) = Self::mask(mode) else {
-            return false;
-        };
-
-        if enabled {
-            self.0 |= mask;
-        } else {
-            self.0 &= !mask;
-        }
-
-        true
-    }
-
-    fn input_mode(&self) -> MouseInputMode {
-        let reporting = if self.0 & Self::ANY_EVENT != 0 {
-            MouseReportingMode::AnyEvent
-        } else if self.0 & Self::BUTTON_EVENT != 0 {
-            MouseReportingMode::ButtonEvent
-        } else if self.0 & Self::NORMAL != 0 {
-            MouseReportingMode::Normal
-        } else {
-            MouseReportingMode::None
-        };
-        let protocol = if self.0 & Self::SGR_PROTOCOL != 0 {
-            MouseProtocolMode::Sgr
-        } else {
-            MouseProtocolMode::X10
-        };
-
-        MouseInputMode::new(reporting, protocol)
-    }
-
-    const fn mask(mode: u16) -> Option<u8> {
-        match mode {
-            1000 => Some(Self::NORMAL),
-            1002 => Some(Self::BUTTON_EVENT),
-            1003 => Some(Self::ANY_EVENT),
-            1006 => Some(Self::SGR_PROTOCOL),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct ModeSequenceStart {
-    index: usize,
-    sequence: ModeSequence,
-}
-
-#[derive(Clone, Copy)]
-enum ModeSequence {
-    CsiPrivateMode,
-    ApplicationKeypad(bool),
-}
-
-enum ModeParse {
-    Complete {
-        modes: Vec<u16>,
-        enabled: bool,
-        consumed: usize,
-    },
-    Incomplete,
-    Invalid,
-}
-
 #[cfg(test)]
 mod tests {
     use rssh_core::TerminalSize;
 
-    use super::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalRuntime};
+    use crate::terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
+
+    use super::TerminalRuntime;
 
     #[test]
     fn feeds_plain_pty_output_into_terminal_grid() {
@@ -911,6 +602,17 @@ mod tests {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         runtime.feed_pty_output(b"\x1b[?1;1004;2004h");
+
+        assert!(runtime.application_cursor_keys());
+        assert!(runtime.focus_reporting());
+        assert!(runtime.bracketed_paste());
+    }
+
+    #[test]
+    fn tracks_c1_private_input_modes_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x9b?1;1004;2004h");
 
         assert!(runtime.application_cursor_keys());
         assert!(runtime.focus_reporting());

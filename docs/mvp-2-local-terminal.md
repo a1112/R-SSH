@@ -36,6 +36,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - Paste events are forwarded to the PTY as UTF-8 bytes by default. When the
   PTY-side application enables xterm bracketed paste with `ESC[?2004h`, paste
   events are wrapped as `ESC[200~...ESC[201~` until `ESC[?2004l`.
+- PTY-side input modes are tracked through the shared app mode tracker, so the
+  console path recognizes both 7-bit CSI (`ESC[?…h/l`) and 8-bit C1 CSI
+  (`0x9b ? … h/l`) private mode toggles.
 - `rssh-app local --mouse` allows terminal applications to enable and disable
   host mouse capture and focus events through xterm PTY output modes, then
   forwards active reports as xterm mouse and focus sequences. Mouse mode
@@ -167,7 +170,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   output to disk.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
-  reporting granularity and `1006` SGR protocol toggling.
+  reporting granularity, `1006` SGR protocol toggling, and C1 CSI private mode
+  input toggles.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
 - Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`

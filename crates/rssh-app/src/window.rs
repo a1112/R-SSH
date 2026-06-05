@@ -26,7 +26,8 @@ use winit::{
 use crate::{
     cli::{Osc52Policy, WindowOptions},
     terminal_input::{TerminalKey, encode_terminal_key},
-    terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalRuntime},
+    terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
+    terminal_runtime::TerminalRuntime,
 };
 
 const TERMINAL_COLUMNS: u16 = 80;
@@ -2010,7 +2011,7 @@ mod tests {
 
     use crate::{
         cli::Osc52Policy,
-        terminal_runtime::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
+        terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
     };
 
     use super::{
