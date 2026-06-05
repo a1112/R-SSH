@@ -63,6 +63,10 @@ contract that a future in-process `russh` adapter must satisfy.
 - `RusshChannelOpener` starts the in-process native SSH adapter surface with a
   real `russh::client::Config`. The dependency is configured with the `ring`
   crypto backend so Windows builds do not require NASM for `aws-lc-rs`.
+- `RusshChannelOpener::connect_async` is the first real native transport entry
+  point. It passes the planned socket address, shared russh client config, and
+  host-key handler into `russh::client::connect`, returning a connected russh
+  handle for the next authentication step.
 - `RusshHostKeyPolicy` carries the native adapter's host-key decision rule.
   `RusshChannelOpener` defaults to `RejectUnknown`; callers must explicitly opt
   into `AcceptUnknown` for insecure local fixtures or test-only connections.
@@ -238,6 +242,8 @@ SSH-boundary tests cover:
 - `run_shell_with_io` behavior for streaming remote output, forwarding local
   input, and closing the shell session
 - `RusshChannelOpener` construction against a real `russh::client::Config`
+- `RusshChannelOpener::connect_async` API shape against the real
+  `russh::client::connect` transport entry point
 - `RusshHostKeyPolicy` defaults and explicit insecure/test-only accept-unknown
   host-key behavior through the `russh` client handler
 - `RusshConnectPlan` derivation for socket address, username, and channel-open

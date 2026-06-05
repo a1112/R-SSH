@@ -1,6 +1,8 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use crate::{SshAuthMethod, SshChannelOpenPlan, SshConnectRequest, SshSessionStartup};
+use crate::{
+    SshAuthMethod, SshChannelOpenPlan, SshConnectRequest, SshSessionError, SshSessionStartup,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RusshHostKeyPolicy {
@@ -164,7 +166,7 @@ impl RusshConnectPlan {
 
 #[derive(Debug)]
 pub struct RusshChannelOpener {
-    client_config: russh::client::Config,
+    client_config: Arc<russh::client::Config>,
     host_key_policy: RusshHostKeyPolicy,
 }
 
@@ -176,7 +178,7 @@ impl Default for RusshChannelOpener {
         };
 
         Self {
-            client_config,
+            client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
         }
     }
@@ -186,7 +188,7 @@ impl RusshChannelOpener {
     #[must_use]
     pub fn new(client_config: russh::client::Config) -> Self {
         Self {
-            client_config,
+            client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
         }
     }
@@ -198,8 +200,8 @@ impl RusshChannelOpener {
     }
 
     #[must_use]
-    pub const fn client_config(&self) -> &russh::client::Config {
-        &self.client_config
+    pub fn client_config(&self) -> &russh::client::Config {
+        self.client_config.as_ref()
     }
 
     #[must_use]
@@ -215,8 +217,37 @@ impl RusshChannelOpener {
     }
 
     #[must_use]
+    pub const fn handler(&self) -> RusshClientHandler {
+        RusshClientHandler {
+            host_key_policy: self.host_key_policy,
+        }
+    }
+
+    #[must_use]
     pub fn connect_plan(&self, request: &SshConnectRequest) -> RusshConnectPlan {
         RusshConnectPlan::from_request(request)
+    }
+
+    /// Connects the underlying russh transport and returns a connected session
+    /// handle. Authentication and channel opening are layered on top of this
+    /// transport entry point.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the TCP connection or SSH handshake
+    /// fails.
+    pub async fn connect_async(
+        &self,
+        request: SshConnectRequest,
+    ) -> Result<russh::client::Handle<RusshClientHandler>, SshSessionError> {
+        let plan = self.connect_plan(&request);
+        russh::client::connect(
+            Arc::clone(&self.client_config),
+            plan.socket_addr(),
+            self.handler(),
+        )
+        .await
+        .map_err(|error| SshSessionError::new(format!("SSH connect failed: {error}")))
     }
 }
 

@@ -961,6 +961,16 @@ mod tests {
     }
 
     #[test]
+    fn russh_channel_opener_exposes_async_connect_entrypoint() {
+        let opener = super::RusshChannelOpener::default();
+        let request = SshConnectRequest::agent(valid_config());
+
+        let future = opener.connect_async(request);
+
+        drop(future);
+    }
+
+    #[test]
     fn russh_connect_plan_derives_channel_startup_plan() {
         let request = SshConnectRequest::agent(valid_config());
         let plan = RusshConnectPlan::from_request(&request);
