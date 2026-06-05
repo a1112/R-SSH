@@ -17,7 +17,9 @@ in the native `winit` window.
   navigation keys, and common editing keys.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
   separate input mapping.
-- `rssh-app window` starts the platform default shell in a local PTY.
+- `rssh-app window` starts the platform default shell in a local PTY, and
+  `rssh-app window -- <program> [args...]` starts a custom command in the same
+  native window runtime.
 - PTY output is read on a background thread and delivered to the UI thread with
   `winit::EventLoopProxy`.
 - PTY output updates the terminal runtime and rebuilds
@@ -98,6 +100,12 @@ Automated window smoke with metrics:
 cargo run -p rssh-app -- window --frames 30 --metrics
 ```
 
+Run a custom command inside the native window:
+
+```powershell
+cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
+```
+
 Console-hosted local PTY remains available:
 
 ```powershell
@@ -118,6 +126,7 @@ Native window smoke:
 
 ```powershell
 cargo run -p rssh-app -- window --frames 3
+cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
 ```
 
 MVP 4 tests cover:
@@ -132,6 +141,8 @@ MVP 4 tests cover:
   detection
 - native window line-based scrollback search, next/previous navigation, and
   search shortcut detection
+- native window custom startup command parsing and configured PTY command
+  storage
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response

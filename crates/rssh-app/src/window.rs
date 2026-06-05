@@ -40,8 +40,12 @@ const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
-    let mut app =
-        NativeWindowApp::with_event_proxy(options.frame_limit, options.osc52_policy, event_proxy);
+    let mut app = NativeWindowApp::with_event_proxy(
+        options.frame_limit,
+        options.osc52_policy,
+        options.command.clone(),
+        event_proxy,
+    );
 
     event_loop.run_app(&mut app)?;
     if options.metrics {
@@ -70,6 +74,7 @@ struct NativeWindowApp {
     frame_width: u32,
     frame_height: u32,
     frame_limit: Option<u64>,
+    startup_command: PtyCommand,
     rendered_frames: u64,
     event_proxy: Option<EventLoopProxy<WindowUserEvent>>,
     session: Option<PtySession>,
@@ -256,7 +261,29 @@ impl NativeWindowApp {
         Self::new_with_osc52_policy(frame_limit, Osc52Policy::default())
     }
 
+    #[cfg(test)]
     fn new_with_osc52_policy(frame_limit: Option<u64>, osc52_policy: Osc52Policy) -> Self {
+        Self::new_with_command_and_osc52_policy(
+            frame_limit,
+            osc52_policy,
+            PtyCommand::default_shell(),
+        )
+    }
+
+    #[cfg(test)]
+    fn new_with_command(frame_limit: Option<u64>, startup_command: PtyCommand) -> Self {
+        Self::new_with_command_and_osc52_policy(
+            frame_limit,
+            Osc52Policy::default(),
+            startup_command,
+        )
+    }
+
+    fn new_with_command_and_osc52_policy(
+        frame_limit: Option<u64>,
+        osc52_policy: Osc52Policy,
+        startup_command: PtyCommand,
+    ) -> Self {
         let runtime = TerminalRuntime::new(TerminalSize::new(TERMINAL_COLUMNS, TERMINAL_ROWS));
         let snapshot = TerminalRenderSnapshot::from_terminal(runtime.terminal());
 
@@ -270,6 +297,7 @@ impl NativeWindowApp {
             frame_width: FRAME_WIDTH,
             frame_height: FRAME_HEIGHT,
             frame_limit,
+            startup_command,
             rendered_frames: 0,
             event_proxy: None,
             session: None,
@@ -290,12 +318,19 @@ impl NativeWindowApp {
         }
     }
 
+    #[cfg(test)]
+    fn startup_command(&self) -> &PtyCommand {
+        &self.startup_command
+    }
+
     fn with_event_proxy(
         frame_limit: Option<u64>,
         osc52_policy: Osc52Policy,
+        startup_command: PtyCommand,
         event_proxy: EventLoopProxy<WindowUserEvent>,
     ) -> Self {
-        let mut app = Self::new_with_osc52_policy(frame_limit, osc52_policy);
+        let mut app =
+            Self::new_with_command_and_osc52_policy(frame_limit, osc52_policy, startup_command);
         app.event_proxy = Some(event_proxy);
         app
     }
@@ -790,7 +825,7 @@ impl NativeWindowApp {
 
         let size = PtySize::try_new(TERMINAL_COLUMNS, TERMINAL_ROWS)?;
         self.metrics.start_spawn_timer();
-        let mut session = PtySession::spawn(&PtyCommand::default_shell(), size)?;
+        let mut session = PtySession::spawn(&self.startup_command, size)?;
         let mut reader = session.take_reader()?;
         let writer = session.take_writer()?;
 
@@ -2376,6 +2411,24 @@ mod tests {
         assert_eq!(written.lock().unwrap().as_slice(), b"abc");
         assert_eq!(metrics.input_writes, 1);
         assert_eq!(metrics.input_bytes, 3);
+    }
+
+    #[test]
+    fn window_app_uses_configured_startup_command() {
+        let app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args([
+                "-NoProfile",
+                "-Command",
+                "Write-Output window-smoke",
+            ]),
+        );
+
+        assert_eq!(app.startup_command().program(), "powershell");
+        assert_eq!(
+            app.startup_command().args(),
+            ["-NoProfile", "-Command", "Write-Output window-smoke"]
+        );
     }
 
     #[test]

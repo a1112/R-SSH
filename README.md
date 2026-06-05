@@ -45,6 +45,7 @@ cargo test --workspace
 cargo run -p rssh-app
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- window --frames 30 --metrics
+cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
 cargo run -p rssh-app -- local
 cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
@@ -63,6 +64,8 @@ cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
 cargo test -p rssh-ssh
 ```
 
+`window -- <program> [args...]` starts a custom command inside the native
+window; without `--`, the native window starts the platform default shell.
 `local` is the console-hosted startup path. Add `--mouse` when you want terminal
 applications to negotiate xterm mouse/focus reporting through PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
