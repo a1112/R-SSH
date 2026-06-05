@@ -5,7 +5,8 @@ use rssh_core::TerminalSize;
 mod russh_client;
 
 pub use russh_client::{
-    RusshChannelOpener, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
+    RusshChannelOpener, RusshChannelStartupPlan, RusshChannelStartupRequest, RusshClientHandler,
+    RusshConnectPlan, RusshHostKeyPolicy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -571,7 +572,9 @@ mod tests {
         SshSessionStartup, SshShellConnector, SshShellSession, SshStartupError,
     };
 
-    use crate::{RusshConnectPlan, RusshHostKeyPolicy};
+    use crate::{
+        RusshChannelStartupPlan, RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy,
+    };
 
     #[test]
     fn session_config_keeps_terminal_size() {
@@ -954,6 +957,88 @@ mod tests {
                 startup: SshSessionStartup::NoShell
             }
         );
+    }
+
+    #[test]
+    fn russh_connect_plan_derives_channel_startup_plan() {
+        let request = SshConnectRequest::agent(valid_config());
+        let plan = RusshConnectPlan::from_request(&request);
+
+        assert_eq!(
+            plan.channel_startup_plan().requests(),
+            &[
+                RusshChannelStartupRequest::RequestPty {
+                    term: "xterm-256color".to_owned(),
+                    columns: 100,
+                    rows: 40,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                RusshChannelStartupRequest::RequestShell
+            ]
+        );
+    }
+
+    #[test]
+    fn russh_channel_startup_plan_requests_pty_then_shell_for_shell_startup() {
+        let open_plan = SshChannelOpenPlan {
+            pty_size: Some(TerminalSize::new(120, 30)),
+            startup: SshSessionStartup::Shell,
+        };
+
+        let plan = RusshChannelStartupPlan::from_open_plan(&open_plan);
+
+        assert_eq!(
+            plan.requests(),
+            &[
+                RusshChannelStartupRequest::RequestPty {
+                    term: "xterm-256color".to_owned(),
+                    columns: 120,
+                    rows: 30,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                RusshChannelStartupRequest::RequestShell
+            ]
+        );
+    }
+
+    #[test]
+    fn russh_channel_startup_plan_requests_pty_then_exec_for_remote_command() {
+        let open_plan = SshChannelOpenPlan {
+            pty_size: Some(TerminalSize::new(100, 40)),
+            startup: SshSessionStartup::Command(vec!["uptime".to_owned()]),
+        };
+
+        let plan = RusshChannelStartupPlan::from_open_plan(&open_plan);
+
+        assert_eq!(
+            plan.requests(),
+            &[
+                RusshChannelStartupRequest::RequestPty {
+                    term: "xterm-256color".to_owned(),
+                    columns: 100,
+                    rows: 40,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+                RusshChannelStartupRequest::Exec {
+                    command: "uptime".to_owned()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn russh_channel_startup_plan_skips_channel_requests_for_no_shell_startup() {
+        let open_plan = SshChannelOpenPlan {
+            pty_size: None,
+            startup: SshSessionStartup::NoShell,
+        };
+
+        let plan = RusshChannelStartupPlan::from_open_plan(&open_plan);
+
+        assert_eq!(plan.requests(), &[]);
     }
 
     fn valid_config() -> SshSessionConfig {

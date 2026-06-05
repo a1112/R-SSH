@@ -1,11 +1,67 @@
 use std::time::Duration;
 
-use crate::{SshChannelOpenPlan, SshConnectRequest};
+use crate::{SshChannelOpenPlan, SshConnectRequest, SshSessionStartup};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RusshHostKeyPolicy {
     RejectUnknown,
     AcceptUnknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RusshChannelStartupRequest {
+    RequestPty {
+        term: String,
+        columns: u32,
+        rows: u32,
+        pixel_width: u32,
+        pixel_height: u32,
+    },
+    RequestShell,
+    Exec {
+        command: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RusshChannelStartupPlan {
+    requests: Vec<RusshChannelStartupRequest>,
+}
+
+impl RusshChannelStartupPlan {
+    #[must_use]
+    pub fn from_open_plan(open_plan: &SshChannelOpenPlan) -> Self {
+        let mut requests = Vec::new();
+
+        if let Some(size) = open_plan.pty_size {
+            requests.push(RusshChannelStartupRequest::RequestPty {
+                term: "xterm-256color".to_owned(),
+                columns: u32::from(size.columns),
+                rows: u32::from(size.rows),
+                pixel_width: 0,
+                pixel_height: 0,
+            });
+        }
+
+        match &open_plan.startup {
+            SshSessionStartup::Shell => {
+                requests.push(RusshChannelStartupRequest::RequestShell);
+            }
+            SshSessionStartup::Command(command) => {
+                requests.push(RusshChannelStartupRequest::Exec {
+                    command: command.join(" "),
+                });
+            }
+            SshSessionStartup::NoShell => {}
+        }
+
+        Self { requests }
+    }
+
+    #[must_use]
+    pub fn requests(&self) -> &[RusshChannelStartupRequest] {
+        &self.requests
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +96,11 @@ impl RusshConnectPlan {
     #[must_use]
     pub const fn channel_open_plan(&self) -> &SshChannelOpenPlan {
         &self.channel_open_plan
+    }
+
+    #[must_use]
+    pub fn channel_startup_plan(&self) -> RusshChannelStartupPlan {
+        RusshChannelStartupPlan::from_open_plan(&self.channel_open_plan)
     }
 }
 

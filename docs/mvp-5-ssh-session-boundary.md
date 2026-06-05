@@ -73,6 +73,10 @@ contract that a future in-process `russh` adapter must satisfy.
   `russh::client::connect` and the following channel-open step from an
   `SshConnectRequest`: socket host, socket port, username, and
   `SshChannelOpenPlan`.
+- `RusshChannelStartupPlan` converts the channel-open plan into the ordered
+  `russh::Channel` requests that must run after authentication: PTY then shell
+  for interactive sessions, PTY then exec for remote commands, and no channel
+  startup request for no-shell tunnel sessions.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
@@ -235,6 +239,8 @@ SSH-boundary tests cover:
   host-key behavior through the `russh` client handler
 - `RusshConnectPlan` derivation for socket address, username, and channel-open
   plan from a validated SSH request
+- `RusshChannelStartupPlan` request ordering for shell, remote command, and
+  no-shell startup modes
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
