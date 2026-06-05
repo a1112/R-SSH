@@ -70,7 +70,8 @@ The console path also answers basic terminal status and device-attribute queries
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
   rendering, and input-write metrics with `window --metrics`; the SSH crate now
   has a validated config, authentication request model, connector entry point,
-  shell-session boundary, and `rssh-app ssh` request parsing. See
+  shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
+  runner path. See
   `docs/mvp-5-ssh-session-boundary.md`.
 
 ## Reference Sources

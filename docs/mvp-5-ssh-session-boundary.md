@@ -39,6 +39,9 @@ channel contract that a future `russh` adapter must satisfy.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password auth, private-key
   auth with optional passphrase, and agent auth.
+- `rssh-app` has an injectable SSH runner path that passes the parsed request to
+  a connector, streams shell output to the local console, and closes the shell
+  session after EOF.
 
 ## Run
 
@@ -48,14 +51,16 @@ Parse an SSH request with agent authentication:
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 ```
 
-The command currently validates and parses the request, then exits with a clear
-message because the `russh` connector is not wired yet.
+The command currently validates and parses the request, enters the SSH runner,
+then exits with a clear message because the default connector is still the
+temporary "not wired" connector.
 
 ## Verification
 
 ```powershell
 cargo test -p rssh-ssh
 cargo test -p rssh-app ssh_
+cargo test -p rssh-app ssh_runner
 ```
 
 SSH-boundary tests cover:
@@ -68,6 +73,7 @@ SSH-boundary tests cover:
 - shell-session trait shape with a mock channel
 - app-level SSH command parsing for agent, password, and private-key requests
 - missing host/user and conflicting authentication rejection
+- app-level SSH runner behavior with a mock connector and shell session
 
 ## Explicit Non-Scope
 
