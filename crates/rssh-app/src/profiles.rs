@@ -69,6 +69,7 @@ impl ProfileDefinition {
         if self.mouse.unwrap_or(false) {
             args.push("--mouse".to_owned());
         }
+        append_optional(args, "--osc52", self.osc52.as_ref());
         append_optional(args, "--log", self.log.as_ref());
         append_command(args, self.command.as_ref(), "local command")?;
         Ok(())
@@ -82,6 +83,7 @@ impl ProfileDefinition {
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
         append_auth_args(args, self.auth.as_deref(), self.key.as_ref())?;
+        append_optional(args, "--osc52", self.osc52.as_ref());
         append_optional(args, "--log", self.log.as_ref());
         append_forwards(args, "--local-forward", self.local_forward.as_ref());
         append_forwards(args, "--remote-forward", self.remote_forward.as_ref());
@@ -229,6 +231,7 @@ port = 2222
 auth = "agent"
 cols = 120
 rows = 30
+osc52 = "off"
 remote_command = ["uname", "-a"]
 local_forward = ["127.0.0.1:15432:db.internal:5432"]
 dynamic_forward = ["127.0.0.1:1080"]
@@ -259,6 +262,7 @@ dynamic_forward = ["127.0.0.1:1080"]
                     SshForward::Dynamic("127.0.0.1:1080".to_owned()),
                 ],
                 no_shell: false,
+                osc52_policy: crate::cli::Osc52Policy::Off,
                 log: None,
             })
         );
@@ -274,6 +278,7 @@ kind = "local"
 cols = 100
 rows = 32
 mouse = true
+osc52 = "write"
 log = "dev.log"
 command = ["pwsh", "-NoLogo"]
 "#,
@@ -293,6 +298,7 @@ command = ["pwsh", "-NoLogo"]
                 command: rssh_pty::PtyCommand::new("pwsh").with_args(["-NoLogo"]),
                 size: Some(rssh_pty::PtySize::try_new(100, 32).unwrap()),
                 mouse: true,
+                osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 log: Some(PathBuf::from("dev.log")),
             })
         );

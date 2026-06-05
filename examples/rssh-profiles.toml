@@ -13,6 +13,7 @@
 kind = "local"
 cols = 100
 rows = 30
+osc52 = "write"
 command = ["powershell", "-NoProfile", "-Command", "Write-Output rssh-profile-smoke"]
 # Optional: uncomment to write visible terminal output to a file.
 # log = "local-smoke.log"
@@ -33,6 +34,7 @@ user = "ops"
 auth = "agent"
 cols = 120
 rows = 32
+osc52 = "write"
 # log = "prod-shell.log"
 
 [profiles.prod-tunnel]

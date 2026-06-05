@@ -124,6 +124,7 @@ fn local_options_for_options(options: &SshOptions) -> Result<LocalOptions, Box<d
         command: openssh_command_for_options(options),
         size: Some(PtySize::try_new(size.columns, size.rows)?),
         mouse: true,
+        osc52_policy: options.osc52_policy,
         log: options.log.clone(),
     })
 }
@@ -135,6 +136,7 @@ fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions
         remote_command: Vec::new(),
         forwards: Vec::new(),
         no_shell: false,
+        osc52_policy: crate::cli::Osc52Policy::default(),
         log: None,
     })
 }
@@ -209,7 +211,7 @@ mod tests {
         SshConnectRequest, SshSessionConfig, SshSessionError, SshShellConnector, SshShellSession,
     };
 
-    use crate::cli::{OpenSshTarget, SshOptions, SshTarget};
+    use crate::cli::{OpenSshTarget, Osc52Policy, SshOptions, SshTarget};
 
     #[test]
     fn ssh_runner_streams_remote_output_and_closes_session() {
@@ -228,6 +230,7 @@ mod tests {
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
                 no_shell: false,
+                osc52_policy: Osc52Policy::default(),
                 log: None,
             },
             &mut connector,
@@ -260,6 +263,7 @@ mod tests {
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
                 no_shell: false,
+                osc52_policy: Osc52Policy::default(),
                 log: None,
             },
             &mut connector,
@@ -350,6 +354,25 @@ mod tests {
     }
 
     #[test]
+    fn openssh_local_options_preserve_osc52_policy() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let options = SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: Vec::new(),
+            no_shell: false,
+            osc52_policy: Osc52Policy::Off,
+            log: None,
+        };
+
+        let local_options = super::local_options_for_options(&options).unwrap();
+
+        assert_eq!(local_options.osc52_policy, Osc52Policy::Off);
+    }
+
+    #[test]
     fn openssh_command_uses_config_target_with_overrides() {
         let options = SshOptions {
             target: SshTarget::OpenSsh(OpenSshTarget {
@@ -365,6 +388,7 @@ mod tests {
             remote_command: Vec::new(),
             forwards: Vec::new(),
             no_shell: false,
+            osc52_policy: Osc52Policy::default(),
             log: None,
         };
 
@@ -398,6 +422,7 @@ mod tests {
             remote_command: vec!["uname".to_owned(), "-a".to_owned()],
             forwards: Vec::new(),
             no_shell: false,
+            osc52_policy: Osc52Policy::default(),
             log: None,
         };
 
@@ -423,6 +448,7 @@ mod tests {
                 crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned()),
             ],
             no_shell: true,
+            osc52_policy: Osc52Policy::default(),
             log: None,
         };
 
@@ -507,6 +533,7 @@ mod tests {
             remote_command: Vec::new(),
             forwards: Vec::new(),
             no_shell: false,
+            osc52_policy: Osc52Policy::default(),
             log: None,
         }
     }

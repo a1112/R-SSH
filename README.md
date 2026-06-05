@@ -50,6 +50,7 @@ cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.e
 cargo run -p rssh-app -- local
 cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
+cargo run -p rssh-app -- local --osc52 write
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
@@ -59,6 +60,7 @@ cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.internal:5432 --no-shell
 cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
+cargo run -p rssh-app -- ssh --target prod --osc52 write
 cargo run -p rssh-app -- ssh --target prod --log prod.log
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
@@ -78,7 +80,9 @@ XTGETTCAP capability replies include terminal name, 256-color/true-color
 markers, OSC 52 clipboard support, and current column/row counts.
 OSC 52 clipboard writes and read queries are handled in the console path so
 local and OpenSSH-backed terminal programs can use terminal clipboard
-integration.
+integration. Use `--osc52 off|write|read-write` on `local`, `ssh`, or
+`window` to control whether PTY-side OSC 52 clipboard writes and read queries
+are allowed.
 PTY-backed local, window, and OpenSSH child processes receive
 `TERM=xterm-256color` and `COLORTERM=truecolor` by default.
 Use `--log PATH` on `local` or `ssh` to tee visible terminal output to a session

@@ -25,7 +25,7 @@ use rssh_pty::{PtyExitStatus, PtySession, PtySize};
 use rssh_terminal::{Cell, Color, CursorShape, Terminal};
 
 use crate::{
-    cli::LocalOptions,
+    cli::{LocalOptions, Osc52Policy},
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_modes::{
         MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange,
@@ -51,6 +51,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let output_control_sender = control_sender.clone();
     let runtime_state = LocalRuntimeState::new(size);
     let output_terminal_size = runtime_state.terminal_size.clone();
+    let osc52_policy = options.osc52_policy;
 
     let _reader_thread = thread::spawn(move || {
         let result = copy_pty_output(
@@ -58,6 +59,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
             &terminal_response_sender,
             &output_control_sender,
             output_terminal_size,
+            osc52_policy,
             log_file.as_mut().map(|file| file as &mut dyn Write),
         );
         let _ = reader_done_sender.send(result);
@@ -351,6 +353,7 @@ fn copy_pty_output(
     pty_input_sender: &mpsc::Sender<Vec<u8>>,
     control_sender: &mpsc::Sender<LocalControlEvent>,
     terminal_size: SharedTerminalSize,
+    osc52_policy: Osc52Policy,
     log: Option<&mut dyn Write>,
 ) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
@@ -397,6 +400,7 @@ fn copy_pty_output(
                     },
                     write_local_clipboard_text,
                     read_local_clipboard_text,
+                    osc52_policy,
                 )?;
                 output.flush()?;
             }
@@ -698,7 +702,7 @@ impl TerminalOutputFilter {
         output: &mut dyn Write,
         respond: impl FnMut(&[u8]) -> io::Result<()>,
     ) -> io::Result<()> {
-        self.write_with_clipboard(bytes, output, respond, |_| false, || None)
+        self.write_with_clipboard(bytes, output, respond, |_| false, || None, Osc52Policy::Off)
     }
 
     fn write_with_clipboard(
@@ -708,6 +712,7 @@ impl TerminalOutputFilter {
         mut respond: impl FnMut(&[u8]) -> io::Result<()>,
         mut write_clipboard: impl FnMut(&str) -> bool,
         mut read_clipboard: impl FnMut() -> Option<String>,
+        osc52_policy: Osc52Policy,
     ) -> io::Result<()> {
         self.mode_tracker.process_without_emitting(bytes);
         self.color_state.process(bytes);
@@ -718,10 +723,14 @@ impl TerminalOutputFilter {
             self.feed_mirror_through_output(index);
             match response.response {
                 TerminalResponse::Osc52Write(text) => {
-                    let _ = write_clipboard(&text);
+                    if osc52_policy.allows_write() {
+                        let _ = write_clipboard(&text);
+                    }
                 }
                 TerminalResponse::Osc52Query(selection) => {
-                    if let Some(text) = read_clipboard() {
+                    if osc52_policy.allows_query()
+                        && let Some(text) = read_clipboard()
+                    {
                         let response_bytes = encode_osc52_clipboard_response(&selection, &text);
                         respond(&response_bytes)?;
                     }
@@ -2310,7 +2319,8 @@ mod tests {
     };
 
     use super::{
-        InputModes, TerminalOutputFilter, encode_input_event, encode_key, resolve_local_size,
+        InputModes, Osc52Policy, TerminalOutputFilter, encode_input_event, encode_key,
+        resolve_local_size,
     };
 
     #[test]
@@ -3447,6 +3457,7 @@ mod tests {
                     true
                 },
                 || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
             )
             .unwrap();
         filter.flush(&mut output).unwrap();
@@ -3472,12 +3483,73 @@ mod tests {
                 },
                 |_| true,
                 || Some("copy".to_owned()),
+                Osc52Policy::ReadWrite,
             )
             .unwrap();
         filter.flush(&mut output).unwrap();
 
         assert_eq!(output, b"beforeafter");
         assert_eq!(responses, b"\x1b]52;c;Y29weQ==\x07");
+    }
+
+    #[test]
+    fn terminal_output_filter_blocks_osc52_when_policy_is_off() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x1b]52;c;Y29weQ==\x07 middle\x1b]52;c;?\x07after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("copy".to_owned()),
+                Osc52Policy::Off,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middleafter");
+        assert!(responses.is_empty());
+        assert!(writes.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_write_only_osc52_policy_blocks_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x1b]52;c;Y29weQ==\x07 middle\x1b]52;c;?\x07after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("copy".to_owned()),
+                Osc52Policy::WriteOnly,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middleafter");
+        assert!(responses.is_empty());
+        assert_eq!(writes, vec!["copy"]);
     }
 
     #[test]

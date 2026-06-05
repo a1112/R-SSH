@@ -22,6 +22,7 @@ pub struct LocalOptions {
     pub command: PtyCommand,
     pub size: Option<PtySize>,
     pub mouse: bool,
+    pub osc52_policy: Osc52Policy,
     pub log: Option<PathBuf>,
 }
 
@@ -37,6 +38,7 @@ pub struct SshOptions {
     pub remote_command: Vec<String>,
     pub forwards: Vec<SshForward>,
     pub no_shell: bool,
+    pub osc52_policy: Osc52Policy,
     pub log: Option<PathBuf>,
 }
 
@@ -74,6 +76,7 @@ struct SshParseState {
     remote_command: Vec<String>,
     forwards: Vec<SshForward>,
     no_shell: bool,
+    osc52_policy: Osc52Policy,
     log: Option<PathBuf>,
 }
 
@@ -156,7 +159,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -169,6 +172,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
     let mut columns = None;
     let mut rows = None;
     let mut mouse = false;
+    let mut osc52_policy = Osc52Policy::default();
     let mut log = None;
     let mut command_args = Vec::new();
     let mut index = 0;
@@ -185,6 +189,10 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
             }
             "--mouse" => {
                 mouse = true;
+            }
+            "--osc52" => {
+                index += 1;
+                osc52_policy = parse_osc52_policy(args.get(index))?;
             }
             "--log" => {
                 index += 1;
@@ -223,6 +231,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         command,
         size,
         mouse,
+        osc52_policy,
         log,
     }))
 }
@@ -353,6 +362,10 @@ fn parse_ssh_option(
         "--no-shell" => {
             state.no_shell = true;
         }
+        "--osc52" => {
+            *index += 1;
+            state.osc52_policy = parse_osc52_policy(args.get(*index))?;
+        }
         "--log" => {
             *index += 1;
             state.log = Some(PathBuf::from(required_option_value(
@@ -378,6 +391,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         remote_command,
         forwards,
         no_shell,
+        osc52_policy,
         log,
     } = state;
 
@@ -414,6 +428,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         remote_command,
         forwards,
         no_shell,
+        osc52_policy,
         log,
     })
 }
@@ -748,6 +763,18 @@ mod tests {
     }
 
     #[test]
+    fn parses_local_osc52_policy() {
+        let parsed = parse_args(["rssh-app", "local", "--osc52", "write"]).unwrap();
+
+        let AppCommand::Local(options) = parsed else {
+            panic!("expected local command");
+        };
+
+        assert_eq!(options.osc52_policy, super::Osc52Policy::WriteOnly);
+        assert!(parse_args(["rssh-app", "local", "--osc52", "bad"]).is_err());
+    }
+
+    #[test]
     fn parses_ssh_agent_connection_request() {
         let parsed =
             parse_args(["rssh-app", "ssh", "--host", "example.com", "--user", "ops"]).unwrap();
@@ -875,6 +902,18 @@ mod tests {
         };
 
         assert_eq!(options.log, Some(std::path::PathBuf::from("ssh.log")));
+    }
+
+    #[test]
+    fn parses_ssh_osc52_policy() {
+        let parsed = parse_args(["rssh-app", "ssh", "--target", "prod", "--osc52", "off"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(options.osc52_policy, super::Osc52Policy::Off);
+        assert!(parse_args(["rssh-app", "ssh", "--target", "prod", "--osc52", "bad"]).is_err());
     }
 
     #[test]

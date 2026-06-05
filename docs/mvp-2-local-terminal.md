@@ -88,6 +88,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   PTY-side base64 clipboard payloads into the system clipboard and answering
   `?` queries with base64-encoded clipboard content. OSC 52 control sequences
   are removed from console display output.
+- `rssh-app local --osc52 off|write|read-write` controls whether PTY-side OSC
+  52 clipboard writes and read queries are allowed. SSH sessions that use the
+  OpenSSH-backed console runtime inherit the same policy through
+  `rssh-app ssh --osc52 ...`.
 - The app answers xterm XTGETTCAP terminal-capability queries
   (`DCS + q <hex-cap> ST`) for common compatibility probes, including
   `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, `Ms` OSC 52
@@ -139,6 +143,12 @@ Run with mouse/focus reporting enabled:
 
 ```powershell
 cargo run -p rssh-app -- local --mouse
+```
+
+Restrict OSC 52 clipboard access to writes only:
+
+```powershell
+cargo run -p rssh-app -- local --osc52 write
 ```
 
 Write a session log:
@@ -215,7 +225,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   cover color-setting sequences followed by matching queries.
 - OSC 52 clipboard: unit tests cover console-path clipboard writes and
   clipboard query responses without writing OSC 52 control bytes to console
-  output.
+  output, plus `off` and `write` policy enforcement.
 - XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
   queries for colors, terminal name, true-color marker, current columns/rows,
   and unknown capability fallback.
