@@ -63,6 +63,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   chunks before writing them to the host console, and drops incomplete OSC
   control strings during EOF flush so half-written OSC bytes do not pollute the
   host console.
+- The same chunk-boundary handling applies to ST-terminated DCS/SOS/PM/APC
+  control strings, preventing half-written control strings from reaching the
+  host console before their ST terminator arrives.
 - The app answers standard and DEC private cursor-position queries (`ESC[6n`
   and `ESC[?6n`) with the current mirrored terminal cursor position so shells
   and TUI programs can complete position handshakes. Equivalent 8-bit C1 CSI
@@ -257,6 +260,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - OSC chunking: unit tests cover split OSC title sequences so incomplete OSC
   control strings are held until terminated, plus EOF flushing for incomplete
   OSC control strings.
+- ST-string chunking: unit tests cover split and incomplete DCS control strings
+  so ST-terminated control strings are held until terminated and dropped if EOF
+  arrives first.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
   reporting granularity, `1006` SGR protocol toggling, and C1 CSI private mode

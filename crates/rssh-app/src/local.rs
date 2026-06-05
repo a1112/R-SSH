@@ -895,6 +895,7 @@ impl TerminalOutputFilter {
             .max(osc52_clipboard_sequence_suffix_len(pending))
             .max(osc8_hyperlink_sequence_suffix_len(pending))
             .max(incomplete_osc_control_sequence_suffix_len(pending))
+            .max(incomplete_st_control_sequence_suffix_len(pending))
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
@@ -1180,6 +1181,7 @@ fn find_incomplete_prefixed_sequence_start(bytes: &[u8], prefix: &[u8]) -> Optio
 fn find_incomplete_control_sequence_start(bytes: &[u8]) -> Option<usize> {
     [
         find_incomplete_osc_control_sequence_start(bytes),
+        find_incomplete_st_control_sequence_start(bytes),
         find_incomplete_osc8_hyperlink_start(bytes),
         find_incomplete_osc52_clipboard_start(bytes),
     ]
@@ -1209,6 +1211,60 @@ fn find_incomplete_osc_control_sequence_start(bytes: &[u8]) -> Option<usize> {
     }
 
     None
+}
+
+fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_st_control_sequence_start(bytes)
+        .map_or(0, |start| bytes.len() - start)
+        .max(
+            [
+                b"\x1bP".as_slice(),
+                b"\x1bX".as_slice(),
+                b"\x1b^".as_slice(),
+                b"\x1b_".as_slice(),
+            ]
+            .into_iter()
+            .map(|prefix| suffix_len_matching_prefix(bytes, prefix))
+            .max()
+            .unwrap_or(0),
+        )
+}
+
+fn find_incomplete_st_control_sequence_start(bytes: &[u8]) -> Option<usize> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let Some((relative_index, prefix_len)) =
+            find_next_st_control_string_start(&bytes[offset..])
+        else {
+            break;
+        };
+        let index = offset + relative_index;
+        let content_start = index + prefix_len;
+        let Some(terminator) = find_xtgettcap_terminator(&bytes[content_start..]) else {
+            return Some(index);
+        };
+        offset = content_start + terminator.index + terminator.length;
+    }
+
+    None
+}
+
+fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
+    [
+        (b"\x1bP".as_slice(), 2),
+        (b"\x1bX".as_slice(), 2),
+        (b"\x1b^".as_slice(), 2),
+        (b"\x1b_".as_slice(), 2),
+        (b"\x90".as_slice(), 1),
+        (b"\x98".as_slice(), 1),
+        (b"\x9e".as_slice(), 1),
+        (b"\x9f".as_slice(), 1),
+    ]
+    .into_iter()
+    .filter_map(|(prefix, prefix_len)| {
+        find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+    })
+    .min_by_key(|(index, _)| *index)
 }
 
 struct Osc52ClipboardSequence {
@@ -3160,6 +3216,52 @@ mod tests {
         assert_eq!(output, b"before");
         assert!(responses.is_empty());
         assert_eq!(filter.mirror.title(), None);
+    }
+
+    #[test]
+    fn terminal_output_filter_holds_split_dcs_until_terminated() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1bPignored", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+
+        filter
+            .write(b"\x1b\\after", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before\x1bPignored\x1b\\after");
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_drops_incomplete_dcs_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1bPignored", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
     }
 
     #[test]
