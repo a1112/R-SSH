@@ -4,7 +4,9 @@ use rssh_core::TerminalSize;
 
 mod russh_client;
 
-pub use russh_client::{RusshChannelOpener, RusshClientHandler, RusshHostKeyPolicy};
+pub use russh_client::{
+    RusshChannelOpener, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshConfigError {
@@ -569,7 +571,7 @@ mod tests {
         SshSessionStartup, SshShellConnector, SshShellSession, SshStartupError,
     };
 
-    use crate::RusshHostKeyPolicy;
+    use crate::{RusshConnectPlan, RusshHostKeyPolicy};
 
     #[test]
     fn session_config_keeps_terminal_size() {
@@ -899,6 +901,59 @@ mod tests {
 
         assert_eq!(opener.host_key_policy(), RusshHostKeyPolicy::AcceptUnknown);
         assert!(opener.into_handler().accepts_unknown_host_keys());
+    }
+
+    #[test]
+    fn russh_connect_plan_builds_socket_address_and_username_from_request() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new(
+                "ssh.example.com",
+                2222,
+                "deploy",
+                TerminalSize::new(120, 30),
+            )
+            .unwrap(),
+        );
+
+        let plan = RusshConnectPlan::from_request(&request);
+
+        assert_eq!(plan.socket_addr(), ("ssh.example.com", 2222));
+        assert_eq!(plan.username(), "deploy");
+    }
+
+    #[test]
+    fn russh_connect_plan_carries_channel_open_plan_from_request() {
+        let request = SshConnectRequest::agent(valid_config())
+            .with_startup(SshSessionStartup::command(["uptime".to_owned()]).unwrap());
+
+        let plan = RusshConnectPlan::from_request(&request);
+
+        assert_eq!(
+            plan.channel_open_plan(),
+            &SshChannelOpenPlan {
+                pty_size: Some(TerminalSize::new(100, 40)),
+                startup: SshSessionStartup::Command(vec!["uptime".to_owned()])
+            }
+        );
+    }
+
+    #[test]
+    fn russh_channel_opener_builds_connect_plan_for_request() {
+        let request =
+            SshConnectRequest::agent(valid_config()).with_startup(SshSessionStartup::NoShell);
+        let opener = super::RusshChannelOpener::default();
+
+        let plan = opener.connect_plan(&request);
+
+        assert_eq!(plan.socket_addr(), ("example.com", 22));
+        assert_eq!(plan.username(), "ops");
+        assert_eq!(
+            plan.channel_open_plan(),
+            &SshChannelOpenPlan {
+                pty_size: None,
+                startup: SshSessionStartup::NoShell
+            }
+        );
     }
 
     fn valid_config() -> SshSessionConfig {

@@ -69,6 +69,10 @@ contract that a future in-process `russh` adapter must satisfy.
 - `RusshClientHandler` implements `russh::client::Handler::check_server_key`
   from that policy, giving the future `russh` connection path a tested
   host-key gate before authentication and channel opening are wired in.
+- `RusshConnectPlan` derives the stable inputs for
+  `russh::client::connect` and the following channel-open step from an
+  `SshConnectRequest`: socket host, socket port, username, and
+  `SshChannelOpenPlan`.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
@@ -229,6 +233,8 @@ SSH-boundary tests cover:
 - `RusshChannelOpener` construction against a real `russh::client::Config`
 - `RusshHostKeyPolicy` defaults and explicit insecure/test-only accept-unknown
   host-key behavior through the `russh` client handler
+- `RusshConnectPlan` derivation for socket address, username, and channel-open
+  plan from a validated SSH request
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,

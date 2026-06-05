@@ -1,9 +1,46 @@
 use std::time::Duration;
 
+use crate::{SshChannelOpenPlan, SshConnectRequest};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RusshHostKeyPolicy {
     RejectUnknown,
     AcceptUnknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RusshConnectPlan {
+    host: String,
+    port: u16,
+    username: String,
+    channel_open_plan: SshChannelOpenPlan,
+}
+
+impl RusshConnectPlan {
+    #[must_use]
+    pub fn from_request(request: &SshConnectRequest) -> Self {
+        Self {
+            host: request.config.host.clone(),
+            port: request.config.port,
+            username: request.config.username.clone(),
+            channel_open_plan: SshChannelOpenPlan::from_request(request),
+        }
+    }
+
+    #[must_use]
+    pub fn socket_addr(&self) -> (&str, u16) {
+        (&self.host, self.port)
+    }
+
+    #[must_use]
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    #[must_use]
+    pub const fn channel_open_plan(&self) -> &SshChannelOpenPlan {
+        &self.channel_open_plan
+    }
 }
 
 #[derive(Debug)]
@@ -56,6 +93,11 @@ impl RusshChannelOpener {
         RusshClientHandler {
             host_key_policy: self.host_key_policy,
         }
+    }
+
+    #[must_use]
+    pub fn connect_plan(&self, request: &SshConnectRequest) -> RusshConnectPlan {
+        RusshConnectPlan::from_request(request)
     }
 }
 
