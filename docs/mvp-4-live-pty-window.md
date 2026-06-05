@@ -12,7 +12,8 @@ in the native `winit` window.
 - The runtime filters terminal cursor position, device-attribute, status,
   text-area size, and screen character-size queries, then returns responses
   that are written back to the PTY. Standard and DEC private cursor-position
-  responses use the current terminal grid cursor.
+  responses use the current terminal grid cursor. Equivalent 8-bit C1 CSI query
+  forms are handled through the same runtime path.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
@@ -167,6 +168,8 @@ MVP 4 tests cover:
 - native window clipboard paste encoding and paste shortcut detection
 - OSC 52 clipboard extraction from PTY output, native window clipboard writes,
   and clipboard query responses
+- C1 CSI cursor, device/status, and size query responses in the shared terminal
+  runtime
 - native window OSC 52 policy parsing and write/query enforcement
 - native window local selection text extraction, highlight overlay, mouse drag,
   double-click word selection, triple-click line selection, and copy shortcut

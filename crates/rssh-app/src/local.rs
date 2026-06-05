@@ -538,7 +538,15 @@ impl TerminalOutputFilter {
             response: TerminalResponse::CursorPosition { private: false },
         },
         TerminalQueryResponse {
+            query: b"\x9b6n",
+            response: TerminalResponse::CursorPosition { private: false },
+        },
+        TerminalQueryResponse {
             query: b"\x1b[?6n",
+            response: TerminalResponse::CursorPosition { private: true },
+        },
+        TerminalQueryResponse {
+            query: b"\x9b?6n",
             response: TerminalResponse::CursorPosition { private: true },
         },
         TerminalQueryResponse {
@@ -546,7 +554,15 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[?1;2c"),
         },
         TerminalQueryResponse {
+            query: b"\x9bc",
+            response: TerminalResponse::Static(b"\x1b[?1;2c"),
+        },
+        TerminalQueryResponse {
             query: b"\x1b[>c",
+            response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b>c",
             response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
         },
         TerminalQueryResponse {
@@ -554,11 +570,23 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[0n"),
         },
         TerminalQueryResponse {
+            query: b"\x9b5n",
+            response: TerminalResponse::Static(b"\x1b[0n"),
+        },
+        TerminalQueryResponse {
             query: b"\x1b[18t",
             response: TerminalResponse::TextAreaSize,
         },
         TerminalQueryResponse {
+            query: b"\x9b18t",
+            response: TerminalResponse::TextAreaSize,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[19t",
+            response: TerminalResponse::ScreenSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b19t",
             response: TerminalResponse::ScreenSize,
         },
     ];
@@ -1673,6 +1701,23 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_c1_cursor_position_query() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"abc\x9b6n", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"abc");
+        assert_eq!(responses, b"\x1b[1;4R");
+    }
+
+    #[test]
     fn terminal_output_filter_answers_private_cursor_position_query() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -1697,6 +1742,24 @@ mod tests {
 
         filter
             .write(b"a\x1b[c b\x1b[>c c\x1b[5n d", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"a b c d");
+        assert_eq!(responses, b"\x1b[?1;2c\x1b[>0;0;0c\x1b[0n");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_device_and_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"a\x9bc b\x9b>c c\x9b5n d", &mut output, |response| {
                 responses.extend_from_slice(response);
                 Ok(())
             })
@@ -1741,6 +1804,28 @@ mod tests {
 
         assert_eq!(output, b"beforeafter");
         assert_eq!(responses, b"\x1b[9;43;132t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_terminal_size_queries() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x9b18t middle\x9b19tafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middleafter");
+        assert_eq!(responses, b"\x1b[8;43;132t\x1b[9;43;132t");
     }
 
     #[test]

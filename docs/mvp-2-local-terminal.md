@@ -53,13 +53,14 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   visible-output log.
 - The app answers standard and DEC private cursor-position queries (`ESC[6n`
   and `ESC[?6n`) with the current mirrored terminal cursor position so shells
-  and TUI programs can complete position handshakes.
+  and TUI programs can complete position handshakes. Equivalent 8-bit C1 CSI
+  query forms (`0x9b 6n` and `0x9b ? 6n`) are handled the same way.
 - The app also answers primary device attributes `ESC[c`, secondary device
   attributes `ESC[>c`, and terminal status `ESC[5n` instead of leaking those
-  queries to the host console.
+  queries to the host console; equivalent C1 CSI forms are also answered.
 - The app answers text-area size query `ESC[18t` with
   `ESC[8;<rows>;<columns>t` and screen character-size query `ESC[19t` with
-  `ESC[9;<rows>;<columns>t`.
+  `ESC[9;<rows>;<columns>t`, including equivalent C1 CSI query forms.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - After a fast child-process exit, `rssh-app local` briefly drains PTY reader
@@ -163,7 +164,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   is present every time.
 - Control-sequence response: unit tests cover normal output, dynamic `ESC[6n`
   and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[18t`, `ESC[19t`, and split
-  response-query chunks.
+  response-query chunks. C1 CSI equivalents for cursor, device/status, and size
+  queries are also covered.
 - Session logging: unit tests cover teeing visible terminal output to a log
   writer, omitting non-visible control sequences from the log while preserving
   them for the host console, and smoke checks can verify `--log` writes command

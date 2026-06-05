@@ -134,7 +134,15 @@ impl TerminalOutputFilter {
             response: TerminalResponse::CursorPosition { private: false },
         },
         TerminalQueryResponse {
+            query: b"\x9b6n",
+            response: TerminalResponse::CursorPosition { private: false },
+        },
+        TerminalQueryResponse {
             query: b"\x1b[?6n",
+            response: TerminalResponse::CursorPosition { private: true },
+        },
+        TerminalQueryResponse {
+            query: b"\x9b?6n",
             response: TerminalResponse::CursorPosition { private: true },
         },
         TerminalQueryResponse {
@@ -142,7 +150,15 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[?1;2c"),
         },
         TerminalQueryResponse {
+            query: b"\x9bc",
+            response: TerminalResponse::Static(b"\x1b[?1;2c"),
+        },
+        TerminalQueryResponse {
             query: b"\x1b[>c",
+            response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b>c",
             response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
         },
         TerminalQueryResponse {
@@ -150,11 +166,23 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[0n"),
         },
         TerminalQueryResponse {
+            query: b"\x9b5n",
+            response: TerminalResponse::Static(b"\x1b[0n"),
+        },
+        TerminalQueryResponse {
             query: b"\x1b[18t",
             response: TerminalResponse::TextAreaSize,
         },
         TerminalQueryResponse {
+            query: b"\x9b18t",
+            response: TerminalResponse::TextAreaSize,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[19t",
+            response: TerminalResponse::ScreenSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b19t",
             response: TerminalResponse::ScreenSize,
         },
     ];
@@ -459,6 +487,17 @@ mod tests {
     }
 
     #[test]
+    fn answers_c1_cursor_position_query_without_feeding_it_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let responses = runtime.feed_pty_output(b"abc\x9b6n");
+
+        assert_eq!(responses, vec![b"\x1b[1;4R".to_vec()]);
+        assert!(terminal_text(&runtime).contains("abc"));
+        assert!(!terminal_text(&runtime).contains("6n"));
+    }
+
+    #[test]
     fn answers_private_cursor_position_query_with_current_cursor() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
@@ -490,6 +529,23 @@ mod tests {
     }
 
     #[test]
+    fn answers_c1_device_and_status_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let responses = runtime.feed_pty_output(b"a\x9bc b\x9b>c c\x9b5n d");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?1;2c".to_vec(),
+                b"\x1b[>0;0;0c".to_vec(),
+                b"\x1b[0n".to_vec()
+            ]
+        );
+        assert!(terminal_text(&runtime).contains("a b c d"));
+    }
+
+    #[test]
     fn answers_text_area_size_query() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
@@ -513,6 +569,17 @@ mod tests {
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
         assert!(!text.contains("[19t"));
+    }
+
+    #[test]
+    fn answers_c1_terminal_size_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let text_area = runtime.feed_pty_output(b"\x9b18t");
+        let screen = runtime.feed_pty_output(b"\x9b19t");
+
+        assert_eq!(text_area, vec![b"\x1b[8;43;132t".to_vec()]);
+        assert_eq!(screen, vec![b"\x1b[9;43;132t".to_vec()]);
     }
 
     #[test]
