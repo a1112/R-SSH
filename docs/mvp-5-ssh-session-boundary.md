@@ -60,6 +60,9 @@ contract that a future in-process `russh` adapter must satisfy.
   through an `SshShellConnector`, copies local input into the remote session,
   streams remote output to a caller-provided writer, and closes the session
   after EOF.
+- `RusshChannelOpener` starts the in-process native SSH adapter surface with a
+  real `russh::client::Config`. The dependency is configured with the `ring`
+  crypto backend so Windows builds do not require NASM for `aws-lc-rs`.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
@@ -217,6 +220,7 @@ SSH-boundary tests cover:
   SSH connector propagation for remote-command and no-shell requests
 - `run_shell_with_io` behavior for streaming remote output, forwarding local
   input, and closing the shell session
+- `RusshChannelOpener` construction against a real `russh::client::Config`
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
@@ -239,9 +243,9 @@ SSH-boundary tests cover:
 
 ## Explicit Non-Scope
 
-- In-process native `russh` network connections.
+- Complete in-process native `russh` network connections.
 - Executing password, key, agent, and host-key authentication through `russh`.
-- `russh` adapter wiring.
+- Full `russh` adapter channel wiring beyond the initial opener/config surface.
 - SFTP, in-process native tunnels, reconnects, and known-host storage.
 
 ## Next Milestone

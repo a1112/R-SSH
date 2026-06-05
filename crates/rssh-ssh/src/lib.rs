@@ -2,6 +2,10 @@ use std::path::PathBuf;
 
 use rssh_core::TerminalSize;
 
+mod russh_client;
+
+pub use russh_client::RusshChannelOpener;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SshConfigError {
     EmptyHost,
@@ -868,6 +872,15 @@ mod tests {
         assert_eq!(state.written, b"echo hi\n");
         assert_eq!(output, b"remote\n");
         assert!(state.closed);
+    }
+
+    #[test]
+    fn russh_channel_opener_exposes_client_config() {
+        let opener = super::RusshChannelOpener::default();
+
+        let config = opener.client_config();
+
+        assert!(config.keepalive_interval.is_some());
     }
 
     fn valid_config() -> SshSessionConfig {

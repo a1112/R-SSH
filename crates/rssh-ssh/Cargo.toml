@@ -7,6 +7,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring", "rsa"] }
 rssh-core = { path = "../rssh-core" }
 
 [lints]
