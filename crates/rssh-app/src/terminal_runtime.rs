@@ -1508,6 +1508,10 @@ impl TerminalClipboardTracker {
                 self.retain_possible_prefix();
                 return;
             };
+            if is_inside_osc_or_st_control_string(&self.pending, start) {
+                self.pending.drain(..start.saturating_add(1));
+                continue;
+            }
             if start > 0 {
                 self.pending.drain(..start);
             }
@@ -2189,6 +2193,26 @@ mod tests {
 
         assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
         assert!(runtime.take_clipboard_texts().is_empty());
+    }
+
+    #[test]
+    fn ignores_osc52_clipboard_text_inside_osc_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b]0;title \x1b]52;c;Y29weQ==\x07");
+
+        assert!(runtime.take_clipboard_texts().is_empty());
+        assert!(runtime.take_clipboard_queries().is_empty());
+    }
+
+    #[test]
+    fn ignores_osc52_clipboard_text_inside_st_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1bPpayload \x1b]52;c;Y29weQ==\x1b\\");
+
+        assert!(runtime.take_clipboard_texts().is_empty());
+        assert!(runtime.take_clipboard_queries().is_empty());
     }
 
     #[test]
