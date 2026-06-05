@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     io::{self, Read, Write},
-    net::{TcpListener, TcpStream},
+    net::{Ipv4Addr, Ipv6Addr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     thread,
 };
@@ -35,11 +35,35 @@ struct NativeLocalForward {
     target_port: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeDynamicForward {
+    bind_host: String,
+    bind_port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct NativeForwardPlan {
+    local_forwards: Vec<NativeLocalForward>,
+    dynamic_forwards: Vec<NativeDynamicForward>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Socks5ConnectRequest {
+    target_host: String,
+    target_port: u16,
+}
+
 trait NativeLocalForwardStarter {
     fn start(
         &mut self,
         request: SshConnectRequest,
         forward: NativeLocalForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>>;
+
+    fn start_dynamic(
+        &mut self,
+        request: SshConnectRequest,
+        forward: NativeDynamicForward,
     ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>>;
 }
 
@@ -68,6 +92,23 @@ impl NativeLocalForwardStarter for ThreadedNativeLocalForwardStarter {
         let opener = self.opener.clone();
         let join_handle = thread::spawn(move || {
             run_native_local_forward_listener(&listener, &opener, &request, &forward)
+                .map_err(|error| error.to_string())
+        });
+
+        Ok(Box::new(ThreadedNativeLocalForwardHandle {
+            join_handle: Some(join_handle),
+        }))
+    }
+
+    fn start_dynamic(
+        &mut self,
+        request: SshConnectRequest,
+        forward: NativeDynamicForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
+        let listener = TcpListener::bind((forward.bind_host.as_str(), forward.bind_port))?;
+        let opener = self.opener.clone();
+        let join_handle = thread::spawn(move || {
+            run_native_dynamic_forward_listener(&listener, &opener, &request)
                 .map_err(|error| error.to_string())
         });
 
@@ -191,7 +232,7 @@ fn native_request_for_options_with_secret_prompts(
         return Err("native SSH connector only supports direct SSH targets".into());
     };
 
-    native_local_forward_plan_for_options(options)?;
+    native_forward_plan_for_options(options)?;
 
     let startup = if options.no_shell {
         SshSessionStartup::NoShell
@@ -214,19 +255,27 @@ fn native_request_for_options_with_secret_prompts(
     Ok(request)
 }
 
-fn native_local_forward_plan_for_options(
+fn native_forward_plan_for_options(
     options: &SshOptions,
-) -> Result<Vec<NativeLocalForward>, Box<dyn Error>> {
-    options
-        .forwards
-        .iter()
-        .map(|forward| match forward {
-            SshForward::Local(spec) => parse_native_local_forward(spec),
-            SshForward::Remote(_) | SshForward::Dynamic(_) => {
-                Err("native SSH only supports local forwarding plans so far".into())
+) -> Result<NativeForwardPlan, Box<dyn Error>> {
+    let mut plan = NativeForwardPlan::default();
+
+    for forward in &options.forwards {
+        match forward {
+            SshForward::Local(spec) => plan.local_forwards.push(parse_native_local_forward(spec)?),
+            SshForward::Dynamic(spec) => {
+                plan.dynamic_forwards
+                    .push(parse_native_dynamic_forward(spec)?);
             }
-        })
-        .collect()
+            SshForward::Remote(_) => {
+                return Err(
+                    "native SSH only supports local and dynamic forwarding plans so far".into(),
+                );
+            }
+        }
+    }
+
+    Ok(plan)
 }
 
 fn parse_native_local_forward(spec: &str) -> Result<NativeLocalForward, Box<dyn Error>> {
@@ -260,6 +309,31 @@ fn parse_native_local_forward(spec: &str) -> Result<NativeLocalForward, Box<dyn 
     })
 }
 
+fn parse_native_dynamic_forward(spec: &str) -> Result<NativeDynamicForward, Box<dyn Error>> {
+    let parts = spec.split(':').collect::<Vec<_>>();
+    let (bind_host, bind_port) = match parts.as_slice() {
+        [bind_port] => ("127.0.0.1", *bind_port),
+        [bind_host, bind_port] => (*bind_host, *bind_port),
+        _ => {
+            return Err(format!(
+                "invalid native dynamic-forward spec {spec:?}; expected [bind_host:]bind_port"
+            )
+            .into());
+        }
+    };
+
+    if bind_host.trim().is_empty() {
+        return Err(
+            format!("invalid native dynamic-forward spec {spec:?}; host cannot be empty").into(),
+        );
+    }
+
+    Ok(NativeDynamicForward {
+        bind_host: bind_host.to_owned(),
+        bind_port: parse_forward_port(bind_port, "bind port")?,
+    })
+}
+
 fn parse_forward_port(value: &str, name: &str) -> Result<u16, Box<dyn Error>> {
     let port = value
         .parse::<u16>()
@@ -268,6 +342,67 @@ fn parse_forward_port(value: &str, name: &str) -> Result<u16, Box<dyn Error>> {
         return Err(format!("invalid native local-forward {name}: {value}").into());
     }
     Ok(port)
+}
+
+fn read_socks5_connect_request(
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> Result<Socks5ConnectRequest, Box<dyn Error>> {
+    let mut greeting = [0; 2];
+    input.read_exact(&mut greeting)?;
+    if greeting[0] != 0x05 {
+        return Err("SOCKS5 greeting must start with version 5".into());
+    }
+
+    let method_count = usize::from(greeting[1]);
+    let mut methods = vec![0; method_count];
+    input.read_exact(&mut methods)?;
+    if !methods.contains(&0x00) {
+        output.write_all(&[0x05, 0xff])?;
+        output.flush()?;
+        return Err("SOCKS5 client did not offer no-auth authentication".into());
+    }
+    output.write_all(&[0x05, 0x00])?;
+    output.flush()?;
+
+    let mut header = [0; 4];
+    input.read_exact(&mut header)?;
+    if header[0] != 0x05 || header[1] != 0x01 || header[2] != 0x00 {
+        return Err("SOCKS5 request must be a CONNECT request".into());
+    }
+
+    let target_host = match header[3] {
+        0x01 => {
+            let mut octets = [0; 4];
+            input.read_exact(&mut octets)?;
+            Ipv4Addr::from(octets).to_string()
+        }
+        0x03 => {
+            let mut length = [0; 1];
+            input.read_exact(&mut length)?;
+            let mut host = vec![0; usize::from(length[0])];
+            input.read_exact(&mut host)?;
+            String::from_utf8(host)?
+        }
+        0x04 => {
+            let mut octets = [0; 16];
+            input.read_exact(&mut octets)?;
+            Ipv6Addr::from(octets).to_string()
+        }
+        _ => return Err("SOCKS5 address type is not supported".into()),
+    };
+
+    let mut port = [0; 2];
+    input.read_exact(&mut port)?;
+    let target_port = u16::from_be_bytes(port);
+    if target_host.trim().is_empty() || target_port == 0 {
+        return Err("SOCKS5 CONNECT target cannot be empty".into());
+    }
+
+    Ok(Socks5ConnectRequest {
+        target_host,
+        target_port,
+    })
 }
 
 fn native_direct_tcpip_plan_for_local_forward(
@@ -331,6 +466,71 @@ fn run_native_local_forward_connection(
 
     download?;
     upload.map_err(Into::into)
+}
+
+fn run_native_dynamic_forward_listener(
+    listener: &TcpListener,
+    opener: &RusshChannelOpener,
+    request: &SshConnectRequest,
+) -> Result<(), Box<dyn Error>> {
+    for stream in listener.incoming() {
+        let stream = stream?;
+        let mut opener = opener.clone();
+        let request = request.clone();
+        thread::spawn(move || {
+            let _ = run_native_dynamic_forward_connection(stream, &mut opener, request);
+        });
+    }
+
+    Ok(())
+}
+
+fn run_native_dynamic_forward_connection(
+    local_stream: TcpStream,
+    opener: &mut RusshChannelOpener,
+    request: SshConnectRequest,
+) -> Result<(), Box<dyn Error>> {
+    let peer_addr = local_stream.peer_addr()?;
+    let mut socks_input = local_stream.try_clone()?;
+    let mut socks_output = local_stream.try_clone()?;
+    let socks_request = read_socks5_connect_request(&mut socks_input, &mut socks_output)?;
+    let direct_tcpip_plan = RusshDirectTcpIpOpenPlan::new(
+        socks_request.target_host,
+        socks_request.target_port,
+        peer_addr.ip().to_string(),
+        peer_addr.port(),
+    );
+    let channel = match opener.open_direct_tcpip_channel(request, &direct_tcpip_plan) {
+        Ok(channel) => channel,
+        Err(error) => {
+            write_socks5_connect_reply(&mut socks_output, 0x01)?;
+            return Err(error.into());
+        }
+    };
+    write_socks5_connect_reply(&mut socks_output, 0x00)?;
+
+    let (mut remote_reader, mut remote_writer) = channel.into_read_writer();
+    let mut local_reader = local_stream.try_clone()?;
+    let mut local_writer = local_stream;
+
+    let upload = thread::spawn(move || {
+        io::copy(&mut local_reader, &mut remote_writer)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    });
+    let download = io::copy(&mut remote_reader, &mut local_writer).map(|_| ());
+    let upload = upload
+        .join()
+        .map_err(|_| "native SSH dynamic forwarding upload worker panicked")?;
+
+    download?;
+    upload.map_err(Into::into)
+}
+
+fn write_socks5_connect_reply(output: &mut dyn Write, status: u8) -> Result<(), Box<dyn Error>> {
+    output.write_all(&[0x05, status, 0x00, 0x01, 0, 0, 0, 0, 0, 0])?;
+    output.flush()?;
+    Ok(())
 }
 
 #[must_use]
@@ -549,7 +749,7 @@ fn run_native_with_connector_forward_starter_secret_prompts_and_io(
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
-    let local_forwards = native_local_forward_plan_for_options(options)?;
+    let forward_plan = native_forward_plan_for_options(options)?;
     let request = native_request_for_options_with_secret_prompts(
         options,
         &mut *prompts.password_prompt,
@@ -558,8 +758,11 @@ fn run_native_with_connector_forward_starter_secret_prompts_and_io(
     )?;
 
     let mut forward_handles = Vec::new();
-    for forward in local_forwards {
+    for forward in forward_plan.local_forwards {
         forward_handles.push(forward_starter.start(request.clone(), forward)?);
+    }
+    for forward in forward_plan.dynamic_forwards {
+        forward_handles.push(forward_starter.start_dynamic(request.clone(), forward)?);
     }
 
     if options.no_shell && !forward_handles.is_empty() {
@@ -585,6 +788,14 @@ impl NativeLocalForwardStarter for RejectingNativeLocalForwardStarter {
         _forward: NativeLocalForward,
     ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
         Err("native SSH local forwarding starter is not available in this path".into())
+    }
+
+    fn start_dynamic(
+        &mut self,
+        _request: SshConnectRequest,
+        _forward: NativeDynamicForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
+        Err("native SSH dynamic forwarding starter is not available in this path".into())
     }
 }
 
@@ -807,9 +1018,9 @@ mod tests {
         let mut connector = MockConnector {
             state: Arc::clone(&state),
         };
-        let forward_state = Arc::new(Mutex::new(Vec::new()));
+        let forward_state = Arc::new(Mutex::new(MockForwardState::default()));
         let mut forward_starter = MockForwardStarter {
-            started: Arc::clone(&forward_state),
+            state: Arc::clone(&forward_state),
         };
         let mut output = Vec::new();
 
@@ -835,7 +1046,7 @@ mod tests {
 
         assert_eq!(state.lock().unwrap().last_request.as_ref(), Some(&request));
         assert_eq!(
-            *forward_state.lock().unwrap(),
+            forward_state.lock().unwrap().local,
             [super::NativeLocalForward {
                 bind_host: "127.0.0.1".to_owned(),
                 bind_port: 15432,
@@ -846,12 +1057,55 @@ mod tests {
     }
 
     #[test]
+    fn native_ssh_runner_starts_dynamic_forward_before_shell() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let forward_state = Arc::new(Mutex::new(MockForwardState::default()));
+        let mut forward_starter = MockForwardStarter {
+            state: Arc::clone(&forward_state),
+        };
+        let mut output = Vec::new();
+
+        super::run_native_with_connector_forward_starter_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request.clone()),
+                remote_command: Vec::new(),
+                forwards: vec![crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned())],
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut forward_starter,
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(state.lock().unwrap().last_request.as_ref(), Some(&request));
+        assert_eq!(
+            forward_state.lock().unwrap().dynamic,
+            [super::NativeDynamicForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: 1080,
+            }]
+        );
+    }
+
+    #[test]
     fn native_local_forward_plan_parses_bind_and_target_endpoint() {
         let request = SshConnectRequest::agent(
             SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
         );
 
-        let plan = super::native_local_forward_plan_for_options(&SshOptions {
+        let plan = super::native_forward_plan_for_options(&SshOptions {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: vec![crate::cli::SshForward::Local(
@@ -866,7 +1120,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            plan,
+            plan.local_forwards,
             [super::NativeLocalForward {
                 bind_host: "127.0.0.1".to_owned(),
                 bind_port: 15432,
@@ -892,15 +1146,17 @@ mod tests {
     }
 
     #[test]
-    fn native_forward_plan_rejects_remote_and_dynamic_forwards() {
+    fn native_forward_plan_rejects_remote_forwards() {
         let request = SshConnectRequest::agent(
             SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
         );
 
-        let error = super::native_local_forward_plan_for_options(&SshOptions {
+        let error = super::native_forward_plan_for_options(&SshOptions {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
-            forwards: vec![crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned())],
+            forwards: vec![crate::cli::SshForward::Remote(
+                "8080:127.0.0.1:80".to_owned(),
+            )],
             no_shell: true,
             native: true,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -912,8 +1168,55 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("native SSH only supports local forwarding")
+                .contains("native SSH only supports local and dynamic forwarding")
         );
+    }
+
+    #[test]
+    fn native_forward_plan_parses_dynamic_bind_endpoint() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+
+        let plan = super::native_forward_plan_for_options(&SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: vec![crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned())],
+            no_shell: true,
+            native: true,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+            osc52_policy: Osc52Policy::default(),
+            log: None,
+        })
+        .unwrap();
+
+        assert_eq!(
+            plan.dynamic_forwards,
+            [super::NativeDynamicForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: 1080,
+            }]
+        );
+    }
+
+    #[test]
+    fn socks5_connect_request_parses_domain_target_and_selects_no_auth() {
+        let mut input = io::Cursor::new([
+            0x05, 0x01, 0x00, 0x05, 0x01, 0x00, 0x03, 0x0b, b'e', b'x', b'a', b'm', b'p', b'l',
+            b'e', b'.', b'c', b'o', b'm', 0x01, 0xbb,
+        ]);
+        let mut output = Vec::new();
+
+        let request = super::read_socks5_connect_request(&mut input, &mut output).unwrap();
+
+        assert_eq!(
+            request,
+            super::Socks5ConnectRequest {
+                target_host: "example.com".to_owned(),
+                target_port: 443,
+            }
+        );
+        assert_eq!(output, [0x05, 0x00]);
     }
 
     #[test]
@@ -927,7 +1230,7 @@ mod tests {
             state: Arc::clone(&state),
         };
         let mut forward_starter = MockForwardStarter {
-            started: Arc::new(Mutex::new(Vec::new())),
+            state: Arc::new(Mutex::new(MockForwardState::default())),
         };
         let mut output = Vec::new();
 
@@ -1343,8 +1646,14 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct MockForwardState {
+        local: Vec<super::NativeLocalForward>,
+        dynamic: Vec<super::NativeDynamicForward>,
+    }
+
     struct MockForwardStarter {
-        started: Arc<Mutex<Vec<super::NativeLocalForward>>>,
+        state: Arc<Mutex<MockForwardState>>,
     }
 
     impl super::NativeLocalForwardStarter for MockForwardStarter {
@@ -1353,7 +1662,16 @@ mod tests {
             _request: SshConnectRequest,
             forward: super::NativeLocalForward,
         ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
-            self.started.lock().unwrap().push(forward);
+            self.state.lock().unwrap().local.push(forward);
+            Ok(Box::new(MockForwardHandle))
+        }
+
+        fn start_dynamic(
+            &mut self,
+            _request: SshConnectRequest,
+            forward: super::NativeDynamicForward,
+        ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
+            self.state.lock().unwrap().dynamic.push(forward);
             Ok(Box::new(MockForwardHandle))
         }
     }

@@ -101,9 +101,9 @@ private-key passphrase prompts. Use
 `--trust-on-first-use` to record a first-time host key in the user's
 `.ssh/known_hosts` file and verify it on later connections.
 `--accept-unknown-host-key` remains available for insecure test servers only.
-Native `--local-forward` starts an in-process listener and opens russh
-`direct-tcpip` channels for accepted local TCP connections. OpenSSH `Host`
-targets, remote forwarding, and dynamic forwarding are still kept on the
+Native `--local-forward` and `--dynamic-forward` start in-process listeners and
+open russh `direct-tcpip` channels for accepted local TCP or SOCKS5 CONNECT
+requests. OpenSSH `Host` targets and remote forwarding are still kept on the
 OpenSSH compatibility path.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
