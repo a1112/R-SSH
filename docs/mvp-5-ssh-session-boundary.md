@@ -166,6 +166,8 @@ contract that a future in-process `russh` adapter must satisfy.
   kinds so console users can discover saved sessions before starting one.
 - `rssh-app profile --list --verbose --file PATH` also prints each profile's
   resolved startup command line for faster console-side scanning.
+- `rssh-app profile --list --json --file PATH` prints machine-readable profile
+  entries with name, kind, resolved command line, and argv.
 - `rssh-app profile --check --file PATH` validates every configured profile
   through the same parser used for startup without opening a local process or
   network connection.
@@ -294,6 +296,7 @@ cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --verbose --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile --list --json --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --show prod-shell --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml

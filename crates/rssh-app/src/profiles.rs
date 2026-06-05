@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, error::Error, fs, io};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::cli::{
     self, AppCommand, ProfileCheckOptions, ProfileInitOptions, ProfileListOptions, ProfileOptions,
@@ -46,6 +46,14 @@ struct ProfileDefinition {
 pub struct ProfileSummary {
     pub name: String,
     pub kind: String,
+}
+
+#[derive(Serialize)]
+struct ProfileListJsonEntry {
+    name: String,
+    kind: String,
+    command: String,
+    argv: Vec<String>,
 }
 
 pub fn load_command(options: &ProfileOptions) -> Result<AppCommand, Box<dyn Error>> {
@@ -102,11 +110,35 @@ pub fn print_profile_init(options: &ProfileInitOptions) -> Result<(), Box<dyn Er
 }
 
 pub fn print_profile_list(options: &ProfileListOptions) -> Result<(), Box<dyn Error>> {
+    if options.json {
+        println!("{}", profile_list_json(options)?);
+        return Ok(());
+    }
+
     for line in profile_list_lines(options)? {
         println!("{line}");
     }
 
     Ok(())
+}
+
+pub fn profile_list_json(options: &ProfileListOptions) -> Result<String, Box<dyn Error>> {
+    let contents = fs::read_to_string(&options.file)?;
+    let profiles = summaries_from_toml(&contents).map_err(profile_error)?;
+    let entries = profiles
+        .into_iter()
+        .map(|profile| {
+            let argv = args_from_toml(&profile.name, &contents).map_err(profile_error)?;
+            Ok(ProfileListJsonEntry {
+                name: profile.name,
+                kind: profile.kind,
+                command: command_line_from_args(&argv),
+                argv,
+            })
+        })
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+
+    Ok(serde_json::to_string(&entries)?)
 }
 
 pub fn profile_list_lines(options: &ProfileListOptions) -> Result<Vec<String>, Box<dyn Error>> {
@@ -656,6 +688,7 @@ command = ["pwsh", "-NoLogo"]
         let profiles = super::list_profiles(&crate::cli::ProfileListOptions {
             file: file.clone(),
             verbose: false,
+            json: false,
         })
         .unwrap();
 
@@ -695,6 +728,7 @@ command = ["pwsh", "-NoLogo"]
         let lines = super::profile_list_lines(&crate::cli::ProfileListOptions {
             file: file.clone(),
             verbose: true,
+            json: false,
         })
         .unwrap();
 
@@ -706,6 +740,37 @@ command = ["pwsh", "-NoLogo"]
                 "local-smoke\tlocal\trssh-app local -- pwsh -NoLogo".to_owned(),
                 "prod-shell\tssh\trssh-app ssh --target prod --agent".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn lists_profiles_as_json_with_resolved_commands() {
+        let file = temp_profile_file(
+            "json-list-profile",
+            r#"
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+auth = "agent"
+
+[profiles.local-smoke]
+kind = "local"
+command = ["pwsh", "-NoLogo"]
+"#,
+        );
+
+        let json = super::profile_list_json(&crate::cli::ProfileListOptions {
+            file: file.clone(),
+            verbose: false,
+            json: true,
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            json,
+            "[{\"name\":\"local-smoke\",\"kind\":\"local\",\"command\":\"rssh-app local -- pwsh -NoLogo\",\"argv\":[\"rssh-app\",\"local\",\"--\",\"pwsh\",\"-NoLogo\"]},{\"name\":\"prod-shell\",\"kind\":\"ssh\",\"command\":\"rssh-app ssh --target prod --agent\",\"argv\":[\"rssh-app\",\"ssh\",\"--target\",\"prod\",\"--agent\"]}]"
         );
     }
 
