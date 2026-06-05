@@ -63,6 +63,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   chunks before writing them to the host console, and drops incomplete OSC
   control strings during EOF flush so half-written OSC bytes do not pollute the
   host console.
+- The console output filter also holds incomplete CSI control sequences across
+  PTY chunks before writing them to the host console, and drops incomplete CSI
+  sequences during EOF flush.
 - The same chunk-boundary handling applies to ST-terminated DCS/SOS/PM/APC
   control strings, preventing half-written control strings from reaching the
   host console before their ST terminator arrives.
@@ -260,6 +263,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - OSC chunking: unit tests cover split OSC title sequences so incomplete OSC
   control strings are held until terminated, plus EOF flushing for incomplete
   OSC control strings.
+- CSI chunking: unit tests cover split and incomplete CSI sequences so ANSI
+  control sequences are held until their final byte and dropped if EOF arrives
+  first.
 - ST-string chunking: unit tests cover split and incomplete DCS control strings
   so ST-terminated control strings are held until terminated and dropped if EOF
   arrives first.

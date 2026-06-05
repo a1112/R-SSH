@@ -896,6 +896,7 @@ impl TerminalOutputFilter {
             .max(osc8_hyperlink_sequence_suffix_len(pending))
             .max(incomplete_osc_control_sequence_suffix_len(pending))
             .max(incomplete_st_control_sequence_suffix_len(pending))
+            .max(incomplete_csi_control_sequence_suffix_len(pending))
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
@@ -1182,6 +1183,7 @@ fn find_incomplete_control_sequence_start(bytes: &[u8]) -> Option<usize> {
     [
         find_incomplete_osc_control_sequence_start(bytes),
         find_incomplete_st_control_sequence_start(bytes),
+        find_incomplete_csi_control_sequence_start(bytes),
         find_incomplete_osc8_hyperlink_start(bytes),
         find_incomplete_osc52_clipboard_start(bytes),
     ]
@@ -1265,6 +1267,41 @@ fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
         find_subslice(bytes, prefix).map(|index| (index, prefix_len))
     })
     .min_by_key(|(index, _)| *index)
+}
+
+fn incomplete_csi_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_csi_control_sequence_start(bytes)
+        .map_or(0, |start| bytes.len() - start)
+        .max(suffix_len_matching_prefix(bytes, b"\x1b["))
+}
+
+fn find_incomplete_csi_control_sequence_start(bytes: &[u8]) -> Option<usize> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let Some((relative_index, prefix_len)) = find_next_csi_start(&bytes[offset..]) else {
+            break;
+        };
+        let index = offset + relative_index;
+        let content_start = index + prefix_len;
+        let Some(final_index) = bytes[content_start..]
+            .iter()
+            .position(|byte| (0x40..=0x7e).contains(byte))
+        else {
+            return Some(index);
+        };
+        offset = content_start + final_index + 1;
+    }
+
+    None
+}
+
+fn find_next_csi_start(bytes: &[u8]) -> Option<(usize, usize)> {
+    [(b"\x1b[".as_slice(), 2), (b"\x9b".as_slice(), 1)]
+        .into_iter()
+        .filter_map(|(prefix, prefix_len)| {
+            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+        })
+        .min_by_key(|(index, _)| *index)
 }
 
 struct Osc52ClipboardSequence {
@@ -3254,6 +3291,70 @@ mod tests {
 
         filter
             .write(b"before\x1bPignored", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_drops_trailing_escape_prefix_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_holds_split_csi_until_final_byte() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[31", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+
+        filter
+            .write(b"mafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before\x1b[31mafter");
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_drops_incomplete_csi_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[31", &mut output, |response| {
                 responses.extend_from_slice(response);
                 Ok(())
             })
