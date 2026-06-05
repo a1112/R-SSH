@@ -44,6 +44,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `SshChannel` models the lower-level operations that a native SSH backend must
   expose after it has opened a channel: read, write, PTY resize,
   keepalive, and close.
+- `SshChannelOpenPlan` derives the backend channel-opening steps from an
+  `SshConnectRequest`: interactive shell and remote command requests use the
+  configured initial PTY size, while no-shell requests skip PTY allocation.
 - `SshChannelSession` adapts any `SshChannel` implementation into the existing
   `SshShellSession` trait, giving the future `russh` adapter a small tested
   integration point before real network wiring starts.
@@ -204,6 +207,8 @@ SSH-boundary tests cover:
   `SshShellSession` read/write/resize/keepalive/close contract
 - `SshChannelConnector` delegation from a mock channel opener into an
   app-facing `SshShellSession`
+- `SshChannelOpenPlan` PTY/startup derivation for interactive shell, remote
+  command, and no-shell requests
 - `SshSessionStartup` defaults, remote command validation, and direct native
   SSH connector propagation for remote-command and no-shell requests
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
@@ -242,6 +247,6 @@ path while adding a `russh` shell adapter behind `SshShellConnector`,
 1. Add a loopback SSH fixture.
 2. Implement a `russh`-backed `SshChannelOpener`.
 3. Connect and authenticate through `russh`.
-4. Request a remote PTY using `SshSessionConfig::initial_size`.
+4. Request a remote PTY using `SshChannelOpenPlan::pty_size`.
 5. Feed SSH channel bytes into the existing terminal runtime used by the local
    PTY window.

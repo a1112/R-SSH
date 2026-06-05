@@ -377,6 +377,29 @@ pub trait SshChannel: Send {
     fn close_channel(&mut self) -> Result<(), SshSessionError>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshChannelOpenPlan {
+    pub pty_size: Option<TerminalSize>,
+    pub startup: SshSessionStartup,
+}
+
+impl SshChannelOpenPlan {
+    #[must_use]
+    pub fn from_request(request: &SshConnectRequest) -> Self {
+        let pty_size = match request.startup {
+            SshSessionStartup::Shell | SshSessionStartup::Command(_) => {
+                Some(request.config.initial_size)
+            }
+            SshSessionStartup::NoShell => None,
+        };
+
+        Self {
+            pty_size,
+            startup: request.startup.clone(),
+        }
+    }
+}
+
 pub struct SshChannelSession<C> {
     channel: C,
 }
@@ -474,9 +497,9 @@ mod tests {
     use rssh_core::TerminalSize;
 
     use super::{
-        SshAuthError, SshAuthMethod, SshChannel, SshChannelConnector, SshChannelOpener,
-        SshChannelSession, SshConnectRequest, SshSessionConfig, SshSessionStartup,
-        SshShellConnector, SshShellSession, SshStartupError,
+        SshAuthError, SshAuthMethod, SshChannel, SshChannelConnector, SshChannelOpenPlan,
+        SshChannelOpener, SshChannelSession, SshConnectRequest, SshSessionConfig,
+        SshSessionStartup, SshShellConnector, SshShellSession, SshStartupError,
     };
 
     #[test]
@@ -691,6 +714,42 @@ mod tests {
             SshSessionStartup::command(Vec::<String>::new()),
             Err(SshStartupError::EmptyCommand)
         );
+    }
+
+    #[test]
+    fn channel_open_plan_requests_pty_for_shell_startup() {
+        let request = SshConnectRequest::agent(valid_config());
+
+        let plan = SshChannelOpenPlan::from_request(&request);
+
+        assert_eq!(plan.pty_size, Some(TerminalSize::new(100, 40)));
+        assert_eq!(plan.startup, SshSessionStartup::Shell);
+    }
+
+    #[test]
+    fn channel_open_plan_requests_pty_for_remote_command_startup() {
+        let request = SshConnectRequest::agent(valid_config()).with_startup(
+            SshSessionStartup::command(["uname".to_owned(), "-a".to_owned()]).unwrap(),
+        );
+
+        let plan = SshChannelOpenPlan::from_request(&request);
+
+        assert_eq!(plan.pty_size, Some(TerminalSize::new(100, 40)));
+        assert_eq!(
+            plan.startup,
+            SshSessionStartup::Command(vec!["uname".to_owned(), "-a".to_owned()])
+        );
+    }
+
+    #[test]
+    fn channel_open_plan_skips_pty_for_no_shell_startup() {
+        let request =
+            SshConnectRequest::agent(valid_config()).with_startup(SshSessionStartup::NoShell);
+
+        let plan = SshChannelOpenPlan::from_request(&request);
+
+        assert_eq!(plan.pty_size, None);
+        assert_eq!(plan.startup, SshSessionStartup::NoShell);
     }
 
     #[test]
