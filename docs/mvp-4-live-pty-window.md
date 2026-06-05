@@ -14,9 +14,10 @@ in the native `winit` window.
   text-area size, screen character-size, icon-label, window-title, and OSC color
   queries, plus xterm XTGETTCAP terminal-capability and DECRQSS state queries,
   plus XTVERSION queries, then returns responses that are written back to the
-  PTY. Standard and DEC private cursor-position responses use the current
-  terminal grid cursor. Equivalent 8-bit C1 CSI query forms are handled through
-  the same runtime path.
+  PTY. XTGETTCAP responses include dynamic `co`/`li` column and row counts from
+  the current runtime size. Standard and DEC private cursor-position responses
+  use the current terminal grid cursor. Equivalent 8-bit C1 CSI query forms are
+  handled through the same runtime path.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
@@ -180,7 +181,8 @@ MVP 4 tests cover:
 - OSC default foreground/background and indexed palette color query responses
   in the shared terminal runtime, including tracked OSC color-setting state
 - XTGETTCAP terminal-capability query responses for colors, terminal name,
-  true-color marker, OSC 52 template support, and unknown capability fallback
+  true-color marker, OSC 52 template support, current columns/rows, and unknown
+  capability fallback
 - DECRQSS state query responses for current SGR style, cursor shape, and
   scroll-region state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms

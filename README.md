@@ -74,6 +74,8 @@ session log file.
 applications to negotiate xterm mouse/focus reporting through PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
 The console path also answers basic terminal status and device-attribute queries.
+XTGETTCAP capability replies include terminal name, 256-color/true-color
+markers, OSC 52 clipboard support, and current column/row counts.
 PTY-backed local, window, and OpenSSH child processes receive
 `TERM=xterm-256color` and `COLORTERM=truecolor` by default.
 Use `--log PATH` on `local` or `ssh` to tee visible terminal output to a session

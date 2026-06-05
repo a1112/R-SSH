@@ -773,7 +773,7 @@ impl TerminalOutputFilter {
                 )
             },
         );
-        let xtgettcap_response = find_xtgettcap_query(&self.pending).map(
+        let xtgettcap_response = find_xtgettcap_query(&self.pending, self.size.snapshot()).map(
             |XtGetTcapQuery {
                  index,
                  consumed,
@@ -1159,7 +1159,7 @@ struct XtGetTcapResponse {
 #[derive(Clone)]
 struct XtGetTcapEntry {
     name_hex: Vec<u8>,
-    value_hex: &'static [u8],
+    value_hex: Vec<u8>,
 }
 
 impl XtGetTcapResponse {
@@ -1174,7 +1174,7 @@ impl XtGetTcapResponse {
                 }
                 bytes.extend_from_slice(&entry.name_hex);
                 bytes.push(b'=');
-                bytes.extend_from_slice(entry.value_hex);
+                bytes.extend_from_slice(&entry.value_hex);
             }
             bytes
         };
@@ -1183,7 +1183,7 @@ impl XtGetTcapResponse {
     }
 }
 
-fn find_xtgettcap_query(bytes: &[u8]) -> Option<XtGetTcapQuery> {
+fn find_xtgettcap_query(bytes: &[u8], size: PtySize) -> Option<XtGetTcapQuery> {
     let mut match_query = None;
     for (prefix, prefix_len) in [(b"\x1bP".as_slice(), 2), (b"\x90".as_slice(), 1)] {
         let mut offset = 0;
@@ -1192,7 +1192,7 @@ fn find_xtgettcap_query(bytes: &[u8]) -> Option<XtGetTcapQuery> {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_xtgettcap_query(bytes, index, prefix_len) {
+            if let Some(query) = parse_xtgettcap_query(bytes, index, prefix_len, size) {
                 if match_query
                     .as_ref()
                     .is_none_or(|current: &XtGetTcapQuery| query.index < current.index)
@@ -1206,7 +1206,12 @@ fn find_xtgettcap_query(bytes: &[u8]) -> Option<XtGetTcapQuery> {
     match_query
 }
 
-fn parse_xtgettcap_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<XtGetTcapQuery> {
+fn parse_xtgettcap_query(
+    bytes: &[u8],
+    index: usize,
+    prefix_len: usize,
+    size: PtySize,
+) -> Option<XtGetTcapQuery> {
     let content_start = index + prefix_len;
     let rest = bytes.get(content_start..)?;
     let body = rest.strip_prefix(b"+q")?;
@@ -1214,7 +1219,7 @@ fn parse_xtgettcap_query(bytes: &[u8], index: usize, prefix_len: usize) -> Optio
     let content = &body[..terminator.index];
     let entries = content
         .split(|byte| *byte == b';')
-        .filter_map(parse_xtgettcap_entry)
+        .filter_map(|entry| parse_xtgettcap_entry(entry, size))
         .collect();
 
     Some(XtGetTcapQuery {
@@ -1248,23 +1253,39 @@ fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
         .min_by_key(|terminator| terminator.index)
 }
 
-fn parse_xtgettcap_entry(name_hex: &[u8]) -> Option<XtGetTcapEntry> {
+fn parse_xtgettcap_entry(name_hex: &[u8], size: PtySize) -> Option<XtGetTcapEntry> {
     let name = decode_ascii_hex(name_hex)?;
-    let value_hex = xtgettcap_value_hex(&name)?;
+    let value_hex = xtgettcap_value_hex(&name, size)?;
     Some(XtGetTcapEntry {
         name_hex: name_hex.to_vec(),
         value_hex,
     })
 }
 
-fn xtgettcap_value_hex(name: &[u8]) -> Option<&'static [u8]> {
+fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
     match name {
-        b"Co" | b"colors" => Some(b"323536"),
-        b"TN" => Some(b"787465726d2d323536636f6c6f72"),
-        b"RGB" => Some(b"524742"),
-        b"Ms" => Some(b"1b5d35323b25703125733b257032257307"),
+        b"Co" | b"colors" => Some(b"323536".to_vec()),
+        b"TN" => Some(b"787465726d2d323536636f6c6f72".to_vec()),
+        b"RGB" => Some(b"524742".to_vec()),
+        b"Ms" => Some(b"1b5d35323b25703125733b257032257307".to_vec()),
+        b"co" => Some(decimal_value_hex(size.columns())),
+        b"li" => Some(decimal_value_hex(size.rows())),
         _ => None,
     }
+}
+
+fn decimal_value_hex(value: u16) -> Vec<u8> {
+    encode_ascii_hex(value.to_string().as_bytes())
+}
+
+fn encode_ascii_hex(bytes: &[u8]) -> Vec<u8> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = Vec::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX[usize::from(byte >> 4)]);
+        encoded.push(HEX[usize::from(byte & 0x0f)]);
+    }
+    encoded
 }
 
 fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -3167,6 +3188,28 @@ mod tests {
             responses,
             b"\x1bP1+r436f=323536\x1b\\\x1bP1+r544e=787465726d2d323536636f6c6f72;524742=524742\x9c\x1bP0+r\x1b\\"
         );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_size_queries_from_current_size() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1bP+q636f;6c69\x1b\\after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1bP1+r636f=313332;6c69=3433\x1b\\");
     }
 
     #[test]

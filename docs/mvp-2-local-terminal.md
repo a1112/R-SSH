@@ -86,9 +86,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   responses.
 - The app answers xterm XTGETTCAP terminal-capability queries
   (`DCS + q <hex-cap> ST`) for common compatibility probes, including
-  `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, and `Ms` OSC 52
-  clipboard template support. Unsupported capabilities return `DCS 0+r ST`,
-  and C1 DCS/ST forms are handled too.
+  `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, `Ms` OSC 52
+  clipboard template support, and dynamic `co`/`li` column and row counts from
+  the current PTY size. Unsupported capabilities return `DCS 0+r ST`, and C1
+  DCS/ST forms are handled too.
 - The app answers DEC request status string queries (`DECRQSS`,
   `DCS $ q <selector> ST`) for current SGR style (`m`), cursor shape
   (`SP q`), and scrolling region (`r`), preserving ST versus C1 ST response
@@ -209,8 +210,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   palette color queries, including BEL, ST, and C1 OSC/ST forms. Unit tests also
   cover color-setting sequences followed by matching queries.
 - XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
-  queries for colors, terminal name, true-color marker, and unknown capability
-  fallback.
+  queries for colors, terminal name, true-color marker, current columns/rows,
+  and unknown capability fallback.
 - DECRQSS response: unit tests cover current SGR, cursor-shape, and scroll-region
   status queries in both DCS and C1 DCS forms.
 - XTVERSION response: unit tests cover 7-bit and C1 CSI version queries and
