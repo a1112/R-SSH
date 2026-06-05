@@ -1186,6 +1186,25 @@ mod tests {
     }
 
     #[test]
+    fn terminal_tracks_c1_osc8_hyperlink_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"a\x9d8;;https://example.com\x9cbc\x9d8;;\x9cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(
+            terminal.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            terminal.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(terminal.grid().get(0, 0).unwrap().hyperlink, None);
+        assert_eq!(terminal.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
     fn terminal_preserves_active_hyperlink_across_sgr_reset() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 1));
 

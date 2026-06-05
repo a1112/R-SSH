@@ -39,7 +39,9 @@ in the native `winit` window.
   `winit::EventLoopProxy`.
 - PTY output updates the terminal runtime and rebuilds
   `TerminalRenderSnapshot` from the live terminal, including visible cursor
-  state, cursor shape, and xterm 256-color indexed cell colors.
+  state, cursor shape, xterm 256-color indexed cell colors, and OSC 8
+  hyperlink metadata. C1 OSC 8 hyperlinks are tracked without exposing their
+  control bytes as visible output.
 - Native window title follows OSC `0`/`2` title updates from the active shell.
 - `winit` keyboard events are encoded and written to the active PTY writer,
   including Alt-prefixed text and Shift/Alt/Ctrl-modified navigation,
@@ -187,6 +189,8 @@ MVP 4 tests cover:
   shared terminal runtime
 - OSC default foreground/background and indexed palette color query responses
   in the shared terminal runtime, including tracked OSC color-setting state
+- OSC 8 hyperlink metadata in the shared terminal runtime, including C1 OSC/ST
+  forms and visible-output filtering
 - XTGETTCAP terminal-capability query responses for colors, terminal name,
   true-color marker, OSC 52 template support, current columns/rows, and unknown
   capability fallback

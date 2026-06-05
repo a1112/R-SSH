@@ -1649,6 +1649,39 @@ mod tests {
     }
 
     #[test]
+    fn tracks_c1_osc8_hyperlinks_without_displaying_control_bytes() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let output =
+            runtime.feed_pty_output_with_display(b"a\x9d8;;https://example.com\x9cbc\x9d8;;\x9cd");
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.display, b"abcd");
+        assert_eq!(
+            runtime
+                .terminal()
+                .grid()
+                .get(0, 1)
+                .unwrap()
+                .hyperlink
+                .as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            runtime
+                .terminal()
+                .grid()
+                .get(0, 2)
+                .unwrap()
+                .hyperlink
+                .as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(runtime.terminal().grid().get(0, 0).unwrap().hyperlink, None);
+        assert_eq!(runtime.terminal().grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
     fn ignores_queries_inside_osc_control_strings() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
