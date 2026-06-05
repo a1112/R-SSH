@@ -334,6 +334,7 @@ impl ProfileDefinition {
     fn append_local_args(&self, args: &mut Vec<String>) -> Result<(), String> {
         args.push("local".to_owned());
         self.append_preflight(args);
+        self.append_metrics(args);
         append_dimensions(args, self.cols, self.rows);
         if self.mouse.unwrap_or(false) {
             args.push("--mouse".to_owned());
@@ -349,6 +350,7 @@ impl ProfileDefinition {
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
         self.append_preflight(args);
+        self.append_metrics(args);
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -370,6 +372,7 @@ impl ProfileDefinition {
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
         self.append_preflight(args);
+        self.append_metrics(args);
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -383,6 +386,7 @@ impl ProfileDefinition {
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
         self.append_preflight(args);
+        self.append_metrics(args);
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -402,13 +406,17 @@ impl ProfileDefinition {
         }
     }
 
+    fn append_metrics(&self, args: &mut Vec<String>) {
+        if self.metrics.unwrap_or(false) {
+            args.push("--metrics".to_owned());
+        }
+    }
+
     fn append_window_args(&self, args: &mut Vec<String>) -> Result<(), String> {
         args.push("window".to_owned());
         append_optional_u64(args, "--frames", self.frames);
         append_optional(args, "--osc52", self.osc52.as_ref());
-        if self.metrics.unwrap_or(false) {
-            args.push("--metrics".to_owned());
-        }
+        self.append_metrics(args);
         append_optional(args, "--log", self.log.as_ref());
         append_command(args, self.command.as_ref(), "window command")?;
         Ok(())
@@ -589,7 +597,7 @@ dynamic_forward = ["127.0.0.1:1080"]
                 no_shell: false,
                 native: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
-                preflight: false,
+                console: crate::cli::ConsoleOptions::default(),
                 osc52_policy: crate::cli::Osc52Policy::Off,
                 log: None,
             })
@@ -626,7 +634,7 @@ command = ["pwsh", "-NoLogo"]
                 command: rssh_pty::PtyCommand::new("pwsh").with_args(["-NoLogo"]),
                 size: Some(rssh_pty::PtySize::try_new(100, 32).unwrap()),
                 mouse: true,
-                preflight: false,
+                console: crate::cli::ConsoleOptions::default(),
                 osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 log: Some(PathBuf::from("dev.log")),
             })
@@ -670,7 +678,7 @@ log = "sftp.log"
                         passphrase: None,
                     },
                 }),
-                preflight: false,
+                console: crate::cli::ConsoleOptions::default(),
                 log: Some(PathBuf::from("sftp.log")),
             })
         );
@@ -714,7 +722,7 @@ log = "scp.log"
                     remote: "/tmp/remote".to_owned(),
                 },
                 recursive: true,
-                preflight: false,
+                console: crate::cli::ConsoleOptions::default(),
                 log: Some(PathBuf::from("scp.log")),
             })
         );
@@ -764,6 +772,57 @@ upload = ["local", "/tmp/remote"]
                 "--target",
                 "prod",
                 "--preflight",
+                "--upload",
+                "local",
+                "/tmp/remote"
+            ]
+        );
+    }
+
+    #[test]
+    fn console_profiles_can_enable_metrics() {
+        let contents = r#"
+[profiles.local-dev]
+kind = "local"
+metrics = true
+
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+metrics = true
+
+[profiles.prod-files]
+kind = "sftp"
+target = "prod"
+metrics = true
+
+[profiles.prod-upload]
+kind = "scp"
+target = "prod"
+metrics = true
+upload = ["local", "/tmp/remote"]
+"#;
+
+        assert_eq!(
+            super::args_from_toml("local-dev", contents).unwrap(),
+            ["rssh-app", "local", "--metrics"]
+        );
+        assert_eq!(
+            super::args_from_toml("prod-shell", contents).unwrap(),
+            ["rssh-app", "ssh", "--target", "prod", "--metrics"]
+        );
+        assert_eq!(
+            super::args_from_toml("prod-files", contents).unwrap(),
+            ["rssh-app", "sftp", "--target", "prod", "--metrics"]
+        );
+        assert_eq!(
+            super::args_from_toml("prod-upload", contents).unwrap(),
+            [
+                "rssh-app",
+                "scp",
+                "--target",
+                "prod",
+                "--metrics",
                 "--upload",
                 "local",
                 "/tmp/remote"

@@ -47,6 +47,7 @@ cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- doctor
 cargo run -p rssh-app -- doctor --json
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
+cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
 cargo run -p rssh-app -- window --frames 30 --metrics
 cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
 cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.exe /K echo window-log-smoke
@@ -57,6 +58,7 @@ cargo run -p rssh-app -- local --osc52 write
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 cargo run -p rssh-app -- ssh --target prod --preflight
+cargo run -p rssh-app -- ssh --target prod --metrics
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
@@ -115,6 +117,9 @@ local default shell plus `ssh`, `sftp`, and `scp` are available; add `--json`
 for a machine-readable report.
 Add `--preflight` to `local`, `ssh`, `sftp`, or `scp` when startup should run
 the same console dependency check before spawning the PTY child process.
+Add `--metrics` to `local`, `ssh`, `sftp`, or `scp` to print console runtime
+metrics after the PTY child process exits, including command, elapsed time,
+exit code, signal, and success state.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
@@ -163,6 +168,8 @@ command line without starting a local process or network connection; add
 `--json` to return the single launch plan as name, kind, command, and argv.
 Set `preflight = true` in local, SSH, SFTP, or SCP profiles when saved sessions
 should run the console dependency check before spawning the PTY child process.
+Set `metrics = true` in local, SSH, SFTP, or SCP profiles when saved sessions
+should print the same console runtime metrics on exit.
 Use `profile --check --file PATH` to validate every configured profile without
 starting a local process or network connection; add `--json` for a structured
 per-profile report that still exits non-zero when any profile is invalid.

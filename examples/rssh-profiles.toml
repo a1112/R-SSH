@@ -42,6 +42,7 @@
 [profiles.local-smoke]
 kind = "local"
 preflight = true
+metrics = true
 cols = 100
 rows = 30
 osc52 = "write"

@@ -24,7 +24,7 @@ fn local_options_for_options(options: &ScpOptions) -> Result<LocalOptions, Box<d
         command: scp_command_for_options(options),
         size: Some(PtySize::try_new(size.columns, size.rows)?),
         mouse: false,
-        preflight: options.preflight,
+        console: options.console,
         osc52_policy: Osc52Policy::default(),
         log: options.log.clone(),
     })
@@ -124,7 +124,7 @@ mod tests {
                 remote: "/tmp/remote.txt".to_owned(),
             },
             recursive: false,
-            preflight: false,
+            console: crate::cli::ConsoleOptions::default(),
             log: None,
         });
 
@@ -153,7 +153,7 @@ mod tests {
                 local: "logs".into(),
             },
             recursive: true,
-            preflight: false,
+            console: crate::cli::ConsoleOptions::default(),
             log: None,
         });
 

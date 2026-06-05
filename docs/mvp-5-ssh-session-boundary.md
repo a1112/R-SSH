@@ -167,6 +167,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app local --preflight`, `ssh --preflight`, `sftp --preflight`, and
   `scp --preflight` run the same console dependency preflight before spawning
   the PTY-backed child process.
+- `rssh-app local --metrics`, `ssh --metrics`, `sftp --metrics`, and
+  `scp --metrics` print console runtime metrics after the PTY-backed child
+  process exits: command, elapsed time, exit code, signal, and success state.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
   back through the existing local, native-window, SSH, SFTP, or SCP CLI parser, so
   profile startup keeps the same validation and secret-handling rules as direct
@@ -309,6 +312,7 @@ Start from a reusable profile file:
 cargo run -p rssh-app -- doctor
 cargo run -p rssh-app -- doctor --json
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
+cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --json --file examples/rssh-profiles.toml

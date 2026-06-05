@@ -36,10 +36,11 @@ use crate::{
 };
 
 pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
-    if options.preflight {
+    if options.console.preflight {
         diagnostics::ensure_console_dependencies()?;
     }
 
+    let metrics_started_at = Instant::now();
     let size = resolve_local_size(options.size);
     let mut session = PtySession::spawn(&options.command, size)?;
     let mut reader = session.take_reader()?;
@@ -92,6 +93,20 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 
     drop(pty_input_sender);
     drop(session);
+
+    if options.console.metrics {
+        if let Ok(status) = &run_result {
+            print!(
+                "{}",
+                LocalMetricsSnapshot::from_status(
+                    &options.command,
+                    metrics_started_at.elapsed(),
+                    status
+                )
+                .report()
+            );
+        }
+    }
 
     run_result
 }
@@ -211,6 +226,83 @@ impl LocalRuntimeState {
             input_reporting: InputReporting::default(),
             terminal_size: SharedTerminalSize::new(size),
         }
+    }
+}
+
+struct LocalMetricsSnapshot {
+    command: String,
+    elapsed_ms: u128,
+    exit_code: u32,
+    signal: Option<String>,
+    success: bool,
+}
+
+impl LocalMetricsSnapshot {
+    fn from_status(
+        command: &rssh_pty::PtyCommand,
+        elapsed: Duration,
+        status: &PtyExitStatus,
+    ) -> Self {
+        Self {
+            command: command_line(command),
+            elapsed_ms: elapsed.as_millis(),
+            exit_code: status.exit_code(),
+            signal: status.signal().map(str::to_owned),
+            success: status.success(),
+        }
+    }
+
+    fn report(&self) -> String {
+        format!(
+            "\
+R-SSH console metrics
+command={}
+elapsed_ms={}
+exit_code={}
+signal={}
+success={}
+",
+            self.command,
+            self.elapsed_ms,
+            self.exit_code,
+            self.signal.as_deref().unwrap_or("none"),
+            self.success
+        )
+    }
+}
+
+fn command_line(command: &rssh_pty::PtyCommand) -> String {
+    std::iter::once(command.program())
+        .chain(command.args().iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+#[cfg(test)]
+mod metrics_tests {
+    use rssh_pty::PtyExitStatus;
+
+    #[test]
+    fn console_metrics_report_includes_command_timing_and_exit_status() {
+        let command = rssh_pty::PtyCommand::new("cmd.exe").with_args(["/C", "echo hi"]);
+        let report = super::LocalMetricsSnapshot::from_status(
+            &command,
+            std::time::Duration::from_millis(42),
+            &PtyExitStatus::from_exit_code(0),
+        )
+        .report();
+
+        assert_eq!(
+            report,
+            "\
+R-SSH console metrics
+command=cmd.exe /C echo hi
+elapsed_ms=42
+exit_code=0
+signal=none
+success=true
+"
+        );
     }
 }
 
