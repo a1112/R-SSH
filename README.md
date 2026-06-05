@@ -68,10 +68,13 @@ cargo run -p rssh-app -- ssh --target prod --log prod.log
 cargo run -p rssh-app -- sftp --target prod
 cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- sftp --target prod --log sftp.log
+cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
+cargo run -p rssh-app -- scp --target prod --download /tmp/remote.txt local.txt
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-files --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile prod-upload --file examples/rssh-profiles.toml
 cargo test -p rssh-ssh
 ```
 
@@ -92,8 +95,8 @@ integration. Use `--osc52 off|write|read-write` on `local`, `ssh`, or
 are allowed.
 PTY-backed local, window, and OpenSSH child processes receive
 `TERM=xterm-256color` and `COLORTERM=truecolor` by default.
-Use `--log PATH` on `local`, `ssh`, or `sftp` to tee visible terminal output to
-a session log file.
+Use `--log PATH` on `local`, `ssh`, `sftp`, or `scp` to tee visible terminal
+output to a session log file.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
@@ -101,6 +104,9 @@ secrets in the R-SSH command line.
 `sftp` starts the system OpenSSH SFTP client inside the same PTY console
 runtime, using the same `--host`/`--target`, `--user`, `--port`, `--agent`,
 `--password`, `--key`, and `--log` shape for interactive file transfer.
+`scp` starts the system OpenSSH SCP client inside the same PTY console runtime
+for one-shot upload and download transfers. Use `--upload LOCAL REMOTE` or
+`--download REMOTE LOCAL`; add `--recursive` for directories.
 Add `--native` to use the experimental in-process `russh` path instead of
 spawning an interactive OpenSSH session. The native path supports `--host`
 direct targets and `--target NAME` entries resolved through `ssh -G`, with
@@ -124,9 +130,10 @@ Use `--local-forward`, `--remote-forward`, or `--dynamic-forward` with OpenSSH
 forward specs for tunnels. Add `--no-shell` when the session should only keep
 the tunnel open.
 `profile NAME --file PATH` loads a TOML session profile and then starts the
-same local, native-window, SSH, or SFTP runtime. See `examples/rssh-profiles.toml`
-for the current file format, including `kind = "local"`, `kind = "window"`,
-`kind = "ssh"`, `kind = "sftp"`, and the optional `log = "path"` field.
+same local, native-window, SSH, SFTP, or SCP runtime. See
+`examples/rssh-profiles.toml` for the current file format, including
+`kind = "local"`, `kind = "window"`, `kind = "ssh"`, `kind = "sftp"`,
+`kind = "scp"`, and the optional `log = "path"` field.
 
 ## MVP Status
 

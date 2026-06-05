@@ -11,6 +11,9 @@
 #
 # Run an SFTP profile after defining the matching Host in ~/.ssh/config:
 #   cargo run -p rssh-app -- profile prod-files --file examples/rssh-profiles.toml
+#
+# Run an SCP upload profile after defining the matching Host in ~/.ssh/config:
+#   cargo run -p rssh-app -- profile prod-upload --file examples/rssh-profiles.toml
 
 [profiles.local-smoke]
 kind = "local"
@@ -52,3 +55,11 @@ kind = "sftp"
 target = "prod"
 auth = "agent"
 # log = "prod-files.log"
+
+[profiles.prod-upload]
+kind = "scp"
+target = "prod"
+auth = "agent"
+upload = ["local.txt", "/tmp/remote.txt"]
+# recursive = true
+# log = "prod-upload.log"

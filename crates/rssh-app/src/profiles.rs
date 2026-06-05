@@ -32,6 +32,9 @@ struct ProfileDefinition {
     remote_forward: Option<Vec<String>>,
     dynamic_forward: Option<Vec<String>>,
     no_shell: Option<bool>,
+    recursive: Option<bool>,
+    upload: Option<Vec<String>>,
+    download: Option<Vec<String>>,
 }
 
 pub fn load_command(options: &ProfileOptions) -> Result<AppCommand, Box<dyn Error>> {
@@ -55,6 +58,7 @@ impl ProfileDefinition {
         let mut args = vec!["rssh-app".to_owned()];
         match self.kind.as_str() {
             "local" => self.append_local_args(&mut args)?,
+            "scp" => self.append_scp_args(&mut args)?,
             "sftp" => self.append_sftp_args(&mut args)?,
             "ssh" => self.append_ssh_args(&mut args)?,
             "window" => self.append_window_args(&mut args)?,
@@ -108,6 +112,23 @@ impl ProfileDefinition {
         Ok(())
     }
 
+    fn append_scp_args(&self, args: &mut Vec<String>) -> Result<(), String> {
+        args.push("scp".to_owned());
+        append_optional(args, "--host", self.host.as_ref());
+        append_optional(args, "--target", self.target.as_ref());
+        append_optional(args, "--user", self.user.as_ref());
+        append_optional_u16(args, "--port", self.port);
+        append_dimensions(args, self.cols, self.rows);
+        append_auth_args(args, self.auth.as_deref(), self.key.as_ref())?;
+        if self.recursive.unwrap_or(false) {
+            args.push("--recursive".to_owned());
+        }
+        append_optional(args, "--log", self.log.as_ref());
+        append_transfer(args, "--upload", self.upload.as_ref(), "scp upload")?;
+        append_transfer(args, "--download", self.download.as_ref(), "scp download")?;
+        Ok(())
+    }
+
     fn append_window_args(&self, args: &mut Vec<String>) -> Result<(), String> {
         args.push("window".to_owned());
         append_optional_u64(args, "--frames", self.frames);
@@ -154,6 +175,24 @@ fn append_forwards(args: &mut Vec<String>, name: &str, values: Option<&Vec<Strin
             args.push(value.clone());
         }
     }
+}
+
+fn append_transfer(
+    args: &mut Vec<String>,
+    name: &str,
+    transfer: Option<&Vec<String>>,
+    label: &str,
+) -> Result<(), String> {
+    let Some(transfer) = transfer else {
+        return Ok(());
+    };
+    if transfer.len() != 2 {
+        return Err(format!("{label} requires exactly two paths"));
+    }
+
+    args.push(name.to_owned());
+    args.extend(transfer.iter().cloned());
+    Ok(())
 }
 
 fn append_command(
@@ -357,6 +396,49 @@ log = "sftp.log"
                     },
                 }),
                 log: Some(PathBuf::from("sftp.log")),
+            })
+        );
+    }
+
+    #[test]
+    fn loads_scp_upload_profile_from_toml_file() {
+        let file = temp_profile_file(
+            "scp-profile",
+            r#"
+[profiles.upload]
+kind = "scp"
+target = "prod"
+auth = "agent"
+recursive = true
+upload = ["local", "/tmp/remote"]
+log = "scp.log"
+"#,
+        );
+
+        let command = super::load_command(&ProfileOptions {
+            name: "upload".to_owned(),
+            file: file.clone(),
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            command,
+            AppCommand::Scp(crate::cli::ScpOptions {
+                target: SshTarget::OpenSsh(OpenSshTarget {
+                    target: "prod".to_owned(),
+                    username: None,
+                    port: None,
+                    initial_size: TerminalSize::new(80, 24),
+                    auth: SshAuthMethod::Agent,
+                }),
+                transfer: crate::cli::ScpTransfer::Upload {
+                    local: "local".into(),
+                    remote: "/tmp/remote".to_owned(),
+                },
+                recursive: true,
+                log: Some(PathBuf::from("scp.log")),
             })
         );
     }

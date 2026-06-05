@@ -12,6 +12,7 @@ const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
 pub enum AppCommand {
     Local(LocalOptions),
     Profile(ProfileOptions),
+    Scp(ScpOptions),
     Sftp(SftpOptions),
     Ssh(SshOptions),
     Window(WindowOptions),
@@ -49,6 +50,20 @@ pub struct SshOptions {
 pub struct SftpOptions {
     pub target: SshTarget,
     pub log: Option<PathBuf>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ScpOptions {
+    pub target: SshTarget,
+    pub transfer: ScpTransfer,
+    pub recursive: bool,
+    pub log: Option<PathBuf>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ScpTransfer {
+    Upload { local: PathBuf, remote: String },
+    Download { remote: String, local: PathBuf },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -158,6 +173,13 @@ where
             }
             parse_profile(&profile_args)
         }
+        "scp" => {
+            let scp_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&scp_args) {
+                return Ok(AppCommand::Help);
+            }
+            parse_scp(&scp_args)
+        }
         "ssh" => {
             let ssh_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&ssh_args) {
@@ -185,7 +207,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -326,6 +348,56 @@ fn parse_sftp(args: &[String]) -> Result<AppCommand, String> {
         target: options.target,
         log: options.log,
     }))
+}
+
+fn parse_scp(args: &[String]) -> Result<AppCommand, String> {
+    let mut state = SshParseState::default();
+    let mut recursive = false;
+    let mut transfer = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => return Err("scp does not accept a remote command separator".to_owned()),
+            "--recursive" => recursive = true,
+            "--upload" => {
+                index += 1;
+                let local = PathBuf::from(required_option_value(args.get(index), "--upload")?);
+                index += 1;
+                let remote = required_option_value(args.get(index), "--upload")?.to_owned();
+                set_scp_transfer(&mut transfer, ScpTransfer::Upload { local, remote })?;
+            }
+            "--download" => {
+                index += 1;
+                let remote = required_option_value(args.get(index), "--download")?.to_owned();
+                index += 1;
+                let local = PathBuf::from(required_option_value(args.get(index), "--download")?);
+                set_scp_transfer(&mut transfer, ScpTransfer::Download { remote, local })?;
+            }
+            _ => parse_sftp_option(args, &mut index, &mut state)?,
+        }
+        index += 1;
+    }
+
+    let Some(transfer) = transfer else {
+        return Err("scp requires --upload or --download".to_owned());
+    };
+    let options = ssh_options_from_state(state)?;
+    Ok(AppCommand::Scp(ScpOptions {
+        target: options.target,
+        transfer,
+        recursive,
+        log: options.log,
+    }))
+}
+
+fn set_scp_transfer(transfer: &mut Option<ScpTransfer>, next: ScpTransfer) -> Result<(), String> {
+    if transfer.is_some() {
+        return Err("only one scp transfer direction can be selected".to_owned());
+    }
+
+    *transfer = Some(next);
+    Ok(())
 }
 
 fn parse_sftp_option(
@@ -1346,6 +1418,52 @@ mod tests {
             })
         );
         assert_eq!(options.log, Some(std::path::PathBuf::from("sftp.log")));
+    }
+
+    #[test]
+    fn parses_scp_upload_for_openssh_config_target() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "--target",
+            "prod",
+            "--key",
+            "C:/Users/ops/.ssh/id_ed25519",
+            "--recursive",
+            "--log",
+            "scp.log",
+            "--upload",
+            "local.txt",
+            "/tmp/remote.txt",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::PrivateKey {
+                    path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                    passphrase: None
+                }
+            })
+        );
+        assert_eq!(
+            options.transfer,
+            super::ScpTransfer::Upload {
+                local: "local.txt".into(),
+                remote: "/tmp/remote.txt".to_owned(),
+            }
+        );
+        assert!(options.recursive);
+        assert_eq!(options.log, Some(std::path::PathBuf::from("scp.log")));
     }
 
     #[test]
