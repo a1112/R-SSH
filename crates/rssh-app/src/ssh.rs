@@ -8,31 +8,29 @@ use rssh_ssh::{SshAuthMethod, SshConnectRequest};
 use rssh_ssh::{SshShellConnector, SshShellSession};
 
 use crate::{
-    cli::{LocalOptions, SshOptions},
+    cli::{LocalOptions, OpenSshTarget, SshOptions, SshTarget},
     local,
 };
 
 pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
-    let local_options = local_options_for_request(&options.request)?;
+    let local_options = local_options_for_options(options)?;
 
     local::run(&local_options)
+}
+
+#[must_use]
+fn openssh_command_for_options(options: &SshOptions) -> PtyCommand {
+    match &options.target {
+        SshTarget::Direct(request) => openssh_command_for_request(request),
+        SshTarget::OpenSsh(target) => openssh_command_for_target(target),
+    }
 }
 
 #[must_use]
 fn openssh_command_for_request(request: &SshConnectRequest) -> PtyCommand {
     let mut args = vec!["-tt".to_owned()];
 
-    match &request.auth {
-        SshAuthMethod::PasswordPrompt | SshAuthMethod::Password { .. } => {
-            args.push("-o".to_owned());
-            args.push("PreferredAuthentications=password,keyboard-interactive".to_owned());
-        }
-        SshAuthMethod::PrivateKey { path, .. } => {
-            args.push("-i".to_owned());
-            args.push(path.to_string_lossy().into_owned());
-        }
-        SshAuthMethod::Agent => {}
-    }
+    append_auth_args(&mut args, &request.auth);
 
     if request.config.port != 22 {
         args.push("-p".to_owned());
@@ -47,13 +45,57 @@ fn openssh_command_for_request(request: &SshConnectRequest) -> PtyCommand {
     PtyCommand::new("ssh").with_args(args)
 }
 
-fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions, Box<dyn Error>> {
-    let size = request.config.initial_size;
+#[must_use]
+fn openssh_command_for_target(target: &OpenSshTarget) -> PtyCommand {
+    let mut args = vec!["-tt".to_owned()];
+
+    append_auth_args(&mut args, &target.auth);
+
+    if let Some(username) = &target.username {
+        args.push("-l".to_owned());
+        args.push(username.clone());
+    }
+    if let Some(port) = target.port {
+        args.push("-p".to_owned());
+        args.push(port.to_string());
+    }
+
+    args.push(target.target.clone());
+
+    PtyCommand::new("ssh").with_args(args)
+}
+
+fn append_auth_args(args: &mut Vec<String>, auth: &SshAuthMethod) {
+    match auth {
+        SshAuthMethod::PasswordPrompt | SshAuthMethod::Password { .. } => {
+            args.push("-o".to_owned());
+            args.push("PreferredAuthentications=password,keyboard-interactive".to_owned());
+        }
+        SshAuthMethod::PrivateKey { path, .. } => {
+            args.push("-i".to_owned());
+            args.push(path.to_string_lossy().into_owned());
+        }
+        SshAuthMethod::Agent => {}
+    }
+}
+
+fn local_options_for_options(options: &SshOptions) -> Result<LocalOptions, Box<dyn Error>> {
+    let size = match &options.target {
+        SshTarget::Direct(request) => request.config.initial_size,
+        SshTarget::OpenSsh(target) => target.initial_size,
+    };
 
     Ok(LocalOptions {
-        command: openssh_command_for_request(request),
+        command: openssh_command_for_options(options),
         size: Some(PtySize::try_new(size.columns, size.rows)?),
         mouse: true,
+    })
+}
+
+#[cfg(test)]
+fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions, Box<dyn Error>> {
+    local_options_for_options(&SshOptions {
+        target: SshTarget::Direct(request.clone()),
     })
 }
 
@@ -64,7 +106,13 @@ fn run_with_connector_and_io(
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let mut session = connector.connect(options.request.clone())?;
+    let request = match &options.target {
+        SshTarget::Direct(request) => request.clone(),
+        SshTarget::OpenSsh(_) => {
+            return Err("mock SSH connector only supports direct SSH targets".into());
+        }
+    };
+    let mut session = connector.connect(request)?;
     copy_input_to_session(input, session.as_mut())?;
     let mut buffer = [0; 8192];
 
@@ -121,7 +169,7 @@ mod tests {
         SshConnectRequest, SshSessionConfig, SshSessionError, SshShellConnector, SshShellSession,
     };
 
-    use crate::cli::SshOptions;
+    use crate::cli::{OpenSshTarget, SshOptions, SshTarget};
 
     #[test]
     fn ssh_runner_streams_remote_output_and_closes_session() {
@@ -136,7 +184,7 @@ mod tests {
 
         super::run_with_connector_and_io(
             &SshOptions {
-                request: request.clone(),
+                target: SshTarget::Direct(request.clone()),
             },
             &mut connector,
             &mut io::empty(),
@@ -163,7 +211,9 @@ mod tests {
         let mut output = Vec::new();
 
         super::run_with_connector_and_io(
-            &SshOptions { request },
+            &SshOptions {
+                target: SshTarget::Direct(request),
+            },
             &mut connector,
             &mut input,
             &mut output,
@@ -249,6 +299,38 @@ mod tests {
         assert_eq!(size.columns(), 132);
         assert_eq!(size.rows(), 43);
         assert!(options.mouse);
+    }
+
+    #[test]
+    fn openssh_command_uses_config_target_with_overrides() {
+        let options = SshOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: Some("ops".to_owned()),
+                port: Some(2222),
+                initial_size: TerminalSize::new(120, 30),
+                auth: rssh_ssh::SshAuthMethod::PrivateKey {
+                    path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                    passphrase: None,
+                },
+            }),
+        };
+
+        let command = super::openssh_command_for_options(&options);
+
+        assert_eq!(
+            command.args(),
+            [
+                "-tt",
+                "-i",
+                "C:/Users/ops/.ssh/id_ed25519",
+                "-l",
+                "ops",
+                "-p",
+                "2222",
+                "prod"
+            ]
+        );
     }
 
     #[derive(Default)]

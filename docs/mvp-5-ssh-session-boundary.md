@@ -41,6 +41,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
+- `rssh-app ssh --target NAME` can reuse an existing OpenSSH `Host NAME`
+  configuration entry, with optional user, port, key, password-prompt, and size
+  overrides.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
@@ -56,6 +59,18 @@ client:
 
 ```powershell
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
+```
+
+Reuse an OpenSSH config host alias:
+
+```powershell
+cargo run -p rssh-app -- ssh --target prod
+```
+
+Override fields for a config host alias:
+
+```powershell
+cargo run -p rssh-app -- ssh --target prod --user ops --port 2222 --key C:\Users\ops\.ssh\id_ed25519
 ```
 
 Start with a private key:
@@ -93,6 +108,8 @@ SSH-boundary tests cover:
 - shell-session trait shape with a mock channel
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
+- app-level OpenSSH config-target parsing with optional user, port, key,
+  password-prompt, and size overrides
 - missing host/user and conflicting authentication rejection
 - app-level SSH runner behavior with a mock connector and shell session
 - app-level SSH runner input forwarding into a mock shell session

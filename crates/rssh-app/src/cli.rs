@@ -22,7 +22,22 @@ pub struct LocalOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct SshOptions {
-    pub request: SshConnectRequest,
+    pub target: SshTarget,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SshTarget {
+    Direct(SshConnectRequest),
+    OpenSsh(OpenSshTarget),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct OpenSshTarget {
+    pub target: String,
+    pub username: Option<String>,
+    pub port: Option<u16>,
+    pub initial_size: TerminalSize,
+    pub auth: SshAuthMethod,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -84,7 +99,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh --host HOST --user USER [--port N] [--cols N --rows N] [--agent | --password | --key PATH]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -142,8 +157,9 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
 
 fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
     let mut host = None;
+    let mut target = None;
     let mut username = None;
-    let mut port = 22;
+    let mut port = None;
     let mut columns = None;
     let mut rows = None;
     let mut auth = None;
@@ -155,13 +171,17 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
                 index += 1;
                 host = Some(required_option_value(args.get(index), "--host")?.to_owned());
             }
+            "--target" => {
+                index += 1;
+                target = Some(required_option_value(args.get(index), "--target")?.to_owned());
+            }
             "--user" => {
                 index += 1;
                 username = Some(required_option_value(args.get(index), "--user")?.to_owned());
             }
             "--port" => {
                 index += 1;
-                port = parse_port(args.get(index), "--port")?;
+                port = Some(parse_port(args.get(index), "--port")?);
             }
             "--cols" => {
                 index += 1;
@@ -197,20 +217,31 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
         index += 1;
     }
 
-    let Some(host) = host else {
-        return Err("--host is required".to_owned());
-    };
-    let Some(username) = username else {
-        return Err("--user is required".to_owned());
-    };
     let size = ssh_terminal_size(columns, rows)?;
-    let config =
-        SshSessionConfig::try_new(host, port, username, size).map_err(|error| error.to_string())?;
     let auth = auth.unwrap_or(SshAuthMethod::Agent);
+    let target = match (host, target) {
+        (Some(_), Some(_)) => {
+            return Err("only one of --host or --target can be selected".to_owned());
+        }
+        (Some(host), None) => {
+            let Some(username) = username else {
+                return Err("--user is required with --host".to_owned());
+            };
+            let config = SshSessionConfig::try_new(host, port.unwrap_or(22), username, size)
+                .map_err(|error| error.to_string())?;
+            SshTarget::Direct(SshConnectRequest::new(config, auth))
+        }
+        (None, Some(target)) => SshTarget::OpenSsh(OpenSshTarget {
+            target,
+            username,
+            port,
+            initial_size: size,
+            auth,
+        }),
+        (None, None) => return Err("--host or --target is required".to_owned()),
+    };
 
-    Ok(AppCommand::Ssh(SshOptions {
-        request: SshConnectRequest::new(config, auth),
-    }))
+    Ok(AppCommand::Ssh(SshOptions { target }))
 }
 
 fn parse_window(args: &[String]) -> Result<AppCommand, String> {
@@ -304,11 +335,15 @@ fn set_ssh_auth(auth: &mut Option<SshAuthMethod>, next: SshAuthMethod) -> Result
 
 fn ssh_terminal_size(columns: Option<u16>, rows: Option<u16>) -> Result<TerminalSize, String> {
     match (columns, rows) {
-        (None, None) => Ok(TerminalSize::new(DEFAULT_SSH_COLUMNS, DEFAULT_SSH_ROWS)),
+        (None, None) => Ok(ssh_default_terminal_size()),
         (Some(columns), Some(rows)) => Ok(TerminalSize::new(columns, rows)),
         (None, Some(_)) => Err("--rows requires --cols".to_owned()),
         (Some(_), None) => Err("--cols requires --rows".to_owned()),
     }
+}
+
+const fn ssh_default_terminal_size() -> TerminalSize {
+    TerminalSize::new(DEFAULT_SSH_COLUMNS, DEFAULT_SSH_ROWS)
 }
 
 #[cfg(test)]
@@ -446,10 +481,73 @@ mod tests {
             panic!("expected ssh command");
         };
 
-        assert_eq!(options.request.config.host, "example.com");
-        assert_eq!(options.request.config.port, 22);
-        assert_eq!(options.request.config.username, "ops");
-        assert_eq!(options.request.auth, SshAuthMethod::Agent);
+        let super::SshTarget::Direct(request) = options.target else {
+            panic!("expected direct SSH target");
+        };
+
+        assert_eq!(request.config.host, "example.com");
+        assert_eq!(request.config.port, 22);
+        assert_eq!(request.config.username, "ops");
+        assert_eq!(request.auth, SshAuthMethod::Agent);
+    }
+
+    #[test]
+    fn parses_ssh_openssh_config_target() {
+        let parsed = parse_args(["rssh-app", "ssh", "--target", "prod"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::Agent
+            })
+        );
+    }
+
+    #[test]
+    fn parses_ssh_openssh_config_target_with_overrides() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--target",
+            "prod",
+            "--user",
+            "ops",
+            "--port",
+            "2222",
+            "--cols",
+            "120",
+            "--rows",
+            "30",
+            "--key",
+            "C:/Users/ops/.ssh/id_ed25519",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "prod".to_owned(),
+                username: Some("ops".to_owned()),
+                port: Some(2222),
+                initial_size: rssh_core::TerminalSize::new(120, 30),
+                auth: SshAuthMethod::PrivateKey {
+                    path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                    passphrase: None
+                }
+            })
+        );
     }
 
     #[test]
@@ -475,10 +573,14 @@ mod tests {
             panic!("expected ssh command");
         };
 
-        assert_eq!(options.request.config.port, 2222);
-        assert_eq!(options.request.config.initial_size.columns, 120);
-        assert_eq!(options.request.config.initial_size.rows, 30);
-        assert_eq!(options.request.auth, SshAuthMethod::PasswordPrompt);
+        let super::SshTarget::Direct(request) = options.target else {
+            panic!("expected direct SSH target");
+        };
+
+        assert_eq!(request.config.port, 2222);
+        assert_eq!(request.config.initial_size.columns, 120);
+        assert_eq!(request.config.initial_size.rows, 30);
+        assert_eq!(request.auth, SshAuthMethod::PasswordPrompt);
     }
 
     #[test]
@@ -499,8 +601,12 @@ mod tests {
             panic!("expected ssh command");
         };
 
+        let super::SshTarget::Direct(request) = options.target else {
+            panic!("expected direct SSH target");
+        };
+
         assert_eq!(
-            options.request.auth,
+            request.auth,
             SshAuthMethod::PrivateKey {
                 path: "C:/Users/ops/.ssh/id_ed25519".into(),
                 passphrase: None
@@ -549,6 +655,7 @@ mod tests {
         let help = super::help_text();
 
         assert!(help.contains("--password"));
+        assert!(help.contains("--target"));
         assert!(!help.contains("PASSWORD"));
         assert!(!help.contains("PASSPHRASE"));
     }
@@ -557,6 +664,23 @@ mod tests {
     fn rejects_ssh_missing_host_or_user() {
         assert!(parse_args(["rssh-app", "ssh", "--user", "ops"]).is_err());
         assert!(parse_args(["rssh-app", "ssh", "--host", "example.com"]).is_err());
+    }
+
+    #[test]
+    fn rejects_ssh_host_and_target_together() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--host",
+            "example.com",
+            "--target",
+            "prod",
+            "--user",
+            "ops",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("only one of --host or --target can be selected"));
     }
 
     #[test]
