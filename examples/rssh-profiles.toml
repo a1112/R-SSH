@@ -1,5 +1,8 @@
 # Example R-SSH profile file.
 #
+# Create a starter profile file:
+#   cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
+#
 # Validate all profiles:
 #   cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 #

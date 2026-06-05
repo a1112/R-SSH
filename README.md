@@ -70,6 +70,7 @@ cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.
 cargo run -p rssh-app -- sftp --target prod --log sftp.log
 cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --download /tmp/remote.txt local.txt
+cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
@@ -136,6 +137,8 @@ same local, native-window, SSH, SFTP, or SCP runtime. See
 `examples/rssh-profiles.toml` for the current file format, including
 `kind = "local"`, `kind = "window"`, `kind = "ssh"`, `kind = "sftp"`,
 `kind = "scp"`, and the optional `log = "path"` field.
+Use `profile --init --file PATH` to create a starter profile file. Existing
+files are not overwritten unless `--force` is added.
 Use `profile --list --file PATH` to print available profile names and kinds
 before launching one.
 Use `profile --check --file PATH` to validate every configured profile without

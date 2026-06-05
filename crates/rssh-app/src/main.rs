@@ -37,6 +37,10 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
             profiles::print_profile_check(&options)?;
             Ok(ExitCode::SUCCESS)
         }
+        AppCommand::ProfileInit(options) => {
+            profiles::print_profile_init(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::ProfileList(options) => {
             profiles::print_profile_list(&options)?;
             Ok(ExitCode::SUCCESS)

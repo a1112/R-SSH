@@ -2,7 +2,11 @@ use std::{collections::BTreeMap, error::Error, fs, io};
 
 use serde::Deserialize;
 
-use crate::cli::{self, AppCommand, ProfileCheckOptions, ProfileListOptions, ProfileOptions};
+use crate::cli::{
+    self, AppCommand, ProfileCheckOptions, ProfileInitOptions, ProfileListOptions, ProfileOptions,
+};
+
+const PROFILE_TEMPLATE: &str = include_str!("../../../examples/rssh-profiles.toml");
 
 #[derive(Deserialize)]
 struct ProfileDocument {
@@ -61,6 +65,25 @@ pub fn check_profiles(options: &ProfileCheckOptions) -> Result<(), Box<dyn Error
 pub fn print_profile_check(options: &ProfileCheckOptions) -> Result<(), Box<dyn Error>> {
     check_profiles(options)?;
     println!("profile check ok");
+
+    Ok(())
+}
+
+pub fn init_profile_file(options: &ProfileInitOptions) -> Result<(), Box<dyn Error>> {
+    if options.file.exists() && !options.force {
+        return Err(profile_error(format!(
+            "profile file already exists: {}; use --force to overwrite",
+            options.file.display()
+        )));
+    }
+
+    fs::write(&options.file, PROFILE_TEMPLATE)?;
+    Ok(())
+}
+
+pub fn print_profile_init(options: &ProfileInitOptions) -> Result<(), Box<dyn Error>> {
+    init_profile_file(options)?;
+    println!("profile file initialized: {}", options.file.display());
 
     Ok(())
 }
@@ -608,5 +631,48 @@ auth = "agent"
             error.to_string(),
             "profile check failed: bad (ssh): --host or --target is required"
         );
+    }
+
+    #[test]
+    fn initializes_missing_profile_file_from_template() {
+        let mut file = std::env::temp_dir();
+        file.push(format!("rssh-init-profile-{}.toml", std::process::id()));
+        remove_file(&file);
+
+        super::init_profile_file(&crate::cli::ProfileInitOptions {
+            file: file.clone(),
+            force: false,
+        })
+        .unwrap();
+
+        let contents = fs::read_to_string(&file).unwrap();
+        remove_file(&file);
+
+        assert!(contents.contains("[profiles.local-smoke]"));
+        assert!(contents.contains("[profiles.prod-shell]"));
+        assert!(contents.contains("cargo run -p rssh-app -- profile --check"));
+    }
+
+    #[test]
+    fn refuses_to_overwrite_existing_profile_file_without_force() {
+        let file = temp_profile_file("init-existing-profile", "existing");
+
+        let error = super::init_profile_file(&crate::cli::ProfileInitOptions {
+            file: file.clone(),
+            force: false,
+        })
+        .unwrap_err();
+
+        let contents = fs::read_to_string(&file).unwrap();
+        remove_file(&file);
+
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "profile file already exists: {}; use --force to overwrite",
+                file.display()
+            )
+        );
+        assert_eq!(contents, "existing");
     }
 }
