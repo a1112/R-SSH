@@ -88,6 +88,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   PTY-side base64 clipboard payloads into the system clipboard and answering
   `?` queries with base64-encoded clipboard content. OSC 52 control sequences
   are removed from console display output.
+- OSC 8 hyperlink sequences are consumed by the console output filter and fed
+  into the mirrored terminal state, so hyperlink metadata is preserved without
+  writing OSC 8 control bytes to the host console.
 - `rssh-app local --osc52 off|write|read-write` controls whether PTY-side OSC
   52 clipboard writes and read queries are allowed. SSH sessions that use the
   OpenSSH-backed console runtime inherit the same policy through
@@ -226,6 +229,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - OSC 52 clipboard: unit tests cover console-path clipboard writes and
   clipboard query responses without writing OSC 52 control bytes to console
   output, plus `off` and `write` policy enforcement.
+- OSC 8 hyperlinks: unit tests cover full and split OSC 8 sequences, verifying
+  that console output omits the control bytes while the mirrored terminal keeps
+  hyperlink metadata on linked cells.
 - XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
   queries for colors, terminal name, true-color marker, current columns/rows,
   and unknown capability fallback.

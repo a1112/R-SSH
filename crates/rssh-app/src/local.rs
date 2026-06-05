@@ -721,7 +721,12 @@ impl TerminalOutputFilter {
         while let Some((index, response)) = self.find_next_response() {
             output.write_all(&self.pending[..index])?;
             self.feed_mirror_through_output(index);
+            let consumed_end = index + response.consumed;
             match response.response {
+                TerminalResponse::Osc8Hyperlink => {
+                    let sequence = self.pending[index..consumed_end].to_vec();
+                    self.feed_mirror_bytes(&sequence);
+                }
                 TerminalResponse::Osc52Write(text) => {
                     if osc52_policy.allows_write() {
                         let _ = write_clipboard(&text);
@@ -740,7 +745,7 @@ impl TerminalOutputFilter {
                     respond(&response_bytes)?;
                 }
             }
-            self.pending.drain(..index + response.consumed);
+            self.pending.drain(..consumed_end);
         }
 
         let retained = Self::suffix_len_matching_query_prefix(&self.pending);
@@ -830,6 +835,17 @@ impl TerminalOutputFilter {
             },
         );
         let osc52_response = self.find_osc52_response();
+        let osc8_response = find_osc8_hyperlink_sequence(&self.pending).map(
+            |Osc8HyperlinkSequence { index, consumed }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::Osc8Hyperlink,
+                    },
+                )
+            },
+        );
 
         static_response
             .into_iter()
@@ -838,6 +854,7 @@ impl TerminalOutputFilter {
             .chain(decrqss_response)
             .chain(xtgettcap_response)
             .chain(osc52_response)
+            .chain(osc8_response)
             .min_by_key(|(index, _)| *index)
     }
 
@@ -876,6 +893,7 @@ impl TerminalOutputFilter {
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
             .max(osc52_clipboard_sequence_suffix_len(pending))
+            .max(osc8_hyperlink_sequence_suffix_len(pending))
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
@@ -888,6 +906,11 @@ impl TerminalOutputFilter {
     fn feed_mirror_through_output(&mut self, end: usize) {
         self.sync_mirror_size();
         self.mirror.feed(&self.pending[..end]);
+    }
+
+    fn feed_mirror_bytes(&mut self, bytes: &[u8]) {
+        self.sync_mirror_size();
+        self.mirror.feed(bytes);
     }
 
     fn response_bytes(&mut self, response: TerminalResponse) -> Vec<u8> {
@@ -958,7 +981,9 @@ impl TerminalOutputFilter {
             TerminalResponse::Decrqss(query) => query.response(&self.mirror),
             TerminalResponse::XtGetTcap(query) => query.response(),
             TerminalResponse::XtVersion => xtversion_response(),
-            TerminalResponse::Osc52Write(_) | TerminalResponse::Osc52Query(_) => Vec::new(),
+            TerminalResponse::Osc8Hyperlink
+            | TerminalResponse::Osc52Write(_)
+            | TerminalResponse::Osc52Query(_) => Vec::new(),
         }
     }
 
@@ -999,6 +1024,7 @@ enum TerminalResponse {
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
     XtVersion,
+    Osc8Hyperlink,
     Osc52Write(String),
     Osc52Query(String),
 }
@@ -1056,6 +1082,65 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+struct Osc8HyperlinkSequence {
+    index: usize,
+    consumed: usize,
+}
+
+fn find_osc8_hyperlink_sequence(bytes: &[u8]) -> Option<Osc8HyperlinkSequence> {
+    let mut match_sequence = None;
+    for (prefix, prefix_len) in [(b"\x1b]8;".as_slice(), 4), (b"\x9d8;".as_slice(), 3)] {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                break;
+            };
+            let index = offset + relative_index;
+            if let Some(sequence) = parse_osc8_hyperlink_sequence(bytes, index, prefix_len)
+                && match_sequence
+                    .as_ref()
+                    .is_none_or(|current: &Osc8HyperlinkSequence| sequence.index < current.index)
+            {
+                match_sequence = Some(sequence);
+            }
+            offset = index.saturating_add(1);
+        }
+    }
+    match_sequence
+}
+
+fn parse_osc8_hyperlink_sequence(
+    bytes: &[u8],
+    index: usize,
+    prefix_len: usize,
+) -> Option<Osc8HyperlinkSequence> {
+    let content_start = index + prefix_len;
+    let terminator = find_osc_color_terminator(&bytes[content_start..])?;
+
+    Some(Osc8HyperlinkSequence {
+        index,
+        consumed: content_start + terminator.index + terminator.length - index,
+    })
+}
+
+fn osc8_hyperlink_sequence_suffix_len(bytes: &[u8]) -> usize {
+    (1..=bytes.len())
+        .rev()
+        .find(|&length| is_osc8_hyperlink_sequence_prefix(&bytes[bytes.len() - length..]))
+        .unwrap_or(0)
+}
+
+fn is_osc8_hyperlink_sequence_prefix(bytes: &[u8]) -> bool {
+    [b"\x1b]8;".as_slice(), b"\x9d8;".as_slice()]
+        .into_iter()
+        .any(|prefix| {
+            if prefix.starts_with(bytes) {
+                return true;
+            }
+            bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
+        })
 }
 
 struct Osc52ClipboardSequence {
@@ -2848,6 +2933,77 @@ mod tests {
 
         assert_eq!(output, b"console-smoke");
         assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_omits_osc8_hyperlink_sequences() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"a\x1b]8;;https://example.com\x1b\\bc\x1b]8;;\x1b\\d",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"abcd");
+        assert!(responses.is_empty());
+        assert_eq!(
+            filter.mirror.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            filter.mirror.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().hyperlink, None);
+        assert_eq!(filter.mirror.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn terminal_output_filter_omits_split_osc8_hyperlink_sequences() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"a\x1b]8;;https://example.com", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x1b\\bc\x1b]8;;", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x1b\\d", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"abcd");
+        assert!(responses.is_empty());
+        assert_eq!(
+            filter.mirror.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            filter.mirror.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(filter.mirror.grid().get(0, 3).unwrap().hyperlink, None);
     }
 
     #[test]
