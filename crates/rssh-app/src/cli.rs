@@ -23,6 +23,7 @@ pub struct LocalOptions {
 #[derive(Debug, PartialEq, Eq)]
 pub struct SshOptions {
     pub target: SshTarget,
+    pub remote_command: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -163,10 +164,15 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
     let mut columns = None;
     let mut rows = None;
     let mut auth = None;
+    let mut remote_command = Vec::new();
     let mut index = 0;
 
     while index < args.len() {
         match args[index].as_str() {
+            "--" => {
+                remote_command.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "--host" => {
                 index += 1;
                 host = Some(required_option_value(args.get(index), "--host")?.to_owned());
@@ -241,7 +247,10 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
         (None, None) => return Err("--host or --target is required".to_owned()),
     };
 
-    Ok(AppCommand::Ssh(SshOptions { target }))
+    Ok(AppCommand::Ssh(SshOptions {
+        target,
+        remote_command,
+    }))
 }
 
 fn parse_window(args: &[String]) -> Result<AppCommand, String> {
@@ -509,6 +518,7 @@ mod tests {
                 auth: SshAuthMethod::Agent
             })
         );
+        assert!(options.remote_command.is_empty());
     }
 
     #[test]
@@ -548,6 +558,45 @@ mod tests {
                 }
             })
         );
+        assert!(options.remote_command.is_empty());
+    }
+
+    #[test]
+    fn parses_ssh_remote_command_for_openssh_config_target() {
+        let parsed =
+            parse_args(["rssh-app", "ssh", "--target", "prod", "--", "uname", "-a"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(options.remote_command, ["uname", "-a"]);
+    }
+
+    #[test]
+    fn parses_ssh_remote_command_for_direct_target() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+            "--",
+            "whoami",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        let super::SshTarget::Direct(request) = options.target else {
+            panic!("expected direct SSH target");
+        };
+
+        assert_eq!(request.config.host, "example.com");
+        assert_eq!(options.remote_command, ["whoami"]);
     }
 
     #[test]

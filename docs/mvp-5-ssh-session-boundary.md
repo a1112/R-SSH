@@ -44,6 +44,8 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app ssh --target NAME` can reuse an existing OpenSSH `Host NAME`
   configuration entry, with optional user, port, key, password-prompt, and size
   overrides.
+- `rssh-app ssh ... -- <command> [args...]` appends a remote command after the
+  OpenSSH target, while omitting `--` keeps the default interactive shell.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
@@ -71,6 +73,12 @@ Override fields for a config host alias:
 
 ```powershell
 cargo run -p rssh-app -- ssh --target prod --user ops --port 2222 --key C:\Users\ops\.ssh\id_ed25519
+```
+
+Run a remote command instead of the default interactive shell:
+
+```powershell
+cargo run -p rssh-app -- ssh --target prod -- uname -a
 ```
 
 Start with a private key:
@@ -110,6 +118,9 @@ SSH-boundary tests cover:
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
   password-prompt, and size overrides
+- remote command parsing after `--` for direct and OpenSSH config targets
+- OpenSSH command generation that appends remote command arguments after the
+  target
 - missing host/user and conflicting authentication rejection
 - app-level SSH runner behavior with a mock connector and shell session
 - app-level SSH runner input forwarding into a mock shell session

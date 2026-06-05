@@ -51,6 +51,7 @@ cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 cargo run -p rssh-app -- ssh --target prod
+cargo run -p rssh-app -- ssh --target prod -- uname -a
 cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo test -p rssh-ssh
@@ -69,6 +70,8 @@ not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing
 SSH config; `--user`, `--port`, `--password`, and `--key` can still override
 the generated OpenSSH command when needed.
+Add `-- <command> [args...]` after the SSH options to run a remote command
+instead of opening the default interactive shell.
 
 ## MVP Status
 

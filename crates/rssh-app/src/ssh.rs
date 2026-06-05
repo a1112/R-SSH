@@ -20,10 +20,16 @@ pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 
 #[must_use]
 fn openssh_command_for_options(options: &SshOptions) -> PtyCommand {
-    match &options.target {
+    let mut command = match &options.target {
         SshTarget::Direct(request) => openssh_command_for_request(request),
         SshTarget::OpenSsh(target) => openssh_command_for_target(target),
+    };
+
+    if !options.remote_command.is_empty() {
+        command = command.with_args(options.remote_command.iter().cloned());
     }
+
+    command
 }
 
 #[must_use]
@@ -96,6 +102,7 @@ fn local_options_for_options(options: &SshOptions) -> Result<LocalOptions, Box<d
 fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions, Box<dyn Error>> {
     local_options_for_options(&SshOptions {
         target: SshTarget::Direct(request.clone()),
+        remote_command: Vec::new(),
     })
 }
 
@@ -185,6 +192,7 @@ mod tests {
         super::run_with_connector_and_io(
             &SshOptions {
                 target: SshTarget::Direct(request.clone()),
+                remote_command: Vec::new(),
             },
             &mut connector,
             &mut io::empty(),
@@ -213,6 +221,7 @@ mod tests {
         super::run_with_connector_and_io(
             &SshOptions {
                 target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
             },
             &mut connector,
             &mut input,
@@ -314,6 +323,7 @@ mod tests {
                     passphrase: None,
                 },
             }),
+            remote_command: Vec::new(),
         };
 
         let command = super::openssh_command_for_options(&options);
@@ -331,6 +341,24 @@ mod tests {
                 "prod"
             ]
         );
+    }
+
+    #[test]
+    fn openssh_command_appends_remote_command_after_target() {
+        let options = SshOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: TerminalSize::new(80, 24),
+                auth: rssh_ssh::SshAuthMethod::Agent,
+            }),
+            remote_command: vec!["uname".to_owned(), "-a".to_owned()],
+        };
+
+        let command = super::openssh_command_for_options(&options);
+
+        assert_eq!(command.args(), ["-tt", "prod", "uname", "-a"]);
     }
 
     #[derive(Default)]
