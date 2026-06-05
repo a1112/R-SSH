@@ -1,8 +1,9 @@
 # MVP 5: SSH Session Boundary
 
 MVP 5 starts the remote session path that will sit beside the local PTY path.
-It does not connect to a server yet; it defines the validated configuration and
-channel contract that a future `russh` adapter must satisfy.
+The app can start the system OpenSSH client through the existing PTY console
+runtime, while `rssh-ssh` defines the validated configuration and channel
+contract that a future in-process `russh` adapter must satisfy.
 
 ## Completed Scope
 
@@ -16,7 +17,8 @@ channel contract that a future `russh` adapter must satisfy.
 - `SshConfigError` is a typed error with `Display` and `Error`
   implementations for user-facing startup failures.
 - `SshAuthMethod` models the SSH authentication inputs the adapter will need:
-  - password
+  - password prompt request
+  - password value from a future secure prompt or secret store
   - private key path with an optional passphrase
   - SSH agent
 - `SshAuthError` rejects empty password and empty private-key path inputs before
@@ -37,8 +39,8 @@ channel contract that a future `russh` adapter must satisfy.
 - `SshSessionError` gives adapters a crate-local error type before the network
   backend is introduced.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
-  including host, user, port, initial terminal size, password auth, private-key
-  auth with optional passphrase, and agent auth.
+  including host, user, port, initial terminal size, password-prompt auth,
+  private-key auth, and agent auth.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
@@ -62,9 +64,16 @@ Start with a private key:
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 ```
 
+Prefer an interactive password prompt:
+
+```powershell
+cargo run -p rssh-app -- ssh --host example.com --user ops --password
+```
+
 For password authentication, R-SSH asks OpenSSH to prefer password and
 keyboard-interactive authentication, then OpenSSH prompts inside the terminal.
-R-SSH does not pass the password value on the process command line.
+R-SSH does not accept password or key-passphrase values on the process command
+line.
 
 ## Verification
 
@@ -78,11 +87,12 @@ SSH-boundary tests cover:
 
 - successful validated config creation
 - host, username, port, and terminal-size validation
-- password, private-key, and agent connection request construction
+- password-prompt, password-value, private-key, and agent connection request construction
 - empty password and empty private-key path rejection
 - shell connector trait shape with a mock connector
 - shell-session trait shape with a mock channel
-- app-level SSH command parsing for agent, password, and private-key requests
+- app-level SSH command parsing for agent, password-prompt, and private-key requests
+- command-line rejection for password and key-passphrase secret values
 - missing host/user and conflicting authentication rejection
 - app-level SSH runner behavior with a mock connector and shell session
 - app-level SSH runner input forwarding into a mock shell session

@@ -44,6 +44,7 @@ impl std::error::Error for SshAuthError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SshAuthMethod {
+    PasswordPrompt,
     Password {
         password: String,
     },
@@ -55,6 +56,11 @@ pub enum SshAuthMethod {
 }
 
 impl SshAuthMethod {
+    #[must_use]
+    pub const fn password_prompt() -> Self {
+        Self::PasswordPrompt
+    }
+
     /// Creates password authentication data.
     ///
     /// # Errors
@@ -174,6 +180,13 @@ impl SshConnectRequest {
         password: impl Into<String>,
     ) -> Result<Self, SshAuthError> {
         Ok(Self::new(config, SshAuthMethod::password(password)?))
+    }
+
+    /// Creates a connection request that should prompt for a password through
+    /// the active terminal or a future secure prompt.
+    #[must_use]
+    pub const fn password_prompt(config: SshSessionConfig) -> Self {
+        Self::new(config, SshAuthMethod::PasswordPrompt)
     }
 
     /// Creates a connection request with private-key authentication.
@@ -379,6 +392,15 @@ mod tests {
         let error = SshConnectRequest::password(valid_config(), " ").unwrap_err();
 
         assert_eq!(error, SshAuthError::EmptyPassword);
+    }
+
+    #[test]
+    fn connect_request_accepts_password_prompt_auth() {
+        let config = valid_config();
+        let request = SshConnectRequest::password_prompt(config.clone());
+
+        assert_eq!(request.config, config);
+        assert_eq!(request.auth, SshAuthMethod::PasswordPrompt);
     }
 
     #[test]

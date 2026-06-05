@@ -23,7 +23,7 @@ fn openssh_command_for_request(request: &SshConnectRequest) -> PtyCommand {
     let mut args = vec!["-tt".to_owned()];
 
     match &request.auth {
-        SshAuthMethod::Password { .. } => {
+        SshAuthMethod::PasswordPrompt | SshAuthMethod::Password { .. } => {
             args.push("-o".to_owned());
             args.push("PreferredAuthentications=password,keyboard-interactive".to_owned());
         }

@@ -84,7 +84,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh --host HOST --user USER [--port N] [--cols N --rows N] [--agent | --password PASSWORD | --key PATH [--passphrase PASSPHRASE]]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh --host HOST --user USER [--port N] [--cols N --rows N] [--agent | --password | --key PATH]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -147,7 +147,6 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
     let mut columns = None;
     let mut rows = None;
     let mut auth = None;
-    let mut key_passphrase = None;
     let mut index = 0;
 
     while index < args.len() {
@@ -176,12 +175,7 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
                 set_ssh_auth(&mut auth, SshAuthMethod::Agent)?;
             }
             "--password" => {
-                index += 1;
-                let password = required_option_value(args.get(index), "--password")?;
-                set_ssh_auth(
-                    &mut auth,
-                    SshAuthMethod::password(password).map_err(|error| error.to_string())?,
-                )?;
+                set_ssh_auth(&mut auth, SshAuthMethod::PasswordPrompt)?;
             }
             "--key" => {
                 index += 1;
@@ -193,9 +187,10 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
                 )?;
             }
             "--passphrase" => {
-                index += 1;
-                key_passphrase =
-                    Some(required_option_value(args.get(index), "--passphrase")?.to_owned());
+                return Err(
+                    "--passphrase is not accepted on the command line; use the terminal prompt"
+                        .to_owned(),
+                );
             }
             value => return Err(format!("unexpected ssh option: {value}")),
         }
@@ -211,7 +206,7 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
     let size = ssh_terminal_size(columns, rows)?;
     let config =
         SshSessionConfig::try_new(host, port, username, size).map_err(|error| error.to_string())?;
-    let auth = apply_ssh_passphrase(auth.unwrap_or(SshAuthMethod::Agent), key_passphrase)?;
+    let auth = auth.unwrap_or(SshAuthMethod::Agent);
 
     Ok(AppCommand::Ssh(SshOptions {
         request: SshConnectRequest::new(config, auth),
@@ -305,29 +300,6 @@ fn set_ssh_auth(auth: &mut Option<SshAuthMethod>, next: SshAuthMethod) -> Result
 
     *auth = Some(next);
     Ok(())
-}
-
-fn apply_ssh_passphrase(
-    auth: SshAuthMethod,
-    passphrase: Option<String>,
-) -> Result<SshAuthMethod, String> {
-    match (auth, passphrase) {
-        (
-            SshAuthMethod::PrivateKey {
-                path,
-                passphrase: None,
-            },
-            Some(passphrase),
-        ) => Ok(SshAuthMethod::PrivateKey {
-            path,
-            passphrase: Some(passphrase),
-        }),
-        (SshAuthMethod::PrivateKey { path, passphrase }, None) => {
-            Ok(SshAuthMethod::PrivateKey { path, passphrase })
-        }
-        (_, Some(_)) => Err("--passphrase requires --key".to_owned()),
-        (auth, None) => Ok(auth),
-    }
 }
 
 fn ssh_terminal_size(columns: Option<u16>, rows: Option<u16>) -> Result<TerminalSize, String> {
@@ -496,7 +468,6 @@ mod tests {
             "--rows",
             "30",
             "--password",
-            "secret",
         ])
         .unwrap();
 
@@ -507,12 +478,7 @@ mod tests {
         assert_eq!(options.request.config.port, 2222);
         assert_eq!(options.request.config.initial_size.columns, 120);
         assert_eq!(options.request.config.initial_size.rows, 30);
-        assert_eq!(
-            options.request.auth,
-            SshAuthMethod::Password {
-                password: "secret".to_owned()
-            }
-        );
+        assert_eq!(options.request.auth, SshAuthMethod::PasswordPrompt);
     }
 
     #[test]
@@ -526,8 +492,6 @@ mod tests {
             "ops",
             "--key",
             "C:/Users/ops/.ssh/id_ed25519",
-            "--passphrase",
-            "secret",
         ])
         .unwrap();
 
@@ -539,9 +503,54 @@ mod tests {
             options.request.auth,
             SshAuthMethod::PrivateKey {
                 path: "C:/Users/ops/.ssh/id_ed25519".into(),
-                passphrase: Some("secret".to_owned())
+                passphrase: None
             }
         );
+    }
+
+    #[test]
+    fn rejects_ssh_password_command_line_secret() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+            "--password",
+            "secret",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("unexpected ssh option: secret"));
+    }
+
+    #[test]
+    fn rejects_ssh_passphrase_command_line_secret() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+            "--key",
+            "C:/Users/ops/.ssh/id_ed25519",
+            "--passphrase",
+            "secret",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("--passphrase is not accepted"));
+    }
+
+    #[test]
+    fn help_text_does_not_request_secret_values() {
+        let help = super::help_text();
+
+        assert!(help.contains("--password"));
+        assert!(!help.contains("PASSWORD"));
+        assert!(!help.contains("PASSPHRASE"));
     }
 
     #[test]
@@ -561,7 +570,6 @@ mod tests {
                 "--user",
                 "ops",
                 "--password",
-                "secret",
                 "--key",
                 "C:/Users/ops/.ssh/id_ed25519",
             ])

@@ -50,6 +50,7 @@ cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
+cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo test -p rssh-ssh
 ```
@@ -62,6 +63,8 @@ The console path also answers basic terminal status and device-attribute queries
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
 secrets in the R-SSH command line.
+Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
+not pass password or key-passphrase values as command arguments.
 
 ## MVP Status
 
