@@ -4,6 +4,7 @@ mod profiles;
 mod ssh;
 mod terminal_input;
 mod terminal_runtime;
+mod visible_output;
 mod window;
 
 use std::{env, process::ExitCode};

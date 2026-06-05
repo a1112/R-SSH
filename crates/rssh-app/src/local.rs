@@ -26,6 +26,7 @@ use rssh_terminal::Terminal;
 use crate::{
     cli::LocalOptions,
     terminal_input::{TerminalKey, encode_terminal_key},
+    visible_output::TerminalVisibleOutputFilter,
 };
 
 pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
@@ -397,11 +398,16 @@ fn copy_pty_output(
 struct SessionLogWriter<'screen, 'log> {
     screen: &'screen mut dyn Write,
     log: Option<&'log mut dyn Write>,
+    log_filter: TerminalVisibleOutputFilter,
 }
 
 impl<'screen, 'log> SessionLogWriter<'screen, 'log> {
     fn new(screen: &'screen mut dyn Write, log: Option<&'log mut dyn Write>) -> Self {
-        Self { screen, log }
+        Self {
+            screen,
+            log,
+            log_filter: TerminalVisibleOutputFilter::default(),
+        }
     }
 }
 
@@ -410,7 +416,7 @@ impl Write for SessionLogWriter<'_, '_> {
         let count = self.screen.write(buffer)?;
         if count > 0 {
             if let Some(log) = self.log.as_mut() {
-                log.write_all(&visible_log_bytes(&buffer[..count]))?;
+                log.write_all(&self.log_filter.process(&buffer[..count]))?;
             }
         }
         Ok(count)
@@ -423,14 +429,6 @@ impl Write for SessionLogWriter<'_, '_> {
         }
         Ok(())
     }
-}
-
-fn visible_log_bytes(bytes: &[u8]) -> Vec<u8> {
-    bytes
-        .iter()
-        .copied()
-        .filter(|byte| *byte != b'\x07')
-        .collect()
 }
 
 fn copy_pty_input(
@@ -2002,6 +2000,33 @@ mod tests {
         output.flush().unwrap();
 
         assert_eq!(screen, b"before\x07after");
+        assert_eq!(log, b"beforeafter");
+    }
+
+    #[test]
+    fn session_log_writer_omits_title_sequence_from_log() {
+        let mut screen = Vec::new();
+        let mut log = Vec::new();
+        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+
+        output.write_all(b"before\x1b]0;ops\x07after").unwrap();
+        output.flush().unwrap();
+
+        assert_eq!(screen, b"before\x1b]0;ops\x07after");
+        assert_eq!(log, b"beforeafter");
+    }
+
+    #[test]
+    fn session_log_writer_omits_split_title_sequence_from_log() {
+        let mut screen = Vec::new();
+        let mut log = Vec::new();
+        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+
+        output.write_all(b"before\x1b]0;op").unwrap();
+        output.write_all(b"s\x07after").unwrap();
+        output.flush().unwrap();
+
+        assert_eq!(screen, b"before\x1b]0;ops\x07after");
         assert_eq!(log, b"beforeafter");
     }
 
