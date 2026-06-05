@@ -180,6 +180,22 @@ impl TerminalOutputFilter {
             response: TerminalResponse::WindowPixelSize,
         },
         TerminalQueryResponse {
+            query: b"\x1b[13t",
+            response: TerminalResponse::WindowPosition,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b13t",
+            response: TerminalResponse::WindowPosition,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[15t",
+            response: TerminalResponse::ScreenPixelSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b15t",
+            response: TerminalResponse::ScreenPixelSize,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[16t",
             response: TerminalResponse::CharacterCellSize,
         },
@@ -273,6 +289,8 @@ enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
     WindowPixelSize,
+    WindowPosition,
+    ScreenPixelSize,
     CharacterCellSize,
     TextAreaSize,
     ScreenSize,
@@ -302,6 +320,13 @@ impl TerminalResponse {
             }
             TerminalResponse::WindowPixelSize => format!(
                 "\x1b[4;{};{}t",
+                u32::from(size.rows) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
+                u32::from(size.columns) * u32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS)
+            )
+            .into_bytes(),
+            TerminalResponse::WindowPosition => b"\x1b[3;0;0t".to_vec(),
+            TerminalResponse::ScreenPixelSize => format!(
+                "\x1b[5;{};{}t",
                 u32::from(size.rows) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
                 u32::from(size.columns) * u32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS)
             )
@@ -604,6 +629,32 @@ mod tests {
     }
 
     #[test]
+    fn answers_window_position_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"before\x1b[13tafter");
+
+        assert_eq!(responses, vec![b"\x1b[3;0;0t".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[13t"));
+    }
+
+    #[test]
+    fn answers_screen_pixel_size_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"before\x1b[15tafter");
+
+        assert_eq!(responses, vec![b"\x1b[5;688;1056t".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[15t"));
+    }
+
+    #[test]
     fn answers_character_cell_size_query() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
@@ -649,6 +700,17 @@ mod tests {
 
         assert_eq!(window_pixels, vec![b"\x1b[4;688;1056t".to_vec()]);
         assert_eq!(cell_pixels, vec![b"\x1b[6;16;8t".to_vec()]);
+    }
+
+    #[test]
+    fn answers_c1_window_position_and_screen_pixel_size_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let window_position = runtime.feed_pty_output(b"\x9b13t");
+        let screen_pixels = runtime.feed_pty_output(b"\x9b15t");
+
+        assert_eq!(window_position, vec![b"\x1b[3;0;0t".to_vec()]);
+        assert_eq!(screen_pixels, vec![b"\x1b[5;688;1056t".to_vec()]);
     }
 
     #[test]

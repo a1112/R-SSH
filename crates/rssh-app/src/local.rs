@@ -584,6 +584,22 @@ impl TerminalOutputFilter {
             response: TerminalResponse::WindowPixelSize,
         },
         TerminalQueryResponse {
+            query: b"\x1b[13t",
+            response: TerminalResponse::WindowPosition,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b13t",
+            response: TerminalResponse::WindowPosition,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[15t",
+            response: TerminalResponse::ScreenPixelSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b15t",
+            response: TerminalResponse::ScreenPixelSize,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[16t",
             response: TerminalResponse::CharacterCellSize,
         },
@@ -711,6 +727,16 @@ impl TerminalOutputFilter {
                 )
                 .into_bytes()
             }
+            TerminalResponse::WindowPosition => b"\x1b[3;0;0t".to_vec(),
+            TerminalResponse::ScreenPixelSize => {
+                let size = self.size.snapshot();
+                format!(
+                    "\x1b[5;{};{}t",
+                    u32::from(size.rows()) * u32::from(Self::CELL_HEIGHT_PIXELS),
+                    u32::from(size.columns()) * u32::from(Self::CELL_WIDTH_PIXELS)
+                )
+                .into_bytes()
+            }
             TerminalResponse::CharacterCellSize => format!(
                 "\x1b[6;{};{}t",
                 Self::CELL_HEIGHT_PIXELS,
@@ -747,6 +773,8 @@ enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
     WindowPixelSize,
+    WindowPosition,
+    ScreenPixelSize,
     CharacterCellSize,
     TextAreaSize,
     ScreenSize,
@@ -1842,6 +1870,42 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_window_position_query() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[13tafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[3;0;0t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_screen_pixel_size_query() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[15tafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[5;688;1056t");
+    }
+
+    #[test]
     fn terminal_output_filter_answers_character_cell_size_query() {
         let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
         let mut output = Vec::new();
@@ -1919,6 +1983,28 @@ mod tests {
 
         assert_eq!(output, b"before middleafter");
         assert_eq!(responses, b"\x1b[4;688;1056t\x1b[6;16;8t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_window_position_and_screen_pixel_size_queries() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x9b13t middle\x9b15tafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middleafter");
+        assert_eq!(responses, b"\x1b[3;0;0t\x1b[5;688;1056t");
     }
 
     #[test]
