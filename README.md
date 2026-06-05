@@ -193,9 +193,11 @@ per-profile report that still exits non-zero when any profile is invalid.
   rendering, and input-write metrics with `window --metrics`; the SSH crate now
   has a validated config, authentication request model, connector entry point,
   shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
-  runner path for local input and remote output. The app-level `ssh` command can
-  also run the system OpenSSH client through the PTY console runtime as an
-  interim backend. See
+  runner path for local input and remote output. `rssh-core` also includes a
+  shared session lifecycle model for created, connecting, connected,
+  disconnected, and closed states. The app-level `ssh` command can also run the
+  system OpenSSH client through the PTY console runtime as an interim backend.
+  See
   `docs/mvp-5-ssh-session-boundary.md`.
 
 ## Reference Sources

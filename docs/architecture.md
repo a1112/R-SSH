@@ -60,8 +60,8 @@ keyboard, mouse, paste, resize
 
 ## Crate Boundaries
 
-- `rssh-core`: shared domain types such as session IDs, terminal size, and common
-  error categories.
+- `rssh-core`: shared domain types such as session IDs, terminal size, session
+  lifecycle state, and common error categories.
 - `rssh-terminal`: VT parser boundary, grid, scrollback, selection, and input
   encoding.
 - `rssh-renderer`: renderer state, damage tracking, font atlas, and future
