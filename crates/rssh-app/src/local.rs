@@ -410,7 +410,7 @@ impl Write for SessionLogWriter<'_, '_> {
         let count = self.screen.write(buffer)?;
         if count > 0 {
             if let Some(log) = self.log.as_mut() {
-                log.write_all(&buffer[..count])?;
+                log.write_all(&visible_log_bytes(&buffer[..count]))?;
             }
         }
         Ok(count)
@@ -423,6 +423,14 @@ impl Write for SessionLogWriter<'_, '_> {
         }
         Ok(())
     }
+}
+
+fn visible_log_bytes(bytes: &[u8]) -> Vec<u8> {
+    bytes
+        .iter()
+        .copied()
+        .filter(|byte| *byte != b'\x07')
+        .collect()
 }
 
 fn copy_pty_input(
@@ -1982,6 +1990,19 @@ mod tests {
 
         assert_eq!(screen, b"visible");
         assert_eq!(log, b"visible");
+    }
+
+    #[test]
+    fn session_log_writer_omits_bell_from_log() {
+        let mut screen = Vec::new();
+        let mut log = Vec::new();
+        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+
+        output.write_all(b"before\x07after").unwrap();
+        output.flush().unwrap();
+
+        assert_eq!(screen, b"before\x07after");
+        assert_eq!(log, b"beforeafter");
     }
 
     #[test]
