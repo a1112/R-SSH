@@ -1,20 +1,63 @@
-use std::{
-    error::Error,
-    io::{self, Read, Write},
+use std::error::Error;
+#[cfg(test)]
+use std::io::{self, Read, Write};
+
+use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
+use rssh_ssh::{SshAuthMethod, SshConnectRequest};
+#[cfg(test)]
+use rssh_ssh::{SshShellConnector, SshShellSession};
+
+use crate::{
+    cli::{LocalOptions, SshOptions},
+    local,
 };
 
-use rssh_ssh::{SshConnectRequest, SshSessionError, SshShellConnector, SshShellSession};
+pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let local_options = local_options_for_request(&options.request)?;
 
-use crate::cli::SshOptions;
-
-pub fn run(options: &SshOptions) -> Result<(), Box<dyn Error>> {
-    let mut connector = UnavailableSshConnector;
-    let mut stdin = io::stdin().lock();
-    let mut stdout = io::stdout().lock();
-
-    run_with_connector_and_io(options, &mut connector, &mut stdin, &mut stdout)
+    local::run(&local_options)
 }
 
+#[must_use]
+fn openssh_command_for_request(request: &SshConnectRequest) -> PtyCommand {
+    let mut args = vec!["-tt".to_owned()];
+
+    match &request.auth {
+        SshAuthMethod::Password { .. } => {
+            args.push("-o".to_owned());
+            args.push("PreferredAuthentications=password,keyboard-interactive".to_owned());
+        }
+        SshAuthMethod::PrivateKey { path, .. } => {
+            args.push("-i".to_owned());
+            args.push(path.to_string_lossy().into_owned());
+        }
+        SshAuthMethod::Agent => {}
+    }
+
+    if request.config.port != 22 {
+        args.push("-p".to_owned());
+        args.push(request.config.port.to_string());
+    }
+
+    args.push(format!(
+        "{}@{}",
+        request.config.username, request.config.host
+    ));
+
+    PtyCommand::new("ssh").with_args(args)
+}
+
+fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions, Box<dyn Error>> {
+    let size = request.config.initial_size;
+
+    Ok(LocalOptions {
+        command: openssh_command_for_request(request),
+        size: Some(PtySize::try_new(size.columns, size.rows)?),
+        mouse: true,
+    })
+}
+
+#[cfg(test)]
 fn run_with_connector_and_io(
     options: &SshOptions,
     connector: &mut dyn SshShellConnector,
@@ -39,6 +82,7 @@ fn run_with_connector_and_io(
     Ok(())
 }
 
+#[cfg(test)]
 fn copy_input_to_session(
     input: &mut dyn Read,
     session: &mut dyn SshShellSession,
@@ -62,19 +106,6 @@ fn copy_input_to_session(
             }
             written += next;
         }
-    }
-}
-
-struct UnavailableSshConnector;
-
-impl SshShellConnector for UnavailableSshConnector {
-    fn connect(
-        &mut self,
-        _request: SshConnectRequest,
-    ) -> Result<Box<dyn SshShellSession>, SshSessionError> {
-        Err(SshSessionError::new(
-            "ssh command parsing is available, but the ssh connector is not wired yet",
-        ))
     }
 }
 
@@ -143,6 +174,81 @@ mod tests {
         assert_eq!(state.written, b"echo hi\n");
         assert_eq!(output, b"remote\n");
         assert!(state.closed);
+    }
+
+    #[test]
+    fn openssh_command_uses_target_port_and_tty() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 2222, "ops", TerminalSize::new(120, 30))
+                .unwrap(),
+        );
+
+        let command = super::openssh_command_for_request(&request);
+
+        assert_eq!(command.program(), "ssh");
+        assert_eq!(command.args(), ["-tt", "-p", "2222", "ops@example.com"]);
+    }
+
+    #[test]
+    fn openssh_command_adds_private_key_without_leaking_passphrase() {
+        let request = SshConnectRequest::private_key(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+            "C:/Users/ops/.ssh/id_ed25519",
+            Some("secret"),
+        )
+        .unwrap();
+
+        let command = super::openssh_command_for_request(&request);
+        let joined = command.args().join(" ");
+
+        assert_eq!(
+            command.args(),
+            [
+                "-tt",
+                "-i",
+                "C:/Users/ops/.ssh/id_ed25519",
+                "ops@example.com"
+            ]
+        );
+        assert!(!joined.contains("secret"));
+    }
+
+    #[test]
+    fn openssh_command_uses_password_prompt_policy_without_leaking_password() {
+        let request = SshConnectRequest::password(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+            "secret",
+        )
+        .unwrap();
+
+        let command = super::openssh_command_for_request(&request);
+        let joined = command.args().join(" ");
+
+        assert_eq!(
+            command.args(),
+            [
+                "-tt",
+                "-o",
+                "PreferredAuthentications=password,keyboard-interactive",
+                "ops@example.com"
+            ]
+        );
+        assert!(!joined.contains("secret"));
+    }
+
+    #[test]
+    fn openssh_local_options_use_requested_terminal_size_and_mouse() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(132, 43))
+                .unwrap(),
+        );
+
+        let options = super::local_options_for_request(&request).unwrap();
+
+        let size = options.size.unwrap();
+        assert_eq!(size.columns(), 132);
+        assert_eq!(size.rows(), 43);
+        assert!(options.mouse);
     }
 
     #[derive(Default)]

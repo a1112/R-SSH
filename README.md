@@ -50,6 +50,7 @@ cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
+cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo test -p rssh-ssh
 ```
 
@@ -57,6 +58,10 @@ cargo test -p rssh-ssh
 applications to negotiate xterm mouse/focus reporting through PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
 The console path also answers basic terminal status and device-attribute queries.
+`ssh` currently starts the system OpenSSH client inside the same PTY console
+runtime, so remote login can use the existing host OpenSSH configuration,
+known-host handling, agent, key prompts, and password prompts without exposing
+secrets in the R-SSH command line.
 
 ## MVP Status
 
@@ -71,7 +76,9 @@ The console path also answers basic terminal status and device-attribute queries
   rendering, and input-write metrics with `window --metrics`; the SSH crate now
   has a validated config, authentication request model, connector entry point,
   shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
-  runner path for local input and remote output. See
+  runner path for local input and remote output. The app-level `ssh` command can
+  also run the system OpenSSH client through the PTY console runtime as an
+  interim backend. See
   `docs/mvp-5-ssh-session-boundary.md`.
 
 ## Reference Sources

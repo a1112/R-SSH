@@ -42,18 +42,29 @@ channel contract that a future `russh` adapter must satisfy.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
+- `rssh-app ssh` can start the system OpenSSH client inside the existing PTY
+  console runtime as an interim remote-session backend. It maps host, user, port,
+  private-key path, and password-preferred authentication into OpenSSH arguments
+  without placing password or passphrase secrets on the command line.
 
 ## Run
 
-Parse an SSH request with agent authentication:
+Start an SSH request with agent authentication through the system OpenSSH
+client:
 
 ```powershell
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 ```
 
-The command currently validates and parses the request, enters the SSH runner,
-then exits with a clear message because the default connector is still the
-temporary "not wired" connector.
+Start with a private key:
+
+```powershell
+cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
+```
+
+For password authentication, R-SSH asks OpenSSH to prefer password and
+keyboard-interactive authentication, then OpenSSH prompts inside the terminal.
+R-SSH does not pass the password value on the process command line.
 
 ## Verification
 
@@ -75,18 +86,20 @@ SSH-boundary tests cover:
 - missing host/user and conflicting authentication rejection
 - app-level SSH runner behavior with a mock connector and shell session
 - app-level SSH runner input forwarding into a mock shell session
+- app-level OpenSSH command mapping for target, port, private-key path, password
+  prompt policy, secret non-leakage, PTY size, and mouse support
 
 ## Explicit Non-Scope
 
-- Real SSH network connections.
-- Executing password, key, agent, and host-key authentication against a server.
+- In-process native `russh` network connections.
+- Executing password, key, agent, and host-key authentication through `russh`.
 - `russh` adapter wiring.
-- Successful `rssh-app ssh` remote shell startup.
 - SFTP, tunnels, reconnects, and known-host storage.
 
 ## Next Milestone
 
-The next SSH step is a `russh` shell adapter behind `SshShellConnector` and
+The next SSH step is to keep the OpenSSH PTY backend as a usable compatibility
+path while adding a `russh` shell adapter behind `SshShellConnector` and
 `SshShellSession`:
 
 1. Add a loopback SSH fixture or mocked channel test.

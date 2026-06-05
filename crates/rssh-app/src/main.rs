@@ -23,10 +23,7 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
     match cli::parse_args(env::args()).map_err(io_error)? {
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
-        AppCommand::Ssh(options) => {
-            ssh::run(&options)?;
-            Ok(ExitCode::SUCCESS)
-        }
+        AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Window(options) => {
             window::run(&options)?;
             Ok(ExitCode::SUCCESS)
