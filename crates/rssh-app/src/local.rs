@@ -3170,6 +3170,38 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_omits_c1_osc8_hyperlink_sequences() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"a\x9d8;;https://example.com\x9cbc\x9d8;;\x9cd",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"abcd");
+        assert!(responses.is_empty());
+        assert_eq!(
+            filter.mirror.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            filter.mirror.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().hyperlink, None);
+        assert_eq!(filter.mirror.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
     fn terminal_output_filter_omits_split_osc8_hyperlink_sequences() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -3189,6 +3221,45 @@ mod tests {
             .unwrap();
         filter
             .write(b"\x1b\\d", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"abcd");
+        assert!(responses.is_empty());
+        assert_eq!(
+            filter.mirror.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            filter.mirror.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(filter.mirror.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn terminal_output_filter_omits_split_c1_osc8_hyperlink_sequences() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"a\x9d8;;https://example.com", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x9cbc\x9d8;;", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x9cd", &mut output, |response| {
                 responses.extend_from_slice(response);
                 Ok(())
             })
