@@ -1081,6 +1081,20 @@ mod tests {
     }
 
     #[test]
+    fn russh_channel_opener_exposes_async_session_channel_entrypoint() {
+        let open_channel = super::RusshChannelOpener::open_session_channel_async;
+
+        let _ = open_channel;
+    }
+
+    #[test]
+    fn russh_channel_opener_exposes_async_channel_startup_entrypoint() {
+        let start_channel = super::RusshChannelOpener::start_channel_async;
+
+        let _ = start_channel;
+    }
+
+    #[test]
     fn russh_channel_startup_plan_requests_pty_then_shell_for_shell_startup() {
         let open_plan = SshChannelOpenPlan {
             pty_size: Some(TerminalSize::new(120, 30)),

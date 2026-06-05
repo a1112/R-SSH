@@ -308,6 +308,76 @@ impl RusshChannelOpener {
             )),
         }
     }
+
+    /// Opens a russh session channel on an authenticated handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the server rejects or fails the session
+    /// channel open request.
+    pub async fn open_session_channel_async(
+        &self,
+        handle: &russh::client::Handle<RusshClientHandler>,
+    ) -> Result<russh::Channel<russh::client::Msg>, SshSessionError> {
+        handle
+            .channel_open_session()
+            .await
+            .map_err(|error| SshSessionError::new(format!("SSH channel open failed: {error}")))
+    }
+
+    /// Sends the planned PTY, shell, or exec requests to an opened russh
+    /// session channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when a planned channel startup request fails.
+    pub async fn start_channel_async(
+        &self,
+        channel: &russh::Channel<russh::client::Msg>,
+        startup_plan: &RusshChannelStartupPlan,
+    ) -> Result<(), SshSessionError> {
+        for request in startup_plan.requests() {
+            match request {
+                RusshChannelStartupRequest::RequestPty {
+                    term,
+                    columns,
+                    rows,
+                    pixel_width,
+                    pixel_height,
+                } => {
+                    channel
+                        .request_pty(
+                            true,
+                            term,
+                            *columns,
+                            *rows,
+                            *pixel_width,
+                            *pixel_height,
+                            &[],
+                        )
+                        .await
+                        .map_err(|error| {
+                            SshSessionError::new(format!("SSH PTY request failed: {error}"))
+                        })?;
+                }
+                RusshChannelStartupRequest::RequestShell => {
+                    channel.request_shell(true).await.map_err(|error| {
+                        SshSessionError::new(format!("SSH shell request failed: {error}"))
+                    })?;
+                }
+                RusshChannelStartupRequest::Exec { command } => {
+                    channel
+                        .exec(true, command.as_bytes())
+                        .await
+                        .map_err(|error| {
+                            SshSessionError::new(format!("SSH exec request failed: {error}"))
+                        })?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
