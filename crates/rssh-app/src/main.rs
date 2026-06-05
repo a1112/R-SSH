@@ -22,6 +22,9 @@ fn main() -> ExitCode {
 fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
     match cli::parse_args(env::args()).map_err(io_error)? {
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
+        AppCommand::Ssh(_options) => Err(Box::new(io_error(
+            "ssh command parsing is available, but the ssh connector is not wired yet".to_owned(),
+        ))),
         AppCommand::Window(options) => {
             window::run(&options)?;
             Ok(ExitCode::SUCCESS)

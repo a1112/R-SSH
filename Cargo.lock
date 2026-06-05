@@ -1750,6 +1750,7 @@ dependencies = [
  "rssh-core",
  "rssh-pty",
  "rssh-renderer",
+ "rssh-ssh",
  "rssh-terminal",
  "winit",
 ]

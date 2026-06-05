@@ -1,8 +1,14 @@
+use rssh_core::TerminalSize;
 use rssh_pty::{PtyCommand, PtySize};
+use rssh_ssh::{SshAuthMethod, SshConnectRequest, SshSessionConfig};
+
+const DEFAULT_SSH_COLUMNS: u16 = 80;
+const DEFAULT_SSH_ROWS: u16 = 24;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AppCommand {
     Local(LocalOptions),
+    Ssh(SshOptions),
     Window(WindowOptions),
     Help,
 }
@@ -12,6 +18,11 @@ pub struct LocalOptions {
     pub command: PtyCommand,
     pub size: Option<PtySize>,
     pub mouse: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SshOptions {
+    pub request: SshConnectRequest,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -59,6 +70,10 @@ where
             let local_args = args.collect::<Vec<_>>();
             parse_local(&local_args)
         }
+        "ssh" => {
+            let ssh_args = args.collect::<Vec<_>>();
+            parse_ssh(&ssh_args)
+        }
         "window" => {
             let window_args = args.collect::<Vec<_>>();
             parse_window(&window_args)
@@ -69,7 +84,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh --host HOST --user USER [--port N] [--cols N --rows N] [--agent | --password PASSWORD | --key PATH [--passphrase PASSPHRASE]]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -122,6 +137,84 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         command,
         size,
         mouse,
+    }))
+}
+
+fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
+    let mut host = None;
+    let mut username = None;
+    let mut port = 22;
+    let mut columns = None;
+    let mut rows = None;
+    let mut auth = None;
+    let mut key_passphrase = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--host" => {
+                index += 1;
+                host = Some(required_option_value(args.get(index), "--host")?.to_owned());
+            }
+            "--user" => {
+                index += 1;
+                username = Some(required_option_value(args.get(index), "--user")?.to_owned());
+            }
+            "--port" => {
+                index += 1;
+                port = parse_port(args.get(index), "--port")?;
+            }
+            "--cols" => {
+                index += 1;
+                columns = Some(parse_dimension(args.get(index), "--cols")?);
+            }
+            "--rows" => {
+                index += 1;
+                rows = Some(parse_dimension(args.get(index), "--rows")?);
+            }
+            "--agent" => {
+                set_ssh_auth(&mut auth, SshAuthMethod::Agent)?;
+            }
+            "--password" => {
+                index += 1;
+                let password = required_option_value(args.get(index), "--password")?;
+                set_ssh_auth(
+                    &mut auth,
+                    SshAuthMethod::password(password).map_err(|error| error.to_string())?,
+                )?;
+            }
+            "--key" => {
+                index += 1;
+                let path = required_option_value(args.get(index), "--key")?;
+                set_ssh_auth(
+                    &mut auth,
+                    SshAuthMethod::private_key(path, None::<String>)
+                        .map_err(|error| error.to_string())?,
+                )?;
+            }
+            "--passphrase" => {
+                index += 1;
+                key_passphrase =
+                    Some(required_option_value(args.get(index), "--passphrase")?.to_owned());
+            }
+            value => return Err(format!("unexpected ssh option: {value}")),
+        }
+        index += 1;
+    }
+
+    let Some(host) = host else {
+        return Err("--host is required".to_owned());
+    };
+    let Some(username) = username else {
+        return Err("--user is required".to_owned());
+    };
+    let size = ssh_terminal_size(columns, rows)?;
+    let config =
+        SshSessionConfig::try_new(host, port, username, size).map_err(|error| error.to_string())?;
+    let auth = apply_ssh_passphrase(auth.unwrap_or(SshAuthMethod::Agent), key_passphrase)?;
+
+    Ok(AppCommand::Ssh(SshOptions {
+        request: SshConnectRequest::new(config, auth),
     }))
 }
 
@@ -179,6 +272,16 @@ fn parse_frame_limit(value: Option<&String>) -> Result<u64, String> {
         .map_err(|_| format!("invalid value for --frames: {value}"))
 }
 
+fn parse_port(value: Option<&String>, name: &str) -> Result<u16, String> {
+    let Some(value) = value else {
+        return Err(format!("missing value for {name}"));
+    };
+
+    value
+        .parse::<u16>()
+        .map_err(|_| format!("invalid value for {name}: {value}"))
+}
+
 fn parse_dimension(value: Option<&String>, name: &str) -> Result<u16, String> {
     let Some(value) = value else {
         return Err(format!("missing value for {name}"));
@@ -189,8 +292,57 @@ fn parse_dimension(value: Option<&String>, name: &str) -> Result<u16, String> {
         .map_err(|_| format!("invalid value for {name}: {value}"))
 }
 
+fn required_option_value<'a>(value: Option<&'a String>, name: &str) -> Result<&'a str, String> {
+    value
+        .map(String::as_str)
+        .ok_or_else(|| format!("missing value for {name}"))
+}
+
+fn set_ssh_auth(auth: &mut Option<SshAuthMethod>, next: SshAuthMethod) -> Result<(), String> {
+    if auth.is_some() {
+        return Err("only one ssh authentication method can be selected".to_owned());
+    }
+
+    *auth = Some(next);
+    Ok(())
+}
+
+fn apply_ssh_passphrase(
+    auth: SshAuthMethod,
+    passphrase: Option<String>,
+) -> Result<SshAuthMethod, String> {
+    match (auth, passphrase) {
+        (
+            SshAuthMethod::PrivateKey {
+                path,
+                passphrase: None,
+            },
+            Some(passphrase),
+        ) => Ok(SshAuthMethod::PrivateKey {
+            path,
+            passphrase: Some(passphrase),
+        }),
+        (SshAuthMethod::PrivateKey { path, passphrase }, None) => {
+            Ok(SshAuthMethod::PrivateKey { path, passphrase })
+        }
+        (_, Some(_)) => Err("--passphrase requires --key".to_owned()),
+        (auth, None) => Ok(auth),
+    }
+}
+
+fn ssh_terminal_size(columns: Option<u16>, rows: Option<u16>) -> Result<TerminalSize, String> {
+    match (columns, rows) {
+        (None, None) => Ok(TerminalSize::new(DEFAULT_SSH_COLUMNS, DEFAULT_SSH_ROWS)),
+        (Some(columns), Some(rows)) => Ok(TerminalSize::new(columns, rows)),
+        (None, Some(_)) => Err("--rows requires --cols".to_owned()),
+        (Some(_), None) => Err("--cols requires --rows".to_owned()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use rssh_ssh::SshAuthMethod;
+
     use super::{AppCommand, parse_args};
 
     #[test]
@@ -311,6 +463,110 @@ mod tests {
         };
 
         assert!(options.mouse);
+    }
+
+    #[test]
+    fn parses_ssh_agent_connection_request() {
+        let parsed =
+            parse_args(["rssh-app", "ssh", "--host", "example.com", "--user", "ops"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(options.request.config.host, "example.com");
+        assert_eq!(options.request.config.port, 22);
+        assert_eq!(options.request.config.username, "ops");
+        assert_eq!(options.request.auth, SshAuthMethod::Agent);
+    }
+
+    #[test]
+    fn parses_ssh_password_connection_request() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+            "--port",
+            "2222",
+            "--cols",
+            "120",
+            "--rows",
+            "30",
+            "--password",
+            "secret",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(options.request.config.port, 2222);
+        assert_eq!(options.request.config.initial_size.columns, 120);
+        assert_eq!(options.request.config.initial_size.rows, 30);
+        assert_eq!(
+            options.request.auth,
+            SshAuthMethod::Password {
+                password: "secret".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn parses_ssh_private_key_connection_request() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+            "--key",
+            "C:/Users/ops/.ssh/id_ed25519",
+            "--passphrase",
+            "secret",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.request.auth,
+            SshAuthMethod::PrivateKey {
+                path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                passphrase: Some("secret".to_owned())
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_ssh_missing_host_or_user() {
+        assert!(parse_args(["rssh-app", "ssh", "--user", "ops"]).is_err());
+        assert!(parse_args(["rssh-app", "ssh", "--host", "example.com"]).is_err());
+    }
+
+    #[test]
+    fn rejects_ssh_conflicting_auth_methods() {
+        assert!(
+            parse_args([
+                "rssh-app",
+                "ssh",
+                "--host",
+                "example.com",
+                "--user",
+                "ops",
+                "--password",
+                "secret",
+                "--key",
+                "C:/Users/ops/.ssh/id_ed25519",
+            ])
+            .is_err()
+        );
     }
 
     #[test]

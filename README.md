@@ -49,6 +49,7 @@ cargo run -p rssh-app -- local
 cargo run -p rssh-app -- local --cols 120 --rows 30
 cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
+cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 cargo test -p rssh-ssh
 ```
 
@@ -69,7 +70,7 @@ The console path also answers basic terminal status and device-attribute queries
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
   rendering, and input-write metrics with `window --metrics`; the SSH crate now
   has a validated config, authentication request model, connector entry point,
-  and shell-session boundary. See
+  shell-session boundary, and `rssh-app ssh` request parsing. See
   `docs/mvp-5-ssh-session-boundary.md`.
 
 ## Reference Sources

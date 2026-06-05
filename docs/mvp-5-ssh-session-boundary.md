@@ -36,11 +36,26 @@ channel contract that a future `russh` adapter must satisfy.
   background connection/read tasks.
 - `SshSessionError` gives adapters a crate-local error type before the network
   backend is introduced.
+- `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
+  including host, user, port, initial terminal size, password auth, private-key
+  auth with optional passphrase, and agent auth.
+
+## Run
+
+Parse an SSH request with agent authentication:
+
+```powershell
+cargo run -p rssh-app -- ssh --host example.com --user ops --agent
+```
+
+The command currently validates and parses the request, then exits with a clear
+message because the `russh` connector is not wired yet.
 
 ## Verification
 
 ```powershell
 cargo test -p rssh-ssh
+cargo test -p rssh-app ssh_
 ```
 
 SSH-boundary tests cover:
@@ -51,12 +66,15 @@ SSH-boundary tests cover:
 - empty password and empty private-key path rejection
 - shell connector trait shape with a mock connector
 - shell-session trait shape with a mock channel
+- app-level SSH command parsing for agent, password, and private-key requests
+- missing host/user and conflicting authentication rejection
 
 ## Explicit Non-Scope
 
 - Real SSH network connections.
 - Executing password, key, agent, and host-key authentication against a server.
 - `russh` adapter wiring.
+- Successful `rssh-app ssh` remote shell startup.
 - SFTP, tunnels, reconnects, and known-host storage.
 
 ## Next Milestone
