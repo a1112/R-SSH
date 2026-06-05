@@ -1,13 +1,15 @@
 use std::{
     error::Error,
     io::{self, Read, Write},
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
+    thread,
 };
 
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
 use rssh_ssh::{
-    RusshChannelOpener, RusshHostKeyPolicy, RusshPrivateKeyAuth, SshAuthMethod,
-    SshChannelConnector, SshConnectRequest, SshSessionStartup, SshShellConnector,
+    RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshHostKeyPolicy, RusshPrivateKeyAuth,
+    SshAuthMethod, SshChannelConnector, SshConnectRequest, SshSessionStartup, SshShellConnector,
 };
 
 use crate::{
@@ -19,12 +21,77 @@ type SecretPrompt<'a> = dyn FnMut() -> Result<String, Box<dyn Error>> + 'a;
 type KeyPassphrasePrompt<'a> = dyn FnMut(&Path) -> Result<String, Box<dyn Error>> + 'a;
 type KeyPassphraseDetector<'a> = dyn FnMut(&Path) -> Result<bool, Box<dyn Error>> + 'a;
 
+struct NativeSecretPrompts<'a> {
+    password_prompt: &'a mut SecretPrompt<'a>,
+    key_passphrase_prompt: &'a mut KeyPassphrasePrompt<'a>,
+    key_needs_passphrase: &'a mut KeyPassphraseDetector<'a>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeLocalForward {
     bind_host: String,
     bind_port: u16,
     target_host: String,
     target_port: u16,
+}
+
+trait NativeLocalForwardStarter {
+    fn start(
+        &mut self,
+        request: SshConnectRequest,
+        forward: NativeLocalForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>>;
+}
+
+trait NativeLocalForwardHandle {
+    fn wait(&mut self) -> Result<(), Box<dyn Error>>;
+}
+
+#[derive(Clone)]
+struct ThreadedNativeLocalForwardStarter {
+    opener: RusshChannelOpener,
+}
+
+impl ThreadedNativeLocalForwardStarter {
+    fn new(opener: RusshChannelOpener) -> Self {
+        Self { opener }
+    }
+}
+
+impl NativeLocalForwardStarter for ThreadedNativeLocalForwardStarter {
+    fn start(
+        &mut self,
+        request: SshConnectRequest,
+        forward: NativeLocalForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
+        let listener = TcpListener::bind((forward.bind_host.as_str(), forward.bind_port))?;
+        let opener = self.opener.clone();
+        let join_handle = thread::spawn(move || {
+            run_native_local_forward_listener(&listener, &opener, &request, &forward)
+                .map_err(|error| error.to_string())
+        });
+
+        Ok(Box::new(ThreadedNativeLocalForwardHandle {
+            join_handle: Some(join_handle),
+        }))
+    }
+}
+
+struct ThreadedNativeLocalForwardHandle {
+    join_handle: Option<thread::JoinHandle<Result<(), String>>>,
+}
+
+impl NativeLocalForwardHandle for ThreadedNativeLocalForwardHandle {
+    fn wait(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(join_handle) = self.join_handle.take() else {
+            return Ok(());
+        };
+
+        let result = join_handle
+            .join()
+            .map_err(|_| "native SSH local forwarding listener panicked")?;
+        result.map_err(Into::into)
+    }
 }
 
 pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
@@ -39,6 +106,8 @@ pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 
 fn run_native(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut connector = SshChannelConnector::new(native_channel_opener_for_options(options));
+    let mut forward_starter =
+        ThreadedNativeLocalForwardStarter::new(native_channel_opener_for_options(options));
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut input = stdin.lock();
@@ -47,6 +116,7 @@ fn run_native(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     run_native_with_connector_prompt_and_io(
         options,
         &mut connector,
+        &mut forward_starter,
         &mut || native_password_prompt(options),
         &mut input,
         &mut output,
@@ -121,10 +191,7 @@ fn native_request_for_options_with_secret_prompts(
         return Err("native SSH connector only supports direct SSH targets".into());
     };
 
-    let local_forwards = native_local_forward_plan_for_options(options)?;
-    if !local_forwards.is_empty() {
-        return Err("native SSH local forwarding listener is not wired yet".into());
-    }
+    native_local_forward_plan_for_options(options)?;
 
     let startup = if options.no_shell {
         SshSessionStartup::NoShell
@@ -201,6 +268,69 @@ fn parse_forward_port(value: &str, name: &str) -> Result<u16, Box<dyn Error>> {
         return Err(format!("invalid native local-forward {name}: {value}").into());
     }
     Ok(port)
+}
+
+fn native_direct_tcpip_plan_for_local_forward(
+    forward: &NativeLocalForward,
+    originator_host: impl Into<String>,
+    originator_port: u16,
+) -> RusshDirectTcpIpOpenPlan {
+    RusshDirectTcpIpOpenPlan::new(
+        forward.target_host.clone(),
+        forward.target_port,
+        originator_host,
+        originator_port,
+    )
+}
+
+fn run_native_local_forward_listener(
+    listener: &TcpListener,
+    opener: &RusshChannelOpener,
+    request: &SshConnectRequest,
+    forward: &NativeLocalForward,
+) -> Result<(), Box<dyn Error>> {
+    for stream in listener.incoming() {
+        let stream = stream?;
+        let mut opener = opener.clone();
+        let request = request.clone();
+        let forward = forward.clone();
+        thread::spawn(move || {
+            let _ = run_native_local_forward_connection(stream, &mut opener, request, &forward);
+        });
+    }
+
+    Ok(())
+}
+
+fn run_native_local_forward_connection(
+    local_stream: TcpStream,
+    opener: &mut RusshChannelOpener,
+    request: SshConnectRequest,
+    forward: &NativeLocalForward,
+) -> Result<(), Box<dyn Error>> {
+    let peer_addr = local_stream.peer_addr()?;
+    let direct_tcpip_plan = native_direct_tcpip_plan_for_local_forward(
+        forward,
+        peer_addr.ip().to_string(),
+        peer_addr.port(),
+    );
+    let channel = opener.open_direct_tcpip_channel(request, &direct_tcpip_plan)?;
+    let (mut remote_reader, mut remote_writer) = channel.into_read_writer();
+    let mut local_reader = local_stream.try_clone()?;
+    let mut local_writer = local_stream;
+
+    let upload = thread::spawn(move || {
+        io::copy(&mut local_reader, &mut remote_writer)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    });
+    let download = io::copy(&mut remote_reader, &mut local_writer).map(|_| ());
+    let upload = upload
+        .join()
+        .map_err(|_| "native SSH local forwarding upload worker panicked")?;
+
+    download?;
+    upload.map_err(Into::into)
 }
 
 #[must_use]
@@ -337,24 +467,55 @@ fn run_native_with_connector_and_io(
     Ok(PtyExitStatus::from_exit_code(0))
 }
 
-fn run_native_with_connector_prompt_and_io(
+#[cfg(test)]
+fn run_native_with_connector_forward_starter_and_io(
     options: &SshOptions,
     connector: &mut dyn SshShellConnector,
-    password_prompt: &mut SecretPrompt<'_>,
+    forward_starter: &mut dyn NativeLocalForwardStarter,
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
-    run_native_with_connector_secret_prompts_and_io(
+    let mut prompts = NativeSecretPrompts {
+        password_prompt: &mut || Err("password prompt should not be used".into()),
+        key_passphrase_prompt: &mut |_| {
+            Err("native SSH private-key passphrase prompt requires a passphrase provider".into())
+        },
+        key_needs_passphrase: &mut native_key_needs_passphrase,
+    };
+    run_native_with_connector_forward_starter_secret_prompts_and_io(
         options,
         connector,
-        password_prompt,
-        &mut native_key_passphrase_prompt,
-        &mut native_key_needs_passphrase,
+        forward_starter,
+        &mut prompts,
         input,
         output,
     )
 }
 
+fn run_native_with_connector_prompt_and_io(
+    options: &SshOptions,
+    connector: &mut dyn SshShellConnector,
+    forward_starter: &mut dyn NativeLocalForwardStarter,
+    password_prompt: &mut SecretPrompt<'_>,
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let mut prompts = NativeSecretPrompts {
+        password_prompt,
+        key_passphrase_prompt: &mut native_key_passphrase_prompt,
+        key_needs_passphrase: &mut native_key_needs_passphrase,
+    };
+    run_native_with_connector_forward_starter_secret_prompts_and_io(
+        options,
+        connector,
+        forward_starter,
+        &mut prompts,
+        input,
+        output,
+    )
+}
+
+#[cfg(test)]
 fn run_native_with_connector_secret_prompts_and_io(
     options: &SshOptions,
     connector: &mut dyn SshShellConnector,
@@ -364,15 +525,67 @@ fn run_native_with_connector_secret_prompts_and_io(
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
-    let request = native_request_for_options_with_secret_prompts(
-        options,
+    let mut forward_starter = RejectingNativeLocalForwardStarter;
+    let mut prompts = NativeSecretPrompts {
         password_prompt,
         key_passphrase_prompt,
         key_needs_passphrase,
+    };
+    run_native_with_connector_forward_starter_secret_prompts_and_io(
+        options,
+        connector,
+        &mut forward_starter,
+        &mut prompts,
+        input,
+        output,
+    )
+}
+
+fn run_native_with_connector_forward_starter_secret_prompts_and_io(
+    options: &SshOptions,
+    connector: &mut dyn SshShellConnector,
+    forward_starter: &mut dyn NativeLocalForwardStarter,
+    prompts: &mut NativeSecretPrompts<'_>,
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let local_forwards = native_local_forward_plan_for_options(options)?;
+    let request = native_request_for_options_with_secret_prompts(
+        options,
+        &mut *prompts.password_prompt,
+        &mut *prompts.key_passphrase_prompt,
+        &mut *prompts.key_needs_passphrase,
     )?;
+
+    let mut forward_handles = Vec::new();
+    for forward in local_forwards {
+        forward_handles.push(forward_starter.start(request.clone(), forward)?);
+    }
+
+    if options.no_shell && !forward_handles.is_empty() {
+        for handle in &mut forward_handles {
+            handle.wait()?;
+        }
+        return Ok(PtyExitStatus::from_exit_code(0));
+    }
+
     rssh_ssh::run_shell_with_io(connector, request, input, output)?;
 
     Ok(PtyExitStatus::from_exit_code(0))
+}
+
+#[cfg(test)]
+struct RejectingNativeLocalForwardStarter;
+
+#[cfg(test)]
+impl NativeLocalForwardStarter for RejectingNativeLocalForwardStarter {
+    fn start(
+        &mut self,
+        _request: SshConnectRequest,
+        _forward: NativeLocalForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
+        Err("native SSH local forwarding starter is not available in this path".into())
+    }
 }
 
 fn native_password_prompt(options: &SshOptions) -> Result<String, Box<dyn Error>> {
@@ -586,17 +799,23 @@ mod tests {
     }
 
     #[test]
-    fn native_ssh_runner_rejects_forwarding_until_native_tunnels_exist() {
+    fn native_ssh_runner_starts_local_forward_before_shell() {
         let request = SshConnectRequest::agent(
             SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
         );
         let state = Arc::new(Mutex::new(MockState::default()));
-        let mut connector = MockConnector { state };
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let forward_state = Arc::new(Mutex::new(Vec::new()));
+        let mut forward_starter = MockForwardStarter {
+            started: Arc::clone(&forward_state),
+        };
         let mut output = Vec::new();
 
-        let error = super::run_native_with_connector_and_io(
+        super::run_native_with_connector_forward_starter_and_io(
             &SshOptions {
-                target: SshTarget::Direct(request),
+                target: SshTarget::Direct(request.clone()),
                 remote_command: Vec::new(),
                 forwards: vec![crate::cli::SshForward::Local(
                     "127.0.0.1:15432:db.internal:5432".to_owned(),
@@ -608,15 +827,21 @@ mod tests {
                 log: None,
             },
             &mut connector,
+            &mut forward_starter,
             &mut io::empty(),
             &mut output,
         )
-        .unwrap_err();
+        .unwrap();
 
-        assert!(
-            error
-                .to_string()
-                .contains("native SSH local forwarding listener")
+        assert_eq!(state.lock().unwrap().last_request.as_ref(), Some(&request));
+        assert_eq!(
+            *forward_state.lock().unwrap(),
+            [super::NativeLocalForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: 15432,
+                target_host: "db.internal".to_owned(),
+                target_port: 5432,
+            }]
         );
     }
 
@@ -649,6 +874,21 @@ mod tests {
                 target_port: 5432,
             }]
         );
+    }
+
+    #[test]
+    fn native_local_forward_builds_direct_tcpip_plan_from_target_and_originator() {
+        let forward = super::NativeLocalForward {
+            bind_host: "127.0.0.1".to_owned(),
+            bind_port: 15432,
+            target_host: "db.internal".to_owned(),
+            target_port: 5432,
+        };
+
+        let plan = super::native_direct_tcpip_plan_for_local_forward(&forward, "127.0.0.1", 61234);
+
+        assert_eq!(plan.target(), ("db.internal", 5432));
+        assert_eq!(plan.originator(), ("127.0.0.1", 61234));
     }
 
     #[test]
@@ -686,6 +926,9 @@ mod tests {
         let mut connector = MockConnector {
             state: Arc::clone(&state),
         };
+        let mut forward_starter = MockForwardStarter {
+            started: Arc::new(Mutex::new(Vec::new())),
+        };
         let mut output = Vec::new();
 
         super::run_native_with_connector_prompt_and_io(
@@ -700,6 +943,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
+            &mut forward_starter,
             &mut || Ok("secret".to_owned()),
             &mut io::empty(),
             &mut output,
@@ -1095,6 +1339,29 @@ mod tests {
 
         fn close(&mut self) -> Result<(), SshSessionError> {
             self.state.lock().unwrap().closed = true;
+            Ok(())
+        }
+    }
+
+    struct MockForwardStarter {
+        started: Arc<Mutex<Vec<super::NativeLocalForward>>>,
+    }
+
+    impl super::NativeLocalForwardStarter for MockForwardStarter {
+        fn start(
+            &mut self,
+            _request: SshConnectRequest,
+            forward: super::NativeLocalForward,
+        ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
+            self.started.lock().unwrap().push(forward);
+            Ok(Box::new(MockForwardHandle))
+        }
+    }
+
+    struct MockForwardHandle;
+
+    impl super::NativeLocalForwardHandle for MockForwardHandle {
+        fn wait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
     }

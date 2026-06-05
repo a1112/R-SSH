@@ -6,8 +6,8 @@ mod russh_client;
 
 pub use russh_client::{
     RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
-    RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
-    RusshKnownHosts, RusshPrivateKeyAuth, RusshSshChannel,
+    RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshDirectTcpIpOpenPlan,
+    RusshHostKeyPolicy, RusshKnownHosts, RusshPrivateKeyAuth, RusshSshChannel,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1171,6 +1171,14 @@ mod tests {
     }
 
     #[test]
+    fn russh_direct_tcpip_plan_carries_target_and_originator_endpoint() {
+        let plan = super::RusshDirectTcpIpOpenPlan::new("db.internal", 5432, "127.0.0.1", 15432);
+
+        assert_eq!(plan.target(), ("db.internal", 5432));
+        assert_eq!(plan.originator(), ("127.0.0.1", 15432));
+    }
+
+    #[test]
     fn russh_auth_outcome_accepts_successful_authentication() {
         let outcome =
             RusshAuthOutcome::from_auth_result(&russh::client::AuthResult::Success).unwrap();
@@ -1204,6 +1212,20 @@ mod tests {
     }
 
     #[test]
+    fn russh_channel_opener_exposes_async_direct_tcpip_entrypoint() {
+        let open_channel = super::RusshChannelOpener::open_direct_tcpip_channel_async;
+
+        let _ = open_channel;
+    }
+
+    #[test]
+    fn russh_channel_opener_exposes_blocking_direct_tcpip_entrypoint() {
+        let open_channel = super::RusshChannelOpener::open_direct_tcpip_channel;
+
+        let _ = open_channel;
+    }
+
+    #[test]
     fn russh_channel_opener_exposes_async_channel_startup_entrypoint() {
         let start_channel = super::RusshChannelOpener::start_channel_async;
 
@@ -1225,10 +1247,24 @@ mod tests {
     }
 
     #[test]
+    fn russh_ssh_channel_exposes_split_io_entrypoint() {
+        let split_io = super::RusshSshChannel::into_read_writer;
+
+        let _ = split_io;
+    }
+
+    #[test]
     fn russh_channel_opener_implements_ssh_channel_opener_trait() {
         fn assert_channel_opener<T: SshChannelOpener<Channel = super::RusshSshChannel>>() {}
 
         assert_channel_opener::<super::RusshChannelOpener>();
+    }
+
+    #[test]
+    fn russh_channel_opener_is_cloneable_for_forward_listeners() {
+        fn assert_clone<T: Clone>() {}
+
+        assert_clone::<super::RusshChannelOpener>();
     }
 
     #[test]

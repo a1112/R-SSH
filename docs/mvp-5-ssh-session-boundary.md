@@ -137,9 +137,9 @@ contract that a future in-process `russh` adapter must satisfy.
   native connector path maps the same direct SSH request to
   `SshSessionStartup::NoShell`.
 - The native app path parses OpenSSH-style local-forward specs into a
-  structured native tunnel plan with bind host, bind port, target host, and
-  target port. Native remote and dynamic forwarding remain rejected until those
-  tunnel types are implemented.
+  structured native tunnel plan, starts a local TCP listener, and maps accepted
+  connections to russh `direct-tcpip` channels. Native remote and dynamic
+  forwarding remain rejected until those tunnel types are implemented.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
@@ -320,9 +320,13 @@ SSH-boundary tests cover:
   password and public-key authentication entry points
 - `RusshChannelOpener::open_session_channel_async` API shape against
   `russh::client::Handle::channel_open_session`
+- `RusshChannelOpener::open_direct_tcpip_channel_async` and blocking
+  direct-tcpip entrypoints for native local forwarding
 - `RusshChannelOpener::start_channel_async` API shape against russh channel
   PTY, shell, and exec startup requests
 - `RusshSshChannel` implementation of the crate-local `SshChannel` trait
+- `RusshSshChannel` split reader/writer entrypoint for bidirectional local
+  forwarding pumps
 - `RusshChannelOpener` implementation of the crate-local `SshChannelOpener`
   trait with `RusshSshChannel` as its channel type
 - `RusshChannelStartupPlan` request ordering for shell, remote command, and
@@ -334,11 +338,13 @@ SSH-boundary tests cover:
   connecting through russh
 - native russh agent-auth dispatch through the authentication backend
 - native local-forward spec parsing into bind and target endpoints
+- native local-forward startup before shell startup, using an injectable
+  forward starter
 - explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
 - explicit `--trust-on-first-use` parsing, native host-key policy mapping, and
   default `.ssh/known_hosts` path selection
-- rejection of `--native --target`, native remote forwarding, native dynamic
-  forwarding, and native local forwarding before the listener/data pump is wired
+- rejection of `--native --target`, native remote forwarding, and native dynamic
+  forwarding
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
   password-prompt, and size overrides

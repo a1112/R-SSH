@@ -320,6 +320,41 @@ impl RusshChannelStartupPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RusshDirectTcpIpOpenPlan {
+    target_host: String,
+    target_port: u16,
+    originator_host: String,
+    originator_port: u16,
+}
+
+impl RusshDirectTcpIpOpenPlan {
+    #[must_use]
+    pub fn new(
+        target_host: impl Into<String>,
+        target_port: u16,
+        originator_host: impl Into<String>,
+        originator_port: u16,
+    ) -> Self {
+        Self {
+            target_host: target_host.into(),
+            target_port,
+            originator_host: originator_host.into(),
+            originator_port,
+        }
+    }
+
+    #[must_use]
+    pub fn target(&self) -> (&str, u16) {
+        (&self.target_host, self.target_port)
+    }
+
+    #[must_use]
+    pub fn originator(&self) -> (&str, u16) {
+        (&self.originator_host, self.originator_port)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RusshConnectPlan {
     host: String,
     port: u16,
@@ -366,7 +401,7 @@ impl RusshConnectPlan {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RusshChannelOpener {
     client_config: Arc<russh::client::Config>,
     host_key_policy: RusshHostKeyPolicy,
@@ -514,6 +549,67 @@ impl RusshChannelOpener {
             .channel_open_session()
             .await
             .map_err(|error| SshSessionError::new(format!("SSH channel open failed: {error}")))
+    }
+
+    /// Opens a russh direct-tcpip channel on an authenticated handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the server rejects or fails the direct
+    /// TCP channel open request.
+    pub async fn open_direct_tcpip_channel_async(
+        &self,
+        handle: &russh::client::Handle<RusshClientHandler>,
+        plan: &RusshDirectTcpIpOpenPlan,
+    ) -> Result<russh::Channel<russh::client::Msg>, SshSessionError> {
+        let (target_host, target_port) = plan.target();
+        let (originator_host, originator_port) = plan.originator();
+
+        handle
+            .channel_open_direct_tcpip(
+                target_host,
+                target_port.into(),
+                originator_host,
+                originator_port.into(),
+            )
+            .await
+            .map_err(|error| {
+                SshSessionError::new(format!("SSH direct-tcpip channel open failed: {error}"))
+            })
+    }
+
+    /// Opens an authenticated direct-tcpip channel using the same blocking
+    /// adapter style as shell channels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when runtime creation, SSH connection,
+    /// authentication, or direct-tcpip channel opening fails.
+    pub fn open_direct_tcpip_channel(
+        &mut self,
+        request: SshConnectRequest,
+        direct_tcpip_plan: &RusshDirectTcpIpOpenPlan,
+    ) -> Result<RusshSshChannel, SshSessionError> {
+        let plan = self.connect_plan(&request);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
+            })?;
+
+        let (handle, channel) = runtime.block_on(async {
+            let mut handle = self.connect_async(request).await?;
+            self.authenticate_async(&mut handle, plan.auth_plan())
+                .await?;
+            let channel = self
+                .open_direct_tcpip_channel_async(&handle, direct_tcpip_plan)
+                .await?;
+
+            Ok::<_, SshSessionError>((handle, channel))
+        })?;
+
+        Ok(RusshSshChannel::new(channel, handle, runtime))
     }
 
     /// Sends the planned PTY, shell, or exec requests to an opened russh
@@ -767,11 +863,8 @@ impl russh::client::Handler for RusshClientHandler {
 }
 
 pub struct RusshSshChannel {
-    read_half: russh::ChannelReadHalf,
-    write_half: russh::ChannelWriteHalf<russh::client::Msg>,
-    handle: russh::client::Handle<RusshClientHandler>,
-    runtime: tokio::runtime::Runtime,
-    pending_read: VecDeque<u8>,
+    reader: RusshChannelReader,
+    writer: RusshChannelWriter,
 }
 
 impl RusshSshChannel {
@@ -782,11 +875,31 @@ impl RusshSshChannel {
         runtime: tokio::runtime::Runtime,
     ) -> Self {
         let (read_half, write_half) = channel.split();
+        let runtime = Arc::new(runtime);
 
         Self {
+            reader: RusshChannelReader::new(read_half, Arc::clone(&runtime)),
+            writer: RusshChannelWriter::new(write_half, handle, runtime),
+        }
+    }
+
+    #[must_use]
+    pub fn into_read_writer(self) -> (RusshChannelReader, RusshChannelWriter) {
+        (self.reader, self.writer)
+    }
+}
+
+pub struct RusshChannelReader {
+    read_half: russh::ChannelReadHalf,
+    runtime: Arc<tokio::runtime::Runtime>,
+    pending_read: VecDeque<u8>,
+}
+
+impl RusshChannelReader {
+    #[must_use]
+    fn new(read_half: russh::ChannelReadHalf, runtime: Arc<tokio::runtime::Runtime>) -> Self {
+        Self {
             read_half,
-            write_half,
-            handle,
             runtime,
             pending_read: VecDeque::new(),
         }
@@ -805,10 +918,8 @@ impl RusshSshChannel {
     fn queue_read_bytes(&mut self, bytes: &[u8]) {
         self.pending_read.extend(bytes);
     }
-}
 
-impl SshChannel for RusshSshChannel {
-    fn read_channel(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+    fn read_blocking(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
         if buffer.is_empty() {
             return Ok(0);
         }
@@ -834,8 +945,36 @@ impl SshChannel for RusshSshChannel {
             }
         }
     }
+}
 
-    fn write_channel(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+impl Read for RusshChannelReader {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        self.read_blocking(buffer)
+            .map_err(|error| std::io::Error::other(error.to_string()))
+    }
+}
+
+pub struct RusshChannelWriter {
+    write_half: russh::ChannelWriteHalf<russh::client::Msg>,
+    handle: russh::client::Handle<RusshClientHandler>,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl RusshChannelWriter {
+    #[must_use]
+    fn new(
+        write_half: russh::ChannelWriteHalf<russh::client::Msg>,
+        handle: russh::client::Handle<RusshClientHandler>,
+        runtime: Arc<tokio::runtime::Runtime>,
+    ) -> Self {
+        Self {
+            write_half,
+            handle,
+            runtime,
+        }
+    }
+
+    fn write_blocking(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
         self.runtime
             .block_on(self.write_half.data_bytes(bytes.to_vec()))
             .map_err(|error| SshSessionError::new(format!("SSH channel write failed: {error}")))?;
@@ -864,6 +1003,39 @@ impl SshChannel for RusshSshChannel {
         self.runtime
             .block_on(self.write_half.close())
             .map_err(|error| SshSessionError::new(format!("SSH channel close failed: {error}")))
+    }
+}
+
+impl Write for RusshChannelWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.write_blocking(bytes)
+            .map_err(|error| std::io::Error::other(error.to_string()))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl SshChannel for RusshSshChannel {
+    fn read_channel(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+        self.reader.read_blocking(buffer)
+    }
+
+    fn write_channel(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+        self.writer.write_blocking(bytes)
+    }
+
+    fn resize_pty(&mut self, size: rssh_core::TerminalSize) -> Result<(), SshSessionError> {
+        self.writer.resize_pty(size)
+    }
+
+    fn send_keepalive(&mut self) -> Result<(), SshSessionError> {
+        self.writer.send_keepalive()
+    }
+
+    fn close_channel(&mut self) -> Result<(), SshSessionError> {
+        self.writer.close_channel()
     }
 }
 
