@@ -12,6 +12,7 @@ pub struct TerminalRuntime {
 pub(crate) struct TerminalRuntimeOutput {
     pub(crate) responses: Vec<Vec<u8>>,
     pub(crate) display: Vec<u8>,
+    pub(crate) bells: u64,
 }
 
 impl TerminalRuntime {
@@ -37,11 +38,13 @@ impl TerminalRuntime {
 
         let mut responses = Vec::new();
         let mut display_bytes = Vec::new();
+        let mut bells = 0_u64;
         for event in output.events {
             match event {
                 FilteredOutputEvent::Display(display) => {
                     self.terminal.feed(&display);
-                    display_bytes.extend_from_slice(&display);
+                    bells = bells.saturating_add(self.terminal.take_bell_count());
+                    display_bytes.extend(visible_display_bytes(&display));
                 }
                 FilteredOutputEvent::Response(response) => {
                     responses.push(
@@ -55,6 +58,7 @@ impl TerminalRuntime {
         TerminalRuntimeOutput {
             responses,
             display: display_bytes,
+            bells,
         }
     }
 
@@ -100,6 +104,10 @@ impl TerminalRuntime {
     pub fn mouse_input_mode(&self) -> MouseInputMode {
         self.mode_tracker.mouse_input_mode()
     }
+}
+
+fn visible_display_bytes(bytes: &[u8]) -> impl Iterator<Item = u8> + '_ {
+    bytes.iter().copied().filter(|byte| *byte != b'\x07')
 }
 
 struct TerminalOutputFilter {
@@ -695,6 +703,18 @@ mod tests {
         assert_eq!(runtime.terminal().grid().get(0, 0).unwrap().ch, 'a');
         assert_eq!(runtime.terminal().grid().get(0, 1).unwrap().ch, 'b');
         assert_eq!(runtime.terminal().grid().get(0, 2).unwrap().ch, 'c');
+    }
+
+    #[test]
+    fn reports_bell_events_without_display_bytes() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(10, 2));
+
+        let output = runtime.feed_pty_output_with_display(b"ab\x07cd\x07");
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.bells, 2);
+        assert_eq!(output.display, b"abcd");
+        assert_eq!(terminal_text(&runtime), "abcd                ");
     }
 
     #[test]

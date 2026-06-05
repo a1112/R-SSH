@@ -109,6 +109,7 @@ pub struct Terminal {
     tab_stops: TabStops,
     style: Cell,
     damage: Vec<DamageRegion>,
+    bell_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +172,7 @@ impl Terminal {
             tab_stops: TabStops::new(size),
             style: Cell::default(),
             damage: Vec::new(),
+            bell_count: 0,
         }
     }
 
@@ -288,7 +290,11 @@ impl Terminal {
 
     fn consume_text_or_ascii_control(&mut self, ch: char, index: usize) -> usize {
         match ch {
-            '\0' | '\u{7}' | '\u{18}' | '\u{1a}' => index + 1,
+            '\0' | '\u{18}' | '\u{1a}' => index + 1,
+            '\u{7}' => {
+                self.bell_count = self.bell_count.saturating_add(1);
+                index + 1
+            }
             '\u{8}' => {
                 self.backspace();
                 index + 1
@@ -426,6 +432,10 @@ impl Terminal {
     #[must_use]
     pub const fn cursor_shape(&self) -> CursorShape {
         self.modes.cursor_shape
+    }
+
+    pub fn take_bell_count(&mut self) -> u64 {
+        std::mem::take(&mut self.bell_count)
     }
 
     pub fn resize(&mut self, size: TerminalSize) {

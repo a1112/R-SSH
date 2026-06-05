@@ -233,13 +233,15 @@ mod tests {
     }
 
     #[test]
-    fn terminal_ignores_bel_without_advancing_cursor() {
+    fn terminal_records_bell_without_advancing_cursor() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 1));
 
         terminal.feed(b"ab\x07cd");
 
         assert_eq!(row_text(&terminal, 0), "abcd  ");
         assert_eq!(terminal.cursor(), (0, 4));
+        assert_eq!(terminal.take_bell_count(), 1);
+        assert_eq!(terminal.take_bell_count(), 0);
     }
 
     #[test]

@@ -66,7 +66,8 @@ in the native `winit` window.
   and `1006`) and forwards button, wheel, drag, and any-motion events as
   legacy or SGR mouse reports when reporting is enabled.
 - `rssh-app window --metrics` prints startup, PTY processing, render-frame,
-  and PTY input-write counters and p95 timings when the window run exits.
+  PTY input-write, and bell-event counters plus p95 timings when the window run
+  exits.
 - `rssh-app window --log PATH` writes visible native-window terminal output to
   a session log file.
 - `rssh-app window --frames N` still works as an automated native-window smoke
@@ -167,6 +168,8 @@ MVP 4 tests cover:
 - native window log path parsing and visible PTY output logging
 - native window TOML profile loading for frame limits, metrics, OSC 52 policy,
   custom commands, and log paths
+- native window BEL event propagation into metrics without writing BEL bytes to
+  the visible-output log
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
@@ -205,6 +208,7 @@ now add `--metrics` to print:
 - `input_writes`, `input_bytes`, and `input_write_p95_us`: PTY write volume and
   p95 write/flush duration for keyboard, paste, mouse, focus, and terminal
   response bytes.
+- `bells`: PTY-side BEL events observed by the terminal runtime.
 
 The next instrumentation layer should add these metrics:
 

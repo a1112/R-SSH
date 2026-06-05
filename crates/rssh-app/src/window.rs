@@ -120,6 +120,7 @@ struct WindowMetricsSnapshot {
     input_writes: u64,
     input_bytes: u64,
     input_write_p95_us: u128,
+    bells: u64,
 }
 
 impl WindowMetricsSnapshot {
@@ -137,6 +138,7 @@ render_frame_p95_us={}
 input_writes={}
 input_bytes={}
 input_write_p95_us={}
+bells={}
 ",
             metric_option(self.first_pty_byte_ms),
             metric_option(self.first_rendered_cell_ms),
@@ -147,7 +149,8 @@ input_write_p95_us={}
             self.render_frame_p95_us,
             self.input_writes,
             self.input_bytes,
-            self.input_write_p95_us
+            self.input_write_p95_us,
+            self.bells
         )
     }
 }
@@ -164,6 +167,7 @@ struct WindowMetrics {
     input_writes: u64,
     input_bytes: u64,
     input_write_times: Vec<Duration>,
+    bells: u64,
 }
 
 impl WindowMetrics {
@@ -179,6 +183,7 @@ impl WindowMetrics {
             input_writes: 0,
             input_bytes: 0,
             input_write_times: Vec::new(),
+            bells: 0,
         }
     }
 
@@ -220,6 +225,10 @@ impl WindowMetrics {
         self.input_write_times.push(duration);
     }
 
+    fn record_bells(&mut self, count: u64) {
+        self.bells = self.bells.saturating_add(count);
+    }
+
     fn snapshot(&self) -> WindowMetricsSnapshot {
         WindowMetricsSnapshot {
             first_pty_byte_ms: self.first_pty_byte.map(|duration| duration.as_millis()),
@@ -234,6 +243,7 @@ impl WindowMetrics {
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
             input_write_p95_us: p95_us(&self.input_write_times),
+            bells: self.bells,
         }
     }
 }
@@ -427,6 +437,7 @@ impl NativeWindowApp {
         }
         self.sync_window_title_from_runtime();
         self.refresh_snapshot();
+        self.metrics.record_bells(runtime_output.bells);
         self.metrics
             .record_first_rendered_cell(self.snapshot.cells().is_empty());
         self.metrics.record_pty_chunk_process(started.elapsed());
@@ -2453,6 +2464,17 @@ mod tests {
         assert_eq!(metrics.pty_bytes, 4);
         assert!(metrics.first_pty_byte_ms.is_some());
         assert!(metrics.first_rendered_cell_ms.is_some());
+    }
+
+    #[test]
+    fn window_app_collects_bell_metrics() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.handle_pty_output(b"\x07live\x07").unwrap();
+
+        let metrics = app.metrics_snapshot();
+        assert_eq!(metrics.bells, 2);
+        assert!(app.metrics_report().contains("bells=2"));
     }
 
     #[test]
