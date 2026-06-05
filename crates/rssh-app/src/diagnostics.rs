@@ -40,6 +40,18 @@ pub fn print_doctor(options: &DoctorOptions) -> Result<(), Box<dyn Error>> {
         }
     }
 
+    ensure_console_dependencies_for_report(&report)
+}
+
+pub fn doctor_json(report: &DoctorReport) -> Result<String, Box<dyn Error>> {
+    Ok(serde_json::to_string(report)?)
+}
+
+pub fn ensure_console_dependencies() -> Result<(), Box<dyn Error>> {
+    ensure_console_dependencies_for_report(&diagnose_console_dependencies())
+}
+
+pub fn ensure_console_dependencies_for_report(report: &DoctorReport) -> Result<(), Box<dyn Error>> {
     if report.ok {
         return Ok(());
     }
@@ -54,10 +66,6 @@ pub fn print_doctor(options: &DoctorOptions) -> Result<(), Box<dyn Error>> {
             .collect::<Vec<_>>()
             .join(", ")
     )))
-}
-
-pub fn doctor_json(report: &DoctorReport) -> Result<String, Box<dyn Error>> {
-    Ok(serde_json::to_string(report)?)
 }
 
 pub fn doctor_text_lines(report: &DoctorReport) -> Vec<String> {
@@ -315,6 +323,31 @@ mod tests {
             super::doctor_json(&report).unwrap(),
             "{\"ok\":false,\"checks\":[{\"name\":\"ssh\",\"ok\":false}]}"
         );
+    }
+
+    #[test]
+    fn ensure_console_dependencies_rejects_missing_checks() {
+        let report = super::DoctorReport {
+            ok: false,
+            checks: vec![
+                super::DoctorCheck {
+                    name: "ssh".to_owned(),
+                    ok: false,
+                    detail: None,
+                    path: None,
+                },
+                super::DoctorCheck {
+                    name: "sftp".to_owned(),
+                    ok: false,
+                    detail: None,
+                    path: None,
+                },
+            ],
+        };
+
+        let error = super::ensure_console_dependencies_for_report(&report).unwrap_err();
+
+        assert_eq!(error.to_string(), "doctor failed: missing ssh, sftp");
     }
 
     #[test]

@@ -41,6 +41,7 @@
 
 [profiles.local-smoke]
 kind = "local"
+preflight = true
 cols = 100
 rows = 30
 osc52 = "write"
@@ -62,6 +63,7 @@ kind = "ssh"
 target = "prod"
 user = "ops"
 auth = "agent"
+preflight = true
 cols = 120
 rows = 32
 osc52 = "write"
@@ -78,12 +80,14 @@ no_shell = true
 kind = "sftp"
 target = "prod"
 auth = "agent"
+preflight = true
 # log = "prod-files.log"
 
 [profiles.prod-upload]
 kind = "scp"
 target = "prod"
 auth = "agent"
+preflight = true
 upload = ["local.txt", "/tmp/remote.txt"]
 # recursive = true
 # log = "prod-upload.log"

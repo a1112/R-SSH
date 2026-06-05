@@ -34,6 +34,7 @@ pub struct LocalOptions {
     pub command: PtyCommand,
     pub size: Option<PtySize>,
     pub mouse: bool,
+    pub preflight: bool,
     pub osc52_policy: Osc52Policy,
     pub log: Option<PathBuf>,
 }
@@ -78,6 +79,7 @@ pub struct SshOptions {
     pub no_shell: bool,
     pub native: bool,
     pub native_host_key_policy: NativeHostKeyPolicy,
+    pub preflight: bool,
     pub osc52_policy: Osc52Policy,
     pub log: Option<PathBuf>,
 }
@@ -85,6 +87,7 @@ pub struct SshOptions {
 #[derive(Debug, PartialEq, Eq)]
 pub struct SftpOptions {
     pub target: SshTarget,
+    pub preflight: bool,
     pub log: Option<PathBuf>,
 }
 
@@ -93,6 +96,7 @@ pub struct ScpOptions {
     pub target: SshTarget,
     pub transfer: ScpTransfer,
     pub recursive: bool,
+    pub preflight: bool,
     pub log: Option<PathBuf>,
 }
 
@@ -146,6 +150,7 @@ struct SshParseState {
     no_shell: bool,
     native: bool,
     native_host_key_policy: NativeHostKeyPolicy,
+    preflight: bool,
     osc52_policy: Osc52Policy,
     log: Option<PathBuf>,
 }
@@ -250,7 +255,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--preflight] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--preflight] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--preflight] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -276,6 +281,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
     let mut columns = None;
     let mut rows = None;
     let mut mouse = false;
+    let mut preflight = false;
     let mut osc52_policy = Osc52Policy::default();
     let mut log = None;
     let mut command_args = Vec::new();
@@ -293,6 +299,9 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
             }
             "--mouse" => {
                 mouse = true;
+            }
+            "--preflight" => {
+                preflight = true;
             }
             "--osc52" => {
                 index += 1;
@@ -335,6 +344,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         command,
         size,
         mouse,
+        preflight,
         osc52_policy,
         log,
     }))
@@ -489,6 +499,7 @@ fn parse_sftp(args: &[String]) -> Result<AppCommand, String> {
     let options = ssh_options_from_state(state)?;
     Ok(AppCommand::Sftp(SftpOptions {
         target: options.target,
+        preflight: options.preflight,
         log: options.log,
     }))
 }
@@ -530,6 +541,7 @@ fn parse_scp(args: &[String]) -> Result<AppCommand, String> {
         target: options.target,
         transfer,
         recursive,
+        preflight: options.preflight,
         log: options.log,
     }))
 }
@@ -593,6 +605,9 @@ fn parse_sftp_option(
                 "--passphrase is not accepted on the command line; use the terminal prompt"
                     .to_owned(),
             );
+        }
+        "--preflight" => {
+            state.preflight = true;
         }
         "--log" => {
             *index += 1;
@@ -689,6 +704,9 @@ fn parse_ssh_option(
         "--native" => {
             state.native = true;
         }
+        "--preflight" => {
+            state.preflight = true;
+        }
         "--accept-unknown-host-key" | "--trust-on-first-use" => {
             parse_native_host_key_policy(args[*index].as_str(), state)?;
         }
@@ -723,6 +741,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         no_shell,
         native,
         native_host_key_policy,
+        preflight,
         osc52_policy,
         log,
     } = state;
@@ -769,6 +788,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         no_shell,
         native,
         native_host_key_policy,
+        preflight,
         osc52_policy,
         log,
     })
@@ -1232,6 +1252,7 @@ mod tests {
         assert!(!options.command.program().is_empty());
         assert_eq!(options.size, None);
         assert!(!options.mouse);
+        assert!(!options.preflight);
     }
 
     #[test]
@@ -1270,6 +1291,17 @@ mod tests {
         };
 
         assert!(options.mouse);
+    }
+
+    #[test]
+    fn parses_local_preflight() {
+        let parsed = parse_args(["rssh-app", "local", "--preflight"]).unwrap();
+
+        let AppCommand::Local(options) = parsed else {
+            panic!("expected local command");
+        };
+
+        assert!(options.preflight);
     }
 
     #[test]
@@ -1549,6 +1581,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_ssh_preflight() {
+        let parsed = parse_args(["rssh-app", "ssh", "--target", "prod", "--preflight"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert!(options.preflight);
+    }
+
+    #[test]
     fn parses_ssh_osc52_policy() {
         let parsed = parse_args(["rssh-app", "ssh", "--target", "prod", "--osc52", "off"]).unwrap();
 
@@ -1722,6 +1765,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_sftp_preflight() {
+        let parsed = parse_args(["rssh-app", "sftp", "--target", "prod", "--preflight"]).unwrap();
+
+        let AppCommand::Sftp(options) = parsed else {
+            panic!("expected sftp command");
+        };
+
+        assert!(options.preflight);
+    }
+
+    #[test]
     fn parses_scp_upload_for_openssh_config_target() {
         let parsed = parse_args([
             "rssh-app",
@@ -1765,6 +1819,27 @@ mod tests {
         );
         assert!(options.recursive);
         assert_eq!(options.log, Some(std::path::PathBuf::from("scp.log")));
+    }
+
+    #[test]
+    fn parses_scp_preflight() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "--target",
+            "prod",
+            "--preflight",
+            "--upload",
+            "local.txt",
+            "/tmp/remote.txt",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert!(options.preflight);
     }
 
     #[test]

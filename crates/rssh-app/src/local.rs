@@ -26,6 +26,7 @@ use rssh_terminal::{Cell, Color, CursorShape, Terminal};
 
 use crate::{
     cli::{LocalOptions, Osc52Policy},
+    diagnostics,
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_modes::{
         MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange,
@@ -35,6 +36,10 @@ use crate::{
 };
 
 pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
+    if options.preflight {
+        diagnostics::ensure_console_dependencies()?;
+    }
+
     let size = resolve_local_size(options.size);
     let mut session = PtySession::spawn(&options.command, size)?;
     let mut reader = session.take_reader()?;

@@ -27,6 +27,7 @@ struct ProfileDefinition {
     frames: Option<u64>,
     mouse: Option<bool>,
     metrics: Option<bool>,
+    preflight: Option<bool>,
     osc52: Option<String>,
     log: Option<String>,
     command: Option<Vec<String>>,
@@ -332,6 +333,7 @@ impl ProfileDefinition {
 
     fn append_local_args(&self, args: &mut Vec<String>) -> Result<(), String> {
         args.push("local".to_owned());
+        self.append_preflight(args);
         append_dimensions(args, self.cols, self.rows);
         if self.mouse.unwrap_or(false) {
             args.push("--mouse".to_owned());
@@ -346,6 +348,7 @@ impl ProfileDefinition {
         args.push("ssh".to_owned());
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
+        self.append_preflight(args);
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -366,6 +369,7 @@ impl ProfileDefinition {
         args.push("sftp".to_owned());
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
+        self.append_preflight(args);
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -378,6 +382,7 @@ impl ProfileDefinition {
         args.push("scp".to_owned());
         append_optional(args, "--host", self.host.as_ref());
         append_optional(args, "--target", self.target.as_ref());
+        self.append_preflight(args);
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -389,6 +394,12 @@ impl ProfileDefinition {
         append_transfer(args, "--upload", self.upload.as_ref(), "scp upload")?;
         append_transfer(args, "--download", self.download.as_ref(), "scp download")?;
         Ok(())
+    }
+
+    fn append_preflight(&self, args: &mut Vec<String>) {
+        if self.preflight.unwrap_or(false) {
+            args.push("--preflight".to_owned());
+        }
     }
 
     fn append_window_args(&self, args: &mut Vec<String>) -> Result<(), String> {
@@ -578,6 +589,7 @@ dynamic_forward = ["127.0.0.1:1080"]
                 no_shell: false,
                 native: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                preflight: false,
                 osc52_policy: crate::cli::Osc52Policy::Off,
                 log: None,
             })
@@ -614,6 +626,7 @@ command = ["pwsh", "-NoLogo"]
                 command: rssh_pty::PtyCommand::new("pwsh").with_args(["-NoLogo"]),
                 size: Some(rssh_pty::PtySize::try_new(100, 32).unwrap()),
                 mouse: true,
+                preflight: false,
                 osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 log: Some(PathBuf::from("dev.log")),
             })
@@ -657,6 +670,7 @@ log = "sftp.log"
                         passphrase: None,
                     },
                 }),
+                preflight: false,
                 log: Some(PathBuf::from("sftp.log")),
             })
         );
@@ -700,8 +714,60 @@ log = "scp.log"
                     remote: "/tmp/remote".to_owned(),
                 },
                 recursive: true,
+                preflight: false,
                 log: Some(PathBuf::from("scp.log")),
             })
+        );
+    }
+
+    #[test]
+    fn console_profiles_can_enable_preflight() {
+        let contents = r#"
+[profiles.local-dev]
+kind = "local"
+preflight = true
+
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+preflight = true
+
+[profiles.prod-files]
+kind = "sftp"
+target = "prod"
+preflight = true
+
+[profiles.prod-upload]
+kind = "scp"
+target = "prod"
+preflight = true
+upload = ["local", "/tmp/remote"]
+"#;
+
+        assert_eq!(
+            super::args_from_toml("local-dev", contents).unwrap(),
+            ["rssh-app", "local", "--preflight"]
+        );
+        assert_eq!(
+            super::args_from_toml("prod-shell", contents).unwrap(),
+            ["rssh-app", "ssh", "--target", "prod", "--preflight"]
+        );
+        assert_eq!(
+            super::args_from_toml("prod-files", contents).unwrap(),
+            ["rssh-app", "sftp", "--target", "prod", "--preflight"]
+        );
+        assert_eq!(
+            super::args_from_toml("prod-upload", contents).unwrap(),
+            [
+                "rssh-app",
+                "scp",
+                "--target",
+                "prod",
+                "--preflight",
+                "--upload",
+                "local",
+                "/tmp/remote"
+            ]
         );
     }
 

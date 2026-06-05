@@ -24,6 +24,7 @@ fn local_options_for_options(options: &SftpOptions) -> Result<LocalOptions, Box<
         command: sftp_command_for_options(options),
         size: Some(PtySize::try_new(size.columns, size.rows)?),
         mouse: true,
+        preflight: options.preflight,
         osc52_policy: Osc52Policy::default(),
         log: options.log.clone(),
     })
@@ -100,6 +101,7 @@ mod tests {
 
         let command = sftp_command_for_options(&SftpOptions {
             target: SshTarget::Direct(request),
+            preflight: false,
             log: None,
         });
 
@@ -120,6 +122,7 @@ mod tests {
                     passphrase: None,
                 },
             }),
+            preflight: false,
             log: None,
         });
 

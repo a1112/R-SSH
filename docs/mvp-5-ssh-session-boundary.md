@@ -164,6 +164,9 @@ contract that a future in-process `russh` adapter must satisfy.
   available.
 - `rssh-app doctor --json` prints the same dependency preflight as a
   machine-readable report for launchers, scripts, or desktop UI health checks.
+- `rssh-app local --preflight`, `ssh --preflight`, `sftp --preflight`, and
+  `scp --preflight` run the same console dependency preflight before spawning
+  the PTY-backed child process.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
   back through the existing local, native-window, SSH, SFTP, or SCP CLI parser, so
   profile startup keeps the same validation and secret-handling rules as direct
@@ -305,6 +308,7 @@ Start from a reusable profile file:
 ```powershell
 cargo run -p rssh-app -- doctor
 cargo run -p rssh-app -- doctor --json
+cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --json --file examples/rssh-profiles.toml
