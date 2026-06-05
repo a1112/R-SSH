@@ -55,6 +55,7 @@ impl ProfileDefinition {
         let mut args = vec!["rssh-app".to_owned()];
         match self.kind.as_str() {
             "local" => self.append_local_args(&mut args)?,
+            "sftp" => self.append_sftp_args(&mut args)?,
             "ssh" => self.append_ssh_args(&mut args)?,
             "window" => self.append_window_args(&mut args)?,
             value => return Err(format!("invalid profile kind: {value}")),
@@ -92,6 +93,18 @@ impl ProfileDefinition {
             args.push("--no-shell".to_owned());
         }
         append_command(args, self.remote_command.as_ref(), "remote command")?;
+        Ok(())
+    }
+
+    fn append_sftp_args(&self, args: &mut Vec<String>) -> Result<(), String> {
+        args.push("sftp".to_owned());
+        append_optional(args, "--host", self.host.as_ref());
+        append_optional(args, "--target", self.target.as_ref());
+        append_optional(args, "--user", self.user.as_ref());
+        append_optional_u16(args, "--port", self.port);
+        append_dimensions(args, self.cols, self.rows);
+        append_auth_args(args, self.auth.as_deref(), self.key.as_ref())?;
+        append_optional(args, "--log", self.log.as_ref());
         Ok(())
     }
 
@@ -203,8 +216,8 @@ mod tests {
     use rssh_ssh::SshAuthMethod;
 
     use crate::cli::{
-        AppCommand, LocalOptions, NativeHostKeyPolicy, OpenSshTarget, ProfileOptions, SshForward,
-        SshTarget, WindowOptions,
+        AppCommand, LocalOptions, NativeHostKeyPolicy, OpenSshTarget, ProfileOptions, SftpOptions,
+        SshForward, SshTarget, WindowOptions,
     };
 
     fn temp_profile_file(name: &str, contents: &str) -> PathBuf {
@@ -302,6 +315,48 @@ command = ["pwsh", "-NoLogo"]
                 mouse: true,
                 osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 log: Some(PathBuf::from("dev.log")),
+            })
+        );
+    }
+
+    #[test]
+    fn loads_sftp_profile_from_toml_file() {
+        let file = temp_profile_file(
+            "sftp-profile",
+            r#"
+[profiles.files]
+kind = "sftp"
+target = "prod"
+user = "ops"
+port = 2222
+auth = "key"
+key = "C:/Users/ops/.ssh/id_ed25519"
+log = "sftp.log"
+"#,
+        );
+
+        let command = super::load_command(&ProfileOptions {
+            name: "files".to_owned(),
+            file: file.clone(),
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            command,
+            AppCommand::Sftp(SftpOptions {
+                target: SshTarget::OpenSsh(OpenSshTarget {
+                    target: "prod".to_owned(),
+                    username: Some("ops".to_owned()),
+                    port: Some(2222),
+                    initial_size: TerminalSize::new(80, 24),
+                    auth: SshAuthMethod::PrivateKey {
+                        path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                        passphrase: None,
+                    },
+                }),
+                log: Some(PathBuf::from("sftp.log")),
             })
         );
     }

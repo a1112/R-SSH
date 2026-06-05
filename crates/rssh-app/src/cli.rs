@@ -12,6 +12,7 @@ const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
 pub enum AppCommand {
     Local(LocalOptions),
     Profile(ProfileOptions),
+    Sftp(SftpOptions),
     Ssh(SshOptions),
     Window(WindowOptions),
     Help,
@@ -41,6 +42,12 @@ pub struct SshOptions {
     pub native: bool,
     pub native_host_key_policy: NativeHostKeyPolicy,
     pub osc52_policy: Osc52Policy,
+    pub log: Option<PathBuf>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SftpOptions {
+    pub target: SshTarget,
     pub log: Option<PathBuf>,
 }
 
@@ -158,6 +165,13 @@ where
             }
             parse_ssh(&ssh_args)
         }
+        "sftp" => {
+            let sftp_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&sftp_args) {
+                return Ok(AppCommand::Help);
+            }
+            parse_sftp(&sftp_args)
+        }
         "window" => {
             let window_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&window_args) {
@@ -171,7 +185,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -293,6 +307,89 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
     }
 
     Ok(AppCommand::Ssh(ssh_options_from_state(state)?))
+}
+
+fn parse_sftp(args: &[String]) -> Result<AppCommand, String> {
+    let mut state = SshParseState::default();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => return Err("sftp does not accept a remote command".to_owned()),
+            _ => parse_sftp_option(args, &mut index, &mut state)?,
+        }
+        index += 1;
+    }
+
+    let options = ssh_options_from_state(state)?;
+    Ok(AppCommand::Sftp(SftpOptions {
+        target: options.target,
+        log: options.log,
+    }))
+}
+
+fn parse_sftp_option(
+    args: &[String],
+    index: &mut usize,
+    state: &mut SshParseState,
+) -> Result<(), String> {
+    match args[*index].as_str() {
+        "--host" => {
+            *index += 1;
+            state.host = Some(required_option_value(args.get(*index), "--host")?.to_owned());
+        }
+        "--target" => {
+            *index += 1;
+            state.target = Some(required_option_value(args.get(*index), "--target")?.to_owned());
+        }
+        "--user" => {
+            *index += 1;
+            state.username = Some(required_option_value(args.get(*index), "--user")?.to_owned());
+        }
+        "--port" => {
+            *index += 1;
+            state.port = Some(parse_port(args.get(*index), "--port")?);
+        }
+        "--cols" => {
+            *index += 1;
+            state.columns = Some(parse_dimension(args.get(*index), "--cols")?);
+        }
+        "--rows" => {
+            *index += 1;
+            state.rows = Some(parse_dimension(args.get(*index), "--rows")?);
+        }
+        "--agent" => {
+            set_ssh_auth(&mut state.auth, SshAuthMethod::Agent)?;
+        }
+        "--password" => {
+            set_ssh_auth(&mut state.auth, SshAuthMethod::PasswordPrompt)?;
+        }
+        "--key" => {
+            *index += 1;
+            let path = required_option_value(args.get(*index), "--key")?;
+            set_ssh_auth(
+                &mut state.auth,
+                SshAuthMethod::private_key(path, None::<String>)
+                    .map_err(|error| error.to_string())?,
+            )?;
+        }
+        "--passphrase" => {
+            return Err(
+                "--passphrase is not accepted on the command line; use the terminal prompt"
+                    .to_owned(),
+            );
+        }
+        "--log" => {
+            *index += 1;
+            state.log = Some(PathBuf::from(required_option_value(
+                args.get(*index),
+                "--log",
+            )?));
+        }
+        value => return Err(format!("unexpected sftp option: {value}")),
+    }
+
+    Ok(())
 }
 
 fn parse_ssh_option(
@@ -1215,6 +1312,40 @@ mod tests {
                 passphrase: None
             }
         );
+    }
+
+    #[test]
+    fn parses_sftp_openssh_config_target_with_key_and_log() {
+        let parsed = parse_args([
+            "rssh-app",
+            "sftp",
+            "--target",
+            "prod",
+            "--key",
+            "C:/Users/ops/.ssh/id_ed25519",
+            "--log",
+            "sftp.log",
+        ])
+        .unwrap();
+
+        let AppCommand::Sftp(options) = parsed else {
+            panic!("expected sftp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::PrivateKey {
+                    path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                    passphrase: None
+                }
+            })
+        );
+        assert_eq!(options.log, Some(std::path::PathBuf::from("sftp.log")));
     }
 
     #[test]

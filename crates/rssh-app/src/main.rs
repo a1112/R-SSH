@@ -1,6 +1,7 @@
 mod cli;
 mod local;
 mod profiles;
+mod sftp;
 mod ssh;
 mod terminal_input;
 mod terminal_modes;
@@ -31,6 +32,7 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
     match command {
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Profile(options) => run_command(profiles::load_command(&options)?),
+        AppCommand::Sftp(options) => sftp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Window(options) => {
             window::run(&options)?;

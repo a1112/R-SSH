@@ -152,9 +152,12 @@ contract that a future in-process `russh` adapter must satisfy.
   without placing password or passphrase secrets on the command line.
 - `rssh-app ssh --log PATH` reuses the local PTY console logger to write visible
   SSH/OpenSSH output to a session log file.
+- `rssh-app sftp` starts the system OpenSSH SFTP client inside the same PTY
+  console runtime, reusing the SSH-style `--host`/`--target`, user, port, auth,
+  key, and log arguments for interactive file transfer.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
-  back through the existing local, native-window, or SSH CLI parser, so profile
-  startup keeps the same validation and secret-handling rules as direct
+  back through the existing local, native-window, SSH, or SFTP CLI parser, so
+  profile startup keeps the same validation and secret-handling rules as direct
   command-line startup.
 
 ## Run
@@ -238,6 +241,18 @@ Write an SSH session log:
 cargo run -p rssh-app -- ssh --target prod --log prod.log
 ```
 
+Start an interactive SFTP session through the same console runtime:
+
+```powershell
+cargo run -p rssh-app -- sftp --target prod
+```
+
+Start SFTP with a private key and session log:
+
+```powershell
+cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519 --log sftp.log
+```
+
 For password authentication, R-SSH asks OpenSSH to prefer password and
 keyboard-interactive authentication, then OpenSSH prompts inside the terminal.
 For native encrypted private-key authentication, R-SSH prompts for the key
@@ -250,6 +265,7 @@ Start from a reusable profile file:
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile prod-files --file examples/rssh-profiles.toml
 ```
 
 The current profile file format is TOML:
@@ -263,6 +279,12 @@ auth = "agent"
 cols = 120
 rows = 32
 log = "prod.log"
+
+[profiles.prod-files]
+kind = "sftp"
+target = "prod"
+auth = "agent"
+log = "sftp.log"
 
 [profiles.local-smoke]
 kind = "local"
@@ -281,6 +303,7 @@ command = ["cmd.exe", "/K", "echo", "rssh-window-profile-smoke"]
 ```powershell
 cargo test -p rssh-ssh
 cargo test -p rssh-app ssh_
+cargo test -p rssh-app sftp
 cargo test -p rssh-app ssh_runner
 cargo test -p rssh-app profile
 cargo test -p rssh-app log

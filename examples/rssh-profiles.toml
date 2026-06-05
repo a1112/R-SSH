@@ -8,6 +8,9 @@
 #
 # Run an SSH profile after defining the matching Host in ~/.ssh/config:
 #   cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
+#
+# Run an SFTP profile after defining the matching Host in ~/.ssh/config:
+#   cargo run -p rssh-app -- profile prod-files --file examples/rssh-profiles.toml
 
 [profiles.local-smoke]
 kind = "local"
@@ -43,3 +46,9 @@ target = "prod"
 auth = "agent"
 local_forward = ["127.0.0.1:15432:db.internal:5432"]
 no_shell = true
+
+[profiles.prod-files]
+kind = "sftp"
+target = "prod"
+auth = "agent"
+# log = "prod-files.log"
