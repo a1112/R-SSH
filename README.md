@@ -73,6 +73,7 @@ cargo run -p rssh-app -- scp --target prod --download /tmp/remote.txt local.txt
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile --list --verbose --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --show prod-shell --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
@@ -141,7 +142,8 @@ same local, native-window, SSH, SFTP, or SCP runtime. See
 Use `profile --init --file PATH` to create a starter profile file. Existing
 files are not overwritten unless `--force` is added.
 Use `profile --list --file PATH` to print available profile names and kinds
-before launching one.
+before launching one; add `--verbose` to include each profile's resolved
+`rssh-app` command line.
 Use `profile --show NAME --file PATH` to preview the resolved `rssh-app`
 command line without starting a local process or network connection.
 Use `profile --check --file PATH` to validate every configured profile without

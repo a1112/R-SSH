@@ -9,6 +9,9 @@
 # List available profiles:
 #   cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 #
+# List available profiles with resolved startup commands:
+#   cargo run -p rssh-app -- profile --list --verbose --file examples/rssh-profiles.toml
+#
 # Preview a profile as the resolved startup command:
 #   cargo run -p rssh-app -- profile --show prod-shell --file examples/rssh-profiles.toml
 #

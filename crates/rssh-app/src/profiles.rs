@@ -102,11 +102,36 @@ pub fn print_profile_init(options: &ProfileInitOptions) -> Result<(), Box<dyn Er
 }
 
 pub fn print_profile_list(options: &ProfileListOptions) -> Result<(), Box<dyn Error>> {
-    for profile in list_profiles(options)? {
-        println!("{}\t{}", profile.name, profile.kind);
+    for line in profile_list_lines(options)? {
+        println!("{line}");
     }
 
     Ok(())
+}
+
+pub fn profile_list_lines(options: &ProfileListOptions) -> Result<Vec<String>, Box<dyn Error>> {
+    if !options.verbose {
+        return Ok(list_profiles(options)?
+            .into_iter()
+            .map(|profile| format!("{}\t{}", profile.name, profile.kind))
+            .collect());
+    }
+
+    let contents = fs::read_to_string(&options.file)?;
+    let profiles = summaries_from_toml(&contents).map_err(profile_error)?;
+
+    profiles
+        .into_iter()
+        .map(|profile| {
+            let args = args_from_toml(&profile.name, &contents).map_err(profile_error)?;
+            Ok(format!(
+                "{}\t{}\t{}",
+                profile.name,
+                profile.kind,
+                command_line_from_args(&args)
+            ))
+        })
+        .collect()
 }
 
 fn command_from_toml(name: &str, contents: &str) -> Result<AppCommand, String> {
@@ -628,8 +653,11 @@ command = ["pwsh", "-NoLogo"]
 "#,
         );
 
-        let profiles =
-            super::list_profiles(&crate::cli::ProfileListOptions { file: file.clone() }).unwrap();
+        let profiles = super::list_profiles(&crate::cli::ProfileListOptions {
+            file: file.clone(),
+            verbose: false,
+        })
+        .unwrap();
 
         remove_file(&file);
 
@@ -644,6 +672,39 @@ command = ["pwsh", "-NoLogo"]
                     name: "prod-shell".to_owned(),
                     kind: "ssh".to_owned(),
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn lists_verbose_profile_lines_with_resolved_commands() {
+        let file = temp_profile_file(
+            "verbose-list-profile",
+            r#"
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+auth = "agent"
+
+[profiles.local-smoke]
+kind = "local"
+command = ["pwsh", "-NoLogo"]
+"#,
+        );
+
+        let lines = super::profile_list_lines(&crate::cli::ProfileListOptions {
+            file: file.clone(),
+            verbose: true,
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            lines,
+            vec![
+                "local-smoke\tlocal\trssh-app local -- pwsh -NoLogo".to_owned(),
+                "prod-shell\tssh\trssh-app ssh --target prod --agent".to_owned(),
             ]
         );
     }
