@@ -383,6 +383,7 @@ impl TerminalOutputFilter {
             .chain(osc_color_response)
             .chain(decrqss_response)
             .chain(xtgettcap_response)
+            .filter(|(index, _)| !is_inside_osc_or_st_control_string(&self.pending, *index))
             .min_by_key(|(index, _)| *index)
     }
 
@@ -530,6 +531,46 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
+    is_inside_control_string(bytes, index, find_next_osc_start, find_osc_color_terminator)
+        || is_inside_control_string(
+            bytes,
+            index,
+            find_next_st_control_string_start,
+            find_xtgettcap_terminator,
+        )
+}
+
+fn is_inside_control_string(
+    bytes: &[u8],
+    index: usize,
+    mut find_next_start: impl FnMut(&[u8]) -> Option<(usize, usize)>,
+    mut find_terminator: impl FnMut(&[u8]) -> Option<OscColorTerminator>,
+) -> bool {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let Some((relative_start, prefix_len)) = find_next_start(&bytes[offset..]) else {
+            return false;
+        };
+        let start = offset + relative_start;
+        if start >= index {
+            return false;
+        }
+
+        let content_start = start + prefix_len;
+        let Some(terminator) = find_terminator(&bytes[content_start..]) else {
+            return true;
+        };
+        let end = content_start + terminator.index + terminator.length;
+        if index < end {
+            return true;
+        }
+        offset = end;
+    }
+
+    false
 }
 
 struct DecrqssQuery {
@@ -1176,6 +1217,24 @@ fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
         .min_by_key(|(index, _)| *index)
 }
 
+fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
+    [
+        (b"\x1bP".as_slice(), 2),
+        (b"\x1bX".as_slice(), 2),
+        (b"\x1b^".as_slice(), 2),
+        (b"\x1b_".as_slice(), 2),
+        (b"\x90".as_slice(), 1),
+        (b"\x98".as_slice(), 1),
+        (b"\x9e".as_slice(), 1),
+        (b"\x9f".as_slice(), 1),
+    ]
+    .into_iter()
+    .filter_map(|(prefix, prefix_len)| {
+        find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+    })
+    .min_by_key(|(index, _)| *index)
+}
+
 fn parse_osc_color_change(content: &[u8]) -> Option<OscColorChange> {
     if let Some(color) = content.strip_prefix(b"10;").and_then(parse_rgb_color_spec) {
         return Some(OscColorChange::DefaultForeground(color));
@@ -1525,6 +1584,16 @@ mod tests {
         assert_eq!(second.display, b"after");
         assert_eq!(runtime.terminal().title(), Some("ops"));
         assert!(terminal_text(&runtime).contains("beforeafter"));
+    }
+
+    #[test]
+    fn ignores_queries_inside_osc_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let output = runtime.feed_pty_output_with_display(b"before\x1b]0;title \x1b[6n\x07after");
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.display, b"beforeafter");
     }
 
     #[test]
