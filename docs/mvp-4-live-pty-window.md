@@ -28,6 +28,8 @@ in the native `winit` window.
 - `rssh-app window` starts the platform default shell in a local PTY, and
   `rssh-app window -- <program> [args...]` starts a custom command in the same
   native window runtime.
+- Native-window PTY child processes inherit the shared `PtyCommand` terminal
+  environment defaults: `TERM=xterm-256color` and `COLORTERM=truecolor`.
 - PTY output is read on a background thread and delivered to the UI thread with
   `winit::EventLoopProxy`.
 - PTY output updates the terminal runtime and rebuilds
@@ -192,6 +194,7 @@ MVP 4 tests cover:
   search shortcut detection
 - native window custom startup command parsing and configured PTY command
   storage
+- shared PTY command terminal environment defaults for `TERM` and `COLORTERM`
 - native window log path parsing and visible PTY output logging
 - native window session logs omit OSC title control sequences while still
   applying the title update to the window state

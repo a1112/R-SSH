@@ -74,6 +74,8 @@ session log file.
 applications to negotiate xterm mouse/focus reporting through PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
 The console path also answers basic terminal status and device-attribute queries.
+PTY-backed local, window, and OpenSSH child processes receive
+`TERM=xterm-256color` and `COLORTERM=truecolor` by default.
 Use `--log PATH` on `local` or `ssh` to tee visible terminal output to a session
 log file.
 `ssh` currently starts the system OpenSSH client inside the same PTY console

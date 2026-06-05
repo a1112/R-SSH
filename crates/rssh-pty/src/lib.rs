@@ -59,6 +59,40 @@ mod tests {
     }
 
     #[test]
+    fn pty_command_sets_default_terminal_environment() {
+        let command = PtyCommand::new("shell");
+
+        assert_eq!(command.env_value("TERM"), Some("xterm-256color"));
+        assert_eq!(command.env_value("COLORTERM"), Some("truecolor"));
+    }
+
+    #[test]
+    fn explicit_pty_environment_overrides_terminal_defaults() {
+        let command = PtyCommand::new("shell").with_env("TERM", "vt100");
+
+        assert_eq!(command.env_value("TERM"), Some("vt100"));
+        assert_eq!(command.env_value("COLORTERM"), Some("truecolor"));
+    }
+
+    #[test]
+    fn pty_command_builder_receives_terminal_environment() {
+        let builder = PtyCommand::new("shell")
+            .with_env("TERM", "vt100")
+            .to_builder();
+
+        assert_eq!(
+            builder.get_env("TERM").and_then(|value| value.to_str()),
+            Some("vt100")
+        );
+        assert_eq!(
+            builder
+                .get_env("COLORTERM")
+                .and_then(|value| value.to_str()),
+            Some("truecolor")
+        );
+    }
+
+    #[test]
     fn command_validation_rejects_empty_program() {
         let command = PtyCommand::new("");
 
@@ -265,6 +299,7 @@ pub struct PtyCommand {
     program: String,
     args: Vec<String>,
     cwd: Option<PathBuf>,
+    env: Vec<(String, String)>,
 }
 
 impl PtyCommand {
@@ -274,6 +309,7 @@ impl PtyCommand {
             program: program.into(),
             args: Vec::new(),
             cwd: None,
+            env: default_terminal_environment(),
         }
     }
 
@@ -328,6 +364,22 @@ impl PtyCommand {
     }
 
     #[must_use]
+    pub fn with_env(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let key = key.into();
+        let value = value.into();
+        if let Some((_, existing)) = self
+            .env
+            .iter_mut()
+            .find(|(existing_key, _)| existing_key == &key)
+        {
+            *existing = value;
+        } else {
+            self.env.push((key, value));
+        }
+        self
+    }
+
+    #[must_use]
     pub fn program(&self) -> &str {
         &self.program
     }
@@ -335,6 +387,13 @@ impl PtyCommand {
     #[must_use]
     pub fn args(&self) -> &[String] {
         &self.args
+    }
+
+    #[must_use]
+    pub fn env_value(&self, key: &str) -> Option<&str> {
+        self.env
+            .iter()
+            .find_map(|(env_key, value)| (env_key == key).then_some(value.as_str()))
     }
 
     /// Validate that this command can be passed to a PTY backend.
@@ -357,11 +416,21 @@ impl PtyCommand {
         for arg in &self.args {
             builder.arg(arg);
         }
+        for (key, value) in &self.env {
+            builder.env(key, value);
+        }
         if let Some(cwd) = &self.cwd {
             builder.cwd(cwd);
         }
         builder
     }
+}
+
+fn default_terminal_environment() -> Vec<(String, String)> {
+    vec![
+        ("TERM".to_owned(), "xterm-256color".to_owned()),
+        ("COLORTERM".to_owned(), "truecolor".to_owned()),
+    ]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

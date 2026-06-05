@@ -11,6 +11,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - Windows uses ConPTY through the same `PtySession` boundary.
 - `PtyCommand` models default shell, custom program, arguments, and working
   directory.
+- `PtyCommand` sets `TERM=xterm-256color` and `COLORTERM=truecolor` by default
+  for spawned PTY child processes, with explicit per-command overrides
+  available before spawn.
 - `PtySize` validates terminal dimensions.
 - `PtySession` supports spawn, read, write, resize, wait, try-wait, kill, child
   exit status, and owned stream extraction for threaded runtime loops.
@@ -191,6 +194,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   Enter, Ctrl+C, arrow key encoding, application cursor keys, modified
   navigation/editing/function keys, Alt+text, Shift+Tab, F1-F12, legacy and SGR
   mouse, and focus events.
+- Terminal environment: unit tests cover default `TERM` and `COLORTERM` values,
+  explicit overrides, and propagation into the PTY command builder.
 - Exit propagation: real PTY smoke tests cover non-zero child exit status.
 - Fast-exit output drain: ignored integration tests repeatedly run
   `rssh-app local --mouse -- <echo command>` and verify the final output marker
