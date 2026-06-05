@@ -69,7 +69,8 @@ in the native `winit` window.
   PTY input-write, and bell-event counters plus p95 timings when the window run
   exits.
 - `rssh-app window --log PATH` writes visible native-window terminal output to
-  a session log file.
+  a session log file, omitting non-visible terminal control sequences such as
+  OSC title updates and BEL.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
 - `rssh-app profile NAME --file PATH` can start a `kind = "window"` TOML
@@ -166,6 +167,8 @@ MVP 4 tests cover:
 - native window custom startup command parsing and configured PTY command
   storage
 - native window log path parsing and visible PTY output logging
+- native window session logs omit OSC title control sequences while still
+  applying the title update to the window state
 - native window TOML profile loading for frame limits, metrics, OSC 52 policy,
   custom commands, and log paths
 - native window BEL event propagation into metrics without writing BEL bytes to

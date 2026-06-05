@@ -2521,6 +2521,18 @@ mod tests {
     }
 
     #[test]
+    fn window_app_omits_title_sequence_from_session_log() {
+        let logged = Arc::new(Mutex::new(Vec::new()));
+        let mut app =
+            NativeWindowApp::new_with_session_log(None, SharedWriter(Arc::clone(&logged)));
+
+        app.handle_pty_output(b"before\x1b]0;ops\x07after").unwrap();
+
+        assert_eq!(app.window_title, "ops");
+        assert_eq!(logged.lock().unwrap().as_slice(), b"beforeafter");
+    }
+
+    #[test]
     fn window_app_scrolls_snapshot_to_scrollback_lines() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
