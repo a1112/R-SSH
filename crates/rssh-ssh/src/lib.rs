@@ -7,6 +7,7 @@ mod russh_client;
 pub use russh_client::{
     RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
     RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
+    RusshSshChannel,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1092,6 +1093,27 @@ mod tests {
         let start_channel = super::RusshChannelOpener::start_channel_async;
 
         let _ = start_channel;
+    }
+
+    #[test]
+    fn russh_ssh_channel_implements_ssh_channel_trait() {
+        fn assert_ssh_channel<T: SshChannel>() {}
+
+        assert_ssh_channel::<super::RusshSshChannel>();
+    }
+
+    #[test]
+    fn russh_ssh_channel_exposes_live_channel_constructor() {
+        let new_channel = super::RusshSshChannel::new;
+
+        let _ = new_channel;
+    }
+
+    #[test]
+    fn russh_channel_opener_implements_ssh_channel_opener_trait() {
+        fn assert_channel_opener<T: SshChannelOpener<Channel = super::RusshSshChannel>>() {}
+
+        assert_channel_opener::<super::RusshChannelOpener>();
     }
 
     #[test]

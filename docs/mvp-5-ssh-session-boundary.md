@@ -72,7 +72,7 @@ contract that a future in-process `russh` adapter must satisfy.
   into `AcceptUnknown` for insecure local fixtures or test-only connections.
 - `RusshClientHandler` implements `russh::client::Handler::check_server_key`
   from that policy, giving the future `russh` connection path a tested
-  host-key gate before authentication and channel opening are wired in.
+  host-key gate before authentication and channel opening run.
 - `RusshConnectPlan` derives the stable inputs for
   `russh::client::connect` and the following channel-open step from an
   `SshConnectRequest`: socket host, socket port, username, and
@@ -92,6 +92,12 @@ contract that a future in-process `russh` adapter must satisfy.
 - `RusshChannelOpener::start_channel_async` sends the planned PTY, shell, and
   exec requests to the opened `russh::Channel`, matching the startup mode
   derived from `SshConnectRequest`.
+- `RusshSshChannel` wraps a live `russh::Channel` in the synchronous
+  `SshChannel` trait by bridging read, write, PTY resize, keepalive, and close
+  calls through the runtime that owns the native russh session.
+- `RusshChannelOpener` implements `SshChannelOpener`, so the existing
+  `SshChannelConnector` can create a native russh-backed shell session for
+  request shapes currently supported by the native adapter.
 - `RusshChannelStartupPlan` converts the channel-open plan into the ordered
   `russh::Channel` requests that must run after authentication: PTY then shell
   for interactive sessions, PTY then exec for remote commands, and no channel
@@ -270,6 +276,9 @@ SSH-boundary tests cover:
   `russh::client::Handle::channel_open_session`
 - `RusshChannelOpener::start_channel_async` API shape against russh channel
   PTY, shell, and exec startup requests
+- `RusshSshChannel` implementation of the crate-local `SshChannel` trait
+- `RusshChannelOpener` implementation of the crate-local `SshChannelOpener`
+  trait with `RusshSshChannel` as its channel type
 - `RusshChannelStartupPlan` request ordering for shell, remote command, and
   no-shell startup modes
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
@@ -294,10 +303,10 @@ SSH-boundary tests cover:
 
 ## Explicit Non-Scope
 
-- Complete in-process native `russh` network connections.
+- Switching the app-level `rssh-app ssh` command from the OpenSSH PTY
+  compatibility path to the native russh adapter by default.
 - Executing password-prompt, key, and agent authentication through `russh`.
 - Known-host file storage and persisted host-key trust decisions.
-- Wrapping a live `russh::Channel` in the synchronous `SshChannel` trait.
 - SFTP, in-process native tunnels, and reconnects.
 
 ## Next Milestone

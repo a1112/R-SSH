@@ -1,7 +1,8 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
 
 use crate::{
-    SshAuthMethod, SshChannelOpenPlan, SshConnectRequest, SshSessionError, SshSessionStartup,
+    SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener, SshConnectRequest,
+    SshSessionError, SshSessionStartup,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,5 +401,136 @@ impl russh::client::Handler for RusshClientHandler {
         _server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
         Ok(self.accepts_unknown_host_keys())
+    }
+}
+
+pub struct RusshSshChannel {
+    read_half: russh::ChannelReadHalf,
+    write_half: russh::ChannelWriteHalf<russh::client::Msg>,
+    handle: russh::client::Handle<RusshClientHandler>,
+    runtime: tokio::runtime::Runtime,
+    pending_read: VecDeque<u8>,
+}
+
+impl RusshSshChannel {
+    #[must_use]
+    pub fn new(
+        channel: russh::Channel<russh::client::Msg>,
+        handle: russh::client::Handle<RusshClientHandler>,
+        runtime: tokio::runtime::Runtime,
+    ) -> Self {
+        let (read_half, write_half) = channel.split();
+
+        Self {
+            read_half,
+            write_half,
+            handle,
+            runtime,
+            pending_read: VecDeque::new(),
+        }
+    }
+
+    fn fill_from_pending(&mut self, buffer: &mut [u8]) -> usize {
+        let count = buffer.len().min(self.pending_read.len());
+        for slot in buffer.iter_mut().take(count) {
+            if let Some(byte) = self.pending_read.pop_front() {
+                *slot = byte;
+            }
+        }
+        count
+    }
+
+    fn queue_read_bytes(&mut self, bytes: &[u8]) {
+        self.pending_read.extend(bytes);
+    }
+}
+
+impl SshChannel for RusshSshChannel {
+    fn read_channel(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+
+        let pending_count = self.fill_from_pending(buffer);
+        if pending_count > 0 {
+            return Ok(pending_count);
+        }
+
+        loop {
+            let message = self.runtime.block_on(self.read_half.wait());
+            match message {
+                Some(
+                    russh::ChannelMsg::Data { data } | russh::ChannelMsg::ExtendedData { data, .. },
+                ) => {
+                    self.queue_read_bytes(&data);
+                    return Ok(self.fill_from_pending(buffer));
+                }
+                Some(russh::ChannelMsg::Eof | russh::ChannelMsg::Close) | None => {
+                    return Ok(0);
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
+    fn write_channel(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+        self.runtime
+            .block_on(self.write_half.data_bytes(bytes.to_vec()))
+            .map_err(|error| SshSessionError::new(format!("SSH channel write failed: {error}")))?;
+
+        Ok(bytes.len())
+    }
+
+    fn resize_pty(&mut self, size: rssh_core::TerminalSize) -> Result<(), SshSessionError> {
+        self.runtime
+            .block_on(self.write_half.window_change(
+                u32::from(size.columns),
+                u32::from(size.rows),
+                0,
+                0,
+            ))
+            .map_err(|error| SshSessionError::new(format!("SSH PTY resize failed: {error}")))
+    }
+
+    fn send_keepalive(&mut self) -> Result<(), SshSessionError> {
+        self.runtime
+            .block_on(self.handle.send_keepalive(false))
+            .map_err(|error| SshSessionError::new(format!("SSH keepalive failed: {error}")))
+    }
+
+    fn close_channel(&mut self) -> Result<(), SshSessionError> {
+        self.runtime
+            .block_on(self.write_half.close())
+            .map_err(|error| SshSessionError::new(format!("SSH channel close failed: {error}")))
+    }
+}
+
+impl SshChannelOpener for RusshChannelOpener {
+    type Channel = RusshSshChannel;
+
+    fn open_channel(
+        &mut self,
+        request: SshConnectRequest,
+    ) -> Result<Self::Channel, SshSessionError> {
+        let plan = self.connect_plan(&request);
+        let startup_plan = plan.channel_startup_plan();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
+            })?;
+
+        let (handle, channel) = runtime.block_on(async {
+            let mut handle = self.connect_async(request).await?;
+            self.authenticate_async(&mut handle, plan.auth_plan())
+                .await?;
+            let channel = self.open_session_channel_async(&handle).await?;
+            self.start_channel_async(&channel, &startup_plan).await?;
+
+            Ok::<_, SshSessionError>((handle, channel))
+        })?;
+
+        Ok(RusshSshChannel::new(channel, handle, runtime))
     }
 }

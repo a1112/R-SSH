@@ -9,6 +9,7 @@ version.workspace = true
 [dependencies]
 russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring", "rsa"] }
 rssh-core = { path = "../rssh-core" }
+tokio = { version = "1", features = ["io-util", "net", "rt-multi-thread", "time"] }
 
 [lints]
 workspace = true
