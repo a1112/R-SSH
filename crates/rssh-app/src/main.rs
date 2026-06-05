@@ -1,4 +1,5 @@
 mod cli;
+mod diagnostics;
 mod local;
 mod profiles;
 mod scp;
@@ -31,6 +32,10 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
 
 fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Error>> {
     match command {
+        AppCommand::Doctor(options) => {
+            diagnostics::print_doctor(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Profile(options) => run_command(profiles::load_command(&options)?),
         AppCommand::ProfileCheck(options) => {

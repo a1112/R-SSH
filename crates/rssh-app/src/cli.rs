@@ -10,6 +10,7 @@ const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AppCommand {
+    Doctor(DoctorOptions),
     Local(LocalOptions),
     Profile(ProfileOptions),
     ProfileCheck(ProfileCheckOptions),
@@ -21,6 +22,11 @@ pub enum AppCommand {
     Ssh(SshOptions),
     Window(WindowOptions),
     Help,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DoctorOptions {
+    pub json: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -196,6 +202,13 @@ where
             }
             parse_local(&local_args)
         }
+        "doctor" => {
+            let doctor_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&doctor_args) {
+                return Ok(AppCommand::Help);
+            }
+            parse_doctor(&doctor_args)
+        }
         "profile" => {
             let profile_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&profile_args) {
@@ -237,13 +250,26 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
     args.iter()
         .take_while(|argument| argument.as_str() != "--")
         .any(|argument| matches!(argument.as_str(), "-h" | "--help"))
+}
+
+fn parse_doctor(args: &[String]) -> Result<AppCommand, String> {
+    let mut json = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            value => return Err(format!("unexpected doctor option: {value}")),
+        }
+    }
+
+    Ok(AppCommand::Doctor(DoctorOptions { json }))
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -935,6 +961,22 @@ mod tests {
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
+        );
+    }
+
+    #[test]
+    fn parses_doctor_command() {
+        assert_eq!(
+            parse_args(["rssh-app", "doctor"]).unwrap(),
+            AppCommand::Doctor(super::DoctorOptions { json: false })
+        );
+    }
+
+    #[test]
+    fn parses_json_doctor_command() {
+        assert_eq!(
+            parse_args(["rssh-app", "doctor", "--json"]).unwrap(),
+            AppCommand::Doctor(super::DoctorOptions { json: true })
         );
     }
 
