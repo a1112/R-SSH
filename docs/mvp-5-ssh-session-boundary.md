@@ -80,6 +80,13 @@ contract that a future in-process `russh` adapter must satisfy.
 - `RusshAuthPlan` derives the native authentication branch from an
   `SshConnectRequest`: password value, password prompt request, private-key
   path with optional passphrase, or SSH agent.
+- `RusshAuthOutcome` normalizes `russh::client::AuthResult` into the
+  crate-local session contract, so failed authentication becomes an
+  `SshSessionError` before channel opening.
+- `RusshChannelOpener::authenticate_async` starts the real native
+  authentication path. Password-value authentication is wired through
+  `russh::client::Handle::authenticate_password`; password-prompt,
+  private-key, and agent branches currently return explicit not-wired errors.
 - `RusshChannelStartupPlan` converts the channel-open plan into the ordered
   `russh::Channel` requests that must run after authentication: PTY then shell
   for interactive sessions, PTY then exec for remote commands, and no channel
@@ -250,6 +257,10 @@ SSH-boundary tests cover:
   plan from a validated SSH request
 - `RusshAuthPlan` derivation for password, password-prompt, private-key, and
   agent authentication branches
+- `RusshAuthOutcome` success/failure normalization from russh authentication
+  results
+- `RusshChannelOpener::authenticate_async` API shape against the real russh
+  password authentication entry point
 - `RusshChannelStartupPlan` request ordering for shell, remote command, and
   no-shell startup modes
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
@@ -275,7 +286,7 @@ SSH-boundary tests cover:
 ## Explicit Non-Scope
 
 - Complete in-process native `russh` network connections.
-- Executing password, key, and agent authentication through `russh`.
+- Executing password-prompt, key, and agent authentication through `russh`.
 - Known-host file storage and persisted host-key trust decisions.
 - Full `russh` adapter channel wiring beyond the initial opener/config surface.
 - SFTP, in-process native tunnels, and reconnects.

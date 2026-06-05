@@ -23,6 +23,30 @@ pub enum RusshAuthRequest {
     Agent,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RusshAuthOutcome {
+    Authenticated,
+}
+
+impl RusshAuthOutcome {
+    /// Converts russh's authentication result into the crate-local session
+    /// contract used by the native SSH adapter.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the server rejects the attempted
+    /// authentication method.
+    pub fn from_auth_result(
+        auth_result: &russh::client::AuthResult,
+    ) -> Result<Self, SshSessionError> {
+        if auth_result.success() {
+            return Ok(Self::Authenticated);
+        }
+
+        Err(SshSessionError::new("SSH authentication failed"))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RusshAuthPlan {
     username: String,
@@ -248,6 +272,41 @@ impl RusshChannelOpener {
         )
         .await
         .map_err(|error| SshSessionError::new(format!("SSH connect failed: {error}")))
+    }
+
+    /// Authenticates a connected russh handle using the planned authentication
+    /// branch.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when authentication fails or when the
+    /// requested authentication branch is not wired into the native russh
+    /// adapter yet.
+    pub async fn authenticate_async(
+        &self,
+        handle: &mut russh::client::Handle<RusshClientHandler>,
+        auth_plan: &RusshAuthPlan,
+    ) -> Result<RusshAuthOutcome, SshSessionError> {
+        match auth_plan.request() {
+            RusshAuthRequest::Password { password } => {
+                let result = handle
+                    .authenticate_password(auth_plan.username(), password)
+                    .await
+                    .map_err(|error| {
+                        SshSessionError::new(format!("SSH password authentication failed: {error}"))
+                    })?;
+                RusshAuthOutcome::from_auth_result(&result)
+            }
+            RusshAuthRequest::PasswordPrompt => Err(SshSessionError::new(
+                "SSH password prompt authentication is not wired into russh yet",
+            )),
+            RusshAuthRequest::PrivateKey { .. } => Err(SshSessionError::new(
+                "SSH private-key authentication is not wired into russh yet",
+            )),
+            RusshAuthRequest::Agent => Err(SshSessionError::new(
+                "SSH agent authentication is not wired into russh yet",
+            )),
+        }
     }
 }
 

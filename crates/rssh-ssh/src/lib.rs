@@ -5,7 +5,7 @@ use rssh_core::TerminalSize;
 mod russh_client;
 
 pub use russh_client::{
-    RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
+    RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
     RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
 };
 
@@ -573,8 +573,8 @@ mod tests {
     };
 
     use crate::{
-        RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan, RusshChannelStartupRequest,
-        RusshConnectPlan, RusshHostKeyPolicy,
+        RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan,
+        RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy,
     };
 
     #[test]
@@ -1052,6 +1052,32 @@ mod tests {
         let plan = RusshConnectPlan::from_request(&request);
 
         assert_eq!(plan.auth_plan(), &RusshAuthPlan::from_request(&request));
+    }
+
+    #[test]
+    fn russh_auth_outcome_accepts_successful_authentication() {
+        let outcome =
+            RusshAuthOutcome::from_auth_result(&russh::client::AuthResult::Success).unwrap();
+
+        assert_eq!(outcome, RusshAuthOutcome::Authenticated);
+    }
+
+    #[test]
+    fn russh_auth_outcome_rejects_failed_authentication() {
+        let error = RusshAuthOutcome::from_auth_result(&russh::client::AuthResult::Failure {
+            remaining_methods: russh::MethodSet::empty(),
+            partial_success: false,
+        })
+        .unwrap_err();
+
+        assert!(error.to_string().contains("SSH authentication failed"));
+    }
+
+    #[test]
+    fn russh_channel_opener_exposes_async_authentication_entrypoint() {
+        let authenticate = super::RusshChannelOpener::authenticate_async;
+
+        let _ = authenticate;
     }
 
     #[test]
