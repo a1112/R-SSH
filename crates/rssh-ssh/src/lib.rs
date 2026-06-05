@@ -97,6 +97,46 @@ impl SshAuthMethod {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshStartupError {
+    EmptyCommand,
+}
+
+impl std::fmt::Display for SshStartupError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            Self::EmptyCommand => "SSH remote command cannot be empty",
+        };
+        formatter.write_str(message)
+    }
+}
+
+impl std::error::Error for SshStartupError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SshSessionStartup {
+    Shell,
+    Command(Vec<String>),
+    NoShell,
+}
+
+impl SshSessionStartup {
+    /// Creates a remote command startup request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshStartupError::EmptyCommand`] when no command tokens are
+    /// provided or every token is empty.
+    pub fn command(command: impl IntoIterator<Item = String>) -> Result<Self, SshStartupError> {
+        let command = command.into_iter().collect::<Vec<_>>();
+        if command.iter().all(|argument| argument.trim().is_empty()) {
+            return Err(SshStartupError::EmptyCommand);
+        }
+
+        Ok(Self::Command(command))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SshSessionConfig {
     pub host: String,
@@ -161,12 +201,23 @@ impl SshSessionConfig {
 pub struct SshConnectRequest {
     pub config: SshSessionConfig,
     pub auth: SshAuthMethod,
+    pub startup: SshSessionStartup,
 }
 
 impl SshConnectRequest {
     #[must_use]
-    pub const fn new(config: SshSessionConfig, auth: SshAuthMethod) -> Self {
-        Self { config, auth }
+    pub fn new(config: SshSessionConfig, auth: SshAuthMethod) -> Self {
+        Self {
+            config,
+            auth,
+            startup: SshSessionStartup::Shell,
+        }
+    }
+
+    #[must_use]
+    pub fn with_startup(mut self, startup: SshSessionStartup) -> Self {
+        self.startup = startup;
+        self
     }
 
     /// Creates a connection request with password authentication.
@@ -185,7 +236,7 @@ impl SshConnectRequest {
     /// Creates a connection request that should prompt for a password through
     /// the active terminal or a future secure prompt.
     #[must_use]
-    pub const fn password_prompt(config: SshSessionConfig) -> Self {
+    pub fn password_prompt(config: SshSessionConfig) -> Self {
         Self::new(config, SshAuthMethod::PasswordPrompt)
     }
 
@@ -206,7 +257,7 @@ impl SshConnectRequest {
     }
 
     #[must_use]
-    pub const fn agent(config: SshSessionConfig) -> Self {
+    pub fn agent(config: SshSessionConfig) -> Self {
         Self::new(config, SshAuthMethod::Agent)
     }
 }
@@ -234,12 +285,13 @@ impl std::fmt::Display for SshSessionError {
 impl std::error::Error for SshSessionError {}
 
 pub trait SshShellConnector {
-    /// Connects to an SSH server and starts a shell session.
+    /// Connects to an SSH server and starts the requested shell, command, or
+    /// no-shell session.
     ///
     /// # Errors
     ///
     /// Returns [`SshSessionError`] when connecting, authenticating, requesting
-    /// the remote PTY, or starting the shell fails.
+    /// the remote PTY, or starting the requested channel mode fails.
     fn connect(
         &mut self,
         request: SshConnectRequest,
@@ -369,13 +421,13 @@ where
 pub trait SshChannelOpener {
     type Channel: SshChannel;
 
-    /// Opens an authenticated remote shell channel for the requested SSH
-    /// session.
+    /// Opens an authenticated remote channel for the requested SSH session.
     ///
     /// # Errors
     ///
     /// Returns [`SshSessionError`] when connecting, authenticating, requesting a
-    /// PTY, or starting the shell channel fails.
+    /// PTY, or starting the requested shell, command, or no-shell channel
+    /// fails.
     fn open_channel(
         &mut self,
         request: SshConnectRequest,
@@ -423,7 +475,8 @@ mod tests {
 
     use super::{
         SshAuthError, SshAuthMethod, SshChannel, SshChannelConnector, SshChannelOpener,
-        SshChannelSession, SshConnectRequest, SshSessionConfig, SshShellConnector, SshShellSession,
+        SshChannelSession, SshConnectRequest, SshSessionConfig, SshSessionStartup,
+        SshShellConnector, SshShellSession, SshStartupError,
     };
 
     #[test]
@@ -611,6 +664,33 @@ mod tests {
 
         assert_eq!(request.config, config);
         assert_eq!(request.auth, SshAuthMethod::Agent);
+    }
+
+    #[test]
+    fn connect_request_defaults_to_shell_startup() {
+        let request = SshConnectRequest::agent(valid_config());
+
+        assert_eq!(request.startup, SshSessionStartup::Shell);
+    }
+
+    #[test]
+    fn connect_request_accepts_remote_command_startup() {
+        let request = SshConnectRequest::agent(valid_config()).with_startup(
+            SshSessionStartup::command(["uname".to_owned(), "-a".to_owned()]).unwrap(),
+        );
+
+        assert_eq!(
+            request.startup,
+            SshSessionStartup::Command(vec!["uname".to_owned(), "-a".to_owned()])
+        );
+    }
+
+    #[test]
+    fn session_startup_rejects_empty_remote_command() {
+        assert_eq!(
+            SshSessionStartup::command(Vec::<String>::new()),
+            Err(SshStartupError::EmptyCommand)
+        );
     }
 
     #[test]

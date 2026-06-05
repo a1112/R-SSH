@@ -23,11 +23,14 @@ contract that a future in-process `russh` adapter must satisfy.
   - SSH agent
 - `SshAuthError` rejects empty password and empty private-key path inputs before
   a network connection starts.
-- `SshConnectRequest` combines a validated session config with one
-  authentication method so the future adapter has one stable request object.
+- `SshConnectRequest` combines a validated session config, one authentication
+  method, and a startup mode so the future adapter has one stable request
+  object.
+- `SshSessionStartup` carries the requested remote startup mode through the
+  native SSH boundary: interactive shell, remote command, or no-shell.
 - `SshShellConnector` defines the adapter entry point that turns an
-  `SshConnectRequest` into an active shell session.
-- `SshShellSession` defines the shell channel operations needed by the terminal
+  `SshConnectRequest` into an active shell, command, or no-shell session.
+- `SshShellSession` defines the SSH channel operations needed by the terminal
   runtime:
   - read SSH channel bytes
   - write user input bytes
@@ -39,13 +42,13 @@ contract that a future in-process `russh` adapter must satisfy.
 - `SshSessionError` gives adapters a crate-local error type before the network
   backend is introduced.
 - `SshChannel` models the lower-level operations that a native SSH backend must
-  expose after it has opened a shell channel: read, write, PTY resize,
+  expose after it has opened a channel: read, write, PTY resize,
   keepalive, and close.
 - `SshChannelSession` adapts any `SshChannel` implementation into the existing
   `SshShellSession` trait, giving the future `russh` adapter a small tested
   integration point before real network wiring starts.
 - `SshChannelOpener` models the backend step that connects, authenticates,
-  requests the remote PTY, and opens a shell channel.
+  requests the remote PTY when needed, and opens the requested channel mode.
 - `SshChannelConnector` implements `SshShellConnector` for any
   `SshChannelOpener`, wrapping the opened channel in `SshChannelSession` so the
   app-facing shell-session contract stays stable while the native backend is
@@ -57,10 +60,14 @@ contract that a future in-process `russh` adapter must satisfy.
   configuration entry, with optional user, port, key, password-prompt, and size
   overrides.
 - `rssh-app ssh ... -- <command> [args...]` appends a remote command after the
-  OpenSSH target, while omitting `--` keeps the default interactive shell.
+  OpenSSH target. The injectable native connector path maps the same direct
+  SSH request to `SshSessionStartup::Command`, while omitting `--` keeps the
+  default interactive shell.
 - `rssh-app ssh` can pass OpenSSH local, remote, and dynamic forwarding specs
   through `--local-forward`, `--remote-forward`, and `--dynamic-forward`.
-  `--no-shell` maps to OpenSSH `-N` for tunnel-only sessions.
+  `--no-shell` maps to OpenSSH `-N` for tunnel-only sessions. The injectable
+  native connector path maps the same direct SSH request to
+  `SshSessionStartup::NoShell`.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
@@ -197,6 +204,8 @@ SSH-boundary tests cover:
   `SshShellSession` read/write/resize/keepalive/close contract
 - `SshChannelConnector` delegation from a mock channel opener into an
   app-facing `SshShellSession`
+- `SshSessionStartup` defaults, remote command validation, and direct native
+  SSH connector propagation for remote-command and no-shell requests
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,

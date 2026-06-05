@@ -3,6 +3,8 @@ use std::error::Error;
 use std::io::{self, Read, Write};
 
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
+#[cfg(test)]
+use rssh_ssh::SshSessionStartup;
 use rssh_ssh::{SshAuthMethod, SshConnectRequest};
 #[cfg(test)]
 use rssh_ssh::{SshShellConnector, SshShellSession};
@@ -30,6 +32,23 @@ fn openssh_command_for_options(options: &SshOptions) -> PtyCommand {
     }
 
     command
+}
+
+#[cfg(test)]
+fn native_request_for_options(options: &SshOptions) -> Result<SshConnectRequest, Box<dyn Error>> {
+    let SshTarget::Direct(request) = &options.target else {
+        return Err("native SSH connector only supports direct SSH targets".into());
+    };
+
+    let startup = if options.no_shell {
+        SshSessionStartup::NoShell
+    } else if options.remote_command.is_empty() {
+        SshSessionStartup::Shell
+    } else {
+        SshSessionStartup::command(options.remote_command.clone())?
+    };
+
+    Ok(request.clone().with_startup(startup))
 }
 
 #[must_use]
@@ -148,12 +167,7 @@ fn run_with_connector_and_io(
     input: &mut dyn Read,
     output: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
-    let request = match &options.target {
-        SshTarget::Direct(request) => request.clone(),
-        SshTarget::OpenSsh(_) => {
-            return Err("mock SSH connector only supports direct SSH targets".into());
-        }
-    };
+    let request = native_request_for_options(options)?;
     let mut session = connector.connect(request)?;
     copy_input_to_session(input, session.as_mut())?;
     let mut buffer = [0; 8192];
@@ -208,7 +222,8 @@ mod tests {
 
     use rssh_core::TerminalSize;
     use rssh_ssh::{
-        SshConnectRequest, SshSessionConfig, SshSessionError, SshShellConnector, SshShellSession,
+        SshConnectRequest, SshSessionConfig, SshSessionError, SshSessionStartup, SshShellConnector,
+        SshShellSession,
     };
 
     use crate::cli::{OpenSshTarget, Osc52Policy, SshOptions, SshTarget};
@@ -276,6 +291,71 @@ mod tests {
         assert_eq!(state.written, b"echo hi\n");
         assert_eq!(output, b"remote\n");
         assert!(state.closed);
+    }
+
+    #[test]
+    fn ssh_runner_passes_remote_command_startup_to_native_connector() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        super::run_with_connector_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request.clone()),
+                remote_command: vec!["uname".to_owned(), "-a".to_owned()],
+                forwards: Vec::new(),
+                no_shell: false,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        let state = state.lock().unwrap();
+        let request = state.last_request.as_ref().unwrap();
+        assert_eq!(
+            request.startup,
+            SshSessionStartup::Command(vec!["uname".to_owned(), "-a".to_owned()])
+        );
+    }
+
+    #[test]
+    fn ssh_runner_passes_no_shell_startup_to_native_connector() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        super::run_with_connector_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request.clone()),
+                remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: true,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        let state = state.lock().unwrap();
+        let request = state.last_request.as_ref().unwrap();
+        assert_eq!(request.startup, SshSessionStartup::NoShell);
     }
 
     #[test]
