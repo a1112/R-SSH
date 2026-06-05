@@ -8,6 +8,7 @@ use std::{
 use serde::Serialize;
 
 use crate::cli::DoctorOptions;
+use rssh_pty::PtyCommand;
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct DoctorReport {
@@ -63,27 +64,43 @@ pub fn diagnose_console_dependencies() -> DoctorReport {
     let paths = env::var_os("PATH")
         .map(|path| env::split_paths(&path).collect::<Vec<_>>())
         .unwrap_or_default();
+    let default_shell = PtyCommand::default_shell();
 
-    diagnose_console_dependencies_in_paths(&paths)
+    diagnose_console_dependencies_in_paths_for_shell(&paths, default_shell.program())
 }
 
-pub fn diagnose_console_dependencies_in_paths(paths: &[PathBuf]) -> DoctorReport {
-    let checks = REQUIRED_CONSOLE_TOOLS
-        .iter()
-        .map(|tool| {
-            let path = find_command_in_paths(tool, paths);
-            DoctorCheck {
-                name: (*tool).to_owned(),
-                ok: path.is_some(),
-                path: path.map(|path| path.display().to_string()),
-            }
-        })
-        .collect::<Vec<_>>();
+pub fn diagnose_console_dependencies_in_paths_for_shell(
+    paths: &[PathBuf],
+    default_shell: &str,
+) -> DoctorReport {
+    let default_shell_path = resolve_command_path(default_shell, paths);
+    let mut checks = vec![DoctorCheck {
+        name: "default-shell".to_owned(),
+        ok: default_shell_path.is_some(),
+        path: default_shell_path.map(|path| path.display().to_string()),
+    }];
+    checks.extend(REQUIRED_CONSOLE_TOOLS.iter().map(|tool| {
+        let path = find_command_in_paths(tool, paths);
+        DoctorCheck {
+            name: (*tool).to_owned(),
+            ok: path.is_some(),
+            path: path.map(|path| path.display().to_string()),
+        }
+    }));
 
     DoctorReport {
         ok: checks.iter().all(|check| check.ok),
         checks,
     }
+}
+
+fn resolve_command_path(command: &str, paths: &[PathBuf]) -> Option<PathBuf> {
+    let command_path = PathBuf::from(command);
+    if command_path.is_absolute() || command_path.components().count() > 1 {
+        return command_path.is_file().then_some(command_path);
+    }
+
+    find_command_in_paths(command, paths)
 }
 
 fn find_command_in_paths(command: &str, paths: &[PathBuf]) -> Option<PathBuf> {
@@ -155,15 +172,18 @@ mod tests {
     #[test]
     fn diagnoses_required_console_tools_from_search_paths() {
         let dir = temp_tool_dir("doctor-tools");
-        for tool in ["ssh", "sftp", "scp"] {
+        for tool in ["shell", "ssh", "sftp", "scp"] {
             fs::write(dir.join(tool_file_name(tool)), "").unwrap();
         }
 
-        let report = super::diagnose_console_dependencies_in_paths(std::slice::from_ref(&dir));
+        let report = super::diagnose_console_dependencies_in_paths_for_shell(
+            std::slice::from_ref(&dir),
+            "shell",
+        );
         let _ = fs::remove_dir_all(&dir);
 
         assert!(report.ok);
-        assert_eq!(report.checks.len(), 3);
+        assert_eq!(report.checks.len(), 4);
         assert!(report.checks.iter().all(|check| check.ok));
         assert_eq!(
             report
@@ -171,7 +191,7 @@ mod tests {
                 .iter()
                 .map(|check| check.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["ssh", "sftp", "scp"]
+            vec!["default-shell", "ssh", "sftp", "scp"]
         );
     }
 
