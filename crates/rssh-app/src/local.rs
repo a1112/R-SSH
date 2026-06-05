@@ -530,6 +530,7 @@ struct TerminalOutputFilter {
     mirror: Terminal,
     mirror_size: PtySize,
     mode_tracker: TerminalModeTracker,
+    color_state: TerminalColorState,
 }
 
 impl TerminalOutputFilter {
@@ -663,6 +664,7 @@ impl TerminalOutputFilter {
             mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
             mirror_size,
             mode_tracker: TerminalModeTracker::default(),
+            color_state: TerminalColorState::default(),
         }
     }
 
@@ -673,6 +675,7 @@ impl TerminalOutputFilter {
         mut respond: impl FnMut(&[u8]) -> io::Result<()>,
     ) -> io::Result<()> {
         self.mode_tracker.process_without_emitting(bytes);
+        self.color_state.process(bytes);
         self.pending.extend_from_slice(bytes);
 
         while let Some((index, response)) = self.find_next_response() {
@@ -834,7 +837,7 @@ impl TerminalOutputFilter {
                 self.mode_tracker.private_mode_report_value(mode)
             )
             .into_bytes(),
-            TerminalResponse::OscColor(query) => osc_color_response(query),
+            TerminalResponse::OscColor(query) => self.color_state.response(query),
         }
     }
 
@@ -1073,20 +1076,175 @@ fn is_palette_color_query_prefix(bytes: &[u8]) -> bool {
     tail.is_empty() || tail == b";" || tail == b";?"
 }
 
-fn osc_color_response(query: OscColorResponse) -> Vec<u8> {
-    let mut response = match query.kind {
-        OscColorKind::DefaultForeground => {
-            format!("\x1b]10;{}", rgb_response(DEFAULT_FOREGROUND)).into_bytes()
+struct TerminalColorState {
+    foreground: [u8; 3],
+    background: [u8; 3],
+    palette_overrides: Vec<(u8, [u8; 3])>,
+    pending: Vec<u8>,
+}
+
+impl Default for TerminalColorState {
+    fn default() -> Self {
+        Self {
+            foreground: DEFAULT_FOREGROUND,
+            background: DEFAULT_BACKGROUND,
+            palette_overrides: Vec::new(),
+            pending: Vec::new(),
         }
-        OscColorKind::DefaultBackground => {
-            format!("\x1b]11;{}", rgb_response(DEFAULT_BACKGROUND)).into_bytes()
+    }
+}
+
+impl TerminalColorState {
+    const MAX_PENDING: usize = 1024 * 1024;
+
+    fn process(&mut self, bytes: &[u8]) {
+        self.pending.extend_from_slice(bytes);
+        if self.pending.len() > Self::MAX_PENDING {
+            self.pending.clear();
+            return;
         }
-        OscColorKind::Palette(index) => {
-            format!("\x1b]4;{};{}", index, rgb_response(indexed_color(index))).into_bytes()
+
+        loop {
+            let Some((index, prefix_len)) = find_next_osc_start(&self.pending) else {
+                self.retain_possible_prefix();
+                return;
+            };
+            if index > 0 {
+                self.pending.drain(..index);
+            }
+
+            let content_start = prefix_len;
+            let Some(terminator) = find_osc_color_terminator(&self.pending[content_start..]) else {
+                return;
+            };
+            let content_end = content_start + terminator.index;
+            if let Some(change) = parse_osc_color_change(&self.pending[content_start..content_end])
+            {
+                self.apply(change);
+            }
+            self.pending.drain(..content_end + terminator.length);
         }
-    };
-    response.extend_from_slice(query.terminator.bytes());
-    response
+    }
+
+    fn response(&self, query: OscColorResponse) -> Vec<u8> {
+        let mut response = match query.kind {
+            OscColorKind::DefaultForeground => {
+                format!("\x1b]10;{}", rgb_response(self.foreground)).into_bytes()
+            }
+            OscColorKind::DefaultBackground => {
+                format!("\x1b]11;{}", rgb_response(self.background)).into_bytes()
+            }
+            OscColorKind::Palette(index) => format!(
+                "\x1b]4;{};{}",
+                index,
+                rgb_response(self.palette_color(index))
+            )
+            .into_bytes(),
+        };
+        response.extend_from_slice(query.terminator.bytes());
+        response
+    }
+
+    fn apply(&mut self, change: OscColorChange) {
+        match change {
+            OscColorChange::DefaultForeground(color) => self.foreground = color,
+            OscColorChange::DefaultBackground(color) => self.background = color,
+            OscColorChange::Palette(index, color) => {
+                if let Some((_, existing)) = self
+                    .palette_overrides
+                    .iter_mut()
+                    .find(|(palette_index, _)| *palette_index == index)
+                {
+                    *existing = color;
+                } else {
+                    self.palette_overrides.push((index, color));
+                }
+            }
+        }
+    }
+
+    fn palette_color(&self, index: u8) -> [u8; 3] {
+        self.palette_overrides
+            .iter()
+            .find_map(|(palette_index, color)| (*palette_index == index).then_some(*color))
+            .unwrap_or_else(|| indexed_color(index))
+    }
+
+    fn retain_possible_prefix(&mut self) {
+        let retained = [b"\x1b]".as_slice(), b"\x9d".as_slice()]
+            .into_iter()
+            .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
+            .max()
+            .unwrap_or(0);
+        let writable = self.pending.len().saturating_sub(retained);
+        if writable > 0 {
+            self.pending.drain(..writable);
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum OscColorChange {
+    DefaultForeground([u8; 3]),
+    DefaultBackground([u8; 3]),
+    Palette(u8, [u8; 3]),
+}
+
+fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
+    [(b"\x1b]".as_slice(), 2), (b"\x9d".as_slice(), 1)]
+        .into_iter()
+        .filter_map(|(prefix, prefix_len)| {
+            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+        })
+        .min_by_key(|(index, _)| *index)
+}
+
+fn parse_osc_color_change(content: &[u8]) -> Option<OscColorChange> {
+    if let Some(color) = content.strip_prefix(b"10;").and_then(parse_rgb_color_spec) {
+        return Some(OscColorChange::DefaultForeground(color));
+    }
+    if let Some(color) = content.strip_prefix(b"11;").and_then(parse_rgb_color_spec) {
+        return Some(OscColorChange::DefaultBackground(color));
+    }
+    parse_palette_color_change(content)
+}
+
+fn parse_palette_color_change(content: &[u8]) -> Option<OscColorChange> {
+    let rest = content.strip_prefix(b"4;")?;
+    let separator = rest.iter().position(|byte| *byte == b';')?;
+    let index = parse_u8_decimal(&rest[..separator])?;
+    let color = parse_rgb_color_spec(&rest[separator + 1..])?;
+    Some(OscColorChange::Palette(index, color))
+}
+
+fn parse_rgb_color_spec(value: &[u8]) -> Option<[u8; 3]> {
+    let rest = value.strip_prefix(b"rgb:")?;
+    let mut components = rest.split(|byte| *byte == b'/');
+    let red = parse_rgb_component(components.next()?)?;
+    let green = parse_rgb_component(components.next()?)?;
+    let blue = parse_rgb_component(components.next()?)?;
+    components.next().is_none().then_some([red, green, blue])
+}
+
+fn parse_rgb_component(component: &[u8]) -> Option<u8> {
+    match component.len() {
+        1 => parse_hex_digit(component[0]).map(|value| value * 17),
+        2..=4 => parse_hex_byte(&component[..2]),
+        _ => None,
+    }
+}
+
+fn parse_hex_byte(bytes: &[u8]) -> Option<u8> {
+    Some(parse_hex_digit(bytes[0])? * 16 + parse_hex_digit(bytes[1])?)
+}
+
+fn parse_hex_digit(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 impl OscResponseTerminator {
@@ -2563,6 +2721,34 @@ mod tests {
 
         assert!(output.is_empty());
         assert_eq!(responses, b"\x1b]4;196;rgb:ffff/0000/0000\x9c");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_osc_color_queries_after_color_changes() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b]10;rgb:11/22/33\x07 middle\x1b]10;?\x07 after\x1b]4;1;rgb:01/02/03\x1b\\ done\x1b]4;1;?\x1b\\",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            output,
+            b"before\x1b]10;rgb:11/22/33\x07 middle after\x1b]4;1;rgb:01/02/03\x1b\\ done"
+        );
+        assert_eq!(
+            responses,
+            b"\x1b]10;rgb:1111/2222/3333\x07\x1b]4;1;rgb:0101/0202/0303\x1b\\"
+        );
     }
 
     #[test]

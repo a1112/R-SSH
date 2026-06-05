@@ -77,8 +77,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   forms.
 - The app answers xterm OSC color queries for default foreground (`OSC 10;?`),
   default background (`OSC 11;?`), and indexed palette colors (`OSC 4;<n>;?`)
-  using the current built-in xterm-compatible palette; BEL, ST, and C1 ST
-  terminators are preserved in responses.
+  using the current tracked OSC color state, falling back to the built-in
+  xterm-compatible palette. OSC `10`, `11`, and `4` color-setting sequences
+  update the tracked state, and BEL, ST, and C1 ST terminators are preserved in
+  responses.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - After a fast child-process exit, `rssh-app local` briefly drains PTY reader
@@ -186,7 +188,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   `ESC[21t`, and split response-query chunks. C1 CSI equivalents for cursor,
   device/status, and size/window queries are also covered.
 - OSC query response: unit tests cover default foreground/background and indexed
-  palette color queries, including BEL, ST, and C1 OSC/ST forms.
+  palette color queries, including BEL, ST, and C1 OSC/ST forms. Unit tests also
+  cover color-setting sequences followed by matching queries.
 - Session logging: unit tests cover teeing visible terminal output to a log
   writer, omitting non-visible control sequences from the log while preserving
   them for the host console, and smoke checks can verify `--log` writes command

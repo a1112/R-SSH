@@ -174,7 +174,7 @@ MVP 4 tests cover:
   character-cell size, text-area/screen size, and title query responses in the
   shared terminal runtime
 - OSC default foreground/background and indexed palette color query responses
-  in the shared terminal runtime
+  in the shared terminal runtime, including tracked OSC color-setting state
 - DECRQM private-mode status query responses for application cursor keys, mouse,
   SGR mouse, focus, bracketed paste, and unknown modes
 - native window OSC 52 policy parsing and write/query enforcement
