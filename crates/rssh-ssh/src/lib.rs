@@ -286,6 +286,86 @@ pub trait SshShellSession: Send {
     fn close(&mut self) -> Result<(), SshSessionError>;
 }
 
+pub trait SshChannel: Send {
+    /// Reads bytes from an established remote shell channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the underlying SSH backend cannot read
+    /// from the channel.
+    fn read_channel(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError>;
+
+    /// Writes bytes to an established remote shell channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the underlying SSH backend cannot write
+    /// to the channel.
+    fn write_channel(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError>;
+
+    /// Resizes the remote PTY bound to the channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend rejects the PTY resize.
+    fn resize_pty(&mut self, size: TerminalSize) -> Result<(), SshSessionError>;
+
+    /// Sends a keepalive request through the SSH connection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend cannot send the keepalive.
+    fn send_keepalive(&mut self) -> Result<(), SshSessionError>;
+
+    /// Closes the remote shell channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when the backend cannot close the channel.
+    fn close_channel(&mut self) -> Result<(), SshSessionError>;
+}
+
+pub struct SshChannelSession<C> {
+    channel: C,
+}
+
+impl<C> SshChannelSession<C> {
+    #[must_use]
+    pub const fn new(channel: C) -> Self {
+        Self { channel }
+    }
+
+    #[must_use]
+    pub fn into_channel(self) -> C {
+        self.channel
+    }
+}
+
+impl<C> SshShellSession for SshChannelSession<C>
+where
+    C: SshChannel,
+{
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, SshSessionError> {
+        self.channel.read_channel(buffer)
+    }
+
+    fn write(&mut self, bytes: &[u8]) -> Result<usize, SshSessionError> {
+        self.channel.write_channel(bytes)
+    }
+
+    fn resize(&mut self, size: TerminalSize) -> Result<(), SshSessionError> {
+        self.channel.resize_pty(size)
+    }
+
+    fn keepalive(&mut self) -> Result<(), SshSessionError> {
+        self.channel.send_keepalive()
+    }
+
+    fn close(&mut self) -> Result<(), SshSessionError> {
+        self.channel.close_channel()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -293,8 +373,8 @@ mod tests {
     use rssh_core::TerminalSize;
 
     use super::{
-        SshAuthError, SshAuthMethod, SshConnectRequest, SshSessionConfig, SshShellConnector,
-        SshShellSession,
+        SshAuthError, SshAuthMethod, SshChannel, SshChannelSession, SshConnectRequest,
+        SshSessionConfig, SshShellConnector, SshShellSession,
     };
 
     #[test]
@@ -371,6 +451,26 @@ mod tests {
         assert_eq!(session.size, TerminalSize::new(120, 30));
         assert!(session.kept_alive);
         assert!(session.closed);
+    }
+
+    #[test]
+    fn ssh_channel_session_delegates_shell_io_and_lifecycle() {
+        let channel = MockSshChannel::new(b"pong".to_vec());
+        let mut session = SshChannelSession::new(channel);
+        let mut output = [0; 4];
+
+        assert_eq!(session.read(&mut output).unwrap(), 4);
+        assert_eq!(&output, b"pong");
+        assert_eq!(session.write(b"ping").unwrap(), 4);
+        session.resize(TerminalSize::new(132, 43)).unwrap();
+        session.keepalive().unwrap();
+        session.close().unwrap();
+
+        let channel = session.into_channel();
+        assert_eq!(channel.written, b"ping");
+        assert_eq!(channel.sizes, vec![TerminalSize::new(132, 43)]);
+        assert_eq!(channel.keepalives, 1);
+        assert!(channel.closed);
     }
 
     #[test]
@@ -513,6 +613,55 @@ mod tests {
         }
 
         fn close(&mut self) -> Result<(), super::SshSessionError> {
+            self.closed = true;
+            Ok(())
+        }
+    }
+
+    struct MockSshChannel {
+        output: Vec<u8>,
+        written: Vec<u8>,
+        sizes: Vec<TerminalSize>,
+        keepalives: u32,
+        closed: bool,
+    }
+
+    impl MockSshChannel {
+        fn new(output: Vec<u8>) -> Self {
+            Self {
+                output,
+                written: Vec::new(),
+                sizes: Vec::new(),
+                keepalives: 0,
+                closed: false,
+            }
+        }
+    }
+
+    impl SshChannel for MockSshChannel {
+        fn read_channel(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            let count = buffer.len().min(self.output.len());
+            buffer[..count].copy_from_slice(&self.output[..count]);
+            self.output.drain(..count);
+            Ok(count)
+        }
+
+        fn write_channel(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            self.written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn resize_pty(&mut self, size: TerminalSize) -> Result<(), super::SshSessionError> {
+            self.sizes.push(size);
+            Ok(())
+        }
+
+        fn send_keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            self.keepalives += 1;
+            Ok(())
+        }
+
+        fn close_channel(&mut self) -> Result<(), super::SshSessionError> {
             self.closed = true;
             Ok(())
         }

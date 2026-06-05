@@ -38,6 +38,12 @@ contract that a future in-process `russh` adapter must satisfy.
   background connection/read tasks.
 - `SshSessionError` gives adapters a crate-local error type before the network
   backend is introduced.
+- `SshChannel` models the lower-level operations that a native SSH backend must
+  expose after it has opened a shell channel: read, write, PTY resize,
+  keepalive, and close.
+- `SshChannelSession` adapts any `SshChannel` implementation into the existing
+  `SshShellSession` trait, giving the future `russh` adapter a small tested
+  integration point before real network wiring starts.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
@@ -181,6 +187,8 @@ SSH-boundary tests cover:
 - empty password and empty private-key path rejection
 - shell connector trait shape with a mock connector
 - shell-session trait shape with a mock channel
+- `SshChannelSession` delegation from a mock lower-level channel into the
+  `SshShellSession` read/write/resize/keepalive/close contract
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
@@ -211,12 +219,12 @@ SSH-boundary tests cover:
 ## Next Milestone
 
 The next SSH step is to keep the OpenSSH PTY backend as a usable compatibility
-path while adding a `russh` shell adapter behind `SshShellConnector` and
-`SshShellSession`:
+path while adding a `russh` shell adapter behind `SshShellConnector`,
+`SshChannel`, and `SshShellSession`:
 
-1. Add a loopback SSH fixture or mocked channel test.
+1. Add a loopback SSH fixture.
 2. Connect and authenticate through `russh`.
 3. Request a remote PTY using `SshSessionConfig::initial_size`.
-4. Start the shell and expose read/write/resize/keepalive/close.
+4. Wrap the opened shell channel in `SshChannelSession`.
 5. Feed SSH channel bytes into the existing terminal runtime used by the local
    PTY window.
