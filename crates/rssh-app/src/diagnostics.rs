@@ -115,6 +115,7 @@ pub fn diagnose_console_dependencies_in_paths_for_shell_and_size(
             detail: Some(terminal_size_detail(terminal_size)),
             path: None,
         },
+        terminal_environment_check(),
         DoctorCheck {
             name: "default-shell".to_owned(),
             ok: default_shell_path.is_some(),
@@ -142,6 +143,19 @@ fn terminal_size_detail(size: Option<(u16, u16)>) -> String {
     match size {
         Some((columns, rows)) => format!("{columns}x{rows}"),
         None => "80x24 fallback".to_owned(),
+    }
+}
+
+fn terminal_environment_check() -> DoctorCheck {
+    let command = PtyCommand::new("doctor-env");
+    let term = command.env_value("TERM").unwrap_or("");
+    let color_term = command.env_value("COLORTERM").unwrap_or("");
+
+    DoctorCheck {
+        name: "terminal-env".to_owned(),
+        ok: term == "xterm-256color" && color_term == "truecolor",
+        detail: Some(format!("TERM={term} COLORTERM={color_term}")),
+        path: None,
     }
 }
 
@@ -242,7 +256,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
 
         assert!(report.ok);
-        assert_eq!(report.checks.len(), 6);
+        assert_eq!(report.checks.len(), 7);
         assert!(report.checks.iter().all(|check| check.ok));
         assert!(matches!(
             report
@@ -260,6 +274,7 @@ mod tests {
             vec![
                 "pty-backend",
                 "terminal-size",
+                "terminal-env",
                 "default-shell",
                 "ssh",
                 "sftp",
@@ -273,6 +288,14 @@ mod tests {
                 .find(|check| check.name == "terminal-size")
                 .and_then(|check| check.detail.as_deref()),
             Some("120x30")
+        );
+        assert_eq!(
+            report
+                .checks
+                .iter()
+                .find(|check| check.name == "terminal-env")
+                .and_then(|check| check.detail.as_deref()),
+            Some("TERM=xterm-256color COLORTERM=truecolor")
         );
     }
 
