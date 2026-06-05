@@ -59,8 +59,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app ssh --log PATH` reuses the local PTY console logger to write visible
   SSH/OpenSSH output to a session log file.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
-  back through the existing local or SSH CLI parser, so profile startup keeps the
-  same validation and secret-handling rules as direct command-line startup.
+  back through the existing local, native-window, or SSH CLI parser, so profile
+  startup keeps the same validation and secret-handling rules as direct
+  command-line startup.
 
 ## Run
 
@@ -128,6 +129,7 @@ Start from a reusable profile file:
 
 ```powershell
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
 ```
 
@@ -146,6 +148,13 @@ log = "prod.log"
 [profiles.local-smoke]
 kind = "local"
 command = ["powershell", "-NoProfile", "-Command", "Write-Output rssh-profile-smoke"]
+
+[profiles.window-smoke]
+kind = "window"
+frames = 120
+metrics = true
+osc52 = "write"
+command = ["cmd.exe", "/K", "echo", "rssh-window-profile-smoke"]
 ```
 
 ## Verification
@@ -182,8 +191,8 @@ SSH-boundary tests cover:
 - app-level SSH runner input forwarding into a mock shell session
 - app-level OpenSSH command mapping for target, port, private-key path, password
   prompt policy, secret non-leakage, PTY size, and mouse support
-- app-level profile command parsing and TOML profile loading for local and SSH
-  startup paths
+- app-level profile command parsing and TOML profile loading for local,
+  native-window, and SSH startup paths
 - app-level local and SSH log path parsing plus visible-output log tee behavior
 
 ## Explicit Non-Scope

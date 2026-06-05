@@ -69,6 +69,9 @@ in the native `winit` window.
   a session log file.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
+- `rssh-app profile NAME --file PATH` can start a `kind = "window"` TOML
+  profile with the same custom command, OSC 52 policy, metrics, frame limit,
+  and log options as direct `window` startup.
 
 ## Run
 
@@ -114,6 +117,12 @@ Write a native-window session log:
 cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.exe /K echo window-log-smoke
 ```
 
+Start the same native window path from a reusable profile:
+
+```powershell
+cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
+```
+
 Console-hosted local PTY remains available:
 
 ```powershell
@@ -136,6 +145,7 @@ Native window smoke:
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
 cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.exe /K echo window-log-smoke
+cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 ```
 
 MVP 4 tests cover:
@@ -153,6 +163,8 @@ MVP 4 tests cover:
 - native window custom startup command parsing and configured PTY command
   storage
 - native window log path parsing and visible PTY output logging
+- native window TOML profile loading for frame limits, metrics, OSC 52 policy,
+  custom commands, and log paths
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
@@ -209,7 +221,6 @@ Recommended MVP 5 targets:
 - Cross-line and regex scrollback search.
 - Advanced selection behavior such as selection across changing scrollback.
 - GPU text shaping, glyph atlas caching, and font fallback.
-- Persistent session profiles.
 
 ## Next Milestone
 

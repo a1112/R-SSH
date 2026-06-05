@@ -61,6 +61,7 @@ cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.in
 cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
 cargo run -p rssh-app -- ssh --target prod --log prod.log
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
 cargo test -p rssh-ssh
 ```
@@ -90,8 +91,9 @@ Use `--local-forward`, `--remote-forward`, or `--dynamic-forward` with OpenSSH
 forward specs for tunnels. Add `--no-shell` when the session should only keep
 the tunnel open.
 `profile NAME --file PATH` loads a TOML session profile and then starts the
-same local or SSH runtime. See `examples/rssh-profiles.toml` for the current
-file format, including the optional `log = "path"` field.
+same local, native-window, or SSH runtime. See `examples/rssh-profiles.toml`
+for the current file format, including `kind = "local"`, `kind = "window"`,
+`kind = "ssh"`, and the optional `log = "path"` field.
 
 ## MVP Status
 

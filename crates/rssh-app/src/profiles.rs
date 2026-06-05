@@ -19,7 +19,10 @@ struct ProfileDefinition {
     port: Option<u16>,
     cols: Option<u16>,
     rows: Option<u16>,
+    frames: Option<u64>,
     mouse: Option<bool>,
+    metrics: Option<bool>,
+    osc52: Option<String>,
     log: Option<String>,
     command: Option<Vec<String>>,
     auth: Option<String>,
@@ -53,6 +56,7 @@ impl ProfileDefinition {
         match self.kind.as_str() {
             "local" => self.append_local_args(&mut args)?,
             "ssh" => self.append_ssh_args(&mut args)?,
+            "window" => self.append_window_args(&mut args)?,
             value => return Err(format!("invalid profile kind: {value}")),
         }
 
@@ -88,6 +92,18 @@ impl ProfileDefinition {
         append_command(args, self.remote_command.as_ref(), "remote command")?;
         Ok(())
     }
+
+    fn append_window_args(&self, args: &mut Vec<String>) -> Result<(), String> {
+        args.push("window".to_owned());
+        append_optional_u64(args, "--frames", self.frames);
+        append_optional(args, "--osc52", self.osc52.as_ref());
+        if self.metrics.unwrap_or(false) {
+            args.push("--metrics".to_owned());
+        }
+        append_optional(args, "--log", self.log.as_ref());
+        append_command(args, self.command.as_ref(), "window command")?;
+        Ok(())
+    }
 }
 
 fn append_optional(args: &mut Vec<String>, name: &str, value: Option<&String>) {
@@ -98,6 +114,13 @@ fn append_optional(args: &mut Vec<String>, name: &str, value: Option<&String>) {
 }
 
 fn append_optional_u16(args: &mut Vec<String>, name: &str, value: Option<u16>) {
+    if let Some(value) = value {
+        args.push(name.to_owned());
+        args.push(value.to_string());
+    }
+}
+
+fn append_optional_u64(args: &mut Vec<String>, name: &str, value: Option<u64>) {
     if let Some(value) = value {
         args.push(name.to_owned());
         args.push(value.to_string());
@@ -179,6 +202,7 @@ mod tests {
 
     use crate::cli::{
         AppCommand, LocalOptions, OpenSshTarget, ProfileOptions, SshForward, SshTarget,
+        WindowOptions,
     };
 
     fn temp_profile_file(name: &str, contents: &str) -> PathBuf {
@@ -270,6 +294,45 @@ command = ["pwsh", "-NoLogo"]
                 size: Some(rssh_pty::PtySize::try_new(100, 32).unwrap()),
                 mouse: true,
                 log: Some(PathBuf::from("dev.log")),
+            })
+        );
+    }
+
+    #[test]
+    fn loads_window_profile_from_toml_file() {
+        let file = temp_profile_file(
+            "window-profile",
+            r#"
+[profiles.ops-window]
+kind = "window"
+frames = 120
+metrics = true
+osc52 = "write"
+log = "window.log"
+command = ["cmd.exe", "/K", "echo", "window-profile-smoke"]
+"#,
+        );
+
+        let command = super::load_command(&ProfileOptions {
+            name: "ops-window".to_owned(),
+            file: file.clone(),
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            command,
+            AppCommand::Window(WindowOptions {
+                frame_limit: Some(120),
+                osc52_policy: crate::cli::Osc52Policy::WriteOnly,
+                metrics: true,
+                command: rssh_pty::PtyCommand::new("cmd.exe").with_args([
+                    "/K",
+                    "echo",
+                    "window-profile-smoke"
+                ]),
+                log: Some(PathBuf::from("window.log")),
             })
         );
     }
