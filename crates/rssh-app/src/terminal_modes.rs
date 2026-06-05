@@ -332,6 +332,16 @@ impl TerminalModeTracker {
         self.mouse_modes.input_mode()
     }
 
+    pub(crate) fn private_mode_report_value(&self, mode: u16) -> u8 {
+        match mode {
+            1 => mode_report_value(self.application_cursor_keys()),
+            1000 | 1002 | 1003 | 1006 => self.mouse_modes.report_value(mode).unwrap_or(0),
+            1004 => mode_report_value(self.focus_reporting()),
+            2004 => mode_report_value(self.bracketed_paste()),
+            _ => 0,
+        }
+    }
+
     fn retain_possible_prefix(&mut self) {
         let retained = [
             Self::CSI_PRIVATE_MODE_PREFIX,
@@ -401,6 +411,14 @@ impl MouseModes {
             _ => None,
         }
     }
+
+    fn report_value(&self, mode: u16) -> Option<u8> {
+        Self::mask(mode).map(|mask| mode_report_value(self.0 & mask != 0))
+    }
+}
+
+const fn mode_report_value(enabled: bool) -> u8 {
+    if enabled { 1 } else { 2 }
 }
 
 #[derive(Clone, Copy, Default)]

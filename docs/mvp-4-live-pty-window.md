@@ -20,7 +20,8 @@ in the native `winit` window.
   navigation keys, and common editing keys.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
   console and native-window runtimes, including 7-bit CSI and 8-bit C1 CSI
-  private mode toggles.
+  private mode toggles plus DECRQM private-mode status query reporting for
+  tracked input modes.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
   separate input mapping.
 - `rssh-app window` starts the platform default shell in a local PTY, and
@@ -173,6 +174,8 @@ MVP 4 tests cover:
 - C1 CSI cursor, device/status, window state/position, window/screen pixel-size,
   character-cell size, text-area/screen size, and title query responses in the
   shared terminal runtime
+- DECRQM private-mode status query responses for application cursor keys, mouse,
+  SGR mouse, focus, bracketed paste, and unknown modes
 - native window OSC 52 policy parsing and write/query enforcement
 - native window local selection text extraction, highlight overlay, mouse drag,
   double-click word selection, triple-click line selection, and copy shortcut

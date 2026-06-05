@@ -529,6 +529,7 @@ struct TerminalOutputFilter {
     size: SharedTerminalSize,
     mirror: Terminal,
     mirror_size: PtySize,
+    mode_tracker: TerminalModeTracker,
 }
 
 impl TerminalOutputFilter {
@@ -661,6 +662,7 @@ impl TerminalOutputFilter {
             size,
             mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
             mirror_size,
+            mode_tracker: TerminalModeTracker::default(),
         }
     }
 
@@ -670,6 +672,7 @@ impl TerminalOutputFilter {
         output: &mut dyn Write,
         mut respond: impl FnMut(&[u8]) -> io::Result<()>,
     ) -> io::Result<()> {
+        self.mode_tracker.process_without_emitting(bytes);
         self.pending.extend_from_slice(bytes);
 
         while let Some((index, response)) = self.find_next_response() {
@@ -677,7 +680,7 @@ impl TerminalOutputFilter {
             self.feed_mirror_through_output(index);
             let response_bytes = self.response_bytes(response.response);
             respond(&response_bytes)?;
-            self.pending.drain(..index + response.query.len());
+            self.pending.drain(..index + response.consumed);
         }
 
         let retained = Self::suffix_len_matching_query_prefix(&self.pending);
@@ -691,21 +694,50 @@ impl TerminalOutputFilter {
         Ok(())
     }
 
-    fn find_next_response(&self) -> Option<(usize, &'static TerminalQueryResponse)> {
-        Self::RESPONSES
+    fn find_next_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
+        let static_response = Self::RESPONSES
             .iter()
             .filter_map(|response| {
-                find_subslice(&self.pending, response.query).map(|index| (index, response))
+                find_subslice(&self.pending, response.query).map(|index| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed: response.query.len(),
+                            response: response.response,
+                        },
+                    )
+                })
             })
+            .min_by_key(|(index, _)| *index);
+        let mode_response = find_private_mode_status_query(&self.pending).map(
+            |PrivateModeStatusQuery {
+                 index,
+                 consumed,
+                 mode,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::PrivateModeStatus(mode),
+                    },
+                )
+            },
+        );
+
+        static_response
+            .into_iter()
+            .chain(mode_response)
             .min_by_key(|(index, _)| *index)
     }
 
     fn suffix_len_matching_query_prefix(pending: &[u8]) -> usize {
-        Self::RESPONSES
+        let static_query_suffix = Self::RESPONSES
             .iter()
             .map(|response| suffix_len_matching_prefix(pending, response.query))
             .max()
-            .unwrap_or(0)
+            .unwrap_or(0);
+        static_query_suffix.max(private_mode_status_query_suffix_len(pending))
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
@@ -778,6 +810,12 @@ impl TerminalOutputFilter {
             }
             TerminalResponse::IconLabel => osc_title_response(b'L', self.mirror.title()),
             TerminalResponse::WindowTitle => osc_title_response(b'l', self.mirror.title()),
+            TerminalResponse::PrivateModeStatus(mode) => format!(
+                "\x1b[?{};{}$y",
+                mode,
+                self.mode_tracker.private_mode_report_value(mode)
+            )
+            .into_bytes(),
         }
     }
 
@@ -795,6 +833,11 @@ struct TerminalQueryResponse {
     response: TerminalResponse,
 }
 
+struct MatchedTerminalResponse {
+    consumed: usize,
+    response: TerminalResponse,
+}
+
 #[derive(Clone, Copy)]
 enum TerminalResponse {
     Static(&'static [u8]),
@@ -808,6 +851,7 @@ enum TerminalResponse {
     ScreenSize,
     IconLabel,
     WindowTitle,
+    PrivateModeStatus(u16),
 }
 
 fn osc_title_response(kind: u8, title: Option<&str>) -> Vec<u8> {
@@ -840,6 +884,87 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+struct PrivateModeStatusQuery {
+    index: usize,
+    consumed: usize,
+    mode: u16,
+}
+
+fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery> {
+    let mut match_query = None;
+    for (prefix, prefix_len) in [
+        (b"\x1b[?".as_slice(), b"\x1b[?".len()),
+        (b"\x9b?".as_slice(), b"\x9b?".len()),
+    ] {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                break;
+            };
+            let index = offset + relative_index;
+            if let Some(query) = parse_private_mode_status_query(bytes, index, prefix_len) {
+                if match_query
+                    .as_ref()
+                    .is_none_or(|current: &PrivateModeStatusQuery| query.index < current.index)
+                {
+                    match_query = Some(query);
+                }
+            }
+            offset = index.saturating_add(1);
+        }
+    }
+    match_query
+}
+
+fn parse_private_mode_status_query(
+    bytes: &[u8],
+    index: usize,
+    prefix_len: usize,
+) -> Option<PrivateModeStatusQuery> {
+    let mut cursor = index + prefix_len;
+    let start = cursor;
+    let mut mode = 0u16;
+    while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+        mode = mode
+            .saturating_mul(10)
+            .saturating_add(u16::from(bytes[cursor] - b'0'));
+        cursor += 1;
+    }
+    if cursor == start || bytes.get(cursor..cursor + 2) != Some(b"$p") {
+        return None;
+    }
+    Some(PrivateModeStatusQuery {
+        index,
+        consumed: cursor + 2 - index,
+        mode,
+    })
+}
+
+fn private_mode_status_query_suffix_len(bytes: &[u8]) -> usize {
+    (1..=bytes.len())
+        .rev()
+        .find(|&length| is_private_mode_status_query_prefix(&bytes[bytes.len() - length..]))
+        .unwrap_or(0)
+}
+
+fn is_private_mode_status_query_prefix(bytes: &[u8]) -> bool {
+    let Some(rest) = bytes
+        .strip_prefix(b"\x1b[?")
+        .or_else(|| bytes.strip_prefix(b"\x9b?"))
+    else {
+        return b"\x1b[".starts_with(bytes)
+            || b"\x1b[?".starts_with(bytes)
+            || b"\x9b?".starts_with(bytes);
+    };
+
+    let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+    if digits == 0 {
+        return rest.is_empty();
+    }
+    let tail = &rest[digits..];
+    tail.is_empty() || tail == b"$"
 }
 
 fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
@@ -2109,6 +2234,50 @@ mod tests {
 
         assert_eq!(output, b"\x1b]0;ops\x07before middle after");
         assert_eq!(responses, b"\x1b[1t\x1b]Lops\x1b\\\x1b]lops\x1b\\");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_private_mode_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b[?1h\x1b[?1$p middle\x1b[?1004$p after\x1b[?9999$p",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before\x1b[?1h middle after");
+        assert_eq!(responses, b"\x1b[?1;1$y\x1b[?1004;2$y\x1b[?9999;0$y");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_private_mode_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x9b?1000;1006h\x1b[?2004h\x9b?1000$p \x9b?1006$p \x9b?2004$p",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x9b?1000;1006h\x1b[?2004h  ");
+        assert_eq!(responses, b"\x1b[?1000;1$y\x1b[?1006;1$y\x1b[?2004;1$y");
     }
 
     #[test]
