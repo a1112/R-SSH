@@ -855,6 +855,7 @@ impl TerminalOutputFilter {
             .chain(xtgettcap_response)
             .chain(osc52_response)
             .chain(osc8_response)
+            .filter(|(index, _)| !is_inside_osc_or_st_control_string(&self.pending, *index))
             .min_by_key(|(index, _)| *index)
     }
 
@@ -1190,6 +1191,46 @@ fn find_incomplete_control_sequence_start(bytes: &[u8]) -> Option<usize> {
     .into_iter()
     .flatten()
     .min()
+}
+
+fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
+    is_inside_control_string(bytes, index, find_next_osc_start, find_osc_color_terminator)
+        || is_inside_control_string(
+            bytes,
+            index,
+            find_next_st_control_string_start,
+            find_xtgettcap_terminator,
+        )
+}
+
+fn is_inside_control_string(
+    bytes: &[u8],
+    index: usize,
+    mut find_next_start: impl FnMut(&[u8]) -> Option<(usize, usize)>,
+    mut find_terminator: impl FnMut(&[u8]) -> Option<OscColorTerminator>,
+) -> bool {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let Some((relative_start, prefix_len)) = find_next_start(&bytes[offset..]) else {
+            return false;
+        };
+        let start = offset + relative_start;
+        if start >= index {
+            return false;
+        }
+
+        let content_start = start + prefix_len;
+        let Some(terminator) = find_terminator(&bytes[content_start..]) else {
+            return true;
+        };
+        let end = content_start + terminator.index + terminator.length;
+        if index < end {
+            return true;
+        }
+        offset = end;
+    }
+
+    false
 }
 
 fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
@@ -3316,6 +3357,28 @@ mod tests {
         filter.flush(&mut output).unwrap();
 
         assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_ignores_queries_inside_osc_control_strings() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b]0;title \x1b[6n\x07after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before\x1b]0;title \x1b[6n\x07after");
         assert!(responses.is_empty());
     }
 

@@ -63,6 +63,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   chunks before writing them to the host console, and drops incomplete OSC
   control strings during EOF flush so half-written OSC bytes do not pollute the
   host console.
+- Terminal-query matching in the console output filter does not inspect inside
+  OSC or ST-terminated control-string payloads, so query-like bytes embedded in
+  titles, DCS, SOS, PM, or APC content are passed through as payload rather than
+  answered as terminal probes.
 - The console output filter also holds incomplete CSI control sequences across
   PTY chunks before writing them to the host console, and drops incomplete CSI
   sequences during EOF flush.
@@ -236,7 +240,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   and `ESC[?6n`, `ESC[c`, `ESC[>c`, `ESC[5n`, `ESC[11t`, `ESC[13t`,
   `ESC[14t`, `ESC[15t`, `ESC[16t`, `ESC[18t`, `ESC[19t`, `ESC[20t`,
   `ESC[21t`, and split response-query chunks. C1 CSI equivalents for cursor,
-  device/status, and size/window queries are also covered.
+  device/status, and size/window queries are also covered. Unit tests also
+  cover query-like CSI bytes inside OSC control-string payloads so those bytes
+  are not mistaken for standalone terminal probes.
 - OSC query response: unit tests cover default foreground/background and indexed
   palette color queries, including BEL, ST, and C1 OSC/ST forms. Unit tests also
   cover color-setting sequences followed by matching queries.
