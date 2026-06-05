@@ -10,8 +10,8 @@ use std::{
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
 use rssh_ssh::{
     RusshChannelOpener, RusshDirectTcpIpOpenPlan, RusshHostKeyPolicy, RusshPrivateKeyAuth,
-    SshAuthMethod, SshChannelConnector, SshConnectRequest, SshSessionConfig, SshSessionStartup,
-    SshShellConnector,
+    RusshRemoteTcpIpForwardPlan, SshAuthMethod, SshChannelConnector, SshConnectRequest,
+    SshSessionConfig, SshSessionStartup, SshShellConnector,
 };
 
 use crate::{
@@ -44,10 +44,19 @@ struct NativeDynamicForward {
     bind_port: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeRemoteForward {
+    bind_host: String,
+    bind_port: u16,
+    target_host: String,
+    target_port: u16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct NativeForwardPlan {
-    local_forwards: Vec<NativeLocalForward>,
-    dynamic_forwards: Vec<NativeDynamicForward>,
+    local: Vec<NativeLocalForward>,
+    dynamic: Vec<NativeDynamicForward>,
+    remote: Vec<NativeRemoteForward>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +76,12 @@ trait NativeLocalForwardStarter {
         &mut self,
         request: SshConnectRequest,
         forward: NativeDynamicForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>>;
+
+    fn start_remote(
+        &mut self,
+        request: SshConnectRequest,
+        forward: NativeRemoteForward,
     ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>>;
 }
 
@@ -112,6 +127,24 @@ impl NativeLocalForwardStarter for ThreadedNativeLocalForwardStarter {
         let opener = self.opener.clone();
         let join_handle = thread::spawn(move || {
             run_native_dynamic_forward_listener(&listener, &opener, &request)
+                .map_err(|error| error.to_string())
+        });
+
+        Ok(Box::new(ThreadedNativeLocalForwardHandle {
+            join_handle: Some(join_handle),
+        }))
+    }
+
+    fn start_remote(
+        &mut self,
+        request: SshConnectRequest,
+        forward: NativeRemoteForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
+        let mut opener = self.opener.clone();
+        let remote_forward_plan = native_remote_tcpip_plan_for_remote_forward(&forward);
+        let join_handle = thread::spawn(move || {
+            opener
+                .start_remote_tcpip_forward(&request, &remote_forward_plan)
                 .map_err(|error| error.to_string())
         });
 
@@ -344,15 +377,12 @@ fn native_forward_plan_for_options(
 
     for forward in &options.forwards {
         match forward {
-            SshForward::Local(spec) => plan.local_forwards.push(parse_native_local_forward(spec)?),
+            SshForward::Local(spec) => plan.local.push(parse_native_local_forward(spec)?),
             SshForward::Dynamic(spec) => {
-                plan.dynamic_forwards
-                    .push(parse_native_dynamic_forward(spec)?);
+                plan.dynamic.push(parse_native_dynamic_forward(spec)?);
             }
-            SshForward::Remote(_) => {
-                return Err(
-                    "native SSH only supports local and dynamic forwarding plans so far".into(),
-                );
+            SshForward::Remote(spec) => {
+                plan.remote.push(parse_native_remote_forward(spec)?);
             }
         }
     }
@@ -413,6 +443,37 @@ fn parse_native_dynamic_forward(spec: &str) -> Result<NativeDynamicForward, Box<
     Ok(NativeDynamicForward {
         bind_host: bind_host.to_owned(),
         bind_port: parse_forward_port(bind_port, "bind port")?,
+    })
+}
+
+fn parse_native_remote_forward(spec: &str) -> Result<NativeRemoteForward, Box<dyn Error>> {
+    let parts = spec.split(':').collect::<Vec<_>>();
+    let (bind_host, bind_port, target_host, target_port) = match parts.as_slice() {
+        [bind_port, target_host, target_port] => {
+            ("127.0.0.1", *bind_port, *target_host, *target_port)
+        }
+        [bind_host, bind_port, target_host, target_port] => {
+            (*bind_host, *bind_port, *target_host, *target_port)
+        }
+        _ => {
+            return Err(format!(
+                "invalid native remote-forward spec {spec:?}; expected [bind_host:]bind_port:target_host:target_port"
+            )
+            .into());
+        }
+    };
+
+    if bind_host.trim().is_empty() || target_host.trim().is_empty() {
+        return Err(
+            format!("invalid native remote-forward spec {spec:?}; host cannot be empty").into(),
+        );
+    }
+
+    Ok(NativeRemoteForward {
+        bind_host: bind_host.to_owned(),
+        bind_port: parse_forward_port(bind_port, "bind port")?,
+        target_host: target_host.to_owned(),
+        target_port: parse_forward_port(target_port, "target port")?,
     })
 }
 
@@ -497,6 +558,17 @@ fn native_direct_tcpip_plan_for_local_forward(
         forward.target_port,
         originator_host,
         originator_port,
+    )
+}
+
+fn native_remote_tcpip_plan_for_remote_forward(
+    forward: &NativeRemoteForward,
+) -> RusshRemoteTcpIpForwardPlan {
+    RusshRemoteTcpIpForwardPlan::new(
+        forward.bind_host.clone(),
+        forward.bind_port,
+        forward.target_host.clone(),
+        forward.target_port,
     )
 }
 
@@ -872,11 +944,14 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
     )?;
 
     let mut forward_handles = Vec::new();
-    for forward in forward_plan.local_forwards {
+    for forward in forward_plan.local {
         forward_handles.push(forward_starter.start(request.clone(), forward)?);
     }
-    for forward in forward_plan.dynamic_forwards {
+    for forward in forward_plan.dynamic {
         forward_handles.push(forward_starter.start_dynamic(request.clone(), forward)?);
+    }
+    for forward in forward_plan.remote {
+        forward_handles.push(forward_starter.start_remote(request.clone(), forward)?);
     }
 
     if options.no_shell && !forward_handles.is_empty() {
@@ -910,6 +985,14 @@ impl NativeLocalForwardStarter for RejectingNativeLocalForwardStarter {
         _forward: NativeDynamicForward,
     ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
         Err("native SSH dynamic forwarding starter is not available in this path".into())
+    }
+
+    fn start_remote(
+        &mut self,
+        _request: SshConnectRequest,
+        _forward: NativeRemoteForward,
+    ) -> Result<Box<dyn NativeLocalForwardHandle>, Box<dyn Error>> {
+        Err("native SSH remote forwarding starter is not available in this path".into())
     }
 }
 
@@ -1214,6 +1297,54 @@ mod tests {
     }
 
     #[test]
+    fn native_ssh_runner_keeps_no_shell_remote_forward_open_without_shell() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let forward_state = Arc::new(Mutex::new(MockForwardState::default()));
+        let mut forward_starter = MockForwardStarter {
+            state: Arc::clone(&forward_state),
+        };
+        let mut output = Vec::new();
+
+        let status = super::run_native_with_connector_forward_starter_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
+                forwards: vec![crate::cli::SshForward::Remote(
+                    "8080:127.0.0.1:80".to_owned(),
+                )],
+                no_shell: true,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut forward_starter,
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        assert!(status.success());
+        assert!(state.lock().unwrap().last_request.is_none());
+        assert_eq!(
+            forward_state.lock().unwrap().remote,
+            [super::NativeRemoteForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: 8080,
+                target_host: "127.0.0.1".to_owned(),
+                target_port: 80,
+            }]
+        );
+    }
+
+    #[test]
     fn native_ssh_runner_resolves_openssh_target_before_connecting() {
         let state = Arc::new(Mutex::new(MockState::default()));
         let mut connector = MockConnector {
@@ -1282,7 +1413,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            plan.local_forwards,
+            plan.local,
             [super::NativeLocalForward {
                 bind_host: "127.0.0.1".to_owned(),
                 bind_port: 15432,
@@ -1308,12 +1439,12 @@ mod tests {
     }
 
     #[test]
-    fn native_forward_plan_rejects_remote_forwards() {
+    fn native_forward_plan_accepts_remote_forwards() {
         let request = SshConnectRequest::agent(
             SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
         );
 
-        let error = super::native_forward_plan_for_options(&SshOptions {
+        let plan = super::native_forward_plan_for_options(&SshOptions {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: vec![crate::cli::SshForward::Remote(
@@ -1325,12 +1456,16 @@ mod tests {
             osc52_policy: Osc52Policy::default(),
             log: None,
         })
-        .unwrap_err();
+        .unwrap();
 
-        assert!(
-            error
-                .to_string()
-                .contains("native SSH only supports local and dynamic forwarding")
+        assert_eq!(
+            plan.remote,
+            [super::NativeRemoteForward {
+                bind_host: "127.0.0.1".to_owned(),
+                bind_port: 8080,
+                target_host: "127.0.0.1".to_owned(),
+                target_port: 80,
+            }]
         );
     }
 
@@ -1353,7 +1488,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            plan.dynamic_forwards,
+            plan.dynamic,
             [super::NativeDynamicForward {
                 bind_host: "127.0.0.1".to_owned(),
                 bind_port: 1080,
@@ -1835,6 +1970,7 @@ mod tests {
     struct MockForwardState {
         local: Vec<super::NativeLocalForward>,
         dynamic: Vec<super::NativeDynamicForward>,
+        remote: Vec<super::NativeRemoteForward>,
     }
 
     struct MockForwardStarter {
@@ -1857,6 +1993,15 @@ mod tests {
             forward: super::NativeDynamicForward,
         ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
             self.state.lock().unwrap().dynamic.push(forward);
+            Ok(Box::new(MockForwardHandle))
+        }
+
+        fn start_remote(
+            &mut self,
+            _request: SshConnectRequest,
+            forward: super::NativeRemoteForward,
+        ) -> Result<Box<dyn super::NativeLocalForwardHandle>, Box<dyn std::error::Error>> {
+            self.state.lock().unwrap().remote.push(forward);
             Ok(Box::new(MockForwardHandle))
         }
     }

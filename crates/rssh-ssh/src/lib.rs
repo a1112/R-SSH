@@ -7,7 +7,8 @@ mod russh_client;
 pub use russh_client::{
     RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
     RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshDirectTcpIpOpenPlan,
-    RusshHostKeyPolicy, RusshKnownHosts, RusshPrivateKeyAuth, RusshSshChannel,
+    RusshHostKeyPolicy, RusshKnownHosts, RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan,
+    RusshSshChannel,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -576,7 +577,7 @@ mod tests {
     use crate::{
         RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan,
         RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy, RusshKnownHosts,
-        RusshPrivateKeyAuth,
+        RusshPrivateKeyAuth, RusshRemoteTcpIpForwardPlan,
     };
 
     #[test]
@@ -1179,6 +1180,14 @@ mod tests {
     }
 
     #[test]
+    fn russh_remote_tcpip_forward_plan_carries_bind_and_target_endpoint() {
+        let plan = RusshRemoteTcpIpForwardPlan::new("127.0.0.1", 8080, "127.0.0.1", 80);
+
+        assert_eq!(plan.bind(), ("127.0.0.1", 8080));
+        assert_eq!(plan.target(), ("127.0.0.1", 80));
+    }
+
+    #[test]
     fn russh_auth_outcome_accepts_successful_authentication() {
         let outcome =
             RusshAuthOutcome::from_auth_result(&russh::client::AuthResult::Success).unwrap();
@@ -1223,6 +1232,13 @@ mod tests {
         let open_channel = super::RusshChannelOpener::open_direct_tcpip_channel;
 
         let _ = open_channel;
+    }
+
+    #[test]
+    fn russh_channel_opener_exposes_blocking_remote_tcpip_forward_entrypoint() {
+        let start_forward = super::RusshChannelOpener::start_remote_tcpip_forward;
+
+        let _ = start_forward;
     }
 
     #[test]

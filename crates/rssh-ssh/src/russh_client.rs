@@ -8,6 +8,8 @@ use std::{
     time::Duration,
 };
 
+use tokio::io::AsyncWriteExt;
+
 use crate::{
     SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener, SshConnectRequest,
     SshSessionError, SshSessionStartup,
@@ -355,6 +357,48 @@ impl RusshDirectTcpIpOpenPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RusshRemoteTcpIpForwardPlan {
+    bind_host: String,
+    bind_port: u16,
+    target_host: String,
+    target_port: u16,
+}
+
+impl RusshRemoteTcpIpForwardPlan {
+    #[must_use]
+    pub fn new(
+        bind_host: impl Into<String>,
+        bind_port: u16,
+        target_host: impl Into<String>,
+        target_port: u16,
+    ) -> Self {
+        Self {
+            bind_host: bind_host.into(),
+            bind_port,
+            target_host: target_host.into(),
+            target_port,
+        }
+    }
+
+    #[must_use]
+    pub fn bind(&self) -> (&str, u16) {
+        (&self.bind_host, self.bind_port)
+    }
+
+    #[must_use]
+    pub fn target(&self) -> (&str, u16) {
+        (&self.target_host, self.target_port)
+    }
+
+    fn matches_connected_endpoint(&self, connected_address: &str, connected_port: u32) -> bool {
+        self.bind_port == u16::try_from(connected_port).unwrap_or_default()
+            && (self.bind_host == connected_address
+                || self.bind_host == "0.0.0.0"
+                || self.bind_host == "::")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RusshConnectPlan {
     host: String,
     port: u16,
@@ -467,6 +511,7 @@ impl RusshChannelOpener {
             host: None,
             port: None,
             known_hosts_path: self.known_hosts_path,
+            remote_forwards: Vec::new(),
         }
     }
 
@@ -477,6 +522,7 @@ impl RusshChannelOpener {
             host: None,
             port: None,
             known_hosts_path: self.known_hosts_path.clone(),
+            remote_forwards: Vec::new(),
         }
     }
 
@@ -487,6 +533,23 @@ impl RusshChannelOpener {
             host: Some(host.into()),
             port: Some(port),
             known_hosts_path: self.known_hosts_path.clone(),
+            remote_forwards: Vec::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn handler_for_host_with_remote_forward(
+        &self,
+        host: impl Into<String>,
+        port: u16,
+        remote_forward: RusshRemoteTcpIpForwardPlan,
+    ) -> RusshClientHandler {
+        RusshClientHandler {
+            host_key_policy: self.host_key_policy,
+            host: Some(host.into()),
+            port: Some(port),
+            known_hosts_path: self.known_hosts_path.clone(),
+            remote_forwards: vec![remote_forward],
         }
     }
 
@@ -610,6 +673,53 @@ impl RusshChannelOpener {
         })?;
 
         Ok(RusshSshChannel::new(channel, handle, runtime))
+    }
+
+    /// Requests a server-side TCP listener and handles incoming forwarded
+    /// channels by connecting them to the requested local target.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SshSessionError`] when runtime creation, SSH connection,
+    /// authentication, or the remote forwarding request fails.
+    pub fn start_remote_tcpip_forward(
+        &mut self,
+        request: &SshConnectRequest,
+        remote_forward_plan: &RusshRemoteTcpIpForwardPlan,
+    ) -> Result<(), SshSessionError> {
+        let plan = self.connect_plan(request);
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| {
+                SshSessionError::new(format!("SSH async runtime creation failed: {error}"))
+            })?;
+        let remote_forward_plan = remote_forward_plan.clone();
+
+        runtime.block_on(async {
+            let (host, port) = plan.socket_addr();
+            let mut handle = russh::client::connect(
+                Arc::clone(&self.client_config),
+                (host, port),
+                self.handler_for_host_with_remote_forward(host, port, remote_forward_plan.clone()),
+            )
+            .await
+            .map_err(|error| SshSessionError::new(format!("SSH connect failed: {error}")))?;
+            self.authenticate_async(&mut handle, plan.auth_plan())
+                .await?;
+
+            let (bind_host, bind_port) = remote_forward_plan.bind();
+            handle
+                .tcpip_forward(bind_host, u32::from(bind_port))
+                .await
+                .map_err(|error| {
+                    SshSessionError::new(format!("SSH remote TCP forwarding failed: {error}"))
+                })?;
+
+            std::future::pending::<()>().await;
+            #[allow(unreachable_code)]
+            Ok(())
+        })
     }
 
     /// Sends the planned PTY, shell, or exec requests to an opened russh
@@ -817,6 +927,7 @@ pub struct RusshClientHandler {
     host: Option<String>,
     port: Option<u16>,
     known_hosts_path: Option<PathBuf>,
+    remote_forwards: Vec<RusshRemoteTcpIpForwardPlan>,
 }
 
 impl RusshClientHandler {
@@ -859,6 +970,41 @@ impl russh::client::Handler for RusshClientHandler {
         };
 
         Ok(matches.unwrap_or(false))
+    }
+
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<russh::client::Msg>,
+        connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        _session: &mut russh::client::Session,
+    ) -> Result<(), Self::Error> {
+        let Some(forward) = self
+            .remote_forwards
+            .iter()
+            .find(|forward| forward.matches_connected_endpoint(connected_address, connected_port))
+            .cloned()
+        else {
+            channel.close().await?;
+            return Ok(());
+        };
+
+        tokio::spawn(async move {
+            let (target_host, target_port) = forward.target();
+            let Ok(mut local_stream) =
+                tokio::net::TcpStream::connect((target_host, target_port)).await
+            else {
+                let _ = channel.close().await;
+                return;
+            };
+            let mut channel_stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut channel_stream, &mut local_stream).await;
+            let _ = channel_stream.shutdown().await;
+        });
+
+        Ok(())
     }
 }
 

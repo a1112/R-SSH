@@ -137,10 +137,12 @@ contract that a future in-process `russh` adapter must satisfy.
   `--no-shell` maps to OpenSSH `-N` for tunnel-only sessions. The injectable
   native connector path maps the same direct SSH request to
   `SshSessionStartup::NoShell`.
-- The native app path parses OpenSSH-style local-forward and dynamic-forward
-  specs into a structured native tunnel plan, starts local TCP/SOCKS5
-  listeners, and maps accepted connections to russh `direct-tcpip` channels.
-  Native remote forwarding remains rejected until implemented.
+- The native app path parses OpenSSH-style local-forward, dynamic-forward, and
+  remote-forward specs into a structured native tunnel plan. Local and dynamic
+  forwarding start local TCP/SOCKS5 listeners and map accepted connections to
+  russh `direct-tcpip` channels. Remote forwarding requests a server-side TCP
+  listener and maps incoming `forwarded-tcpip` channels back to the configured
+  local target.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.

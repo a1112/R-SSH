@@ -104,7 +104,8 @@ private-key passphrase prompts. Use
 `--accept-unknown-host-key` remains available for insecure test servers only.
 Native `--local-forward` and `--dynamic-forward` start in-process listeners and
 open russh `direct-tcpip` channels for accepted local TCP or SOCKS5 CONNECT
-requests. Remote forwarding is still kept on the OpenSSH compatibility path.
+requests. Native `--remote-forward` requests a server-side TCP listener and
+maps incoming forwarded connections back to the configured local target.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing
