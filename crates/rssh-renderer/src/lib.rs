@@ -453,6 +453,7 @@ mod tests {
                 italic: false,
                 underline: true,
                 inverse: false,
+                hyperlink: None,
             },
         );
 
@@ -483,6 +484,7 @@ mod tests {
                 italic: false,
                 underline: false,
                 inverse: true,
+                hyperlink: None,
             },
         );
 
@@ -518,6 +520,7 @@ mod tests {
                 italic: false,
                 underline: false,
                 inverse: false,
+                hyperlink: None,
             },
         );
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
@@ -626,6 +629,7 @@ mod tests {
                 italic: false,
                 underline: false,
                 inverse: true,
+                hyperlink: None,
             },
         );
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);

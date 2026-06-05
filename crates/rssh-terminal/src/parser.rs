@@ -382,8 +382,23 @@ impl Terminal {
         };
 
         let command = content[..separator].iter().collect::<String>();
-        if matches!(command.as_str(), "0" | "2") {
-            self.title = Some(content[separator + 1..].iter().collect());
+        match command.as_str() {
+            "0" | "2" => self.title = Some(content[separator + 1..].iter().collect()),
+            "8" => self.apply_osc8_hyperlink(&content[separator + 1..]),
+            _ => {}
+        }
+    }
+
+    fn apply_osc8_hyperlink(&mut self, content: &[char]) {
+        let Some(separator) = content.iter().position(|ch| *ch == ';') else {
+            return;
+        };
+
+        let uri = content[separator + 1..].iter().collect::<String>();
+        if uri.is_empty() {
+            self.style.hyperlink = None;
+        } else {
+            self.style.hyperlink = Some(uri);
         }
     }
 
@@ -1343,7 +1358,7 @@ impl Terminal {
 
         while index < values.len() {
             match values[index] {
-                0 => self.style = Cell::default(),
+                0 => self.reset_style_preserving_hyperlink(),
                 1 => self.style.bold = true,
                 3 => self.style.italic = true,
                 4 => self.style.underline = true,
@@ -1382,6 +1397,12 @@ impl Terminal {
 
             index += 1;
         }
+    }
+
+    fn reset_style_preserving_hyperlink(&mut self) {
+        let hyperlink = self.style.hyperlink.take();
+        self.style = Cell::default();
+        self.style.hyperlink = hyperlink;
     }
 
     fn record_damage(&mut self, region: DamageRegion) {

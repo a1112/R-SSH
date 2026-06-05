@@ -28,6 +28,7 @@ pub struct Cell {
     pub italic: bool,
     pub underline: bool,
     pub inverse: bool,
+    pub hyperlink: Option<String>,
 }
 
 impl Default for Cell {
@@ -40,6 +41,7 @@ impl Default for Cell {
             italic: false,
             underline: false,
             inverse: false,
+            hyperlink: None,
         }
     }
 }
@@ -171,6 +173,7 @@ mod tests {
         assert!(!cell.italic);
         assert!(!cell.underline);
         assert!(!cell.inverse);
+        assert_eq!(cell.hyperlink, None);
     }
 
     #[test]
@@ -184,6 +187,7 @@ mod tests {
             italic: false,
             underline: true,
             inverse: false,
+            hyperlink: None,
         };
 
         assert!(grid.set(1, 2, cell.clone()));
@@ -1160,6 +1164,42 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));
         assert_eq!(terminal.title(), Some("PowerShell"));
+    }
+
+    #[test]
+    fn terminal_tracks_osc8_hyperlink_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"a\x1b]8;;https://example.com\x1b\\bc\x1b]8;;\x1b\\d");
+
+        assert_eq!(row_text(&terminal, 0), "abcd        ");
+        assert_eq!(
+            terminal.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            terminal.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(terminal.grid().get(0, 0).unwrap().hyperlink, None);
+        assert_eq!(terminal.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn terminal_preserves_active_hyperlink_across_sgr_reset() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"\x1b]8;;https://example.com\x1b\\a\x1b[0mb\x1b]8;;\x1b\\c");
+
+        assert_eq!(
+            terminal.grid().get(0, 0).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            terminal.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(terminal.grid().get(0, 2).unwrap().hyperlink, None);
     }
 
     #[test]

@@ -89,6 +89,9 @@ support the next PTY and SSH milestones.
   - scroll down (`SD`, `ESC[T`)
 - OSC title sequences terminated by BEL or ST update terminal title metadata
   without appearing as terminal text.
+- OSC 8 hyperlink sequences terminated by ST update cell hyperlink metadata
+  without appearing as terminal text; SGR reset preserves the active hyperlink
+  until an empty OSC 8 URI clears it.
 - DCS, SOS, PM, and APC control strings terminated by ST are ignored so
   unsupported terminal capability probes do not appear as terminal text.
 - C1 byte-form OSC (`0x9D`) and C1 ST (`0x9C`) are recognized for OSC and
@@ -114,7 +117,7 @@ support the next PTY and SSH milestones.
 - Interactive scrollback UI/search and full scroll-region edge-case behavior.
 - Full alternate-screen edge-case behavior beyond `?1049`.
 - Mouse modes.
-- Hyperlinks and OSC clipboard.
+- Hyperlink activation UI and OSC clipboard handling inside terminal core.
 - GPU rendering.
 - Local PTY and SSH channel I/O.
 
@@ -169,6 +172,7 @@ cover:
 - CSI insert/delete line handling with scroll-region limits
 - CSI scroll up/down handling with scroll-region limits
 - OSC title metadata tracking and text filtering for BEL and ST terminators
+- OSC 8 hyperlink metadata tracking and SGR reset preservation
 - DCS/SOS/PM/APC control-string filtering with split-sequence buffering
 - C1 byte-form OSC/ST control-string filtering
 - SGR color/style parsing, including inverse video and colon-separated
