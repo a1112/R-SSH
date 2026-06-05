@@ -4,7 +4,7 @@ use std::{
     io::{self, IsTerminal, Read, Write},
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU64, Ordering},
         mpsc,
     },
     thread,
@@ -56,8 +56,11 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
     let (control_sender, control_receiver) = mpsc::channel();
     let terminal_response_sender = pty_input_sender.clone();
     let output_control_sender = control_sender.clone();
-    let runtime_state = LocalRuntimeState::new(size);
+    let runtime_state = LocalRuntimeState::new(size, options.mouse);
+    let metrics = LocalMetricsCounters::default();
     let output_terminal_size = runtime_state.terminal_size.clone();
+    let output_metrics = metrics.clone();
+    let input_metrics = metrics.clone();
     let osc52_policy = options.osc52_policy;
 
     let _reader_thread = thread::spawn(move || {
@@ -66,13 +69,14 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
             &terminal_response_sender,
             &output_control_sender,
             output_terminal_size,
+            &output_metrics,
             osc52_policy,
             log_file.as_mut().map(|file| file as &mut dyn Write),
         );
         let _ = reader_done_sender.send(result);
     });
     let _writer_thread = thread::spawn(move || {
-        let result = copy_pty_input(&mut writer, &pty_input_receiver);
+        let result = copy_pty_input(&mut writer, &pty_input_receiver, &input_metrics);
         let _ = writer_done_sender.send(result);
     });
 
@@ -89,7 +93,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
         &control_receiver,
         &mut raw_mode,
         &runtime_state,
-        options.mouse,
+        &metrics,
     );
 
     drop(pty_input_sender);
@@ -102,6 +106,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
                 LocalMetricsSnapshot::from_status(
                     &options.command,
                     size,
+                    metrics.snapshot(),
                     metrics_started_at.elapsed(),
                     status
                 )
@@ -115,6 +120,7 @@ pub fn run(options: &LocalOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
                 LocalMetricsSnapshot::from_status(
                     &options.command,
                     size,
+                    metrics.snapshot(),
                     metrics_started_at.elapsed(),
                     status
                 )
@@ -233,15 +239,61 @@ impl InputReporting {
 struct LocalRuntimeState {
     input_reporting: InputReporting,
     terminal_size: SharedTerminalSize,
+    allow_application_reporting: bool,
 }
 
 impl LocalRuntimeState {
-    fn new(size: PtySize) -> Self {
+    fn new(size: PtySize, allow_application_reporting: bool) -> Self {
         Self {
             input_reporting: InputReporting::default(),
             terminal_size: SharedTerminalSize::new(size),
+            allow_application_reporting,
         }
     }
+}
+
+#[derive(Clone, Default)]
+struct LocalMetricsCounters {
+    pty_input_bytes: Arc<AtomicU64>,
+    pty_output_bytes: Arc<AtomicU64>,
+    terminal_output_bytes: Arc<AtomicU64>,
+    resize_events: Arc<AtomicU64>,
+}
+
+impl LocalMetricsCounters {
+    fn add_pty_input(&self, bytes: u64) {
+        self.pty_input_bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn add_pty_output(&self, bytes: u64) {
+        self.pty_output_bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn add_terminal_output(&self, bytes: u64) {
+        self.terminal_output_bytes
+            .fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn add_resize_event(&self) {
+        self.resize_events.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> LocalMetricsCountersSnapshot {
+        LocalMetricsCountersSnapshot {
+            pty_input_bytes: self.pty_input_bytes.load(Ordering::Relaxed),
+            pty_output_bytes: self.pty_output_bytes.load(Ordering::Relaxed),
+            terminal_output_bytes: self.terminal_output_bytes.load(Ordering::Relaxed),
+            resize_events: self.resize_events.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct LocalMetricsCountersSnapshot {
+    pty_input_bytes: u64,
+    pty_output_bytes: u64,
+    terminal_output_bytes: u64,
+    resize_events: u64,
 }
 
 #[derive(Serialize)]
@@ -250,6 +302,10 @@ struct LocalMetricsSnapshot {
     backend: String,
     columns: u16,
     rows: u16,
+    pty_input_bytes: u64,
+    pty_output_bytes: u64,
+    terminal_output_bytes: u64,
+    resize_events: u64,
     elapsed_ms: u128,
     exit_code: u32,
     signal: Option<String>,
@@ -260,6 +316,7 @@ impl LocalMetricsSnapshot {
     fn from_status(
         command: &rssh_pty::PtyCommand,
         size: PtySize,
+        counters: LocalMetricsCountersSnapshot,
         elapsed: Duration,
         status: &PtyExitStatus,
     ) -> Self {
@@ -268,6 +325,10 @@ impl LocalMetricsSnapshot {
             backend: format!("{:?}", PtyBackend::current_platform()),
             columns: size.columns(),
             rows: size.rows(),
+            pty_input_bytes: counters.pty_input_bytes,
+            pty_output_bytes: counters.pty_output_bytes,
+            terminal_output_bytes: counters.terminal_output_bytes,
+            resize_events: counters.resize_events,
             elapsed_ms: elapsed.as_millis(),
             exit_code: status.exit_code(),
             signal: status.signal().map(str::to_owned),
@@ -283,6 +344,10 @@ command={}
 backend={}
 columns={}
 rows={}
+pty_input_bytes={}
+pty_output_bytes={}
+terminal_output_bytes={}
+resize_events={}
 elapsed_ms={}
 exit_code={}
 signal={}
@@ -292,6 +357,10 @@ success={}
             self.backend,
             self.columns,
             self.rows,
+            self.pty_input_bytes,
+            self.pty_output_bytes,
+            self.terminal_output_bytes,
+            self.resize_events,
             self.elapsed_ms,
             self.exit_code,
             self.signal.as_deref().unwrap_or("none"),
@@ -321,6 +390,12 @@ mod metrics_tests {
         let report = super::LocalMetricsSnapshot::from_status(
             &command,
             rssh_pty::PtySize::try_new(100, 30).unwrap(),
+            super::LocalMetricsCountersSnapshot {
+                pty_input_bytes: 3,
+                pty_output_bytes: 8,
+                terminal_output_bytes: 5,
+                resize_events: 2,
+            },
             std::time::Duration::from_millis(42),
             &PtyExitStatus::from_exit_code(0),
         )
@@ -336,6 +411,10 @@ command=cmd.exe /C echo hi\n\
 backend={expected_backend}\n\
 columns=100\n\
 rows=30\n\
+pty_input_bytes=3\n\
+pty_output_bytes=8\n\
+terminal_output_bytes=5\n\
+resize_events=2\n\
 elapsed_ms=42\n\
 exit_code=0\n\
 signal=none\n\
@@ -350,6 +429,12 @@ success=true\n"
         let report = super::LocalMetricsSnapshot::from_status(
             &command,
             rssh_pty::PtySize::try_new(100, 30).unwrap(),
+            super::LocalMetricsCountersSnapshot {
+                pty_input_bytes: 3,
+                pty_output_bytes: 8,
+                terminal_output_bytes: 5,
+                resize_events: 2,
+            },
             std::time::Duration::from_millis(42),
             &PtyExitStatus::from_exit_code(0),
         )
@@ -361,7 +446,7 @@ success=true\n"
         assert_eq!(
             report,
             format!(
-                "{{\"command\":\"cmd.exe /C echo hi\",\"backend\":\"{expected_backend}\",\"columns\":100,\"rows\":30,\"elapsed_ms\":42,\"exit_code\":0,\"signal\":null,\"success\":true}}"
+                "{{\"command\":\"cmd.exe /C echo hi\",\"backend\":\"{expected_backend}\",\"columns\":100,\"rows\":30,\"pty_input_bytes\":3,\"pty_output_bytes\":8,\"terminal_output_bytes\":5,\"resize_events\":2,\"elapsed_ms\":42,\"exit_code\":0,\"signal\":null,\"success\":true}}"
             )
         );
     }
@@ -511,11 +596,12 @@ fn copy_pty_output(
     pty_input_sender: &mpsc::Sender<Vec<u8>>,
     control_sender: &mpsc::Sender<LocalControlEvent>,
     terminal_size: SharedTerminalSize,
+    metrics: &LocalMetricsCounters,
     osc52_policy: Osc52Policy,
     log: Option<&mut dyn Write>,
 ) -> io::Result<()> {
     let mut stdout = io::stdout().lock();
-    let mut output = SessionLogWriter::new(&mut stdout, log);
+    let mut output = SessionLogWriter::new(&mut stdout, log, metrics.clone());
     let mut buffer = [0; 8192];
     let mut output_filter = TerminalOutputFilter::with_shared_size(terminal_size);
     let mut mode_tracker = TerminalModeTracker::default();
@@ -528,6 +614,7 @@ fn copy_pty_output(
                 return Ok(());
             }
             Ok(count) => {
+                metrics.add_pty_output(count as u64);
                 mode_tracker.process(&buffer[..count], |change| {
                     let event = match change {
                         TerminalModeChange::ApplicationCursorKeys(enabled) => {
@@ -572,14 +659,20 @@ struct SessionLogWriter<'screen, 'log> {
     screen: &'screen mut dyn Write,
     log: Option<&'log mut dyn Write>,
     log_filter: TerminalVisibleOutputFilter,
+    metrics: LocalMetricsCounters,
 }
 
 impl<'screen, 'log> SessionLogWriter<'screen, 'log> {
-    fn new(screen: &'screen mut dyn Write, log: Option<&'log mut dyn Write>) -> Self {
+    fn new(
+        screen: &'screen mut dyn Write,
+        log: Option<&'log mut dyn Write>,
+        metrics: LocalMetricsCounters,
+    ) -> Self {
         Self {
             screen,
             log,
             log_filter: TerminalVisibleOutputFilter::default(),
+            metrics,
         }
     }
 }
@@ -588,6 +681,7 @@ impl Write for SessionLogWriter<'_, '_> {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         let count = self.screen.write(buffer)?;
         if count > 0 {
+            self.metrics.add_terminal_output(count as u64);
             if let Some(log) = self.log.as_mut() {
                 log.write_all(&self.log_filter.process(&buffer[..count]))?;
             }
@@ -607,9 +701,11 @@ impl Write for SessionLogWriter<'_, '_> {
 fn copy_pty_input(
     writer: &mut dyn Write,
     pty_input_receiver: &mpsc::Receiver<Vec<u8>>,
+    metrics: &LocalMetricsCounters,
 ) -> io::Result<()> {
     for bytes in pty_input_receiver {
         writer.write_all(&bytes)?;
+        metrics.add_pty_input(bytes.len() as u64);
         writer.flush()?;
     }
 
@@ -623,7 +719,7 @@ fn run_input_loop(
     control_receiver: &mpsc::Receiver<LocalControlEvent>,
     raw_mode: &mut RawMode,
     runtime_state: &LocalRuntimeState,
-    allow_application_reporting: bool,
+    metrics: &LocalMetricsCounters,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut exited_status: Option<(PtyExitStatus, Instant)> = None;
 
@@ -646,6 +742,7 @@ fn run_input_loop(
                 LocalControlEvent::Resize(size) => {
                     session.resize(size)?;
                     runtime_state.terminal_size.set(size);
+                    metrics.add_resize_event();
                 }
                 LocalControlEvent::SetApplicationCursorKeys(enabled) => {
                     runtime_state
@@ -661,7 +758,7 @@ fn run_input_loop(
                     runtime_state.input_reporting.set_bracketed_paste(enabled);
                 }
                 LocalControlEvent::SetMouseReporting(mode) => {
-                    let mode = if allow_application_reporting
+                    let mode = if runtime_state.allow_application_reporting
                         && raw_mode.set_mouse_capture(mode.reporting_enabled())?
                     {
                         mode
@@ -671,7 +768,7 @@ fn run_input_loop(
                     runtime_state.input_reporting.set_mouse(mode);
                 }
                 LocalControlEvent::SetFocusReporting(enabled) => {
-                    let enabled = if allow_application_reporting {
+                    let enabled = if runtime_state.allow_application_reporting {
                         raw_mode.set_focus_change(enabled)?
                     } else {
                         false
@@ -3714,20 +3811,26 @@ mod tests {
     fn session_log_writer_records_visible_output() {
         let mut screen = Vec::new();
         let mut log = Vec::new();
-        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+        let metrics = super::LocalMetricsCounters::default();
+        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log), metrics.clone());
 
         output.write_all(b"visible").unwrap();
         output.flush().unwrap();
 
         assert_eq!(screen, b"visible");
         assert_eq!(log, b"visible");
+        assert_eq!(metrics.snapshot().terminal_output_bytes, 7);
     }
 
     #[test]
     fn session_log_writer_omits_bell_from_log() {
         let mut screen = Vec::new();
         let mut log = Vec::new();
-        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+        let mut output = super::SessionLogWriter::new(
+            &mut screen,
+            Some(&mut log),
+            super::LocalMetricsCounters::default(),
+        );
 
         output.write_all(b"before\x07after").unwrap();
         output.flush().unwrap();
@@ -3740,7 +3843,11 @@ mod tests {
     fn session_log_writer_omits_title_sequence_from_log() {
         let mut screen = Vec::new();
         let mut log = Vec::new();
-        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+        let mut output = super::SessionLogWriter::new(
+            &mut screen,
+            Some(&mut log),
+            super::LocalMetricsCounters::default(),
+        );
 
         output.write_all(b"before\x1b]0;ops\x07after").unwrap();
         output.flush().unwrap();
@@ -3753,7 +3860,11 @@ mod tests {
     fn session_log_writer_omits_split_title_sequence_from_log() {
         let mut screen = Vec::new();
         let mut log = Vec::new();
-        let mut output = super::SessionLogWriter::new(&mut screen, Some(&mut log));
+        let mut output = super::SessionLogWriter::new(
+            &mut screen,
+            Some(&mut log),
+            super::LocalMetricsCounters::default(),
+        );
 
         output.write_all(b"before\x1b]0;op").unwrap();
         output.write_all(b"s\x07after").unwrap();
