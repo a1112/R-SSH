@@ -171,6 +171,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app profile --check --file PATH` validates every configured profile
   through the same parser used for startup without opening a local process or
   network connection.
+- `rssh-app profile --check --json --file PATH` prints a machine-readable
+  per-profile validation report and still exits non-zero when any profile is
+  invalid.
 - `rssh-app profile --init --file PATH` writes a starter profile file from the
   bundled example and refuses to overwrite existing files unless `--force` is
   supplied.
@@ -296,6 +299,7 @@ Start from a reusable profile file:
 ```powershell
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile --check --json --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --verbose --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --json --file examples/rssh-profiles.toml

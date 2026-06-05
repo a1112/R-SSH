@@ -56,6 +56,21 @@ struct ProfileListJsonEntry {
     argv: Vec<String>,
 }
 
+#[derive(Serialize)]
+struct ProfileCheckJsonReport {
+    ok: bool,
+    profiles: Vec<ProfileCheckJsonEntry>,
+}
+
+#[derive(Serialize)]
+struct ProfileCheckJsonEntry {
+    name: String,
+    kind: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
 pub fn load_command(options: &ProfileOptions) -> Result<AppCommand, Box<dyn Error>> {
     let contents = fs::read_to_string(&options.file)?;
     command_from_toml(&options.name, &contents).map_err(profile_error)
@@ -108,10 +123,46 @@ pub fn check_profiles(options: &ProfileCheckOptions) -> Result<(), Box<dyn Error
 }
 
 pub fn print_profile_check(options: &ProfileCheckOptions) -> Result<(), Box<dyn Error>> {
+    if options.json {
+        println!("{}", profile_check_json(options)?);
+        check_profiles(options)?;
+        return Ok(());
+    }
+
     check_profiles(options)?;
     println!("profile check ok");
 
     Ok(())
+}
+
+pub fn profile_check_json(options: &ProfileCheckOptions) -> Result<String, Box<dyn Error>> {
+    let contents = fs::read_to_string(&options.file)?;
+    let document = toml::from_str::<ProfileDocument>(&contents)
+        .map_err(|error| profile_error(error.to_string()))?;
+    let profiles = document
+        .profiles
+        .iter()
+        .map(|(name, profile)| match profile.to_command() {
+            Ok(_) => ProfileCheckJsonEntry {
+                name: name.clone(),
+                kind: profile.kind.clone(),
+                ok: true,
+                error: None,
+            },
+            Err(error) => ProfileCheckJsonEntry {
+                name: name.clone(),
+                kind: profile.kind.clone(),
+                ok: false,
+                error: Some(error),
+            },
+        })
+        .collect::<Vec<_>>();
+    let report = ProfileCheckJsonReport {
+        ok: profiles.iter().all(|profile| profile.ok),
+        profiles,
+    };
+
+    Ok(serde_json::to_string(&report)?)
 }
 
 pub fn init_profile_file(options: &ProfileInitOptions) -> Result<(), Box<dyn Error>> {
@@ -813,14 +864,46 @@ auth = "agent"
 "#,
         );
 
-        let error = super::check_profiles(&crate::cli::ProfileCheckOptions { file: file.clone() })
-            .unwrap_err();
+        let error = super::check_profiles(&crate::cli::ProfileCheckOptions {
+            file: file.clone(),
+            json: false,
+        })
+        .unwrap_err();
 
         remove_file(&file);
 
         assert_eq!(
             error.to_string(),
             "profile check failed: bad (ssh): --host or --target is required"
+        );
+    }
+
+    #[test]
+    fn checks_profiles_as_json_with_per_profile_results() {
+        let file = temp_profile_file(
+            "check-json-profile",
+            r#"
+[profiles.good]
+kind = "local"
+command = ["pwsh", "-NoLogo"]
+
+[profiles.bad]
+kind = "ssh"
+auth = "agent"
+"#,
+        );
+
+        let json = super::profile_check_json(&crate::cli::ProfileCheckOptions {
+            file: file.clone(),
+            json: true,
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            json,
+            "{\"ok\":false,\"profiles\":[{\"name\":\"bad\",\"kind\":\"ssh\",\"ok\":false,\"error\":\"--host or --target is required\"},{\"name\":\"good\",\"kind\":\"local\",\"ok\":true}]}"
         );
     }
 

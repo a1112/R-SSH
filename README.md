@@ -72,6 +72,7 @@ cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --download /tmp/remote.txt local.txt
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile --check --json --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --verbose --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --json --file examples/rssh-profiles.toml
@@ -151,7 +152,8 @@ Use `profile --show NAME --file PATH` to preview the resolved `rssh-app`
 command line without starting a local process or network connection; add
 `--json` to return the single launch plan as name, kind, command, and argv.
 Use `profile --check --file PATH` to validate every configured profile without
-starting a local process or network connection.
+starting a local process or network connection; add `--json` for a structured
+per-profile report that still exits non-zero when any profile is invalid.
 
 ## MVP Status
 

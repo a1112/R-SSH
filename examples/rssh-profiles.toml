@@ -6,6 +6,9 @@
 # Validate all profiles:
 #   cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 #
+# Validate all profiles as a machine-readable report:
+#   cargo run -p rssh-app -- profile --check --json --file examples/rssh-profiles.toml
+#
 # List available profiles:
 #   cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
 #
