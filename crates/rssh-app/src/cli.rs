@@ -124,18 +124,30 @@ where
     match command.as_str() {
         "local" => {
             let local_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&local_args) {
+                return Ok(AppCommand::Help);
+            }
             parse_local(&local_args)
         }
         "profile" => {
             let profile_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&profile_args) {
+                return Ok(AppCommand::Help);
+            }
             parse_profile(&profile_args)
         }
         "ssh" => {
             let ssh_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&ssh_args) {
+                return Ok(AppCommand::Help);
+            }
             parse_ssh(&ssh_args)
         }
         "window" => {
             let window_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&window_args) {
+                return Ok(AppCommand::Help);
+            }
             parse_window(&window_args)
         }
         "-h" | "--help" | "help" => Ok(AppCommand::Help),
@@ -144,7 +156,13 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+}
+
+fn subcommand_help_requested(args: &[String]) -> bool {
+    args.iter()
+        .take_while(|argument| argument.as_str() != "--")
+        .any(|argument| matches!(argument.as_str(), "-h" | "--help"))
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -1028,8 +1046,29 @@ mod tests {
 
         assert!(help.contains("--password"));
         assert!(help.contains("--target"));
+        assert!(help.contains("rssh-app <command> --help"));
         assert!(!help.contains("PASSWORD"));
         assert!(!help.contains("PASSPHRASE"));
+    }
+
+    #[test]
+    fn parses_subcommand_help_before_command_separator() {
+        assert_eq!(
+            parse_args(["rssh-app", "local", "--help"]).unwrap(),
+            AppCommand::Help
+        );
+        assert_eq!(
+            parse_args(["rssh-app", "window", "-h"]).unwrap(),
+            AppCommand::Help
+        );
+        assert_eq!(
+            parse_args(["rssh-app", "ssh", "--help"]).unwrap(),
+            AppCommand::Help
+        );
+        assert_eq!(
+            parse_args(["rssh-app", "profile", "--help"]).unwrap(),
+            AppCommand::Help
+        );
     }
 
     #[test]

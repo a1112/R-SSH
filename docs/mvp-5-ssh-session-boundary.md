@@ -72,6 +72,12 @@ client:
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 ```
 
+Show the SSH startup options:
+
+```powershell
+cargo run -p rssh-app -- ssh --help
+```
+
 Reuse an OpenSSH config host alias:
 
 ```powershell

@@ -91,6 +91,12 @@ Equivalent explicit command:
 cargo run -p rssh-app -- window
 ```
 
+Show the native window startup options:
+
+```powershell
+cargo run -p rssh-app -- window --help
+```
+
 Disable PTY-side OSC 52 clipboard access:
 
 ```powershell

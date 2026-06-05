@@ -72,6 +72,12 @@ From the repository root:
 cargo run -p rssh-app -- local
 ```
 
+Show the console startup options:
+
+```powershell
+cargo run -p rssh-app -- local --help
+```
+
 Run a specific local program through the PTY:
 
 ```powershell
