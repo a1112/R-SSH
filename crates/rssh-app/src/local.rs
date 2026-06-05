@@ -897,6 +897,13 @@ impl TerminalOutputFilter {
     }
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
+        if let Some(drop_start) = find_incomplete_osc8_hyperlink_start(&self.pending) {
+            output.write_all(&self.pending[..drop_start])?;
+            self.feed_mirror_through_output(drop_start);
+            self.pending.clear();
+            return Ok(());
+        }
+
         output.write_all(&self.pending)?;
         self.feed_mirror_through_output(self.pending.len());
         self.pending.clear();
@@ -1141,6 +1148,19 @@ fn is_osc8_hyperlink_sequence_prefix(bytes: &[u8]) -> bool {
             }
             bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
         })
+}
+
+fn find_incomplete_osc8_hyperlink_start(bytes: &[u8]) -> Option<usize> {
+    [b"\x1b]8;".as_slice(), b"\x9d8;".as_slice()]
+        .into_iter()
+        .filter_map(|prefix| {
+            find_subslice(bytes, prefix).and_then(|index| {
+                find_osc_color_terminator(&bytes[index + prefix.len()..])
+                    .is_none()
+                    .then_some(index)
+            })
+        })
+        .min()
 }
 
 struct Osc52ClipboardSequence {
@@ -3004,6 +3024,26 @@ mod tests {
             Some("https://example.com")
         );
         assert_eq!(filter.mirror.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn terminal_output_filter_drops_incomplete_osc8_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"a\x1b]8;;https://example.com", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"a");
+        assert!(responses.is_empty());
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().ch, 'a');
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().hyperlink, None);
     }
 
     #[test]

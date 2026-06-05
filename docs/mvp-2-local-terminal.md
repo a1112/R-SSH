@@ -90,7 +90,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   are removed from console display output.
 - OSC 8 hyperlink sequences are consumed by the console output filter and fed
   into the mirrored terminal state, so hyperlink metadata is preserved without
-  writing OSC 8 control bytes to the host console.
+  writing OSC 8 control bytes to the host console. If PTY output ends in an
+  incomplete OSC 8 sequence, the pending control bytes are dropped during flush
+  instead of leaking to the host console.
 - `rssh-app local --osc52 off|write|read-write` controls whether PTY-side OSC
   52 clipboard writes and read queries are allowed. SSH sessions that use the
   OpenSSH-backed console runtime inherit the same policy through
@@ -231,7 +233,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   output, plus `off` and `write` policy enforcement.
 - OSC 8 hyperlinks: unit tests cover full and split OSC 8 sequences, verifying
   that console output omits the control bytes while the mirrored terminal keeps
-  hyperlink metadata on linked cells.
+  hyperlink metadata on linked cells. EOF flushing is covered for incomplete
+  OSC 8 sequences so half-written control bytes do not reach the host console.
 - XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
   queries for colors, terminal name, true-color marker, current columns/rows,
   and unknown capability fallback.
