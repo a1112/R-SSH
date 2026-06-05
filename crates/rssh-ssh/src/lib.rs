@@ -5,8 +5,8 @@ use rssh_core::TerminalSize;
 mod russh_client;
 
 pub use russh_client::{
-    RusshChannelOpener, RusshChannelStartupPlan, RusshChannelStartupRequest, RusshClientHandler,
-    RusshConnectPlan, RusshHostKeyPolicy,
+    RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
+    RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -573,7 +573,8 @@ mod tests {
     };
 
     use crate::{
-        RusshChannelStartupPlan, RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy,
+        RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan, RusshChannelStartupRequest,
+        RusshConnectPlan, RusshHostKeyPolicy,
     };
 
     #[test]
@@ -977,6 +978,70 @@ mod tests {
                 RusshChannelStartupRequest::RequestShell
             ]
         );
+    }
+
+    #[test]
+    fn russh_auth_plan_maps_password_value_authentication() {
+        let request = SshConnectRequest::password(valid_config(), "secret").unwrap();
+
+        let plan = RusshAuthPlan::from_request(&request);
+
+        assert_eq!(plan.username(), "ops");
+        assert_eq!(
+            plan.request(),
+            &RusshAuthRequest::Password {
+                password: "secret".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn russh_auth_plan_maps_password_prompt_authentication() {
+        let request = SshConnectRequest::password_prompt(valid_config());
+
+        let plan = RusshAuthPlan::from_request(&request);
+
+        assert_eq!(plan.username(), "ops");
+        assert_eq!(plan.request(), &RusshAuthRequest::PasswordPrompt);
+    }
+
+    #[test]
+    fn russh_auth_plan_maps_private_key_authentication() {
+        let request = SshConnectRequest::private_key(
+            valid_config(),
+            PathBuf::from("C:/Users/ops/.ssh/id_ed25519"),
+            Some("secret"),
+        )
+        .unwrap();
+
+        let plan = RusshAuthPlan::from_request(&request);
+
+        assert_eq!(plan.username(), "ops");
+        assert_eq!(
+            plan.request(),
+            &RusshAuthRequest::PrivateKey {
+                path: PathBuf::from("C:/Users/ops/.ssh/id_ed25519"),
+                passphrase: Some("secret".to_owned())
+            }
+        );
+    }
+
+    #[test]
+    fn russh_auth_plan_maps_agent_authentication() {
+        let request = SshConnectRequest::agent(valid_config());
+
+        let plan = RusshAuthPlan::from_request(&request);
+
+        assert_eq!(plan.username(), "ops");
+        assert_eq!(plan.request(), &RusshAuthRequest::Agent);
+    }
+
+    #[test]
+    fn russh_connect_plan_derives_auth_plan() {
+        let request = SshConnectRequest::agent(valid_config());
+        let plan = RusshConnectPlan::from_request(&request);
+
+        assert_eq!(plan.auth_plan(), &RusshAuthPlan::from_request(&request));
     }
 
     #[test]

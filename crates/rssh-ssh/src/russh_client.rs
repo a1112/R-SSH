@@ -1,11 +1,62 @@
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
-use crate::{SshChannelOpenPlan, SshConnectRequest, SshSessionStartup};
+use crate::{SshAuthMethod, SshChannelOpenPlan, SshConnectRequest, SshSessionStartup};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RusshHostKeyPolicy {
     RejectUnknown,
     AcceptUnknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RusshAuthRequest {
+    Password {
+        password: String,
+    },
+    PasswordPrompt,
+    PrivateKey {
+        path: PathBuf,
+        passphrase: Option<String>,
+    },
+    Agent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RusshAuthPlan {
+    username: String,
+    request: RusshAuthRequest,
+}
+
+impl RusshAuthPlan {
+    #[must_use]
+    pub fn from_request(request: &SshConnectRequest) -> Self {
+        let auth_request = match &request.auth {
+            SshAuthMethod::Password { password } => RusshAuthRequest::Password {
+                password: password.clone(),
+            },
+            SshAuthMethod::PasswordPrompt => RusshAuthRequest::PasswordPrompt,
+            SshAuthMethod::PrivateKey { path, passphrase } => RusshAuthRequest::PrivateKey {
+                path: path.clone(),
+                passphrase: passphrase.clone(),
+            },
+            SshAuthMethod::Agent => RusshAuthRequest::Agent,
+        };
+
+        Self {
+            username: request.config.username.clone(),
+            request: auth_request,
+        }
+    }
+
+    #[must_use]
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    #[must_use]
+    pub const fn request(&self) -> &RusshAuthRequest {
+        &self.request
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +120,7 @@ pub struct RusshConnectPlan {
     host: String,
     port: u16,
     username: String,
+    auth_plan: RusshAuthPlan,
     channel_open_plan: SshChannelOpenPlan,
 }
 
@@ -79,6 +131,7 @@ impl RusshConnectPlan {
             host: request.config.host.clone(),
             port: request.config.port,
             username: request.config.username.clone(),
+            auth_plan: RusshAuthPlan::from_request(request),
             channel_open_plan: SshChannelOpenPlan::from_request(request),
         }
     }
@@ -96,6 +149,11 @@ impl RusshConnectPlan {
     #[must_use]
     pub const fn channel_open_plan(&self) -> &SshChannelOpenPlan {
         &self.channel_open_plan
+    }
+
+    #[must_use]
+    pub const fn auth_plan(&self) -> &RusshAuthPlan {
+        &self.auth_plan
     }
 
     #[must_use]
