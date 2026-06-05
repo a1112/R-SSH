@@ -434,6 +434,16 @@ impl Terminal {
         self.modes.cursor_shape
     }
 
+    #[must_use]
+    pub const fn active_style(&self) -> &Cell {
+        &self.style
+    }
+
+    #[must_use]
+    pub const fn scroll_region(&self) -> (u16, u16) {
+        (self.scroll_top, self.scroll_bottom)
+    }
+
     pub fn take_bell_count(&mut self) -> u64 {
         std::mem::take(&mut self.bell_count)
     }

@@ -21,7 +21,7 @@ use crossterm::{
 };
 use rssh_core::TerminalSize;
 use rssh_pty::{PtyExitStatus, PtySession, PtySize};
-use rssh_terminal::Terminal;
+use rssh_terminal::{Cell, Color, CursorShape, Terminal};
 
 use crate::{
     cli::LocalOptions,
@@ -742,6 +742,21 @@ impl TerminalOutputFilter {
                 )
             },
         );
+        let decrqss_response = find_decrqss_query(&self.pending).map(
+            |DecrqssQuery {
+                 index,
+                 consumed,
+                 response,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::Decrqss(response),
+                    },
+                )
+            },
+        );
         let xtgettcap_response = find_xtgettcap_query(&self.pending).map(
             |XtGetTcapQuery {
                  index,
@@ -762,6 +777,7 @@ impl TerminalOutputFilter {
             .into_iter()
             .chain(mode_response)
             .chain(osc_color_response)
+            .chain(decrqss_response)
             .chain(xtgettcap_response)
             .min_by_key(|(index, _)| *index)
     }
@@ -775,6 +791,7 @@ impl TerminalOutputFilter {
         static_query_suffix
             .max(private_mode_status_query_suffix_len(pending))
             .max(osc_color_query_suffix_len(pending))
+            .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
     }
 
@@ -855,6 +872,7 @@ impl TerminalOutputFilter {
             )
             .into_bytes(),
             TerminalResponse::OscColor(query) => self.color_state.response(query),
+            TerminalResponse::Decrqss(query) => query.response(&self.mirror),
             TerminalResponse::XtGetTcap(query) => query.response(),
         }
     }
@@ -893,6 +911,7 @@ enum TerminalResponse {
     WindowTitle,
     PrivateModeStatus(u16),
     OscColor(OscColorResponse),
+    Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
 }
 
@@ -926,6 +945,181 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+struct DecrqssQuery {
+    index: usize,
+    consumed: usize,
+    response: DecrqssResponse,
+}
+
+#[derive(Clone)]
+struct DecrqssResponse {
+    kind: Option<DecrqssKind>,
+    terminator: OscResponseTerminator,
+}
+
+#[derive(Clone, Copy)]
+enum DecrqssKind {
+    Sgr,
+    CursorShape,
+    ScrollRegion,
+}
+
+impl DecrqssResponse {
+    fn response(&self, terminal: &Terminal) -> Vec<u8> {
+        let mut response = if let Some(kind) = self.kind {
+            let mut bytes = b"\x1bP1$r".to_vec();
+            match kind {
+                DecrqssKind::Sgr => append_sgr_state(terminal.active_style(), &mut bytes),
+                DecrqssKind::CursorShape => {
+                    append_cursor_shape_state(terminal.cursor_shape(), &mut bytes);
+                }
+                DecrqssKind::ScrollRegion => {
+                    append_scroll_region_state(terminal.scroll_region(), &mut bytes);
+                }
+            }
+            bytes
+        } else {
+            b"\x1bP0$r".to_vec()
+        };
+        response.extend_from_slice(self.terminator.bytes());
+        response
+    }
+}
+
+fn find_decrqss_query(bytes: &[u8]) -> Option<DecrqssQuery> {
+    let mut match_query = None;
+    for (prefix, prefix_len) in [(b"\x1bP".as_slice(), 2), (b"\x90".as_slice(), 1)] {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                break;
+            };
+            let index = offset + relative_index;
+            if let Some(query) = parse_decrqss_query(bytes, index, prefix_len) {
+                if match_query
+                    .as_ref()
+                    .is_none_or(|current: &DecrqssQuery| query.index < current.index)
+                {
+                    match_query = Some(query);
+                }
+            }
+            offset = index.saturating_add(1);
+        }
+    }
+    match_query
+}
+
+fn parse_decrqss_query(bytes: &[u8], index: usize, prefix_len: usize) -> Option<DecrqssQuery> {
+    let content_start = index + prefix_len;
+    let rest = bytes.get(content_start..)?;
+    let body = rest.strip_prefix(b"$q")?;
+    let terminator = find_xtgettcap_terminator(body)?;
+    let content = &body[..terminator.index];
+
+    Some(DecrqssQuery {
+        index,
+        consumed: prefix_len + b"$q".len() + terminator.index + terminator.length,
+        response: DecrqssResponse {
+            kind: parse_decrqss_kind(content),
+            terminator: terminator.response_terminator,
+        },
+    })
+}
+
+fn parse_decrqss_kind(content: &[u8]) -> Option<DecrqssKind> {
+    match content {
+        b"m" => Some(DecrqssKind::Sgr),
+        b" q" => Some(DecrqssKind::CursorShape),
+        b"r" => Some(DecrqssKind::ScrollRegion),
+        _ => None,
+    }
+}
+
+fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
+    let mut params = Vec::new();
+    if style.bold {
+        params.push("1".to_owned());
+    }
+    if style.italic {
+        params.push("3".to_owned());
+    }
+    if style.underline {
+        params.push("4".to_owned());
+    }
+    if style.inverse {
+        params.push("7".to_owned());
+    }
+    append_color_sgr(38, style.foreground, &mut params);
+    append_color_sgr(48, style.background, &mut params);
+
+    if params.is_empty() {
+        bytes.push(b'0');
+    } else {
+        bytes.extend_from_slice(params.join(";").as_bytes());
+    }
+    bytes.push(b'm');
+}
+
+fn append_color_sgr(prefix: u8, color: Color, params: &mut Vec<String>) {
+    match color {
+        Color::Default => {}
+        Color::Indexed(index) => {
+            params.push(prefix.to_string());
+            params.push("5".to_owned());
+            params.push(index.to_string());
+        }
+        Color::Rgb(red, green, blue) => {
+            params.push(prefix.to_string());
+            params.push("2".to_owned());
+            params.push(red.to_string());
+            params.push(green.to_string());
+            params.push(blue.to_string());
+        }
+    }
+}
+
+fn append_cursor_shape_state(shape: CursorShape, bytes: &mut Vec<u8>) {
+    let value = match shape {
+        CursorShape::Block => 2,
+        CursorShape::Underline => 3,
+        CursorShape::Bar => 5,
+    };
+    bytes.extend_from_slice(value.to_string().as_bytes());
+    bytes.extend_from_slice(b" q");
+}
+
+fn append_scroll_region_state((top, bottom): (u16, u16), bytes: &mut Vec<u8>) {
+    bytes.extend_from_slice(top.saturating_add(1).to_string().as_bytes());
+    bytes.push(b';');
+    bytes.extend_from_slice(bottom.saturating_add(1).to_string().as_bytes());
+    bytes.push(b'r');
+}
+
+fn decrqss_query_suffix_len(bytes: &[u8]) -> usize {
+    (1..=bytes.len())
+        .rev()
+        .find(|&length| is_decrqss_query_prefix(&bytes[bytes.len() - length..]))
+        .unwrap_or(0)
+}
+
+fn is_decrqss_query_prefix(bytes: &[u8]) -> bool {
+    let Some(rest) = bytes
+        .strip_prefix(b"\x1bP")
+        .or_else(|| bytes.strip_prefix(b"\x90"))
+    else {
+        return b"\x1bP".starts_with(bytes) || b"\x90".starts_with(bytes);
+    };
+    if !b"$q".starts_with(rest) && !rest.starts_with(b"$q") {
+        return false;
+    }
+    if let Some(body) = rest.strip_prefix(b"$q") {
+        return [b"m".as_slice(), b" q".as_slice(), b"r".as_slice()]
+            .into_iter()
+            .any(|target| target.starts_with(body));
+    }
+    true
 }
 
 struct XtGetTcapQuery {
@@ -2950,6 +3144,34 @@ mod tests {
         assert_eq!(
             responses,
             b"\x1bP1+r436f=323536\x1b\\\x1bP1+r544e=787465726d2d323536636f6c6f72;524742=524742\x9c\x1bP0+r\x1b\\"
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_decrqss_state_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b[1;4;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            output,
+            b"before\x1b[1;4;38;5;196;48;2;1;2;3m middle\x1b[5 q after\x1b[2;5rdone"
+        );
+        assert_eq!(
+            responses,
+            b"\x1bP1$r1;4;38;5;196;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
         );
     }
 

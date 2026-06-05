@@ -86,6 +86,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, and `Ms` OSC 52
   clipboard template support. Unsupported capabilities return `DCS 0+r ST`,
   and C1 DCS/ST forms are handled too.
+- The app answers DEC request status string queries (`DECRQSS`,
+  `DCS $ q <selector> ST`) for current SGR style (`m`), cursor shape
+  (`SP q`), and scrolling region (`r`), preserving ST versus C1 ST response
+  terminators and returning an invalid status for unsupported selectors.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - After a fast child-process exit, `rssh-app local` briefly drains PTY reader
@@ -198,6 +202,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
   queries for colors, terminal name, true-color marker, and unknown capability
   fallback.
+- DECRQSS response: unit tests cover current SGR, cursor-shape, and scroll-region
+  status queries in both DCS and C1 DCS forms.
 - Session logging: unit tests cover teeing visible terminal output to a log
   writer, omitting non-visible control sequences from the log while preserving
   them for the host console, and smoke checks can verify `--log` writes command
