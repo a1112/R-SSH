@@ -1492,7 +1492,7 @@ struct TerminalClipboardTracker {
 }
 
 impl TerminalClipboardTracker {
-    const OSC52_PREFIX: &'static [u8] = b"\x1b]52;";
+    const OSC52_PREFIXES: &'static [&'static [u8]] = &[b"\x1b]52;", b"\x9d52;"];
     const ST_TERMINATOR: &'static [u8] = b"\x1b\\";
     const MAX_PENDING: usize = 1024 * 1024;
 
@@ -1504,7 +1504,7 @@ impl TerminalClipboardTracker {
         }
 
         loop {
-            let Some(start) = find_subslice(&self.pending, Self::OSC52_PREFIX) else {
+            let Some((start, prefix_len)) = find_next_osc52_clipboard_start(&self.pending) else {
                 self.retain_possible_prefix();
                 return;
             };
@@ -1512,7 +1512,7 @@ impl TerminalClipboardTracker {
                 self.pending.drain(..start);
             }
 
-            let content_start = Self::OSC52_PREFIX.len();
+            let content_start = prefix_len;
             let Some(terminator) = find_osc_terminator(&self.pending[content_start..]) else {
                 return;
             };
@@ -1528,12 +1528,23 @@ impl TerminalClipboardTracker {
     }
 
     fn retain_possible_prefix(&mut self) {
-        let retained = suffix_prefix_len(&self.pending, Self::OSC52_PREFIX);
+        let retained = Self::OSC52_PREFIXES
+            .iter()
+            .map(|prefix| suffix_prefix_len(&self.pending, prefix))
+            .max()
+            .unwrap_or(0);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
         }
     }
+}
+
+fn find_next_osc52_clipboard_start(bytes: &[u8]) -> Option<(usize, usize)> {
+    TerminalClipboardTracker::OSC52_PREFIXES
+        .iter()
+        .filter_map(|prefix| find_subslice(bytes, prefix).map(|index| (index, prefix.len())))
+        .min_by_key(|(index, _)| *index)
 }
 
 struct OscTerminator {
@@ -1542,22 +1553,23 @@ struct OscTerminator {
 }
 
 fn find_osc_terminator(bytes: &[u8]) -> Option<OscTerminator> {
-    let bel = bytes
-        .iter()
-        .position(|byte| *byte == b'\x07')
-        .map(|index| OscTerminator { index, length: 1 });
-    let st =
+    [
+        bytes
+            .iter()
+            .position(|byte| *byte == b'\x07')
+            .map(|index| OscTerminator { index, length: 1 }),
         find_subslice(bytes, TerminalClipboardTracker::ST_TERMINATOR).map(|index| OscTerminator {
             index,
             length: TerminalClipboardTracker::ST_TERMINATOR.len(),
-        });
-
-    match (bel, st) {
-        (Some(bel), Some(st)) => Some(if bel.index <= st.index { bel } else { st }),
-        (Some(bel), None) => Some(bel),
-        (None, Some(st)) => Some(st),
-        (None, None) => None,
-    }
+        }),
+        bytes
+            .iter()
+            .position(|byte| *byte == 0x9c)
+            .map(|index| OscTerminator { index, length: 1 }),
+    ]
+    .into_iter()
+    .flatten()
+    .min_by_key(|terminator| terminator.index)
 }
 
 enum ClipboardSequence {
@@ -2137,6 +2149,16 @@ mod tests {
     }
 
     #[test]
+    fn extracts_c1_osc52_clipboard_text_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x9d52;c;Y29weQ==\x9c");
+
+        assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
+        assert!(runtime.take_clipboard_texts().is_empty());
+    }
+
+    #[test]
     fn extracts_split_osc52_clipboard_text_with_st_terminator() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
@@ -2149,10 +2171,32 @@ mod tests {
     }
 
     #[test]
+    fn extracts_split_c1_osc52_clipboard_text() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x9d52;c;Y2");
+        assert!(runtime.take_clipboard_texts().is_empty());
+
+        runtime.feed_pty_output(b"9weQ==\x9c");
+
+        assert_eq!(runtime.take_clipboard_texts(), vec!["copy".to_owned()]);
+    }
+
+    #[test]
     fn extracts_osc52_clipboard_queries_from_pty_output() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
         runtime.feed_pty_output(b"\x1b]52;c;?\x07");
+
+        assert_eq!(runtime.take_clipboard_queries(), vec!["c".to_owned()]);
+        assert!(runtime.take_clipboard_queries().is_empty());
+    }
+
+    #[test]
+    fn extracts_c1_osc52_clipboard_queries_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x9d52;c;?\x9c");
 
         assert_eq!(runtime.take_clipboard_queries(), vec!["c".to_owned()]);
         assert!(runtime.take_clipboard_queries().is_empty());

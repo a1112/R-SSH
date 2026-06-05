@@ -49,7 +49,9 @@ in the native `winit` window.
   paste markers while the PTY has enabled `ESC[?2004h`.
 - The native window handles PTY-side OSC 52 clipboard writes and queries,
   decoding base64 payloads into the system clipboard and answering `?` queries
-  with base64-encoded clipboard content.
+  with base64-encoded clipboard content. The shared runtime recognizes both
+  7-bit OSC 52 (`ESC]52;...`) and C1 OSC 52 (`0x9d52;...`) forms, including
+  BEL, ST, and C1 ST terminators.
 - `rssh-app window --osc52 off|write|read-write` controls whether PTY-side
   OSC 52 clipboard writes and read queries are allowed.
 - The native window supports basic local text selection when PTY mouse
@@ -178,7 +180,8 @@ MVP 4 tests cover:
 - window text, control, navigation, Alt-text, and modified key encoding
 - native window clipboard paste encoding and paste shortcut detection
 - OSC 52 clipboard extraction from PTY output, native window clipboard writes,
-  and clipboard query responses
+  and clipboard query responses, including C1 OSC 52 write/query forms and
+  split C1 OSC 52 payloads
 - C1 CSI cursor, device/status, window state/position, window/screen pixel-size,
   character-cell size, text-area/screen size, and title query responses in the
   shared terminal runtime
