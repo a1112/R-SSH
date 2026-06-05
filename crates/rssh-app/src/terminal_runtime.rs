@@ -166,6 +166,22 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
         },
         TerminalQueryResponse {
+            query: b"\x1b[>q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[>0q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b>q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b>0q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[5n",
             response: TerminalResponse::Static(b"\x1b[0n"),
         },
@@ -420,6 +436,7 @@ enum TerminalResponse {
     OscColor(OscColorResponse),
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
+    XtVersion,
 }
 
 impl TerminalResponse {
@@ -484,8 +501,13 @@ impl TerminalResponse {
             TerminalResponse::OscColor(query) => color_state.response(query),
             TerminalResponse::Decrqss(query) => query.response(terminal),
             TerminalResponse::XtGetTcap(query) => query.response(),
+            TerminalResponse::XtVersion => xtversion_response(),
         }
     }
+}
+
+fn xtversion_response() -> Vec<u8> {
+    format!("\x1bP>|R-SSH {}\x1b\\", env!("CARGO_PKG_VERSION")).into_bytes()
 }
 
 fn osc_title_response(kind: u8, title: Option<&str>) -> Vec<u8> {
@@ -1841,6 +1863,24 @@ mod tests {
         );
         assert_eq!(output.display, b"before middle afterdone");
         assert!(!String::from_utf8_lossy(&output.display).contains("$q"));
+    }
+
+    #[test]
+    fn answers_xtversion_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output =
+            runtime.feed_pty_output_with_display(b"before\x1b[>q middle\x1b[>0q after\x9b>q done");
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1bP>|R-SSH 0.1.0\x1b\\".to_vec(),
+                b"\x1bP>|R-SSH 0.1.0\x1b\\".to_vec(),
+                b"\x1bP>|R-SSH 0.1.0\x1b\\".to_vec(),
+            ]
+        );
+        assert_eq!(output.display, b"before middle after done");
     }
 
     #[test]

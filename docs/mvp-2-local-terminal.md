@@ -90,6 +90,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   `DCS $ q <selector> ST`) for current SGR style (`m`), cursor shape
   (`SP q`), and scrolling region (`r`), preserving ST versus C1 ST response
   terminators and returning an invalid status for unsupported selectors.
+- The app answers xterm version queries (`CSI > q` and `CSI > 0 q`) with a
+  `DCS > | R-SSH <version> ST` response, including equivalent C1 CSI forms, so
+  terminal programs can complete XTVERSION handshakes without leaking the query
+  to the host console.
 - `rssh-app local -- <program> [args...]` propagates the child process exit code
   back to the host process.
 - After a fast child-process exit, `rssh-app local` briefly drains PTY reader
@@ -204,6 +208,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   fallback.
 - DECRQSS response: unit tests cover current SGR, cursor-shape, and scroll-region
   status queries in both DCS and C1 DCS forms.
+- XTVERSION response: unit tests cover 7-bit and C1 CSI version queries and
+  verify the query bytes are not written to visible output.
 - Session logging: unit tests cover teeing visible terminal output to a log
   writer, omitting non-visible control sequences from the log while preserving
   them for the host console, and smoke checks can verify `--log` writes command

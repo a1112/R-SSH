@@ -570,6 +570,22 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
         },
         TerminalQueryResponse {
+            query: b"\x1b[>q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[>0q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b>q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b>0q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[5n",
             response: TerminalResponse::Static(b"\x1b[0n"),
         },
@@ -874,6 +890,7 @@ impl TerminalOutputFilter {
             TerminalResponse::OscColor(query) => self.color_state.response(query),
             TerminalResponse::Decrqss(query) => query.response(&self.mirror),
             TerminalResponse::XtGetTcap(query) => query.response(),
+            TerminalResponse::XtVersion => xtversion_response(),
         }
     }
 
@@ -913,6 +930,11 @@ enum TerminalResponse {
     OscColor(OscColorResponse),
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
+    XtVersion,
+}
+
+fn xtversion_response() -> Vec<u8> {
+    format!("\x1bP>|R-SSH {}\x1b\\", env!("CARGO_PKG_VERSION")).into_bytes()
 }
 
 fn osc_title_response(kind: u8, title: Option<&str>) -> Vec<u8> {
@@ -3172,6 +3194,31 @@ mod tests {
         assert_eq!(
             responses,
             b"\x1bP1$r1;4;38;5;196;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtversion_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b[>q middle\x1b[>0q after\x9b>q done",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middle after done");
+        assert_eq!(
+            responses,
+            b"\x1bP>|R-SSH 0.1.0\x1b\\\x1bP>|R-SSH 0.1.0\x1b\\\x1bP>|R-SSH 0.1.0\x1b\\"
         );
     }
 
