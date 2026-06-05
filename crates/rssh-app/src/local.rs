@@ -4046,6 +4046,85 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_writes_c1_osc52_clipboard_text() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x9d52;c;Y29weQ==\x9cafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert!(responses.is_empty());
+        assert_eq!(writes, vec!["copy"]);
+    }
+
+    #[test]
+    fn terminal_output_filter_writes_split_c1_osc52_clipboard_text() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x9d52;c;Y2",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        assert_eq!(output, b"before");
+        assert!(writes.is_empty());
+
+        filter
+            .write_with_clipboard(
+                b"9weQ==\x9cafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert!(responses.is_empty());
+        assert_eq!(writes, vec!["copy"]);
+    }
+
+    #[test]
     fn terminal_output_filter_answers_osc52_clipboard_query() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -4054,6 +4133,31 @@ mod tests {
         filter
             .write_with_clipboard(
                 b"before\x1b]52;c;?\x07after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |_| true,
+                || Some("copy".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b]52;c;Y29weQ==\x07");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_osc52_clipboard_query() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x9d52;c;?\x9cafter",
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);
