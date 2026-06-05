@@ -398,6 +398,8 @@ impl TerminalOutputFilter {
             .max(osc_color_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
+            .max(incomplete_osc_control_sequence_suffix_len(pending))
+            .max(incomplete_st_control_sequence_suffix_len(pending))
     }
 
     fn response_bytes(
@@ -571,6 +573,54 @@ fn is_inside_control_string(
     }
 
     false
+}
+
+fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_control_sequence_start(bytes, find_next_osc_start, find_osc_color_terminator)
+        .map_or(0, |start| bytes.len() - start)
+        .max(suffix_prefix_len(bytes, b"\x1b]"))
+}
+
+fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_control_sequence_start(
+        bytes,
+        find_next_st_control_string_start,
+        find_xtgettcap_terminator,
+    )
+    .map_or(0, |start| bytes.len() - start)
+    .max(
+        [
+            b"\x1bP".as_slice(),
+            b"\x1bX".as_slice(),
+            b"\x1b^".as_slice(),
+            b"\x1b_".as_slice(),
+        ]
+        .into_iter()
+        .map(|prefix| suffix_prefix_len(bytes, prefix))
+        .max()
+        .unwrap_or(0),
+    )
+}
+
+fn find_incomplete_control_sequence_start(
+    bytes: &[u8],
+    mut find_next_start: impl FnMut(&[u8]) -> Option<(usize, usize)>,
+    mut find_terminator: impl FnMut(&[u8]) -> Option<OscColorTerminator>,
+) -> Option<usize> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let Some((relative_index, prefix_len)) = find_next_start(&bytes[offset..]) else {
+            break;
+        };
+        let index = offset + relative_index;
+        let content_start = index + prefix_len;
+        let Some(terminator) = find_terminator(&bytes[content_start..]) else {
+            return Some(index);
+        };
+        offset = content_start + terminator.index + terminator.length;
+    }
+
+    None
 }
 
 struct DecrqssQuery {
@@ -1594,6 +1644,32 @@ mod tests {
 
         assert!(output.responses.is_empty());
         assert_eq!(output.display, b"beforeafter");
+    }
+
+    #[test]
+    fn holds_split_queries_inside_osc_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let first = runtime.feed_pty_output_with_display(b"before\x1b]0;title \x1b[");
+        let second = runtime.feed_pty_output_with_display(b"6n\x07after");
+
+        assert!(first.responses.is_empty());
+        assert_eq!(first.display, b"before");
+        assert!(second.responses.is_empty());
+        assert_eq!(second.display, b"after");
+    }
+
+    #[test]
+    fn holds_split_queries_inside_st_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let first = runtime.feed_pty_output_with_display(b"before\x1bPpayload \x1b[");
+        let second = runtime.feed_pty_output_with_display(b"6n\x1b\\after");
+
+        assert!(first.responses.is_empty());
+        assert_eq!(first.display, b"before");
+        assert!(second.responses.is_empty());
+        assert_eq!(second.display, b"after");
     }
 
     #[test]

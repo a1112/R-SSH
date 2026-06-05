@@ -20,7 +20,8 @@ in the native `winit` window.
   handled through the same runtime path. Runtime query matching does not inspect
   inside OSC or ST-terminated control-string payloads, so query-like bytes
   embedded in title, DCS, SOS, PM, or APC content are not answered as standalone
-  terminal probes.
+  terminal probes. Incomplete OSC and ST-terminated control strings are retained
+  across PTY chunks so that split payloads keep the same protection.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
@@ -213,7 +214,7 @@ MVP 4 tests cover:
 - terminal response filtering for dynamic cursor position, device-attribute, status,
   window state/position, window/screen pixel-size, text-area size, screen
   character-size, and title queries, including query-like bytes embedded inside
-  OSC control-string payloads
+  OSC and ST-terminated control-string payloads split across runtime chunks
 - native window title state from OSC `0`/`2` PTY output
 - application cursor key mode tracking for native window input
 - application keypad mode tracking for native window numpad input
