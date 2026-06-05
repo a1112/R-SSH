@@ -1,0 +1,28 @@
+# Example R-SSH profile file.
+#
+# Run the local smoke profile:
+#   cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
+#
+# Run an SSH profile after defining the matching Host in ~/.ssh/config:
+#   cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
+
+[profiles.local-smoke]
+kind = "local"
+cols = 100
+rows = 30
+command = ["powershell", "-NoProfile", "-Command", "Write-Output rssh-profile-smoke"]
+
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+user = "ops"
+auth = "agent"
+cols = 120
+rows = 32
+
+[profiles.prod-tunnel]
+kind = "ssh"
+target = "prod"
+auth = "agent"
+local_forward = ["127.0.0.1:15432:db.internal:5432"]
+no_shell = true

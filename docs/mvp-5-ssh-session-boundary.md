@@ -56,6 +56,9 @@ contract that a future in-process `russh` adapter must satisfy.
   console runtime as an interim remote-session backend. It maps host, user, port,
   private-key path, and password-preferred authentication into OpenSSH arguments
   without placing password or passphrase secrets on the command line.
+- `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
+  back through the existing local or SSH CLI parser, so profile startup keeps the
+  same validation and secret-handling rules as direct command-line startup.
 
 ## Run
 
@@ -113,12 +116,36 @@ keyboard-interactive authentication, then OpenSSH prompts inside the terminal.
 R-SSH does not accept password or key-passphrase values on the process command
 line.
 
+Start from a reusable profile file:
+
+```powershell
+cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
+```
+
+The current profile file format is TOML:
+
+```toml
+[profiles.prod-shell]
+kind = "ssh"
+target = "prod"
+user = "ops"
+auth = "agent"
+cols = 120
+rows = 32
+
+[profiles.local-smoke]
+kind = "local"
+command = ["powershell", "-NoProfile", "-Command", "Write-Output rssh-profile-smoke"]
+```
+
 ## Verification
 
 ```powershell
 cargo test -p rssh-ssh
 cargo test -p rssh-app ssh_
 cargo test -p rssh-app ssh_runner
+cargo test -p rssh-app profile
 ```
 
 SSH-boundary tests cover:
@@ -145,13 +172,15 @@ SSH-boundary tests cover:
 - app-level SSH runner input forwarding into a mock shell session
 - app-level OpenSSH command mapping for target, port, private-key path, password
   prompt policy, secret non-leakage, PTY size, and mouse support
+- app-level profile command parsing and TOML profile loading for local and SSH
+  startup paths
 
 ## Explicit Non-Scope
 
 - In-process native `russh` network connections.
 - Executing password, key, agent, and host-key authentication through `russh`.
 - `russh` adapter wiring.
-- SFTP, tunnels, reconnects, and known-host storage.
+- SFTP, in-process native tunnels, reconnects, and known-host storage.
 
 ## Next Milestone
 

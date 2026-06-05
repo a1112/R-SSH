@@ -1,13 +1,17 @@
+use std::path::PathBuf;
+
 use rssh_core::TerminalSize;
 use rssh_pty::{PtyCommand, PtySize};
 use rssh_ssh::{SshAuthMethod, SshConnectRequest, SshSessionConfig};
 
 const DEFAULT_SSH_COLUMNS: u16 = 80;
 const DEFAULT_SSH_ROWS: u16 = 24;
+const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AppCommand {
     Local(LocalOptions),
+    Profile(ProfileOptions),
     Ssh(SshOptions),
     Window(WindowOptions),
     Help,
@@ -18,6 +22,12 @@ pub struct LocalOptions {
     pub command: PtyCommand,
     pub size: Option<PtySize>,
     pub mouse: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProfileOptions {
+    pub name: String,
+    pub file: PathBuf,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -109,6 +119,10 @@ where
             let local_args = args.collect::<Vec<_>>();
             parse_local(&local_args)
         }
+        "profile" => {
+            let profile_args = args.collect::<Vec<_>>();
+            parse_profile(&profile_args)
+        }
         "ssh" => {
             let ssh_args = args.collect::<Vec<_>>();
             parse_ssh(&ssh_args)
@@ -123,7 +137,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -176,6 +190,33 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         command,
         size,
         mouse,
+    }))
+}
+
+fn parse_profile(args: &[String]) -> Result<AppCommand, String> {
+    let Some(name) = args.first() else {
+        return Err("profile name is required".to_owned());
+    };
+    if name.starts_with('-') {
+        return Err("profile name is required".to_owned());
+    }
+
+    let mut file = PathBuf::from(DEFAULT_PROFILE_FILE);
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--file" => {
+                index += 1;
+                file = PathBuf::from(required_option_value(args.get(index), "--file")?);
+            }
+            value => return Err(format!("unexpected profile option: {value}")),
+        }
+        index += 1;
+    }
+
+    Ok(AppCommand::Profile(ProfileOptions {
+        name: name.to_owned(),
+        file,
     }))
 }
 
@@ -471,6 +512,17 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: false
+            })
+        );
+    }
+
+    #[test]
+    fn parses_profile_command_with_config_file() {
+        assert_eq!(
+            parse_args(["rssh-app", "profile", "prod", "--file", "profiles.toml"]).unwrap(),
+            AppCommand::Profile(super::ProfileOptions {
+                name: "prod".to_owned(),
+                file: std::path::PathBuf::from("profiles.toml"),
             })
         );
     }

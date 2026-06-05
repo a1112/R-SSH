@@ -1,5 +1,6 @@
 mod cli;
 mod local;
+mod profiles;
 mod ssh;
 mod terminal_input;
 mod terminal_runtime;
@@ -21,8 +22,13 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
-    match cli::parse_args(env::args()).map_err(io_error)? {
+    run_command(cli::parse_args(env::args()).map_err(io_error)?)
+}
+
+fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Error>> {
+    match command {
         AppCommand::Local(options) => local::run(&options).map(|status| pty_exit_code(&status)),
+        AppCommand::Profile(options) => run_command(profiles::load_command(&options)?),
         AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Window(options) => {
             window::run(&options)?;

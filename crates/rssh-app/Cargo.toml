@@ -16,6 +16,8 @@ rssh-pty = { path = "../rssh-pty" }
 rssh-renderer = { path = "../rssh-renderer" }
 rssh-ssh = { path = "../rssh-ssh" }
 rssh-terminal = { path = "../rssh-terminal" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 winit = "0.30"
 
 [dev-dependencies]
