@@ -487,9 +487,72 @@ where
     }
 }
 
+/// Runs an SSH shell session by copying local input to the remote session and
+/// remote output to the provided output sink.
+///
+/// # Errors
+///
+/// Returns [`SshSessionError`] when connecting, reading local input, writing to
+/// the SSH session, reading remote output, writing output, or closing the
+/// session fails.
+pub fn run_shell_with_io(
+    connector: &mut dyn SshShellConnector,
+    request: SshConnectRequest,
+    input: &mut dyn std::io::Read,
+    output: &mut dyn std::io::Write,
+) -> Result<(), SshSessionError> {
+    let mut session = connector.connect(request)?;
+    copy_input_to_session(input, session.as_mut())?;
+
+    let mut buffer = [0; 8192];
+    loop {
+        let count = session.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+
+        output
+            .write_all(&buffer[..count])
+            .map_err(|error| SshSessionError::new(error.to_string()))?;
+        output
+            .flush()
+            .map_err(|error| SshSessionError::new(error.to_string()))?;
+    }
+
+    session.close()
+}
+
+fn copy_input_to_session(
+    input: &mut dyn std::io::Read,
+    session: &mut dyn SshShellSession,
+) -> Result<(), SshSessionError> {
+    let mut buffer = [0; 8192];
+
+    loop {
+        let count = input
+            .read(&mut buffer)
+            .map_err(|error| SshSessionError::new(error.to_string()))?;
+        if count == 0 {
+            return Ok(());
+        }
+
+        let mut written = 0;
+        while written < count {
+            let next = session.write(&buffer[written..count])?;
+            if next == 0 {
+                return Err(SshSessionError::new(
+                    "SSH session write returned zero bytes",
+                ));
+            }
+            written += next;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{
+        io,
         path::PathBuf,
         sync::{Arc, Mutex},
     };
@@ -766,6 +829,47 @@ mod tests {
         assert_eq!(connector.last_request, Some(request));
     }
 
+    #[test]
+    fn shell_runner_streams_remote_output_and_closes_session() {
+        let request = SshConnectRequest::agent(valid_config());
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut connector = MockRunnerConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        super::run_shell_with_io(
+            &mut connector,
+            request.clone(),
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(state.last_request.as_ref(), Some(&request));
+        assert_eq!(output, b"remote\n");
+        assert!(state.closed);
+    }
+
+    #[test]
+    fn shell_runner_writes_local_input_to_remote_session() {
+        let request = SshConnectRequest::agent(valid_config());
+        let state = Arc::new(Mutex::new(MockRunnerState::default()));
+        let mut connector = MockRunnerConnector {
+            state: Arc::clone(&state),
+        };
+        let mut input = &b"echo hi\n"[..];
+        let mut output = Vec::new();
+
+        super::run_shell_with_io(&mut connector, request, &mut input, &mut output).unwrap();
+
+        let state = state.lock().unwrap();
+        assert_eq!(state.written, b"echo hi\n");
+        assert_eq!(output, b"remote\n");
+        assert!(state.closed);
+    }
+
     fn valid_config() -> SshSessionConfig {
         SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(100, 40)).unwrap()
     }
@@ -826,6 +930,64 @@ mod tests {
 
         fn close(&mut self) -> Result<(), super::SshSessionError> {
             self.closed = true;
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct MockRunnerState {
+        last_request: Option<SshConnectRequest>,
+        written: Vec<u8>,
+        closed: bool,
+    }
+
+    struct MockRunnerConnector {
+        state: Arc<Mutex<MockRunnerState>>,
+    }
+
+    impl SshShellConnector for MockRunnerConnector {
+        fn connect(
+            &mut self,
+            request: SshConnectRequest,
+        ) -> Result<Box<dyn SshShellSession>, super::SshSessionError> {
+            self.state.lock().unwrap().last_request = Some(request);
+            Ok(Box::new(MockRunnerSession {
+                state: Arc::clone(&self.state),
+                read_once: false,
+            }))
+        }
+    }
+
+    struct MockRunnerSession {
+        state: Arc<Mutex<MockRunnerState>>,
+        read_once: bool,
+    }
+
+    impl SshShellSession for MockRunnerSession {
+        fn read(&mut self, buffer: &mut [u8]) -> Result<usize, super::SshSessionError> {
+            if self.read_once {
+                return Ok(0);
+            }
+            self.read_once = true;
+            buffer[..7].copy_from_slice(b"remote\n");
+            Ok(7)
+        }
+
+        fn write(&mut self, bytes: &[u8]) -> Result<usize, super::SshSessionError> {
+            self.state.lock().unwrap().written.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn resize(&mut self, _size: TerminalSize) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn keepalive(&mut self) -> Result<(), super::SshSessionError> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), super::SshSessionError> {
+            self.state.lock().unwrap().closed = true;
             Ok(())
         }
     }

@@ -1,13 +1,13 @@
 use std::error::Error;
 #[cfg(test)]
-use std::io::{self, Read, Write};
+use std::io::{Read, Write};
 
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
 #[cfg(test)]
 use rssh_ssh::SshSessionStartup;
-use rssh_ssh::{SshAuthMethod, SshConnectRequest};
 #[cfg(test)]
-use rssh_ssh::{SshShellConnector, SshShellSession};
+use rssh_ssh::SshShellConnector;
+use rssh_ssh::{SshAuthMethod, SshConnectRequest};
 
 use crate::{
     cli::{LocalOptions, OpenSshTarget, SshForward, SshOptions, SshTarget},
@@ -168,49 +168,7 @@ fn run_with_connector_and_io(
     output: &mut dyn Write,
 ) -> Result<(), Box<dyn Error>> {
     let request = native_request_for_options(options)?;
-    let mut session = connector.connect(request)?;
-    copy_input_to_session(input, session.as_mut())?;
-    let mut buffer = [0; 8192];
-
-    loop {
-        let count = session.read(&mut buffer)?;
-        if count == 0 {
-            break;
-        }
-
-        output.write_all(&buffer[..count])?;
-        output.flush()?;
-    }
-
-    session.close()?;
-    Ok(())
-}
-
-#[cfg(test)]
-fn copy_input_to_session(
-    input: &mut dyn Read,
-    session: &mut dyn SshShellSession,
-) -> Result<(), Box<dyn Error>> {
-    let mut buffer = [0; 8192];
-
-    loop {
-        let count = input.read(&mut buffer)?;
-        if count == 0 {
-            return Ok(());
-        }
-
-        let mut written = 0;
-        while written < count {
-            let next = session.write(&buffer[written..count])?;
-            if next == 0 {
-                return Err(Box::new(io::Error::new(
-                    io::ErrorKind::WriteZero,
-                    "SSH session write returned zero bytes",
-                )));
-            }
-            written += next;
-        }
-    }
+    rssh_ssh::run_shell_with_io(connector, request, input, output).map_err(Into::into)
 }
 
 #[cfg(test)]

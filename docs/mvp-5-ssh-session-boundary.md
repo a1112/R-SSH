@@ -56,6 +56,10 @@ contract that a future in-process `russh` adapter must satisfy.
   `SshChannelOpener`, wrapping the opened channel in `SshChannelSession` so the
   app-facing shell-session contract stays stable while the native backend is
   introduced.
+- `run_shell_with_io` provides the reusable native SSH session pump: it connects
+  through an `SshShellConnector`, copies local input into the remote session,
+  streams remote output to a caller-provided writer, and closes the session
+  after EOF.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
@@ -211,6 +215,8 @@ SSH-boundary tests cover:
   command, and no-shell requests
 - `SshSessionStartup` defaults, remote command validation, and direct native
   SSH connector propagation for remote-command and no-shell requests
+- `run_shell_with_io` behavior for streaming remote output, forwarding local
+  input, and closing the shell session
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
