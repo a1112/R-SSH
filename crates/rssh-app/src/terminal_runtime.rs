@@ -54,10 +54,11 @@ impl TerminalRuntime {
                     display_bytes.extend(self.visible_output_filter.process(&display));
                 }
                 FilteredOutputEvent::Response(response) => {
-                    responses.push(
-                        self.output_filter
-                            .response_bytes(response, self.terminal.cursor()),
-                    );
+                    responses.push(self.output_filter.response_bytes(
+                        response,
+                        self.terminal.cursor(),
+                        self.terminal.title(),
+                    ));
                 }
             }
         }
@@ -172,6 +173,14 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[0n"),
         },
         TerminalQueryResponse {
+            query: b"\x1b[11t",
+            response: TerminalResponse::WindowState,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b11t",
+            response: TerminalResponse::WindowState,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[14t",
             response: TerminalResponse::WindowPixelSize,
         },
@@ -218,6 +227,22 @@ impl TerminalOutputFilter {
         TerminalQueryResponse {
             query: b"\x9b19t",
             response: TerminalResponse::ScreenSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[20t",
+            response: TerminalResponse::IconLabel,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b20t",
+            response: TerminalResponse::IconLabel,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[21t",
+            response: TerminalResponse::WindowTitle,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b21t",
+            response: TerminalResponse::WindowTitle,
         },
     ];
 
@@ -274,8 +299,13 @@ impl TerminalOutputFilter {
             .unwrap_or(0)
     }
 
-    fn response_bytes(&self, response: TerminalResponse, cursor: (u16, u16)) -> Vec<u8> {
-        response.response_bytes(self.size, cursor)
+    fn response_bytes(
+        &self,
+        response: TerminalResponse,
+        cursor: (u16, u16),
+        title: Option<&str>,
+    ) -> Vec<u8> {
+        response.response_bytes(self.size, cursor, title)
     }
 }
 
@@ -288,16 +318,24 @@ struct TerminalQueryResponse {
 enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
+    WindowState,
     WindowPixelSize,
     WindowPosition,
     ScreenPixelSize,
     CharacterCellSize,
     TextAreaSize,
     ScreenSize,
+    IconLabel,
+    WindowTitle,
 }
 
 impl TerminalResponse {
-    fn response_bytes(self, size: TerminalSize, cursor: (u16, u16)) -> Vec<u8> {
+    fn response_bytes(
+        self,
+        size: TerminalSize,
+        cursor: (u16, u16),
+        title: Option<&str>,
+    ) -> Vec<u8> {
         match self {
             TerminalResponse::Static(bytes) => bytes.to_vec(),
             TerminalResponse::CursorPosition { private } => {
@@ -318,6 +356,7 @@ impl TerminalResponse {
                     .into_bytes()
                 }
             }
+            TerminalResponse::WindowState => b"\x1b[1t".to_vec(),
             TerminalResponse::WindowPixelSize => format!(
                 "\x1b[4;{};{}t",
                 u32::from(size.rows) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
@@ -343,8 +382,22 @@ impl TerminalResponse {
             TerminalResponse::ScreenSize => {
                 format!("\x1b[9;{};{}t", size.rows, size.columns).into_bytes()
             }
+            TerminalResponse::IconLabel => osc_title_response(b'L', title),
+            TerminalResponse::WindowTitle => osc_title_response(b'l', title),
         }
     }
+}
+
+fn osc_title_response(kind: u8, title: Option<&str>) -> Vec<u8> {
+    let mut response = Vec::from([0x1b, b']', kind]);
+    response.extend(
+        title
+            .unwrap_or_default()
+            .bytes()
+            .filter(|byte| !matches!(byte, 0x00..=0x1f | 0x7f)),
+    );
+    response.extend_from_slice(b"\x1b\\");
+    response
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -681,6 +734,37 @@ mod tests {
     }
 
     #[test]
+    fn answers_window_state_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"before\x1b[11tafter");
+
+        assert_eq!(responses, vec![b"\x1b[1t".to_vec()]);
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
+        assert!(!text.contains("[11t"));
+    }
+
+    #[test]
+    fn answers_window_title_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses =
+            runtime.feed_pty_output(b"\x1b]0;ops\x07before\x1b[20t middle\x1b[21tafter");
+
+        assert_eq!(
+            responses,
+            vec![b"\x1b]Lops\x1b\\".to_vec(), b"\x1b]lops\x1b\\".to_vec()]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("before middleafter"));
+        assert!(!text.contains("[20t"));
+        assert!(!text.contains("[21t"));
+    }
+
+    #[test]
     fn answers_c1_terminal_size_queries() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
@@ -711,6 +795,20 @@ mod tests {
 
         assert_eq!(window_position, vec![b"\x1b[3;0;0t".to_vec()]);
         assert_eq!(screen_pixels, vec![b"\x1b[5;688;1056t".to_vec()]);
+    }
+
+    #[test]
+    fn answers_c1_window_state_and_title_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        runtime.feed_pty_output(b"\x1b]0;ops\x07");
+        let state = runtime.feed_pty_output(b"\x9b11t");
+        let icon = runtime.feed_pty_output(b"\x9b20t");
+        let title = runtime.feed_pty_output(b"\x9b21t");
+
+        assert_eq!(state, vec![b"\x1b[1t".to_vec()]);
+        assert_eq!(icon, vec![b"\x1b]Lops\x1b\\".to_vec()]);
+        assert_eq!(title, vec![b"\x1b]lops\x1b\\".to_vec()]);
     }
 
     #[test]

@@ -576,6 +576,14 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[0n"),
         },
         TerminalQueryResponse {
+            query: b"\x1b[11t",
+            response: TerminalResponse::WindowState,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b11t",
+            response: TerminalResponse::WindowState,
+        },
+        TerminalQueryResponse {
             query: b"\x1b[14t",
             response: TerminalResponse::WindowPixelSize,
         },
@@ -622,6 +630,22 @@ impl TerminalOutputFilter {
         TerminalQueryResponse {
             query: b"\x9b19t",
             response: TerminalResponse::ScreenSize,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[20t",
+            response: TerminalResponse::IconLabel,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b20t",
+            response: TerminalResponse::IconLabel,
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[21t",
+            response: TerminalResponse::WindowTitle,
+        },
+        TerminalQueryResponse {
+            query: b"\x9b21t",
+            response: TerminalResponse::WindowTitle,
         },
     ];
 
@@ -718,6 +742,7 @@ impl TerminalOutputFilter {
                     .into_bytes()
                 }
             }
+            TerminalResponse::WindowState => b"\x1b[1t".to_vec(),
             TerminalResponse::WindowPixelSize => {
                 let size = self.size.snapshot();
                 format!(
@@ -751,6 +776,8 @@ impl TerminalOutputFilter {
                 let size = self.size.snapshot();
                 format!("\x1b[9;{};{}t", size.rows(), size.columns()).into_bytes()
             }
+            TerminalResponse::IconLabel => osc_title_response(b'L', self.mirror.title()),
+            TerminalResponse::WindowTitle => osc_title_response(b'l', self.mirror.title()),
         }
     }
 
@@ -772,12 +799,27 @@ struct TerminalQueryResponse {
 enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
+    WindowState,
     WindowPixelSize,
     WindowPosition,
     ScreenPixelSize,
     CharacterCellSize,
     TextAreaSize,
     ScreenSize,
+    IconLabel,
+    WindowTitle,
+}
+
+fn osc_title_response(kind: u8, title: Option<&str>) -> Vec<u8> {
+    let mut response = Vec::from([0x1b, b']', kind]);
+    response.extend(
+        title
+            .unwrap_or_default()
+            .bytes()
+            .filter(|byte| !matches!(byte, 0x00..=0x1f | 0x7f)),
+    );
+    response.extend_from_slice(b"\x1b\\");
+    response
 }
 
 impl Default for TerminalOutputFilter {
@@ -1942,6 +1984,46 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_window_state_query() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[11tafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[1t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_window_title_queries() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b]0;ops\x07before\x1b[20t middle\x1b[21tafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1b]0;ops\x07before middleafter");
+        assert_eq!(responses, b"\x1b]Lops\x1b\\\x1b]lops\x1b\\");
+    }
+
+    #[test]
     fn terminal_output_filter_answers_c1_terminal_size_queries() {
         let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
         let mut output = Vec::new();
@@ -2005,6 +2087,28 @@ mod tests {
 
         assert_eq!(output, b"before middleafter");
         assert_eq!(responses, b"\x1b[3;0;0t\x1b[5;688;1056t");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_window_state_and_title_queries() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b]0;ops\x07before\x9b11t middle\x9b20t after\x9b21t",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1b]0;ops\x07before middle after");
+        assert_eq!(responses, b"\x1b[1t\x1b]Lops\x1b\\\x1b]lops\x1b\\");
     }
 
     #[test]
