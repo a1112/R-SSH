@@ -105,6 +105,11 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app ssh` parses user-facing connection options into `SshConnectRequest`,
   including host, user, port, initial terminal size, password-prompt auth,
   private-key auth, and agent auth.
+- `rssh-app ssh --native --host ...` selects the in-process russh path for
+  direct targets. The native app path uses `RusshChannelOpener` through
+  `SshChannelConnector`, prompts for a password when `--password` is selected,
+  and requires explicit `--accept-unknown-host-key` for insecure/test-only
+  unknown-host-key acceptance until known-host persistence exists.
 - `rssh-app ssh --target NAME` can reuse an existing OpenSSH `Host NAME`
   configuration entry, with optional user, port, key, password-prompt, and size
   overrides.
@@ -282,6 +287,11 @@ SSH-boundary tests cover:
 - `RusshChannelStartupPlan` request ordering for shell, remote command, and
   no-shell startup modes
 - app-level SSH command parsing for agent, password-prompt, and private-key requests
+- app-level native SSH backend selection with `--native`
+- app-level native password prompt resolution before connecting through russh
+- explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
+- rejection of `--native --target` and native forwarding until those native
+  features are wired
 - command-line rejection for password and key-passphrase secret values
 - app-level OpenSSH config-target parsing with optional user, port, key,
   password-prompt, and size overrides
@@ -305,7 +315,7 @@ SSH-boundary tests cover:
 
 - Switching the app-level `rssh-app ssh` command from the OpenSSH PTY
   compatibility path to the native russh adapter by default.
-- Executing password-prompt, key, and agent authentication through `russh`.
+- Executing key and agent authentication through `russh`.
 - Known-host file storage and persisted host-key trust decisions.
 - SFTP, in-process native tunnels, and reconnects.
 

@@ -262,6 +262,8 @@ dynamic_forward = ["127.0.0.1:1080"]
                     SshForward::Dynamic("127.0.0.1:1080".to_owned()),
                 ],
                 no_shell: false,
+                native: false,
+                accept_unknown_host_key: false,
                 osc52_policy: crate::cli::Osc52Policy::Off,
                 log: None,
             })

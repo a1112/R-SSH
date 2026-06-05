@@ -38,6 +38,8 @@ pub struct SshOptions {
     pub remote_command: Vec<String>,
     pub forwards: Vec<SshForward>,
     pub no_shell: bool,
+    pub native: bool,
+    pub accept_unknown_host_key: bool,
     pub osc52_policy: Osc52Policy,
     pub log: Option<PathBuf>,
 }
@@ -76,6 +78,8 @@ struct SshParseState {
     remote_command: Vec<String>,
     forwards: Vec<SshForward>,
     no_shell: bool,
+    native: bool,
+    accept_unknown_host_key: bool,
     osc52_policy: Osc52Policy,
     log: Option<PathBuf>,
 }
@@ -159,7 +163,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -362,6 +366,12 @@ fn parse_ssh_option(
         "--no-shell" => {
             state.no_shell = true;
         }
+        "--native" => {
+            state.native = true;
+        }
+        "--accept-unknown-host-key" => {
+            state.accept_unknown_host_key = true;
+        }
         "--osc52" => {
             *index += 1;
             state.osc52_policy = parse_osc52_policy(args.get(*index))?;
@@ -391,6 +401,8 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         remote_command,
         forwards,
         no_shell,
+        native,
+        accept_unknown_host_key,
         osc52_policy,
         log,
     } = state;
@@ -423,11 +435,20 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         (None, None) => return Err("--host or --target is required".to_owned()),
     };
 
+    if native && matches!(target, SshTarget::OpenSsh(_)) {
+        return Err("--native requires --host and cannot use --target".to_owned());
+    }
+    if accept_unknown_host_key && !native {
+        return Err("--accept-unknown-host-key requires --native".to_owned());
+    }
+
     Ok(SshOptions {
         target,
         remote_command,
         forwards,
         no_shell,
+        native,
+        accept_unknown_host_key,
         osc52_policy,
         log,
     })
@@ -794,6 +815,48 @@ mod tests {
     }
 
     #[test]
+    fn parses_ssh_native_direct_backend() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--native",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert!(options.native);
+        assert!(!options.accept_unknown_host_key);
+    }
+
+    #[test]
+    fn parses_ssh_native_accept_unknown_host_key_flag() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--native",
+            "--accept-unknown-host-key",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert!(options.accept_unknown_host_key);
+    }
+
+    #[test]
     fn parses_ssh_openssh_config_target() {
         let parsed = parse_args(["rssh-app", "ssh", "--target", "prod"]).unwrap();
 
@@ -812,6 +875,7 @@ mod tests {
             })
         );
         assert!(options.remote_command.is_empty());
+        assert!(!options.native);
     }
 
     #[test]
@@ -890,6 +954,22 @@ mod tests {
 
         assert_eq!(request.config.host, "example.com");
         assert_eq!(options.remote_command, ["whoami"]);
+    }
+
+    #[test]
+    fn rejects_accept_unknown_host_key_without_native() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--accept-unknown-host-key",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("--accept-unknown-host-key requires --native"));
     }
 
     #[test]
@@ -1084,6 +1164,8 @@ mod tests {
         let help = super::help_text();
 
         assert!(help.contains("--password"));
+        assert!(help.contains("--native"));
+        assert!(help.contains("--accept-unknown-host-key"));
         assert!(help.contains("--target"));
         assert!(help.contains("rssh-app <command> --help"));
         assert!(!help.contains("PASSWORD"));
@@ -1131,6 +1213,13 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("only one of --host or --target can be selected"));
+    }
+
+    #[test]
+    fn rejects_ssh_native_openssh_config_target() {
+        let error = parse_args(["rssh-app", "ssh", "--native", "--target", "prod"]).unwrap_err();
+
+        assert!(error.contains("--native requires --host"));
     }
 
     #[test]

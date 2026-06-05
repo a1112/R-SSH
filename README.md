@@ -54,6 +54,7 @@ cargo run -p rssh-app -- local --osc52 write
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
+cargo run -p rssh-app -- ssh --native --accept-unknown-host-key --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --target prod
 cargo run -p rssh-app -- ssh --target prod -- uname -a
 cargo run -p rssh-app -- ssh --host example.com --user ops --password
@@ -91,6 +92,12 @@ log file.
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
 secrets in the R-SSH command line.
+Add `--native` with `--host` to use the experimental in-process `russh` path
+instead of spawning OpenSSH. The native path currently supports direct targets
+and password prompting; `--accept-unknown-host-key` is required for test
+servers until known-host persistence is implemented. Native forwarding,
+OpenSSH `Host` targets, agent auth, and key auth are still kept on the OpenSSH
+compatibility path.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing

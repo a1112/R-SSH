@@ -1,13 +1,13 @@
-use std::error::Error;
-#[cfg(test)]
-use std::io::{Read, Write};
+use std::{
+    error::Error,
+    io::{self, Read, Write},
+};
 
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
-#[cfg(test)]
-use rssh_ssh::SshSessionStartup;
-#[cfg(test)]
-use rssh_ssh::SshShellConnector;
-use rssh_ssh::{SshAuthMethod, SshConnectRequest};
+use rssh_ssh::{
+    RusshChannelOpener, RusshHostKeyPolicy, SshAuthMethod, SshChannelConnector, SshConnectRequest,
+    SshSessionStartup, SshShellConnector,
+};
 
 use crate::{
     cli::{LocalOptions, OpenSshTarget, SshForward, SshOptions, SshTarget},
@@ -15,9 +15,38 @@ use crate::{
 };
 
 pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
+    if options.native {
+        return run_native(options);
+    }
+
     let local_options = local_options_for_options(options)?;
 
     local::run(&local_options)
+}
+
+fn run_native(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let mut connector = SshChannelConnector::new(native_channel_opener_for_options(options));
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut input = stdin.lock();
+    let mut output = stdout.lock();
+
+    run_native_with_connector_prompt_and_io(
+        options,
+        &mut connector,
+        &mut || native_password_prompt(options),
+        &mut input,
+        &mut output,
+    )
+}
+
+fn native_channel_opener_for_options(options: &SshOptions) -> RusshChannelOpener {
+    let opener = RusshChannelOpener::default();
+    if options.accept_unknown_host_key {
+        return opener.with_host_key_policy(RusshHostKeyPolicy::AcceptUnknown);
+    }
+
+    opener
 }
 
 #[must_use]
@@ -36,9 +65,22 @@ fn openssh_command_for_options(options: &SshOptions) -> PtyCommand {
 
 #[cfg(test)]
 fn native_request_for_options(options: &SshOptions) -> Result<SshConnectRequest, Box<dyn Error>> {
+    native_request_for_options_with_password_prompt(options, &mut || {
+        Err("native SSH password prompt requires a password provider".into())
+    })
+}
+
+fn native_request_for_options_with_password_prompt(
+    options: &SshOptions,
+    password_prompt: &mut dyn FnMut() -> Result<String, Box<dyn Error>>,
+) -> Result<SshConnectRequest, Box<dyn Error>> {
     let SshTarget::Direct(request) = &options.target else {
         return Err("native SSH connector only supports direct SSH targets".into());
     };
+
+    if !options.forwards.is_empty() {
+        return Err("native SSH forwarding is not wired yet".into());
+    }
 
     let startup = if options.no_shell {
         SshSessionStartup::NoShell
@@ -48,7 +90,12 @@ fn native_request_for_options(options: &SshOptions) -> Result<SshConnectRequest,
         SshSessionStartup::command(options.remote_command.clone())?
     };
 
-    Ok(request.clone().with_startup(startup))
+    let mut request = request.clone().with_startup(startup);
+    if matches!(request.auth, SshAuthMethod::PasswordPrompt) {
+        request.auth = SshAuthMethod::password(password_prompt()?)?;
+    }
+
+    Ok(request)
 }
 
 #[must_use]
@@ -155,6 +202,8 @@ fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions
         remote_command: Vec::new(),
         forwards: Vec::new(),
         no_shell: false,
+        native: false,
+        accept_unknown_host_key: false,
         osc52_policy: crate::cli::Osc52Policy::default(),
         log: None,
     })
@@ -169,6 +218,43 @@ fn run_with_connector_and_io(
 ) -> Result<(), Box<dyn Error>> {
     let request = native_request_for_options(options)?;
     rssh_ssh::run_shell_with_io(connector, request, input, output).map_err(Into::into)
+}
+
+#[cfg(test)]
+fn run_native_with_connector_and_io(
+    options: &SshOptions,
+    connector: &mut dyn SshShellConnector,
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
+    run_with_connector_and_io(options, connector, input, output)?;
+
+    Ok(PtyExitStatus::from_exit_code(0))
+}
+
+fn run_native_with_connector_prompt_and_io(
+    options: &SshOptions,
+    connector: &mut dyn SshShellConnector,
+    password_prompt: &mut dyn FnMut() -> Result<String, Box<dyn Error>>,
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let request = native_request_for_options_with_password_prompt(options, password_prompt)?;
+    rssh_ssh::run_shell_with_io(connector, request, input, output)?;
+
+    Ok(PtyExitStatus::from_exit_code(0))
+}
+
+fn native_password_prompt(options: &SshOptions) -> Result<String, Box<dyn Error>> {
+    let SshTarget::Direct(request) = &options.target else {
+        return Err("native SSH connector only supports direct SSH targets".into());
+    };
+
+    rpassword::prompt_password(format!(
+        "Password for {}@{}: ",
+        request.config.username, request.config.host
+    ))
+    .map_err(Into::into)
 }
 
 #[cfg(test)]
@@ -203,6 +289,8 @@ mod tests {
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
                 no_shell: false,
+                native: false,
+                accept_unknown_host_key: false,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -236,6 +324,8 @@ mod tests {
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
                 no_shell: false,
+                native: false,
+                accept_unknown_host_key: false,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -268,6 +358,8 @@ mod tests {
                 remote_command: vec!["uname".to_owned(), "-a".to_owned()],
                 forwards: Vec::new(),
                 no_shell: false,
+                native: false,
+                accept_unknown_host_key: false,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -302,6 +394,8 @@ mod tests {
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
                 no_shell: true,
+                native: false,
+                accept_unknown_host_key: false,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -314,6 +408,135 @@ mod tests {
         let state = state.lock().unwrap();
         let request = state.last_request.as_ref().unwrap();
         assert_eq!(request.startup, SshSessionStartup::NoShell);
+    }
+
+    #[test]
+    fn native_ssh_runner_uses_connector_and_returns_success_status() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        let status = super::run_native_with_connector_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request.clone()),
+                remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: false,
+                native: true,
+                accept_unknown_host_key: false,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        let state = state.lock().unwrap();
+        assert!(status.success());
+        assert_eq!(state.last_request.as_ref(), Some(&request));
+        assert_eq!(output, b"remote\n");
+        assert!(state.closed);
+    }
+
+    #[test]
+    fn native_ssh_runner_rejects_forwarding_until_native_tunnels_exist() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector { state };
+        let mut output = Vec::new();
+
+        let error = super::run_native_with_connector_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
+                forwards: vec![crate::cli::SshForward::Local(
+                    "127.0.0.1:15432:db.internal:5432".to_owned(),
+                )],
+                no_shell: false,
+                native: true,
+                accept_unknown_host_key: false,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("native SSH forwarding"));
+    }
+
+    #[test]
+    fn native_ssh_runner_resolves_password_prompt_before_connecting() {
+        let request = SshConnectRequest::new(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+            rssh_ssh::SshAuthMethod::PasswordPrompt,
+        );
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut output = Vec::new();
+
+        super::run_native_with_connector_prompt_and_io(
+            &SshOptions {
+                target: SshTarget::Direct(request),
+                remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: false,
+                native: true,
+                accept_unknown_host_key: false,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut || Ok("secret".to_owned()),
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        let state = state.lock().unwrap();
+        let request = state.last_request.as_ref().unwrap();
+        assert_eq!(
+            request.auth,
+            rssh_ssh::SshAuthMethod::Password {
+                password: "secret".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn native_ssh_opener_uses_explicit_accept_unknown_host_key_policy() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+
+        let opener = super::native_channel_opener_for_options(&SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: Vec::new(),
+            no_shell: false,
+            native: true,
+            accept_unknown_host_key: true,
+            osc52_policy: Osc52Policy::default(),
+            log: None,
+        });
+
+        assert_eq!(
+            opener.host_key_policy(),
+            rssh_ssh::RusshHostKeyPolicy::AcceptUnknown
+        );
     }
 
     #[test]
@@ -401,6 +624,8 @@ mod tests {
             remote_command: Vec::new(),
             forwards: Vec::new(),
             no_shell: false,
+            native: false,
+            accept_unknown_host_key: false,
             osc52_policy: Osc52Policy::Off,
             log: None,
         };
@@ -426,6 +651,8 @@ mod tests {
             remote_command: Vec::new(),
             forwards: Vec::new(),
             no_shell: false,
+            native: false,
+            accept_unknown_host_key: false,
             osc52_policy: Osc52Policy::default(),
             log: None,
         };
@@ -460,6 +687,8 @@ mod tests {
             remote_command: vec!["uname".to_owned(), "-a".to_owned()],
             forwards: Vec::new(),
             no_shell: false,
+            native: false,
+            accept_unknown_host_key: false,
             osc52_policy: Osc52Policy::default(),
             log: None,
         };
@@ -486,6 +715,8 @@ mod tests {
                 crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned()),
             ],
             no_shell: true,
+            native: false,
+            accept_unknown_host_key: false,
             osc52_policy: Osc52Policy::default(),
             log: None,
         };
@@ -571,6 +802,8 @@ mod tests {
             remote_command: Vec::new(),
             forwards: Vec::new(),
             no_shell: false,
+            native: false,
+            accept_unknown_host_key: false,
             osc52_policy: Osc52Policy::default(),
             log: None,
         }
