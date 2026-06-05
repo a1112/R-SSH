@@ -65,6 +65,8 @@ in the native `winit` window.
   legacy or SGR mouse reports when reporting is enabled.
 - `rssh-app window --metrics` prints startup, PTY processing, render-frame,
   and PTY input-write counters and p95 timings when the window run exits.
+- `rssh-app window --log PATH` writes visible native-window terminal output to
+  a session log file.
 - `rssh-app window --frames N` still works as an automated native-window smoke
   check.
 
@@ -106,6 +108,12 @@ Run a custom command inside the native window:
 cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
 ```
 
+Write a native-window session log:
+
+```powershell
+cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.exe /K echo window-log-smoke
+```
+
 Console-hosted local PTY remains available:
 
 ```powershell
@@ -127,6 +135,7 @@ Native window smoke:
 ```powershell
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
+cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.exe /K echo window-log-smoke
 ```
 
 MVP 4 tests cover:
@@ -143,6 +152,7 @@ MVP 4 tests cover:
   search shortcut detection
 - native window custom startup command parsing and configured PTY command
   storage
+- native window log path parsing and visible PTY output logging
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response

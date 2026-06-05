@@ -83,6 +83,7 @@ pub struct WindowOptions {
     pub osc52_policy: Osc52Policy,
     pub metrics: bool,
     pub command: PtyCommand,
+    pub log: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -116,6 +117,7 @@ where
             osc52_policy: Osc52Policy::default(),
             metrics: false,
             command: PtyCommand::default_shell(),
+            log: None,
         }));
     };
 
@@ -142,7 +144,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -402,6 +404,7 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
     let mut frame_limit = None;
     let mut osc52_policy = Osc52Policy::default();
     let mut metrics = false;
+    let mut log = None;
     let mut command_args = Vec::new();
     let mut index = 0;
 
@@ -417,6 +420,13 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
             }
             "--metrics" => {
                 metrics = true;
+            }
+            "--log" => {
+                index += 1;
+                log = Some(PathBuf::from(required_option_value(
+                    args.get(index),
+                    "--log",
+                )?));
             }
             "--" => {
                 command_args.extend(args[index + 1..].iter().cloned());
@@ -440,6 +450,7 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
         osc52_policy,
         metrics,
         command,
+        log,
     }))
 }
 
@@ -537,7 +548,8 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: false,
-                command: rssh_pty::PtyCommand::default_shell()
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None
             })
         );
     }
@@ -550,7 +562,8 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: false,
-                command: rssh_pty::PtyCommand::default_shell()
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None
             })
         );
     }
@@ -574,7 +587,8 @@ mod tests {
                 frame_limit: Some(1),
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: false,
-                command: rssh_pty::PtyCommand::default_shell()
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None
             })
         );
     }
@@ -587,7 +601,8 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: true,
-                command: rssh_pty::PtyCommand::default_shell()
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None
             })
         );
     }
@@ -617,6 +632,17 @@ mod tests {
     }
 
     #[test]
+    fn parses_window_log_path() {
+        let parsed = parse_args(["rssh-app", "window", "--log", "window.log"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(options.log, Some(std::path::PathBuf::from("window.log")));
+    }
+
+    #[test]
     fn parses_window_osc52_policy() {
         assert_eq!(
             parse_args(["rssh-app", "window", "--osc52", "off"]).unwrap(),
@@ -624,7 +650,8 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::Off,
                 metrics: false,
-                command: rssh_pty::PtyCommand::default_shell()
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None
             })
         );
         assert_eq!(
@@ -633,7 +660,8 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
-                command: rssh_pty::PtyCommand::default_shell()
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None
             })
         );
         assert!(parse_args(["rssh-app", "window", "--osc52", "bad"]).is_err());

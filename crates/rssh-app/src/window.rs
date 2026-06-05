@@ -1,5 +1,6 @@
 use std::{
     error::Error,
+    fs::File,
     io::{self, Read, Write},
     sync::Arc,
     thread,
@@ -40,10 +41,15 @@ const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<WindowUserEvent>::with_user_event().build()?;
     let event_proxy = event_loop.create_proxy();
+    let session_log = match &options.log {
+        Some(path) => Some(Box::new(File::create(path)?) as Box<dyn Write + Send>),
+        None => None,
+    };
     let mut app = NativeWindowApp::with_event_proxy(
         options.frame_limit,
         options.osc52_policy,
         options.command.clone(),
+        session_log,
         event_proxy,
     );
 
@@ -79,6 +85,7 @@ struct NativeWindowApp {
     event_proxy: Option<EventLoopProxy<WindowUserEvent>>,
     session: Option<PtySession>,
     writer: Option<Box<dyn Write + Send>>,
+    session_log: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     modifiers: ModifiersState,
     scrollback_offset: usize,
@@ -302,6 +309,7 @@ impl NativeWindowApp {
             event_proxy: None,
             session: None,
             writer: None,
+            session_log: None,
             reader_thread: None,
             modifiers: ModifiersState::empty(),
             scrollback_offset: 0,
@@ -323,14 +331,26 @@ impl NativeWindowApp {
         &self.startup_command
     }
 
+    #[cfg(test)]
+    fn new_with_session_log(
+        frame_limit: Option<u64>,
+        session_log: impl Write + Send + 'static,
+    ) -> Self {
+        let mut app = Self::new(frame_limit);
+        app.session_log = Some(Box::new(session_log));
+        app
+    }
+
     fn with_event_proxy(
         frame_limit: Option<u64>,
         osc52_policy: Osc52Policy,
         startup_command: PtyCommand,
+        session_log: Option<Box<dyn Write + Send>>,
         event_proxy: EventLoopProxy<WindowUserEvent>,
     ) -> Self {
         let mut app =
             Self::new_with_command_and_osc52_policy(frame_limit, osc52_policy, startup_command);
+        app.session_log = session_log;
         app.event_proxy = Some(event_proxy);
         app
     }
@@ -390,7 +410,9 @@ impl NativeWindowApp {
     fn handle_pty_output(&mut self, bytes: &[u8]) -> io::Result<()> {
         let started = Instant::now();
         self.metrics.record_pty_chunk(bytes.len());
-        for response in self.runtime.feed_pty_output(bytes) {
+        let runtime_output = self.runtime.feed_pty_output_with_display(bytes);
+        self.write_session_log(&runtime_output.display)?;
+        for response in runtime_output.responses {
             self.write_pty_bytes(&response)?;
         }
         for text in self.runtime.take_clipboard_texts() {
@@ -410,6 +432,18 @@ impl NativeWindowApp {
         self.metrics.record_pty_chunk_process(started.elapsed());
 
         Ok(())
+    }
+
+    fn write_session_log(&mut self, bytes: &[u8]) -> io::Result<()> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let Some(log) = self.session_log.as_mut() else {
+            return Ok(());
+        };
+
+        log.write_all(bytes)?;
+        log.flush()
     }
 
     fn refresh_snapshot(&mut self) {
@@ -2429,6 +2463,17 @@ mod tests {
             app.startup_command().args(),
             ["-NoProfile", "-Command", "Write-Output window-smoke"]
         );
+    }
+
+    #[test]
+    fn window_app_logs_visible_pty_output() {
+        let logged = Arc::new(Mutex::new(Vec::new()));
+        let mut app =
+            NativeWindowApp::new_with_session_log(None, SharedWriter(Arc::clone(&logged)));
+
+        app.handle_pty_output(b"before\x1b[6nafter").unwrap();
+
+        assert_eq!(logged.lock().unwrap().as_slice(), b"beforeafter");
     }
 
     #[test]

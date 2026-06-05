@@ -9,6 +9,11 @@ pub struct TerminalRuntime {
     clipboard_tracker: TerminalClipboardTracker,
 }
 
+pub(crate) struct TerminalRuntimeOutput {
+    pub(crate) responses: Vec<Vec<u8>>,
+    pub(crate) display: Vec<u8>,
+}
+
 impl TerminalRuntime {
     #[must_use]
     pub fn new(size: TerminalSize) -> Self {
@@ -20,15 +25,24 @@ impl TerminalRuntime {
         }
     }
 
+    #[cfg(test)]
     pub fn feed_pty_output(&mut self, bytes: &[u8]) -> Vec<Vec<u8>> {
+        self.feed_pty_output_with_display(bytes).responses
+    }
+
+    pub(crate) fn feed_pty_output_with_display(&mut self, bytes: &[u8]) -> TerminalRuntimeOutput {
         self.clipboard_tracker.process(bytes);
         self.mode_tracker.process(bytes);
         let output = self.output_filter.process(bytes);
 
         let mut responses = Vec::new();
+        let mut display_bytes = Vec::new();
         for event in output.events {
             match event {
-                FilteredOutputEvent::Display(display) => self.terminal.feed(&display),
+                FilteredOutputEvent::Display(display) => {
+                    self.terminal.feed(&display);
+                    display_bytes.extend_from_slice(&display);
+                }
                 FilteredOutputEvent::Response(response) => {
                     responses.push(
                         self.output_filter
@@ -38,7 +52,10 @@ impl TerminalRuntime {
             }
         }
 
-        responses
+        TerminalRuntimeOutput {
+            responses,
+            display: display_bytes,
+        }
     }
 
     pub fn take_clipboard_texts(&mut self) -> Vec<String> {
