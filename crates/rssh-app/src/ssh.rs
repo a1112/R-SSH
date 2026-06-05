@@ -1005,17 +1005,32 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
         return finish_native_ssh_success(
             options,
             &request,
+            NativeSshIoCounters::default(),
             &mut lifecycle,
             metrics_started_at.elapsed(),
             output,
         );
     }
 
-    rssh_ssh::run_shell_with_io(connector, request.clone(), input, output)?;
+    let mut counted_input = CountingRead::new(input);
+    let io_counters = {
+        let mut counted_output = CountingWrite::new(output);
+        rssh_ssh::run_shell_with_io(
+            connector,
+            request.clone(),
+            &mut counted_input,
+            &mut counted_output,
+        )?;
+        NativeSshIoCounters {
+            ssh_input_bytes: counted_input.byte_count(),
+            ssh_output_bytes: counted_output.byte_count(),
+        }
+    };
 
     finish_native_ssh_success(
         options,
         &request,
+        io_counters,
         &mut lifecycle,
         metrics_started_at.elapsed(),
         output,
@@ -1025,6 +1040,7 @@ fn run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
 fn finish_native_ssh_success(
     options: &SshOptions,
     request: &SshConnectRequest,
+    io_counters: NativeSshIoCounters,
     lifecycle: &mut SessionLifecycle,
     elapsed: Duration,
     output: &mut dyn Write,
@@ -1037,6 +1053,7 @@ fn finish_native_ssh_success(
     write_native_ssh_metrics_if_requested(
         options,
         request,
+        io_counters,
         lifecycle.state(),
         elapsed,
         &status,
@@ -1049,6 +1066,7 @@ fn finish_native_ssh_success(
 fn write_native_ssh_metrics_if_requested(
     options: &SshOptions,
     request: &SshConnectRequest,
+    io_counters: NativeSshIoCounters,
     session_state: SessionState,
     elapsed: Duration,
     status: &PtyExitStatus,
@@ -1058,7 +1076,8 @@ fn write_native_ssh_metrics_if_requested(
         return Ok(());
     }
 
-    let snapshot = NativeSshMetricsSnapshot::from_status(request, elapsed, session_state, status);
+    let snapshot =
+        NativeSshMetricsSnapshot::from_status(request, io_counters, elapsed, session_state, status);
     if options.console.metrics_json {
         writeln!(output, "{}", snapshot.json_report()?)?;
     } else {
@@ -1067,6 +1086,62 @@ fn write_native_ssh_metrics_if_requested(
     output.flush()?;
 
     Ok(())
+}
+
+#[derive(Clone, Copy, Default)]
+struct NativeSshIoCounters {
+    ssh_input_bytes: u64,
+    ssh_output_bytes: u64,
+}
+
+struct CountingRead<'a> {
+    inner: &'a mut dyn Read,
+    bytes: u64,
+}
+
+impl<'a> CountingRead<'a> {
+    fn new(inner: &'a mut dyn Read) -> Self {
+        Self { inner, bytes: 0 }
+    }
+
+    fn byte_count(&self) -> u64 {
+        self.bytes
+    }
+}
+
+impl Read for CountingRead<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        let count = self.inner.read(buffer)?;
+        self.bytes += count as u64;
+        Ok(count)
+    }
+}
+
+struct CountingWrite<'a> {
+    inner: &'a mut dyn Write,
+    bytes: u64,
+}
+
+impl<'a> CountingWrite<'a> {
+    fn new(inner: &'a mut dyn Write) -> Self {
+        Self { inner, bytes: 0 }
+    }
+
+    fn byte_count(&self) -> u64 {
+        self.bytes
+    }
+}
+
+impl Write for CountingWrite<'_> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let count = self.inner.write(buffer)?;
+        self.bytes += count as u64;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
 }
 
 #[derive(Serialize)]
@@ -1078,6 +1153,8 @@ struct NativeSshMetricsSnapshot {
     columns: u16,
     rows: u16,
     session_state: String,
+    ssh_input_bytes: u64,
+    ssh_output_bytes: u64,
     elapsed_ms: u128,
     exit_code: u32,
     signal: Option<String>,
@@ -1087,6 +1164,7 @@ struct NativeSshMetricsSnapshot {
 impl NativeSshMetricsSnapshot {
     fn from_status(
         request: &SshConnectRequest,
+        io_counters: NativeSshIoCounters,
         elapsed: Duration,
         session_state: SessionState,
         status: &PtyExitStatus,
@@ -1099,6 +1177,8 @@ impl NativeSshMetricsSnapshot {
             columns: request.config.initial_size.columns,
             rows: request.config.initial_size.rows,
             session_state: session_state.as_str().to_owned(),
+            ssh_input_bytes: io_counters.ssh_input_bytes,
+            ssh_output_bytes: io_counters.ssh_output_bytes,
             elapsed_ms: elapsed.as_millis(),
             exit_code: status.exit_code(),
             signal: status.signal().map(str::to_owned),
@@ -1117,6 +1197,8 @@ port={}
 columns={}
 rows={}
 session_state={}
+ssh_input_bytes={}
+ssh_output_bytes={}
 elapsed_ms={}
 exit_code={}
 signal={}
@@ -1129,6 +1211,8 @@ success={}
             self.columns,
             self.rows,
             self.session_state,
+            self.ssh_input_bytes,
+            self.ssh_output_bytes,
             self.elapsed_ms,
             self.exit_code,
             self.signal.as_deref().unwrap_or("none"),
@@ -1392,6 +1476,7 @@ mod tests {
         let mut connector = MockConnector {
             state: Arc::clone(&state),
         };
+        let mut input = &b"whoami\n"[..];
         let mut output = Vec::new();
 
         let status = super::run_native_with_connector_and_io(
@@ -1410,12 +1495,13 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut io::empty(),
+            &mut input,
             &mut output,
         )
         .unwrap();
 
         assert!(status.success());
+        assert_eq!(state.lock().unwrap().written, b"whoami\n");
         let output = String::from_utf8(output).unwrap();
         let mut lines = output.lines();
         assert_eq!(lines.next(), Some("remote"));
@@ -1428,6 +1514,8 @@ mod tests {
         assert_eq!(metrics["columns"], 100);
         assert_eq!(metrics["rows"], 30);
         assert_eq!(metrics["session_state"], "closed");
+        assert_eq!(metrics["ssh_input_bytes"], 7);
+        assert_eq!(metrics["ssh_output_bytes"], 7);
         assert_eq!(metrics["exit_code"], 0);
         assert_eq!(metrics["signal"], serde_json::Value::Null);
         assert_eq!(metrics["success"], true);
