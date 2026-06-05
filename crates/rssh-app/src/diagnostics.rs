@@ -8,6 +8,7 @@ use std::{
 use serde::Serialize;
 
 use crate::cli::DoctorOptions;
+use crossterm::terminal;
 use rssh_pty::{PtyBackend, PtyCommand};
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -34,11 +35,8 @@ pub fn print_doctor(options: &DoctorOptions) -> Result<(), Box<dyn Error>> {
     if options.json {
         println!("{}", doctor_json(&report)?);
     } else {
-        for check in &report.checks {
-            match &check.path {
-                Some(path) => println!("ok\t{}\t{}", check.name, path),
-                None => println!("missing\t{}", check.name),
-            }
+        for line in doctor_text_lines(&report) {
+            println!("{line}");
         }
     }
 
@@ -62,18 +60,46 @@ pub fn doctor_json(report: &DoctorReport) -> Result<String, Box<dyn Error>> {
     Ok(serde_json::to_string(report)?)
 }
 
+pub fn doctor_text_lines(report: &DoctorReport) -> Vec<String> {
+    report
+        .checks
+        .iter()
+        .map(|check| {
+            if !check.ok {
+                return format!("missing\t{}", check.name);
+            }
+
+            if let Some(path) = &check.path {
+                return format!("ok\t{}\t{}", check.name, path);
+            }
+
+            if let Some(detail) = &check.detail {
+                return format!("ok\t{}\t{}", check.name, detail);
+            }
+
+            format!("ok\t{}", check.name)
+        })
+        .collect()
+}
+
 pub fn diagnose_console_dependencies() -> DoctorReport {
     let paths = env::var_os("PATH")
         .map(|path| env::split_paths(&path).collect::<Vec<_>>())
         .unwrap_or_default();
     let default_shell = PtyCommand::default_shell();
+    let terminal_size = terminal::size().ok();
 
-    diagnose_console_dependencies_in_paths_for_shell(&paths, default_shell.program())
+    diagnose_console_dependencies_in_paths_for_shell_and_size(
+        &paths,
+        default_shell.program(),
+        terminal_size,
+    )
 }
 
-pub fn diagnose_console_dependencies_in_paths_for_shell(
+pub fn diagnose_console_dependencies_in_paths_for_shell_and_size(
     paths: &[PathBuf],
     default_shell: &str,
+    terminal_size: Option<(u16, u16)>,
 ) -> DoctorReport {
     let default_shell_path = resolve_command_path(default_shell, paths);
     let mut checks = vec![
@@ -81,6 +107,12 @@ pub fn diagnose_console_dependencies_in_paths_for_shell(
             name: "pty-backend".to_owned(),
             ok: true,
             detail: Some(pty_backend_name(PtyBackend::current_platform()).to_owned()),
+            path: None,
+        },
+        DoctorCheck {
+            name: "terminal-size".to_owned(),
+            ok: true,
+            detail: Some(terminal_size_detail(terminal_size)),
             path: None,
         },
         DoctorCheck {
@@ -103,6 +135,13 @@ pub fn diagnose_console_dependencies_in_paths_for_shell(
     DoctorReport {
         ok: checks.iter().all(|check| check.ok),
         checks,
+    }
+}
+
+fn terminal_size_detail(size: Option<(u16, u16)>) -> String {
+    match size {
+        Some((columns, rows)) => format!("{columns}x{rows}"),
+        None => "80x24 fallback".to_owned(),
     }
 }
 
@@ -195,14 +234,15 @@ mod tests {
             fs::write(dir.join(tool_file_name(tool)), "").unwrap();
         }
 
-        let report = super::diagnose_console_dependencies_in_paths_for_shell(
+        let report = super::diagnose_console_dependencies_in_paths_for_shell_and_size(
             std::slice::from_ref(&dir),
             "shell",
+            Some((120, 30)),
         );
         let _ = fs::remove_dir_all(&dir);
 
         assert!(report.ok);
-        assert_eq!(report.checks.len(), 5);
+        assert_eq!(report.checks.len(), 6);
         assert!(report.checks.iter().all(|check| check.ok));
         assert!(matches!(
             report
@@ -217,7 +257,22 @@ mod tests {
                 .iter()
                 .map(|check| check.name.as_str())
                 .collect::<Vec<_>>(),
-            vec!["pty-backend", "default-shell", "ssh", "sftp", "scp"]
+            vec![
+                "pty-backend",
+                "terminal-size",
+                "default-shell",
+                "ssh",
+                "sftp",
+                "scp"
+            ]
+        );
+        assert_eq!(
+            report
+                .checks
+                .iter()
+                .find(|check| check.name == "terminal-size")
+                .and_then(|check| check.detail.as_deref()),
+            Some("120x30")
         );
     }
 
@@ -236,6 +291,42 @@ mod tests {
         assert_eq!(
             super::doctor_json(&report).unwrap(),
             "{\"ok\":false,\"checks\":[{\"name\":\"ssh\",\"ok\":false}]}"
+        );
+    }
+
+    #[test]
+    fn formats_doctor_text_checks_with_detail_or_path() {
+        let report = super::DoctorReport {
+            ok: false,
+            checks: vec![
+                super::DoctorCheck {
+                    name: "pty-backend".to_owned(),
+                    ok: true,
+                    detail: Some("windows-conpty".to_owned()),
+                    path: None,
+                },
+                super::DoctorCheck {
+                    name: "default-shell".to_owned(),
+                    ok: true,
+                    detail: None,
+                    path: Some("C:/Windows/System32/cmd.exe".to_owned()),
+                },
+                super::DoctorCheck {
+                    name: "ssh".to_owned(),
+                    ok: false,
+                    detail: None,
+                    path: None,
+                },
+            ],
+        };
+
+        assert_eq!(
+            super::doctor_text_lines(&report),
+            vec![
+                "ok\tpty-backend\twindows-conpty".to_owned(),
+                "ok\tdefault-shell\tC:/Windows/System32/cmd.exe".to_owned(),
+                "missing\tssh".to_owned(),
+            ]
         );
     }
 }

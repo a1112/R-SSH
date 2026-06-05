@@ -158,9 +158,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app scp` starts the system OpenSSH SCP client inside the same PTY
   console runtime, reusing the SSH-style target and auth arguments for one-shot
   upload and download transfers.
-- `rssh-app doctor` reports the selected PTY backend and checks that the local
-  default shell and the OpenSSH command-line tools used by the console-backed
-  SSH, SFTP, and SCP paths are available.
+- `rssh-app doctor` reports the selected PTY backend and terminal size, and
+  checks that the local default shell and the OpenSSH command-line tools used
+  by the console-backed SSH, SFTP, and SCP paths are available.
 - `rssh-app doctor --json` prints the same dependency preflight as a
   machine-readable report for launchers, scripts, or desktop UI health checks.
 - `rssh-app profile NAME --file PATH` loads a TOML session profile and maps it
