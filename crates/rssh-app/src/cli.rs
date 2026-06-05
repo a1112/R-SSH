@@ -24,6 +24,8 @@ pub struct LocalOptions {
 pub struct SshOptions {
     pub target: SshTarget,
     pub remote_command: Vec<String>,
+    pub forwards: Vec<SshForward>,
+    pub no_shell: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -39,6 +41,27 @@ pub struct OpenSshTarget {
     pub port: Option<u16>,
     pub initial_size: TerminalSize,
     pub auth: SshAuthMethod,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SshForward {
+    Local(String),
+    Remote(String),
+    Dynamic(String),
+}
+
+#[derive(Default)]
+struct SshParseState {
+    host: Option<String>,
+    target: Option<String>,
+    username: Option<String>,
+    port: Option<u16>,
+    columns: Option<u16>,
+    rows: Option<u16>,
+    auth: Option<SshAuthMethod>,
+    remote_command: Vec<String>,
+    forwards: Vec<SshForward>,
+    no_shell: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -100,7 +123,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH]\n  rssh-app --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics]\n  rssh-app local [--cols N] [--rows N] [--mouse] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell]\n  rssh-app --help\n"
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -157,70 +180,126 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
 }
 
 fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
-    let mut host = None;
-    let mut target = None;
-    let mut username = None;
-    let mut port = None;
-    let mut columns = None;
-    let mut rows = None;
-    let mut auth = None;
-    let mut remote_command = Vec::new();
+    let mut state = SshParseState::default();
     let mut index = 0;
 
     while index < args.len() {
         match args[index].as_str() {
             "--" => {
-                remote_command.extend(args[index + 1..].iter().cloned());
+                state
+                    .remote_command
+                    .extend(args[index + 1..].iter().cloned());
                 break;
             }
-            "--host" => {
-                index += 1;
-                host = Some(required_option_value(args.get(index), "--host")?.to_owned());
-            }
-            "--target" => {
-                index += 1;
-                target = Some(required_option_value(args.get(index), "--target")?.to_owned());
-            }
-            "--user" => {
-                index += 1;
-                username = Some(required_option_value(args.get(index), "--user")?.to_owned());
-            }
-            "--port" => {
-                index += 1;
-                port = Some(parse_port(args.get(index), "--port")?);
-            }
-            "--cols" => {
-                index += 1;
-                columns = Some(parse_dimension(args.get(index), "--cols")?);
-            }
-            "--rows" => {
-                index += 1;
-                rows = Some(parse_dimension(args.get(index), "--rows")?);
-            }
-            "--agent" => {
-                set_ssh_auth(&mut auth, SshAuthMethod::Agent)?;
-            }
-            "--password" => {
-                set_ssh_auth(&mut auth, SshAuthMethod::PasswordPrompt)?;
-            }
-            "--key" => {
-                index += 1;
-                let path = required_option_value(args.get(index), "--key")?;
-                set_ssh_auth(
-                    &mut auth,
-                    SshAuthMethod::private_key(path, None::<String>)
-                        .map_err(|error| error.to_string())?,
-                )?;
-            }
-            "--passphrase" => {
-                return Err(
-                    "--passphrase is not accepted on the command line; use the terminal prompt"
-                        .to_owned(),
-                );
-            }
-            value => return Err(format!("unexpected ssh option: {value}")),
+            _ => parse_ssh_option(args, &mut index, &mut state)?,
         }
         index += 1;
+    }
+
+    Ok(AppCommand::Ssh(ssh_options_from_state(state)?))
+}
+
+fn parse_ssh_option(
+    args: &[String],
+    index: &mut usize,
+    state: &mut SshParseState,
+) -> Result<(), String> {
+    match args[*index].as_str() {
+        "--host" => {
+            *index += 1;
+            state.host = Some(required_option_value(args.get(*index), "--host")?.to_owned());
+        }
+        "--target" => {
+            *index += 1;
+            state.target = Some(required_option_value(args.get(*index), "--target")?.to_owned());
+        }
+        "--user" => {
+            *index += 1;
+            state.username = Some(required_option_value(args.get(*index), "--user")?.to_owned());
+        }
+        "--port" => {
+            *index += 1;
+            state.port = Some(parse_port(args.get(*index), "--port")?);
+        }
+        "--cols" => {
+            *index += 1;
+            state.columns = Some(parse_dimension(args.get(*index), "--cols")?);
+        }
+        "--rows" => {
+            *index += 1;
+            state.rows = Some(parse_dimension(args.get(*index), "--rows")?);
+        }
+        "--agent" => {
+            set_ssh_auth(&mut state.auth, SshAuthMethod::Agent)?;
+        }
+        "--password" => {
+            set_ssh_auth(&mut state.auth, SshAuthMethod::PasswordPrompt)?;
+        }
+        "--key" => {
+            *index += 1;
+            let path = required_option_value(args.get(*index), "--key")?;
+            set_ssh_auth(
+                &mut state.auth,
+                SshAuthMethod::private_key(path, None::<String>)
+                    .map_err(|error| error.to_string())?,
+            )?;
+        }
+        "--passphrase" => {
+            return Err(
+                "--passphrase is not accepted on the command line; use the terminal prompt"
+                    .to_owned(),
+            );
+        }
+        "--local-forward" => {
+            *index += 1;
+            state.forwards.push(SshForward::Local(required_forward_spec(
+                args.get(*index),
+                "--local-forward",
+            )?));
+        }
+        "--remote-forward" => {
+            *index += 1;
+            state
+                .forwards
+                .push(SshForward::Remote(required_forward_spec(
+                    args.get(*index),
+                    "--remote-forward",
+                )?));
+        }
+        "--dynamic-forward" => {
+            *index += 1;
+            state
+                .forwards
+                .push(SshForward::Dynamic(required_forward_spec(
+                    args.get(*index),
+                    "--dynamic-forward",
+                )?));
+        }
+        "--no-shell" => {
+            state.no_shell = true;
+        }
+        value => return Err(format!("unexpected ssh option: {value}")),
+    }
+
+    Ok(())
+}
+
+fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
+    let SshParseState {
+        host,
+        target,
+        username,
+        port,
+        columns,
+        rows,
+        auth,
+        remote_command,
+        forwards,
+        no_shell,
+    } = state;
+
+    if no_shell && !remote_command.is_empty() {
+        return Err("--no-shell cannot be combined with a remote command".to_owned());
     }
 
     let size = ssh_terminal_size(columns, rows)?;
@@ -247,10 +326,12 @@ fn parse_ssh(args: &[String]) -> Result<AppCommand, String> {
         (None, None) => return Err("--host or --target is required".to_owned()),
     };
 
-    Ok(AppCommand::Ssh(SshOptions {
+    Ok(SshOptions {
         target,
         remote_command,
-    }))
+        forwards,
+        no_shell,
+    })
 }
 
 fn parse_window(args: &[String]) -> Result<AppCommand, String> {
@@ -331,6 +412,15 @@ fn required_option_value<'a>(value: Option<&'a String>, name: &str) -> Result<&'
     value
         .map(String::as_str)
         .ok_or_else(|| format!("missing value for {name}"))
+}
+
+fn required_forward_spec(value: Option<&String>, name: &str) -> Result<String, String> {
+    let value = required_option_value(value, name)?;
+    if value.trim().is_empty() {
+        return Err(format!("{name} cannot be empty"));
+    }
+
+    Ok(value.to_owned())
 }
 
 fn set_ssh_auth(auth: &mut Option<SshAuthMethod>, next: SshAuthMethod) -> Result<(), String> {
@@ -597,6 +687,69 @@ mod tests {
 
         assert_eq!(request.config.host, "example.com");
         assert_eq!(options.remote_command, ["whoami"]);
+    }
+
+    #[test]
+    fn parses_ssh_forwarding_and_no_shell_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--target",
+            "prod",
+            "--local-forward",
+            "127.0.0.1:15432:db.internal:5432",
+            "--remote-forward",
+            "8080:127.0.0.1:80",
+            "--dynamic-forward",
+            "127.0.0.1:1080",
+            "--no-shell",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.forwards,
+            [
+                super::SshForward::Local("127.0.0.1:15432:db.internal:5432".to_owned()),
+                super::SshForward::Remote("8080:127.0.0.1:80".to_owned()),
+                super::SshForward::Dynamic("127.0.0.1:1080".to_owned())
+            ]
+        );
+        assert!(options.no_shell);
+    }
+
+    #[test]
+    fn rejects_empty_ssh_forwarding_spec() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--target",
+            "prod",
+            "--local-forward",
+            " ",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("--local-forward cannot be empty"));
+    }
+
+    #[test]
+    fn rejects_no_shell_with_remote_command() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--target",
+            "prod",
+            "--no-shell",
+            "--",
+            "uptime",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("--no-shell cannot be combined with a remote command"));
     }
 
     #[test]

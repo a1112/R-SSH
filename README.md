@@ -54,6 +54,8 @@ cargo run -p rssh-app -- ssh --target prod
 cargo run -p rssh-app -- ssh --target prod -- uname -a
 cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
+cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.internal:5432 --no-shell
+cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
 cargo test -p rssh-ssh
 ```
 
@@ -72,6 +74,9 @@ SSH config; `--user`, `--port`, `--password`, and `--key` can still override
 the generated OpenSSH command when needed.
 Add `-- <command> [args...]` after the SSH options to run a remote command
 instead of opening the default interactive shell.
+Use `--local-forward`, `--remote-forward`, or `--dynamic-forward` with OpenSSH
+forward specs for tunnels. Add `--no-shell` when the session should only keep
+the tunnel open.
 
 ## MVP Status
 

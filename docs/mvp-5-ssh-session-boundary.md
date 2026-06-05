@@ -46,6 +46,9 @@ contract that a future in-process `russh` adapter must satisfy.
   overrides.
 - `rssh-app ssh ... -- <command> [args...]` appends a remote command after the
   OpenSSH target, while omitting `--` keeps the default interactive shell.
+- `rssh-app ssh` can pass OpenSSH local, remote, and dynamic forwarding specs
+  through `--local-forward`, `--remote-forward`, and `--dynamic-forward`.
+  `--no-shell` maps to OpenSSH `-N` for tunnel-only sessions.
 - `rssh-app` has an injectable SSH runner path that passes the parsed request to
   a connector, writes local input bytes into the shell session, streams shell
   output to the local console, and closes the shell session after EOF.
@@ -79,6 +82,18 @@ Run a remote command instead of the default interactive shell:
 
 ```powershell
 cargo run -p rssh-app -- ssh --target prod -- uname -a
+```
+
+Open a local tunnel and keep it alive without starting a remote shell:
+
+```powershell
+cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.internal:5432 --no-shell
+```
+
+Open a dynamic SOCKS tunnel:
+
+```powershell
+cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
 ```
 
 Start with a private key:
@@ -121,6 +136,10 @@ SSH-boundary tests cover:
 - remote command parsing after `--` for direct and OpenSSH config targets
 - OpenSSH command generation that appends remote command arguments after the
   target
+- OpenSSH local, remote, and dynamic forwarding argument generation before the
+  target
+- `--no-shell` parsing, OpenSSH `-N` generation, and rejection when combined
+  with remote commands
 - missing host/user and conflicting authentication rejection
 - app-level SSH runner behavior with a mock connector and shell session
 - app-level SSH runner input forwarding into a mock shell session

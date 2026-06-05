@@ -8,7 +8,7 @@ use rssh_ssh::{SshAuthMethod, SshConnectRequest};
 use rssh_ssh::{SshShellConnector, SshShellSession};
 
 use crate::{
-    cli::{LocalOptions, OpenSshTarget, SshOptions, SshTarget},
+    cli::{LocalOptions, OpenSshTarget, SshForward, SshOptions, SshTarget},
     local,
 };
 
@@ -21,8 +21,8 @@ pub fn run(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 #[must_use]
 fn openssh_command_for_options(options: &SshOptions) -> PtyCommand {
     let mut command = match &options.target {
-        SshTarget::Direct(request) => openssh_command_for_request(request),
-        SshTarget::OpenSsh(target) => openssh_command_for_target(target),
+        SshTarget::Direct(request) => openssh_command_for_request(request, options),
+        SshTarget::OpenSsh(target) => openssh_command_for_target(target, options),
     };
 
     if !options.remote_command.is_empty() {
@@ -33,10 +33,11 @@ fn openssh_command_for_options(options: &SshOptions) -> PtyCommand {
 }
 
 #[must_use]
-fn openssh_command_for_request(request: &SshConnectRequest) -> PtyCommand {
-    let mut args = vec!["-tt".to_owned()];
+fn openssh_command_for_request(request: &SshConnectRequest, options: &SshOptions) -> PtyCommand {
+    let mut args = openssh_start_args(options);
 
     append_auth_args(&mut args, &request.auth);
+    append_forward_args(&mut args, &options.forwards);
 
     if request.config.port != 22 {
         args.push("-p".to_owned());
@@ -52,10 +53,11 @@ fn openssh_command_for_request(request: &SshConnectRequest) -> PtyCommand {
 }
 
 #[must_use]
-fn openssh_command_for_target(target: &OpenSshTarget) -> PtyCommand {
-    let mut args = vec!["-tt".to_owned()];
+fn openssh_command_for_target(target: &OpenSshTarget, options: &SshOptions) -> PtyCommand {
+    let mut args = openssh_start_args(options);
 
     append_auth_args(&mut args, &target.auth);
+    append_forward_args(&mut args, &options.forwards);
 
     if let Some(username) = &target.username {
         args.push("-l".to_owned());
@@ -71,6 +73,14 @@ fn openssh_command_for_target(target: &OpenSshTarget) -> PtyCommand {
     PtyCommand::new("ssh").with_args(args)
 }
 
+fn openssh_start_args(options: &SshOptions) -> Vec<String> {
+    if options.no_shell {
+        vec!["-N".to_owned()]
+    } else {
+        vec!["-tt".to_owned()]
+    }
+}
+
 fn append_auth_args(args: &mut Vec<String>, auth: &SshAuthMethod) {
     match auth {
         SshAuthMethod::PasswordPrompt | SshAuthMethod::Password { .. } => {
@@ -82,6 +92,25 @@ fn append_auth_args(args: &mut Vec<String>, auth: &SshAuthMethod) {
             args.push(path.to_string_lossy().into_owned());
         }
         SshAuthMethod::Agent => {}
+    }
+}
+
+fn append_forward_args(args: &mut Vec<String>, forwards: &[SshForward]) {
+    for forward in forwards {
+        match forward {
+            SshForward::Local(spec) => {
+                args.push("-L".to_owned());
+                args.push(spec.clone());
+            }
+            SshForward::Remote(spec) => {
+                args.push("-R".to_owned());
+                args.push(spec.clone());
+            }
+            SshForward::Dynamic(spec) => {
+                args.push("-D".to_owned());
+                args.push(spec.clone());
+            }
+        }
     }
 }
 
@@ -103,6 +132,8 @@ fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions
     local_options_for_options(&SshOptions {
         target: SshTarget::Direct(request.clone()),
         remote_command: Vec::new(),
+        forwards: Vec::new(),
+        no_shell: false,
     })
 }
 
@@ -193,6 +224,8 @@ mod tests {
             &SshOptions {
                 target: SshTarget::Direct(request.clone()),
                 remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: false,
             },
             &mut connector,
             &mut io::empty(),
@@ -222,6 +255,8 @@ mod tests {
             &SshOptions {
                 target: SshTarget::Direct(request),
                 remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: false,
             },
             &mut connector,
             &mut input,
@@ -242,7 +277,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let command = super::openssh_command_for_request(&request);
+        let command = super::openssh_command_for_options(&direct_options(request));
 
         assert_eq!(command.program(), "ssh");
         assert_eq!(command.args(), ["-tt", "-p", "2222", "ops@example.com"]);
@@ -257,7 +292,7 @@ mod tests {
         )
         .unwrap();
 
-        let command = super::openssh_command_for_request(&request);
+        let command = super::openssh_command_for_options(&direct_options(request));
         let joined = command.args().join(" ");
 
         assert_eq!(
@@ -280,7 +315,7 @@ mod tests {
         )
         .unwrap();
 
-        let command = super::openssh_command_for_request(&request);
+        let command = super::openssh_command_for_options(&direct_options(request));
         let joined = command.args().join(" ");
 
         assert_eq!(
@@ -324,6 +359,8 @@ mod tests {
                 },
             }),
             remote_command: Vec::new(),
+            forwards: Vec::new(),
+            no_shell: false,
         };
 
         let command = super::openssh_command_for_options(&options);
@@ -354,11 +391,49 @@ mod tests {
                 auth: rssh_ssh::SshAuthMethod::Agent,
             }),
             remote_command: vec!["uname".to_owned(), "-a".to_owned()],
+            forwards: Vec::new(),
+            no_shell: false,
         };
 
         let command = super::openssh_command_for_options(&options);
 
         assert_eq!(command.args(), ["-tt", "prod", "uname", "-a"]);
+    }
+
+    #[test]
+    fn openssh_command_adds_forwarding_and_no_shell_before_target() {
+        let options = SshOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: TerminalSize::new(80, 24),
+                auth: rssh_ssh::SshAuthMethod::Agent,
+            }),
+            remote_command: Vec::new(),
+            forwards: vec![
+                crate::cli::SshForward::Local("127.0.0.1:15432:db.internal:5432".to_owned()),
+                crate::cli::SshForward::Remote("8080:127.0.0.1:80".to_owned()),
+                crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned()),
+            ],
+            no_shell: true,
+        };
+
+        let command = super::openssh_command_for_options(&options);
+
+        assert_eq!(
+            command.args(),
+            [
+                "-N",
+                "-L",
+                "127.0.0.1:15432:db.internal:5432",
+                "-R",
+                "8080:127.0.0.1:80",
+                "-D",
+                "127.0.0.1:1080",
+                "prod"
+            ]
+        );
     }
 
     #[derive(Default)]
@@ -416,6 +491,15 @@ mod tests {
         fn close(&mut self) -> Result<(), SshSessionError> {
             self.state.lock().unwrap().closed = true;
             Ok(())
+        }
+    }
+
+    fn direct_options(request: SshConnectRequest) -> SshOptions {
+        SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: Vec::new(),
+            no_shell: false,
         }
     }
 }
