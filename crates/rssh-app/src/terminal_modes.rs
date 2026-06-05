@@ -151,6 +151,10 @@ impl TerminalModeTracker {
                 self.retain_possible_prefix();
                 return;
             };
+            if is_inside_osc_or_st_control_string(&self.pending, start.index) {
+                self.pending.drain(..start.index.saturating_add(1));
+                continue;
+            }
             if start.index > 0 {
                 self.pending.drain(..start.index);
             }
@@ -353,6 +357,9 @@ impl TerminalModeTracker {
         .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
         .max()
         .unwrap_or(0);
+        let retained = retained
+            .max(incomplete_osc_control_sequence_suffix_len(&self.pending))
+            .max(incomplete_st_control_sequence_suffix_len(&self.pending));
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             self.pending.drain(..writable);
@@ -475,6 +482,137 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack
         .windows(needle.len())
         .position(|window| window == needle)
+}
+
+fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
+    is_inside_control_string(bytes, index, find_next_osc_start, find_osc_terminator)
+        || is_inside_control_string(
+            bytes,
+            index,
+            find_next_st_control_string_start,
+            find_st_terminator,
+        )
+}
+
+fn is_inside_control_string(
+    bytes: &[u8],
+    index: usize,
+    mut find_next_start: impl FnMut(&[u8]) -> Option<(usize, usize)>,
+    mut find_terminator: impl FnMut(&[u8]) -> Option<ControlStringTerminator>,
+) -> bool {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let Some((relative_start, prefix_len)) = find_next_start(&bytes[offset..]) else {
+            return false;
+        };
+        let start = offset + relative_start;
+        if start >= index {
+            return false;
+        }
+
+        let content_start = start + prefix_len;
+        let Some(terminator) = find_terminator(&bytes[content_start..]) else {
+            return true;
+        };
+        let end = content_start + terminator.index + terminator.length;
+        if index < end {
+            return true;
+        }
+        offset = end;
+    }
+
+    false
+}
+
+fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_control_sequence_start(bytes, find_next_osc_start, find_osc_terminator)
+        .map_or(0, |start| bytes.len() - start)
+        .max(suffix_len_matching_prefix(bytes, b"\x1b]"))
+}
+
+fn incomplete_st_control_sequence_suffix_len(bytes: &[u8]) -> usize {
+    find_incomplete_control_sequence_start(
+        bytes,
+        find_next_st_control_string_start,
+        find_st_terminator,
+    )
+    .map_or(0, |start| bytes.len() - start)
+    .max(suffix_len_matching_prefix(bytes, b"\x1bP"))
+    .max(suffix_len_matching_prefix(bytes, b"\x1bX"))
+    .max(suffix_len_matching_prefix(bytes, b"\x1b^"))
+    .max(suffix_len_matching_prefix(bytes, b"\x1b_"))
+}
+
+fn find_incomplete_control_sequence_start(
+    bytes: &[u8],
+    mut find_next_start: impl FnMut(&[u8]) -> Option<(usize, usize)>,
+    mut find_terminator: impl FnMut(&[u8]) -> Option<ControlStringTerminator>,
+) -> Option<usize> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let (relative_start, prefix_len) = find_next_start(&bytes[offset..])?;
+        let start = offset + relative_start;
+        let content_start = start + prefix_len;
+        let Some(terminator) = find_terminator(&bytes[content_start..]) else {
+            return Some(start);
+        };
+        offset = content_start + terminator.index + terminator.length;
+    }
+
+    None
+}
+
+fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
+    [(b"\x1b]".as_slice(), 2), (b"\x9d".as_slice(), 1)]
+        .into_iter()
+        .filter_map(|(prefix, prefix_len)| {
+            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+        })
+        .min_by_key(|(index, _)| *index)
+}
+
+fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
+    [
+        (b"\x1bP".as_slice(), 2),
+        (b"\x1bX".as_slice(), 2),
+        (b"\x1b^".as_slice(), 2),
+        (b"\x1b_".as_slice(), 2),
+        (b"\x90".as_slice(), 1),
+        (b"\x98".as_slice(), 1),
+        (b"\x9e".as_slice(), 1),
+        (b"\x9f".as_slice(), 1),
+    ]
+    .into_iter()
+    .filter_map(|(prefix, prefix_len)| {
+        find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+    })
+    .min_by_key(|(index, _)| *index)
+}
+
+fn find_osc_terminator(bytes: &[u8]) -> Option<ControlStringTerminator> {
+    [
+        (find_subslice(bytes, b"\x1b\\"), 2),
+        (find_subslice(bytes, b"\x9c"), 1),
+        (find_subslice(bytes, b"\x07"), 1),
+    ]
+    .into_iter()
+    .filter_map(|(index, length)| index.map(|index| ControlStringTerminator { index, length }))
+    .min_by_key(|terminator| terminator.index)
+}
+
+fn find_st_terminator(bytes: &[u8]) -> Option<ControlStringTerminator> {
+    [
+        (find_subslice(bytes, b"\x1b\\"), 2),
+        (find_subslice(bytes, b"\x9c"), 1),
+    ]
+    .into_iter()
+    .filter_map(|(index, length)| index.map(|index| ControlStringTerminator { index, length }))
+    .min_by_key(|terminator| terminator.index)
+}
+
+struct ControlStringTerminator {
+    index: usize,
+    length: usize,
 }
 
 fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {

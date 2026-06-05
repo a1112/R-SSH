@@ -3002,6 +3002,34 @@ mod tests {
     }
 
     #[test]
+    fn ignores_private_input_modes_inside_control_strings() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(
+            b"\x1b]0;title \x1b[?1004h\x07\x1bPpayload \x1b[?2004h\x1b\\",
+            |change| changes.push(change),
+        );
+
+        assert!(changes.is_empty());
+        assert!(!tracker.focus_reporting());
+        assert!(!tracker.bracketed_paste());
+    }
+
+    #[test]
+    fn ignores_split_private_input_modes_inside_control_strings() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1bPpayload ", |change| changes.push(change));
+        tracker.process(b"\x1b[?1004;2004h\x1b\\", |change| changes.push(change));
+
+        assert!(changes.is_empty());
+        assert!(!tracker.focus_reporting());
+        assert!(!tracker.bracketed_paste());
+    }
+
+    #[test]
     fn tracks_bracketed_paste_from_pty_output_modes() {
         let mut tracker = TerminalModeTracker::default();
         let mut changes = Vec::new();

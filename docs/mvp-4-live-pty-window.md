@@ -27,7 +27,8 @@ in the native `winit` window.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
   console and native-window runtimes, including 7-bit CSI and 8-bit C1 CSI
   private mode toggles plus DECRQM private-mode status query reporting for
-  tracked input modes.
+  tracked input modes. Mode-like bytes embedded inside unrelated OSC or
+  ST-terminated control-string payloads are ignored, including split payloads.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
   separate input mapping.
 - `rssh-app window` starts the platform default shell in a local PTY, and
@@ -203,7 +204,8 @@ MVP 4 tests cover:
   scroll-region state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
 - DECRQM private-mode status query responses for application cursor keys, mouse,
-  SGR mouse, focus, bracketed paste, and unknown modes
+  SGR mouse, focus, bracketed paste, and unknown modes, including mode-like
+  bytes embedded inside OSC or ST-terminated control-string payloads
 - native window OSC 52 policy parsing and write/query enforcement
 - native window local selection text extraction, highlight overlay, mouse drag,
   double-click word selection, triple-click line selection, and copy shortcut

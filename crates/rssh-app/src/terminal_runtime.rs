@@ -2195,6 +2195,20 @@ mod tests {
     }
 
     #[test]
+    fn ignores_private_input_modes_inside_control_strings() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b]0;title \x1b[?1004h\x07\x1bPpayload \x1b[?2004h\x1b\\");
+
+        assert!(!runtime.focus_reporting());
+        assert!(!runtime.bracketed_paste());
+        assert_eq!(
+            runtime.feed_pty_output(b"\x1b[?1004$p\x1b[?2004$p"),
+            vec![b"\x1b[?1004;2$y".to_vec(), b"\x1b[?2004;2$y".to_vec()]
+        );
+    }
+
+    #[test]
     fn extracts_osc52_clipboard_text_from_pty_output() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
