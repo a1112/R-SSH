@@ -19,7 +19,7 @@ use crate::{
     local,
 };
 
-type SecretPrompt<'a> = dyn FnMut() -> Result<String, Box<dyn Error>> + 'a;
+type SecretPrompt<'a> = dyn FnMut(&SshConnectRequest) -> Result<String, Box<dyn Error>> + 'a;
 type KeyPassphrasePrompt<'a> = dyn FnMut(&Path) -> Result<String, Box<dyn Error>> + 'a;
 type KeyPassphraseDetector<'a> = dyn FnMut(&Path) -> Result<bool, Box<dyn Error>> + 'a;
 type OpenSshConfigResolver<'a> = dyn FnMut(&OpenSshTarget) -> Result<String, Box<dyn Error>> + 'a;
@@ -194,7 +194,7 @@ fn run_native(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
         options,
         &mut connector,
         &mut forward_starter,
-        &mut || native_password_prompt(options),
+        &mut |request| native_password_prompt(request),
         &mut input,
         &mut output,
     )
@@ -238,7 +238,7 @@ fn openssh_command_for_options(options: &SshOptions) -> PtyCommand {
 
 #[cfg(test)]
 fn native_request_for_options(options: &SshOptions) -> Result<SshConnectRequest, Box<dyn Error>> {
-    native_request_for_options_with_password_prompt(options, &mut || {
+    native_request_for_options_with_password_prompt(options, &mut |_| {
         Err("native SSH password prompt requires a password provider".into())
     })
 }
@@ -301,7 +301,7 @@ fn native_request_for_options_with_resolver_secret_prompts(
 
     let mut request = request.with_startup(startup);
     if matches!(request.auth, SshAuthMethod::PasswordPrompt) {
-        request.auth = SshAuthMethod::password(password_prompt()?)?;
+        request.auth = SshAuthMethod::password(password_prompt(&request)?)?;
     }
     if let SshAuthMethod::PrivateKey { path, passphrase } = &mut request.auth {
         if passphrase.is_none() && key_needs_passphrase(path)? {
@@ -830,7 +830,7 @@ fn run_native_with_connector_forward_starter_and_io(
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut prompts = NativeSecretPrompts {
-        password_prompt: &mut || Err("password prompt should not be used".into()),
+        password_prompt: &mut |_| Err("password prompt should not be used".into()),
         key_passphrase_prompt: &mut |_| {
             Err("native SSH private-key passphrase prompt requires a passphrase provider".into())
         },
@@ -857,7 +857,7 @@ fn run_native_with_connector_forward_starter_resolver_and_io(
     output: &mut dyn Write,
 ) -> Result<PtyExitStatus, Box<dyn Error>> {
     let mut prompts = NativeSecretPrompts {
-        password_prompt: &mut || Err("password prompt should not be used".into()),
+        password_prompt: &mut |_| Err("password prompt should not be used".into()),
         key_passphrase_prompt: &mut |_| {
             Err("native SSH private-key passphrase prompt requires a passphrase provider".into())
         },
@@ -892,6 +892,32 @@ fn run_native_with_connector_prompt_and_io(
         connector,
         forward_starter,
         &mut resolve_openssh_config_target,
+        &mut prompts,
+        input,
+        output,
+    )
+}
+
+#[cfg(test)]
+fn run_native_with_connector_prompt_resolver_and_io(
+    options: &SshOptions,
+    connector: &mut dyn SshShellConnector,
+    forward_starter: &mut dyn NativeLocalForwardStarter,
+    openssh_config_resolver: &mut OpenSshConfigResolver<'_>,
+    password_prompt: &mut SecretPrompt<'_>,
+    input: &mut dyn Read,
+    output: &mut dyn Write,
+) -> Result<PtyExitStatus, Box<dyn Error>> {
+    let mut prompts = NativeSecretPrompts {
+        password_prompt,
+        key_passphrase_prompt: &mut native_key_passphrase_prompt,
+        key_needs_passphrase: &mut native_key_needs_passphrase,
+    };
+    run_native_with_connector_forward_starter_resolver_secret_prompts_and_io(
+        options,
+        connector,
+        forward_starter,
+        openssh_config_resolver,
         &mut prompts,
         input,
         output,
@@ -996,11 +1022,7 @@ impl NativeLocalForwardStarter for RejectingNativeLocalForwardStarter {
     }
 }
 
-fn native_password_prompt(options: &SshOptions) -> Result<String, Box<dyn Error>> {
-    let SshTarget::Direct(request) = &options.target else {
-        return Err("native SSH connector only supports direct SSH targets".into());
-    };
-
+fn native_password_prompt(request: &SshConnectRequest) -> Result<String, Box<dyn Error>> {
     rpassword::prompt_password(format!(
         "Password for {}@{}: ",
         request.config.username, request.config.host
@@ -1567,12 +1589,76 @@ mod tests {
             },
             &mut connector,
             &mut forward_starter,
-            &mut || Ok("secret".to_owned()),
+            &mut |request| {
+                assert_eq!(request.config.username, "ops");
+                assert_eq!(request.config.host, "example.com");
+                Ok("secret".to_owned())
+            },
             &mut io::empty(),
             &mut output,
         )
         .unwrap();
 
+        let state = state.lock().unwrap();
+        let request = state.last_request.as_ref().unwrap();
+        assert_eq!(
+            request.auth,
+            rssh_ssh::SshAuthMethod::Password {
+                password: "secret".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn native_ssh_runner_prompts_for_resolved_openssh_target_password() {
+        let state = Arc::new(Mutex::new(MockState::default()));
+        let mut connector = MockConnector {
+            state: Arc::clone(&state),
+        };
+        let mut forward_starter = MockForwardStarter {
+            state: Arc::new(Mutex::new(MockForwardState::default())),
+        };
+        let mut output = Vec::new();
+        let prompted = Arc::new(Mutex::new(None));
+        let prompted_clone = Arc::clone(&prompted);
+
+        super::run_native_with_connector_prompt_resolver_and_io(
+            &SshOptions {
+                target: SshTarget::OpenSsh(OpenSshTarget {
+                    target: "prod".to_owned(),
+                    username: None,
+                    port: None,
+                    initial_size: TerminalSize::new(80, 24),
+                    auth: rssh_ssh::SshAuthMethod::PasswordPrompt,
+                }),
+                remote_command: Vec::new(),
+                forwards: Vec::new(),
+                no_shell: false,
+                native: true,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+                osc52_policy: Osc52Policy::default(),
+                log: None,
+            },
+            &mut connector,
+            &mut forward_starter,
+            &mut |target| {
+                assert_eq!(target.target, "prod");
+                Ok("hostname ssh.example.com\nuser deploy\nport 2222\n".to_owned())
+            },
+            &mut |request| {
+                *prompted_clone.lock().unwrap() =
+                    Some((request.config.username.clone(), request.config.host.clone()));
+                Ok("secret".to_owned())
+            },
+            &mut io::empty(),
+            &mut output,
+        )
+        .unwrap();
+
+        assert_eq!(
+            *prompted.lock().unwrap(),
+            Some(("deploy".to_owned(), "ssh.example.com".to_owned()))
+        );
         let state = state.lock().unwrap();
         let request = state.last_request.as_ref().unwrap();
         assert_eq!(
@@ -1610,7 +1696,7 @@ mod tests {
                 log: None,
             },
             &mut connector,
-            &mut || Err("password prompt should not be used".into()),
+            &mut |_| Err("password prompt should not be used".into()),
             &mut |path: &Path| {
                 assert_eq!(path, key_path.as_path());
                 Ok("key-secret".to_owned())
