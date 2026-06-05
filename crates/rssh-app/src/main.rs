@@ -45,6 +45,10 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
             profiles::print_profile_list(&options)?;
             Ok(ExitCode::SUCCESS)
         }
+        AppCommand::ProfileShow(options) => {
+            profiles::print_profile_show(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::Scp(options) => scp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Sftp(options) => sftp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),

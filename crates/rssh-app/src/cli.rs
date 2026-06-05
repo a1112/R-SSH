@@ -15,6 +15,7 @@ pub enum AppCommand {
     ProfileCheck(ProfileCheckOptions),
     ProfileInit(ProfileInitOptions),
     ProfileList(ProfileListOptions),
+    ProfileShow(ProfileShowOptions),
     Scp(ScpOptions),
     Sftp(SftpOptions),
     Ssh(SshOptions),
@@ -50,6 +51,12 @@ pub struct ProfileInitOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProfileListOptions {
+    pub file: PathBuf,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProfileShowOptions {
+    pub name: String,
     pub file: PathBuf,
 }
 
@@ -226,7 +233,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--file PATH]\n  rssh-app profile --show NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -310,6 +317,7 @@ fn parse_profile(args: &[String]) -> Result<AppCommand, String> {
     let mut init = false;
     let mut force = false;
     let mut list = false;
+    let mut show = false;
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
@@ -324,6 +332,9 @@ fn parse_profile(args: &[String]) -> Result<AppCommand, String> {
             }
             "--list" => {
                 list = true;
+            }
+            "--show" => {
+                show = true;
             }
             "--file" => {
                 index += 1;
@@ -340,7 +351,8 @@ fn parse_profile(args: &[String]) -> Result<AppCommand, String> {
         index += 1;
     }
 
-    let selected_modes = usize::from(check) + usize::from(init) + usize::from(list);
+    let selected_modes =
+        usize::from(check) + usize::from(init) + usize::from(list) + usize::from(show);
     if selected_modes > 1 {
         return Err("profile mode flags cannot be combined".to_owned());
     }
@@ -368,6 +380,13 @@ fn parse_profile(args: &[String]) -> Result<AppCommand, String> {
             return Err("profile --list cannot be combined with a profile name".to_owned());
         }
         return Ok(AppCommand::ProfileList(ProfileListOptions { file }));
+    }
+
+    if show {
+        let Some(name) = name else {
+            return Err("profile --show requires a profile name".to_owned());
+        };
+        return Ok(AppCommand::ProfileShow(ProfileShowOptions { name, file }));
     }
 
     let Some(name) = name else {
@@ -933,6 +952,25 @@ mod tests {
             AppCommand::ProfileInit(super::ProfileInitOptions {
                 file: std::path::PathBuf::from("profiles.toml"),
                 force: true,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_profile_show_command_with_config_file() {
+        assert_eq!(
+            parse_args([
+                "rssh-app",
+                "profile",
+                "--show",
+                "prod",
+                "--file",
+                "profiles.toml"
+            ])
+            .unwrap(),
+            AppCommand::ProfileShow(super::ProfileShowOptions {
+                name: "prod".to_owned(),
+                file: std::path::PathBuf::from("profiles.toml"),
             })
         );
     }

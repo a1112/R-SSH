@@ -4,6 +4,7 @@ use serde::Deserialize;
 
 use crate::cli::{
     self, AppCommand, ProfileCheckOptions, ProfileInitOptions, ProfileListOptions, ProfileOptions,
+    ProfileShowOptions,
 };
 
 const PROFILE_TEMPLATE: &str = include_str!("../../../examples/rssh-profiles.toml");
@@ -52,6 +53,18 @@ pub fn load_command(options: &ProfileOptions) -> Result<AppCommand, Box<dyn Erro
     command_from_toml(&options.name, &contents).map_err(profile_error)
 }
 
+pub fn profile_command_line(options: &ProfileShowOptions) -> Result<String, Box<dyn Error>> {
+    let contents = fs::read_to_string(&options.file)?;
+    let args = args_from_toml(&options.name, &contents).map_err(profile_error)?;
+    Ok(command_line_from_args(&args))
+}
+
+pub fn print_profile_show(options: &ProfileShowOptions) -> Result<(), Box<dyn Error>> {
+    println!("{}", profile_command_line(options)?);
+
+    Ok(())
+}
+
 pub fn list_profiles(options: &ProfileListOptions) -> Result<Vec<ProfileSummary>, Box<dyn Error>> {
     let contents = fs::read_to_string(&options.file)?;
     summaries_from_toml(&contents).map_err(profile_error)
@@ -97,6 +110,10 @@ pub fn print_profile_list(options: &ProfileListOptions) -> Result<(), Box<dyn Er
 }
 
 fn command_from_toml(name: &str, contents: &str) -> Result<AppCommand, String> {
+    cli::parse_args(args_from_toml(name, contents)?)
+}
+
+fn args_from_toml(name: &str, contents: &str) -> Result<Vec<String>, String> {
     let document =
         toml::from_str::<ProfileDocument>(contents).map_err(|error| error.to_string())?;
     let profile = document
@@ -104,7 +121,27 @@ fn command_from_toml(name: &str, contents: &str) -> Result<AppCommand, String> {
         .get(name)
         .ok_or_else(|| format!("profile not found: {name}"))?;
 
-    profile.to_command()
+    profile.to_args()
+}
+
+fn command_line_from_args(args: &[String]) -> String {
+    args.iter()
+        .map(|argument| quote_command_argument(argument))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn quote_command_argument(argument: &str) -> String {
+    if !argument.is_empty()
+        && !argument
+            .chars()
+            .any(|character| character.is_whitespace() || matches!(character, '"' | '\\'))
+    {
+        return argument.to_owned();
+    }
+
+    let escaped = argument.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
 }
 
 fn summaries_from_toml(contents: &str) -> Result<Vec<ProfileSummary>, String> {
@@ -144,6 +181,10 @@ fn validate_profiles_from_toml(contents: &str) -> Result<(), String> {
 
 impl ProfileDefinition {
     fn to_command(&self) -> Result<AppCommand, String> {
+        cli::parse_args(self.to_args()?)
+    }
+
+    fn to_args(&self) -> Result<Vec<String>, String> {
         let mut args = vec!["rssh-app".to_owned()];
         match self.kind.as_str() {
             "local" => self.append_local_args(&mut args)?,
@@ -154,7 +195,7 @@ impl ProfileDefinition {
             value => return Err(format!("invalid profile kind: {value}")),
         }
 
-        cli::parse_args(args)
+        Ok(args)
     }
 
     fn append_local_args(&self, args: &mut Vec<String>) -> Result<(), String> {
@@ -674,5 +715,32 @@ auth = "agent"
             )
         );
         assert_eq!(contents, "existing");
+    }
+
+    #[test]
+    fn shows_profile_as_resolved_command_line_from_toml_file() {
+        let file = temp_profile_file(
+            "show-profile",
+            r#"
+[profiles.prod]
+kind = "ssh"
+target = "prod"
+auth = "agent"
+log = "prod.log"
+"#,
+        );
+
+        let command_line = super::profile_command_line(&crate::cli::ProfileShowOptions {
+            name: "prod".to_owned(),
+            file: file.clone(),
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            command_line,
+            "rssh-app ssh --target prod --agent --log prod.log"
+        );
     }
 }

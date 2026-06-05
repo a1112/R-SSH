@@ -170,6 +170,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app profile --init --file PATH` writes a starter profile file from the
   bundled example and refuses to overwrite existing files unless `--force` is
   supplied.
+- `rssh-app profile --show NAME --file PATH` prints the resolved `rssh-app`
+  command line for a profile without starting a local process or network
+  connection.
 
 ## Run
 
@@ -288,6 +291,7 @@ Start from a reusable profile file:
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
 cargo run -p rssh-app -- profile --check --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile --list --file examples/rssh-profiles.toml
+cargo run -p rssh-app -- profile --show prod-shell --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile local-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 cargo run -p rssh-app -- profile prod-shell --file examples/rssh-profiles.toml
