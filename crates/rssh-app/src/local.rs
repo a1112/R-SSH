@@ -1151,29 +1151,29 @@ fn is_osc8_hyperlink_sequence_prefix(bytes: &[u8]) -> bool {
 }
 
 fn find_incomplete_osc8_hyperlink_start(bytes: &[u8]) -> Option<usize> {
-    [b"\x1b]8;".as_slice(), b"\x9d8;".as_slice()]
-        .into_iter()
-        .filter_map(|prefix| {
-            find_subslice(bytes, prefix).and_then(|index| {
-                find_osc_color_terminator(&bytes[index + prefix.len()..])
-                    .is_none()
-                    .then_some(index)
-            })
-        })
-        .min()
+    find_incomplete_prefixed_osc_start(bytes, [b"\x1b]8;".as_slice(), b"\x9d8;".as_slice()])
 }
 
 fn find_incomplete_osc52_clipboard_start(bytes: &[u8]) -> Option<usize> {
-    [b"\x1b]52;".as_slice(), b"\x9d52;".as_slice()]
+    find_incomplete_prefixed_osc_start(bytes, [b"\x1b]52;".as_slice(), b"\x9d52;".as_slice()])
+}
+
+fn find_incomplete_prefixed_osc_start(bytes: &[u8], prefixes: [&[u8]; 2]) -> Option<usize> {
+    prefixes
         .into_iter()
-        .filter_map(|prefix| {
-            find_subslice(bytes, prefix).and_then(|index| {
-                find_osc_color_terminator(&bytes[index + prefix.len()..])
-                    .is_none()
-                    .then_some(index)
-            })
-        })
+        .filter_map(|prefix| find_incomplete_prefixed_sequence_start(bytes, prefix))
         .min()
+}
+
+fn find_incomplete_prefixed_sequence_start(bytes: &[u8], prefix: &[u8]) -> Option<usize> {
+    if let Some(index) = find_subslice(bytes, prefix)
+        && find_osc_color_terminator(&bytes[index + prefix.len()..]).is_none()
+    {
+        return Some(index);
+    }
+
+    let suffix = suffix_len_matching_prefix(bytes, prefix);
+    (suffix > 0).then_some(bytes.len() - suffix)
 }
 
 fn find_incomplete_control_sequence_start(bytes: &[u8]) -> Option<usize> {
@@ -3070,6 +3070,25 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_drops_partial_osc8_prefix_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"a\x1b]8", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"a");
+        assert!(responses.is_empty());
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().ch, 'a');
+    }
+
+    #[test]
     fn terminal_output_filter_answers_cursor_position_query() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -3721,6 +3740,36 @@ mod tests {
         filter
             .write_with_clipboard(
                 b"before\x1b]52;c;Y29weQ==",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("copy".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+        assert!(writes.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_drops_partial_osc52_prefix_on_flush() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\x1b]52",
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);
