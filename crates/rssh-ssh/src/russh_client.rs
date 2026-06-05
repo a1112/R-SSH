@@ -93,6 +93,40 @@ impl RusshKnownHosts {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct RusshPrivateKeyAuth {
+    key: Arc<russh::keys::PrivateKey>,
+}
+
+impl RusshPrivateKeyAuth {
+    /// Loads an OpenSSH-compatible private key from disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns russh key errors when the key file cannot be read, decoded, or
+    /// decrypted with the supplied passphrase.
+    pub fn load(
+        path: impl AsRef<std::path::Path>,
+        passphrase: Option<&str>,
+    ) -> Result<Self, russh::keys::Error> {
+        let key = russh::keys::load_secret_key(path, passphrase)?;
+        Ok(Self { key: Arc::new(key) })
+    }
+
+    #[must_use]
+    pub fn algorithm(&self) -> russh::keys::ssh_key::Algorithm {
+        self.key.algorithm()
+    }
+
+    #[must_use]
+    fn into_private_key_with_hash_alg(
+        self,
+        hash_alg: Option<russh::keys::HashAlg>,
+    ) -> russh::keys::PrivateKeyWithHashAlg {
+        russh::keys::PrivateKeyWithHashAlg::new(self.key, hash_alg)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RusshAuthRequest {
     Password {
@@ -414,9 +448,33 @@ impl RusshChannelOpener {
             RusshAuthRequest::PasswordPrompt => Err(SshSessionError::new(
                 "SSH password prompt authentication is not wired into russh yet",
             )),
-            RusshAuthRequest::PrivateKey { .. } => Err(SshSessionError::new(
-                "SSH private-key authentication is not wired into russh yet",
-            )),
+            RusshAuthRequest::PrivateKey { path, passphrase } => {
+                let key =
+                    RusshPrivateKeyAuth::load(path, passphrase.as_deref()).map_err(|error| {
+                        SshSessionError::new(format!("SSH private-key load failed: {error}"))
+                    })?;
+                let rsa_hash = handle
+                    .best_supported_rsa_hash()
+                    .await
+                    .map_err(|error| {
+                        SshSessionError::new(format!(
+                            "SSH private-key algorithm negotiation failed: {error}"
+                        ))
+                    })?
+                    .flatten();
+                let result = handle
+                    .authenticate_publickey(
+                        auth_plan.username(),
+                        key.into_private_key_with_hash_alg(rsa_hash),
+                    )
+                    .await
+                    .map_err(|error| {
+                        SshSessionError::new(format!(
+                            "SSH private-key authentication failed: {error}"
+                        ))
+                    })?;
+                RusshAuthOutcome::from_auth_result(&result)
+            }
             RusshAuthRequest::Agent => Err(SshSessionError::new(
                 "SSH agent authentication is not wired into russh yet",
             )),

@@ -7,7 +7,7 @@ mod russh_client;
 pub use russh_client::{
     RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
     RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
-    RusshKnownHosts, RusshSshChannel,
+    RusshKnownHosts, RusshPrivateKeyAuth, RusshSshChannel,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -576,6 +576,7 @@ mod tests {
     use crate::{
         RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan,
         RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy, RusshKnownHosts,
+        RusshPrivateKeyAuth,
     };
 
     #[test]
@@ -1108,6 +1109,30 @@ mod tests {
     }
 
     #[test]
+    fn russh_private_key_auth_loads_unencrypted_private_key_file() {
+        let path = temp_private_key_path("plain");
+        std::fs::write(&path, TEST_ED25519_PRIVATE_KEY).unwrap();
+
+        let auth = RusshPrivateKeyAuth::load(&path, None).unwrap();
+
+        assert_eq!(auth.algorithm(), russh::keys::ssh_key::Algorithm::Ed25519);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn russh_private_key_auth_loads_encrypted_private_key_file_with_passphrase() {
+        let path = temp_private_key_path("encrypted");
+        std::fs::write(&path, TEST_ENCRYPTED_ED25519_PRIVATE_KEY).unwrap();
+
+        let auth = RusshPrivateKeyAuth::load(&path, Some("test")).unwrap();
+
+        assert_eq!(auth.algorithm(), russh::keys::ssh_key::Algorithm::Ed25519);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn russh_auth_plan_maps_agent_authentication() {
         let request = SshConnectRequest::agent(valid_config());
 
@@ -1256,12 +1281,20 @@ mod tests {
         std::env::temp_dir().join(format!("rssh-known-hosts-{name}-{}", std::process::id()))
     }
 
+    fn temp_private_key_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("rssh-private-key-{name}-{}", std::process::id()))
+    }
+
     fn test_public_key() -> russh::keys::ssh_key::PublicKey {
         russh::keys::parse_public_key_base64(
             "AAAAC3NzaC1lZDI1NTE5AAAAIJdD7y3aLq454yWBdwLWbieU1ebz9/cu7/QEXn9OIeZJ",
         )
         .unwrap()
     }
+
+    const TEST_ED25519_PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n-----END PRIVATE KEY-----\n";
+
+    const TEST_ENCRYPTED_ED25519_PRIVATE_KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABD1phlku5\nA2G7Q9iP+DcOc9AAAAEAAAAAEAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIHeLC1lWiCYrXsf/\n85O/pkbUFZ6OGIt49PX3nw8iRoXEAAAAkKRF0st5ZI7xxo9g6A4m4l6NarkQre3mycqNXQ\ndP3jryYgvsCIBAA5jMWSjrmnOTXhidqcOy4xYCrAttzSnZ/cUadfBenL+DQq6neffw7j8r\n0tbCxVGp6yCQlKrgSZf6c0Hy7dNEIU2bJFGxLe6/kWChcUAt/5Ll5rI7DVQPJdLgehLzvv\nsJWR7W+cGvJ/vLsw==\n-----END OPENSSH PRIVATE KEY-----\n";
 
     #[derive(Default)]
     struct MockSshConnector {

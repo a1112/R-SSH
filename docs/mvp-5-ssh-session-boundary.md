@@ -88,10 +88,14 @@ contract that a future in-process `russh` adapter must satisfy.
 - `RusshAuthOutcome` normalizes `russh::client::AuthResult` into the
   crate-local session contract, so failed authentication becomes an
   `SshSessionError` before channel opening.
+- `RusshPrivateKeyAuth` loads OpenSSH-compatible private-key files, including
+  encrypted keys when a passphrase is already present in the request.
 - `RusshChannelOpener::authenticate_async` starts the real native
   authentication path. Password-value authentication is wired through
-  `russh::client::Handle::authenticate_password`; password-prompt,
-  private-key, and agent branches currently return explicit not-wired errors.
+  `russh::client::Handle::authenticate_password`; private-key authentication is
+  wired through `russh::client::Handle::authenticate_publickey`; password-prompt
+  is resolved by the app before calling the native opener. Agent auth still
+  returns an explicit not-wired error.
 - `RusshChannelOpener::open_session_channel_async` opens a real
   `russh::Channel` with `channel_open_session` after authentication.
 - `RusshChannelOpener::start_channel_async` sends the planned PTY, shell, and
@@ -113,8 +117,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app ssh --native --host ...` selects the in-process russh path for
   direct targets. The native app path uses `RusshChannelOpener` through
   `SshChannelConnector`, prompts for a password when `--password` is selected,
-  supports `--trust-on-first-use` for user `.ssh/known_hosts` persistence, and
-  keeps `--accept-unknown-host-key` for insecure/test-only unknown-host-key
+  supports `--key PATH` for private-key authentication, supports
+  `--trust-on-first-use` for user `.ssh/known_hosts` persistence, and keeps
+  `--accept-unknown-host-key` for insecure/test-only unknown-host-key
   acceptance.
 - `rssh-app ssh --target NAME` can reuse an existing OpenSSH `Host NAME`
   configuration entry, with optional user, port, key, password-prompt, and size
@@ -205,6 +210,12 @@ Start the native russh path and record a first-time host key:
 cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --password
 ```
 
+Start the native russh path with a private key:
+
+```powershell
+cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
+```
+
 Write an SSH session log:
 
 ```powershell
@@ -289,8 +300,9 @@ SSH-boundary tests cover:
   agent authentication branches
 - `RusshAuthOutcome` success/failure normalization from russh authentication
   results
+- `RusshPrivateKeyAuth` loading of unencrypted and encrypted private-key files
 - `RusshChannelOpener::authenticate_async` API shape against the real russh
-  password authentication entry point
+  password and public-key authentication entry points
 - `RusshChannelOpener::open_session_channel_async` API shape against
   `russh::client::Handle::channel_open_session`
 - `RusshChannelOpener::start_channel_async` API shape against russh channel
@@ -331,7 +343,8 @@ SSH-boundary tests cover:
 
 - Switching the app-level `rssh-app ssh` command from the OpenSSH PTY
   compatibility path to the native russh adapter by default.
-- Executing key and agent authentication through `russh`.
+- Prompting for encrypted private-key passphrases in the native app path.
+- Executing agent authentication through `russh`.
 - SFTP, in-process native tunnels, and reconnects.
 
 ## Next Milestone

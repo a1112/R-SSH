@@ -55,6 +55,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 cargo run -p rssh-app -- ssh --host example.com --user ops --agent
 cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --password
+cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- ssh --native --accept-unknown-host-key --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --target prod
 cargo run -p rssh-app -- ssh --target prod -- uname -a
@@ -95,11 +96,12 @@ known-host handling, agent, key prompts, and password prompts without exposing
 secrets in the R-SSH command line.
 Add `--native` with `--host` to use the experimental in-process `russh` path
 instead of spawning OpenSSH. The native path currently supports direct targets
-and password prompting. Use `--trust-on-first-use` to record a first-time host
-key in the user's `.ssh/known_hosts` file and verify it on later connections.
+with password prompting or private-key authentication. Use
+`--trust-on-first-use` to record a first-time host key in the user's
+`.ssh/known_hosts` file and verify it on later connections.
 `--accept-unknown-host-key` remains available for insecure test servers only.
-Native forwarding, OpenSSH `Host` targets, agent auth, and key auth are still
-kept on the OpenSSH compatibility path.
+Native forwarding, OpenSSH `Host` targets, and agent auth are still kept on the
+OpenSSH compatibility path.
 Use `--password` as a flag when you want OpenSSH to prompt in the terminal; do
 not pass password or key-passphrase values as command arguments.
 Use `--target NAME` to reuse an OpenSSH `Host NAME` entry from your existing
