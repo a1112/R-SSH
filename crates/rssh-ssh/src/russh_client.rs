@@ -1,4 +1,10 @@
-use std::{collections::VecDeque, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::VecDeque,
+    io::{Read, Seek, SeekFrom, Write},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 use crate::{
     SshAuthMethod, SshChannel, SshChannelOpenPlan, SshChannelOpener, SshConnectRequest,
@@ -8,7 +14,83 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RusshHostKeyPolicy {
     RejectUnknown,
+    TrustOnFirstUse,
     AcceptUnknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RusshKnownHosts {
+    path: PathBuf,
+}
+
+impl RusshKnownHosts {
+    #[must_use]
+    pub fn new(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into() }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+
+    /// Checks whether `key` matches the recorded host key for `host:port`.
+    ///
+    /// # Errors
+    ///
+    /// Returns russh key errors when the known-hosts file cannot be parsed or
+    /// contains a changed key for the same host and algorithm.
+    pub fn matches(
+        &self,
+        host: &str,
+        port: u16,
+        key: &russh::keys::ssh_key::PublicKey,
+    ) -> Result<bool, russh::keys::Error> {
+        russh::keys::known_hosts::check_known_hosts_path(host, port, key, &self.path)
+    }
+
+    /// Records `key` for `host:port` in this known-hosts file.
+    ///
+    /// # Errors
+    ///
+    /// Returns russh key errors when the file cannot be created or written.
+    pub fn learn(
+        &self,
+        host: &str,
+        port: u16,
+        key: &russh::keys::ssh_key::PublicKey,
+    ) -> Result<(), russh::keys::Error> {
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .append(true)
+            .create(true)
+            .open(&self.path)?;
+        let mut needs_newline = false;
+        if file.seek(SeekFrom::End(-1)).is_ok() {
+            let mut last_byte = [0; 1];
+            file.read_exact(&mut last_byte)?;
+            needs_newline = last_byte[0] != b'\n';
+        }
+
+        file.seek(SeekFrom::End(0))?;
+        if needs_newline {
+            file.write_all(b"\n")?;
+        }
+
+        if port == 22 {
+            write!(file, "{host} ")?;
+        } else {
+            write!(file, "[{host}]:{port} ")?;
+        }
+        file.write_all(key.to_openssh()?.as_bytes())?;
+        file.write_all(b"\n")?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +275,7 @@ impl RusshConnectPlan {
 pub struct RusshChannelOpener {
     client_config: Arc<russh::client::Config>,
     host_key_policy: RusshHostKeyPolicy,
+    known_hosts_path: Option<PathBuf>,
 }
 
 impl Default for RusshChannelOpener {
@@ -205,6 +288,7 @@ impl Default for RusshChannelOpener {
         Self {
             client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
+            known_hosts_path: None,
         }
     }
 }
@@ -215,12 +299,19 @@ impl RusshChannelOpener {
         Self {
             client_config: Arc::new(client_config),
             host_key_policy: RusshHostKeyPolicy::RejectUnknown,
+            known_hosts_path: None,
         }
     }
 
     #[must_use]
     pub const fn with_host_key_policy(mut self, host_key_policy: RusshHostKeyPolicy) -> Self {
         self.host_key_policy = host_key_policy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_known_hosts_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.known_hosts_path = Some(path.into());
         self
     }
 
@@ -235,16 +326,37 @@ impl RusshChannelOpener {
     }
 
     #[must_use]
+    pub fn known_hosts_path(&self) -> Option<&std::path::Path> {
+        self.known_hosts_path.as_deref()
+    }
+
+    #[must_use]
     pub fn into_handler(self) -> RusshClientHandler {
         RusshClientHandler {
             host_key_policy: self.host_key_policy,
+            host: None,
+            port: None,
+            known_hosts_path: self.known_hosts_path,
         }
     }
 
     #[must_use]
-    pub const fn handler(&self) -> RusshClientHandler {
+    pub fn handler(&self) -> RusshClientHandler {
         RusshClientHandler {
             host_key_policy: self.host_key_policy,
+            host: None,
+            port: None,
+            known_hosts_path: self.known_hosts_path.clone(),
+        }
+    }
+
+    #[must_use]
+    pub fn handler_for_host(&self, host: impl Into<String>, port: u16) -> RusshClientHandler {
+        RusshClientHandler {
+            host_key_policy: self.host_key_policy,
+            host: Some(host.into()),
+            port: Some(port),
+            known_hosts_path: self.known_hosts_path.clone(),
         }
     }
 
@@ -266,10 +378,11 @@ impl RusshChannelOpener {
         request: SshConnectRequest,
     ) -> Result<russh::client::Handle<RusshClientHandler>, SshSessionError> {
         let plan = self.connect_plan(&request);
+        let (host, port) = plan.socket_addr();
         russh::client::connect(
             Arc::clone(&self.client_config),
-            plan.socket_addr(),
-            self.handler(),
+            (host, port),
+            self.handler_for_host(host, port),
         )
         .await
         .map_err(|error| SshSessionError::new(format!("SSH connect failed: {error}")))
@@ -381,14 +494,17 @@ impl RusshChannelOpener {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RusshClientHandler {
     host_key_policy: RusshHostKeyPolicy,
+    host: Option<String>,
+    port: Option<u16>,
+    known_hosts_path: Option<PathBuf>,
 }
 
 impl RusshClientHandler {
     #[must_use]
-    pub const fn accepts_unknown_host_keys(self) -> bool {
+    pub const fn accepts_unknown_host_keys(&self) -> bool {
         matches!(self.host_key_policy, RusshHostKeyPolicy::AcceptUnknown)
     }
 }
@@ -398,9 +514,34 @@ impl russh::client::Handler for RusshClientHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::ssh_key::PublicKey,
+        server_public_key: &russh::keys::ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        Ok(self.accepts_unknown_host_keys())
+        if self.accepts_unknown_host_keys() {
+            return Ok(true);
+        }
+
+        let (Some(host), Some(port)) = (self.host.as_deref(), self.port) else {
+            return Ok(false);
+        };
+
+        let matches = if let Some(path) = &self.known_hosts_path {
+            let known_hosts = RusshKnownHosts::new(path.clone());
+            match known_hosts.matches(host, port, server_public_key) {
+                Ok(false)
+                    if matches!(self.host_key_policy, RusshHostKeyPolicy::TrustOnFirstUse) =>
+                {
+                    known_hosts
+                        .learn(host, port, server_public_key)
+                        .map_err(russh::Error::from)?;
+                    return Ok(true);
+                }
+                result => result,
+            }
+        } else {
+            russh::keys::known_hosts::check_known_hosts(host, port, server_public_key)
+        };
+
+        Ok(matches.unwrap_or(false))
     }
 }
 

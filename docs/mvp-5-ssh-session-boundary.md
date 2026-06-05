@@ -68,11 +68,16 @@ contract that a future in-process `russh` adapter must satisfy.
   host-key handler into `russh::client::connect`, returning a connected russh
   handle for the next authentication step.
 - `RusshHostKeyPolicy` carries the native adapter's host-key decision rule.
-  `RusshChannelOpener` defaults to `RejectUnknown`; callers must explicitly opt
-  into `AcceptUnknown` for insecure local fixtures or test-only connections.
+  `RusshChannelOpener` defaults to `RejectUnknown`; callers can explicitly opt
+  into `TrustOnFirstUse` for first-use known-host learning or `AcceptUnknown`
+  for insecure local fixtures and test-only connections.
+- `RusshKnownHosts` records OpenSSH-compatible known-host lines and checks host,
+  port, and public-key matches through russh's known-host parser.
 - `RusshClientHandler` implements `russh::client::Handler::check_server_key`
-  from that policy, giving the future `russh` connection path a tested
-  host-key gate before authentication and channel opening run.
+  from that policy, giving the `russh` connection path a tested host-key gate
+  before authentication and channel opening run. With `TrustOnFirstUse`, an
+  unknown host key is written to the configured known-hosts file and accepted;
+  later connections must match the recorded key.
 - `RusshConnectPlan` derives the stable inputs for
   `russh::client::connect` and the following channel-open step from an
   `SshConnectRequest`: socket host, socket port, username, and
@@ -108,8 +113,9 @@ contract that a future in-process `russh` adapter must satisfy.
 - `rssh-app ssh --native --host ...` selects the in-process russh path for
   direct targets. The native app path uses `RusshChannelOpener` through
   `SshChannelConnector`, prompts for a password when `--password` is selected,
-  and requires explicit `--accept-unknown-host-key` for insecure/test-only
-  unknown-host-key acceptance until known-host persistence exists.
+  supports `--trust-on-first-use` for user `.ssh/known_hosts` persistence, and
+  keeps `--accept-unknown-host-key` for insecure/test-only unknown-host-key
+  acceptance.
 - `rssh-app ssh --target NAME` can reuse an existing OpenSSH `Host NAME`
   configuration entry, with optional user, port, key, password-prompt, and size
   overrides.
@@ -193,6 +199,12 @@ Prefer an interactive password prompt:
 cargo run -p rssh-app -- ssh --host example.com --user ops --password
 ```
 
+Start the native russh path and record a first-time host key:
+
+```powershell
+cargo run -p rssh-app -- ssh --native --trust-on-first-use --host example.com --user ops --password
+```
+
 Write an SSH session log:
 
 ```powershell
@@ -269,6 +281,8 @@ SSH-boundary tests cover:
   `russh::client::connect` transport entry point
 - `RusshHostKeyPolicy` defaults and explicit insecure/test-only accept-unknown
   host-key behavior through the `russh` client handler
+- OpenSSH-compatible known-host writing and matching for the native russh path
+- native trust-on-first-use host-key recording through the russh client handler
 - `RusshConnectPlan` derivation for socket address, username, and channel-open
   plan from a validated SSH request
 - `RusshAuthPlan` derivation for password, password-prompt, private-key, and
@@ -290,6 +304,8 @@ SSH-boundary tests cover:
 - app-level native SSH backend selection with `--native`
 - app-level native password prompt resolution before connecting through russh
 - explicit `--accept-unknown-host-key` parsing and russh host-key policy mapping
+- explicit `--trust-on-first-use` parsing, native host-key policy mapping, and
+  default `.ssh/known_hosts` path selection
 - rejection of `--native --target` and native forwarding until those native
   features are wired
 - command-line rejection for password and key-passphrase secret values
@@ -316,7 +332,6 @@ SSH-boundary tests cover:
 - Switching the app-level `rssh-app ssh` command from the OpenSSH PTY
   compatibility path to the native russh adapter by default.
 - Executing key and agent authentication through `russh`.
-- Known-host file storage and persisted host-key trust decisions.
 - SFTP, in-process native tunnels, and reconnects.
 
 ## Next Milestone

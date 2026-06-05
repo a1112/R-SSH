@@ -203,8 +203,8 @@ mod tests {
     use rssh_ssh::SshAuthMethod;
 
     use crate::cli::{
-        AppCommand, LocalOptions, OpenSshTarget, ProfileOptions, SshForward, SshTarget,
-        WindowOptions,
+        AppCommand, LocalOptions, NativeHostKeyPolicy, OpenSshTarget, ProfileOptions, SshForward,
+        SshTarget, WindowOptions,
     };
 
     fn temp_profile_file(name: &str, contents: &str) -> PathBuf {
@@ -263,7 +263,7 @@ dynamic_forward = ["127.0.0.1:1080"]
                 ],
                 no_shell: false,
                 native: false,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: crate::cli::Osc52Policy::Off,
                 log: None,
             })

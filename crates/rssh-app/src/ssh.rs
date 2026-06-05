@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     io::{self, Read, Write},
+    path::PathBuf,
 };
 
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySize};
@@ -10,7 +11,7 @@ use rssh_ssh::{
 };
 
 use crate::{
-    cli::{LocalOptions, OpenSshTarget, SshForward, SshOptions, SshTarget},
+    cli::{LocalOptions, NativeHostKeyPolicy, OpenSshTarget, SshForward, SshOptions, SshTarget},
     local,
 };
 
@@ -42,11 +43,24 @@ fn run_native(options: &SshOptions) -> Result<PtyExitStatus, Box<dyn Error>> {
 
 fn native_channel_opener_for_options(options: &SshOptions) -> RusshChannelOpener {
     let opener = RusshChannelOpener::default();
-    if options.accept_unknown_host_key {
-        return opener.with_host_key_policy(RusshHostKeyPolicy::AcceptUnknown);
+    match options.native_host_key_policy {
+        NativeHostKeyPolicy::RejectUnknown => opener,
+        NativeHostKeyPolicy::AcceptUnknown => {
+            opener.with_host_key_policy(RusshHostKeyPolicy::AcceptUnknown)
+        }
+        NativeHostKeyPolicy::TrustOnFirstUse => {
+            let opener = opener.with_host_key_policy(RusshHostKeyPolicy::TrustOnFirstUse);
+            if let Some(path) = default_known_hosts_path() {
+                return opener.with_known_hosts_path(path);
+            }
+            opener
+        }
     }
+}
 
-    opener
+fn default_known_hosts_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".ssh").join("known_hosts"))
 }
 
 #[must_use]
@@ -203,7 +217,7 @@ fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions
         forwards: Vec::new(),
         no_shell: false,
         native: false,
-        accept_unknown_host_key: false,
+        native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
         osc52_policy: crate::cli::Osc52Policy::default(),
         log: None,
     })
@@ -270,7 +284,7 @@ mod tests {
         SshShellSession,
     };
 
-    use crate::cli::{OpenSshTarget, Osc52Policy, SshOptions, SshTarget};
+    use crate::cli::{NativeHostKeyPolicy, OpenSshTarget, Osc52Policy, SshOptions, SshTarget};
 
     #[test]
     fn ssh_runner_streams_remote_output_and_closes_session() {
@@ -290,7 +304,7 @@ mod tests {
                 forwards: Vec::new(),
                 no_shell: false,
                 native: false,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -325,7 +339,7 @@ mod tests {
                 forwards: Vec::new(),
                 no_shell: false,
                 native: false,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -359,7 +373,7 @@ mod tests {
                 forwards: Vec::new(),
                 no_shell: false,
                 native: false,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -395,7 +409,7 @@ mod tests {
                 forwards: Vec::new(),
                 no_shell: true,
                 native: false,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -428,7 +442,7 @@ mod tests {
                 forwards: Vec::new(),
                 no_shell: false,
                 native: true,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -463,7 +477,7 @@ mod tests {
                 )],
                 no_shell: false,
                 native: true,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -495,7 +509,7 @@ mod tests {
                 forwards: Vec::new(),
                 no_shell: false,
                 native: true,
-                accept_unknown_host_key: false,
+                native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
                 osc52_policy: Osc52Policy::default(),
                 log: None,
             },
@@ -528,7 +542,7 @@ mod tests {
             forwards: Vec::new(),
             no_shell: false,
             native: true,
-            accept_unknown_host_key: true,
+            native_host_key_policy: NativeHostKeyPolicy::AcceptUnknown,
             osc52_policy: Osc52Policy::default(),
             log: None,
         });
@@ -536,6 +550,57 @@ mod tests {
         assert_eq!(
             opener.host_key_policy(),
             rssh_ssh::RusshHostKeyPolicy::AcceptUnknown
+        );
+    }
+
+    #[test]
+    fn native_ssh_opener_uses_trust_on_first_use_host_key_policy() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+
+        let opener = super::native_channel_opener_for_options(&SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: Vec::new(),
+            no_shell: false,
+            native: true,
+            native_host_key_policy: NativeHostKeyPolicy::TrustOnFirstUse,
+            osc52_policy: Osc52Policy::default(),
+            log: None,
+        });
+
+        assert_eq!(
+            opener.host_key_policy(),
+            rssh_ssh::RusshHostKeyPolicy::TrustOnFirstUse
+        );
+    }
+
+    #[test]
+    fn native_ssh_opener_uses_default_known_hosts_for_trust_on_first_use() {
+        let request = SshConnectRequest::agent(
+            SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(80, 24)).unwrap(),
+        );
+
+        let opener = super::native_channel_opener_for_options(&SshOptions {
+            target: SshTarget::Direct(request),
+            remote_command: Vec::new(),
+            forwards: Vec::new(),
+            no_shell: false,
+            native: true,
+            native_host_key_policy: NativeHostKeyPolicy::TrustOnFirstUse,
+            osc52_policy: Osc52Policy::default(),
+            log: None,
+        });
+
+        let known_hosts_path = opener.known_hosts_path().unwrap();
+        assert_eq!(
+            known_hosts_path.file_name().unwrap(),
+            std::ffi::OsStr::new("known_hosts")
+        );
+        assert_eq!(
+            known_hosts_path.parent().unwrap().file_name().unwrap(),
+            std::ffi::OsStr::new(".ssh")
         );
     }
 
@@ -625,7 +690,7 @@ mod tests {
             forwards: Vec::new(),
             no_shell: false,
             native: false,
-            accept_unknown_host_key: false,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
             osc52_policy: Osc52Policy::Off,
             log: None,
         };
@@ -652,7 +717,7 @@ mod tests {
             forwards: Vec::new(),
             no_shell: false,
             native: false,
-            accept_unknown_host_key: false,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
             osc52_policy: Osc52Policy::default(),
             log: None,
         };
@@ -688,7 +753,7 @@ mod tests {
             forwards: Vec::new(),
             no_shell: false,
             native: false,
-            accept_unknown_host_key: false,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
             osc52_policy: Osc52Policy::default(),
             log: None,
         };
@@ -716,7 +781,7 @@ mod tests {
             ],
             no_shell: true,
             native: false,
-            accept_unknown_host_key: false,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
             osc52_policy: Osc52Policy::default(),
             log: None,
         };
@@ -803,7 +868,7 @@ mod tests {
             forwards: Vec::new(),
             no_shell: false,
             native: false,
-            accept_unknown_host_key: false,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
             osc52_policy: Osc52Policy::default(),
             log: None,
         }

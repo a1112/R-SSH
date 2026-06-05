@@ -7,7 +7,7 @@ mod russh_client;
 pub use russh_client::{
     RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelOpener, RusshChannelStartupPlan,
     RusshChannelStartupRequest, RusshClientHandler, RusshConnectPlan, RusshHostKeyPolicy,
-    RusshSshChannel,
+    RusshKnownHosts, RusshSshChannel,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -575,7 +575,7 @@ mod tests {
 
     use crate::{
         RusshAuthOutcome, RusshAuthPlan, RusshAuthRequest, RusshChannelStartupPlan,
-        RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy,
+        RusshChannelStartupRequest, RusshConnectPlan, RusshHostKeyPolicy, RusshKnownHosts,
     };
 
     #[test]
@@ -909,6 +909,76 @@ mod tests {
     }
 
     #[test]
+    fn russh_known_hosts_can_learn_and_match_host_key() {
+        let path = temp_known_hosts_path("learn");
+        let _ = std::fs::remove_file(&path);
+        let store = RusshKnownHosts::new(path.clone());
+        let key = test_public_key();
+
+        store.learn("ssh.example.com", 2222, &key).unwrap();
+
+        assert!(store.matches("ssh.example.com", 2222, &key).unwrap());
+        assert!(!store.matches("ssh.example.com", 22, &key).unwrap());
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.starts_with("[ssh.example.com]:2222 ssh-ed25519 "));
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn russh_handler_accepts_known_host_key_from_configured_store() {
+        let path = temp_known_hosts_path("handler");
+        let _ = std::fs::remove_file(&path);
+        let store = RusshKnownHosts::new(path.clone());
+        let key = test_public_key();
+        store.learn("ssh.example.com", 22, &key).unwrap();
+        let mut handler = super::RusshChannelOpener::default()
+            .with_known_hosts_path(path.clone())
+            .handler_for_host("ssh.example.com", 22);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let accepted = runtime
+            .block_on(russh::client::Handler::check_server_key(&mut handler, &key))
+            .unwrap();
+
+        assert!(accepted);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn russh_handler_trusts_first_unknown_host_key_and_records_it() {
+        let path = temp_known_hosts_path("trust-first");
+        let _ = std::fs::remove_file(&path);
+        let key = test_public_key();
+        let mut handler = super::RusshChannelOpener::default()
+            .with_host_key_policy(RusshHostKeyPolicy::TrustOnFirstUse)
+            .with_known_hosts_path(path.clone())
+            .handler_for_host("ssh.example.com", 2222);
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let accepted = runtime
+            .block_on(russh::client::Handler::check_server_key(&mut handler, &key))
+            .unwrap();
+
+        assert!(accepted);
+        assert!(
+            RusshKnownHosts::new(path.clone())
+                .matches("ssh.example.com", 2222, &key)
+                .unwrap()
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn russh_connect_plan_builds_socket_address_and_username_from_request() {
         let request = SshConnectRequest::agent(
             SshSessionConfig::try_new(
@@ -1180,6 +1250,17 @@ mod tests {
 
     fn valid_config() -> SshSessionConfig {
         SshSessionConfig::try_new("example.com", 22, "ops", TerminalSize::new(100, 40)).unwrap()
+    }
+
+    fn temp_known_hosts_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("rssh-known-hosts-{name}-{}", std::process::id()))
+    }
+
+    fn test_public_key() -> russh::keys::ssh_key::PublicKey {
+        russh::keys::parse_public_key_base64(
+            "AAAAC3NzaC1lZDI1NTE5AAAAIJdD7y3aLq454yWBdwLWbieU1ebz9/cu7/QEXn9OIeZJ",
+        )
+        .unwrap()
     }
 
     #[derive(Default)]

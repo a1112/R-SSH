@@ -39,7 +39,7 @@ pub struct SshOptions {
     pub forwards: Vec<SshForward>,
     pub no_shell: bool,
     pub native: bool,
-    pub accept_unknown_host_key: bool,
+    pub native_host_key_policy: NativeHostKeyPolicy,
     pub osc52_policy: Osc52Policy,
     pub log: Option<PathBuf>,
 }
@@ -66,6 +66,14 @@ pub enum SshForward {
     Dynamic(String),
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum NativeHostKeyPolicy {
+    #[default]
+    RejectUnknown,
+    TrustOnFirstUse,
+    AcceptUnknown,
+}
+
 #[derive(Default)]
 struct SshParseState {
     host: Option<String>,
@@ -79,7 +87,7 @@ struct SshParseState {
     forwards: Vec<SshForward>,
     no_shell: bool,
     native: bool,
-    accept_unknown_host_key: bool,
+    native_host_key_policy: NativeHostKeyPolicy,
     osc52_policy: Osc52Policy,
     log: Option<PathBuf>,
 }
@@ -163,7 +171,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app profile NAME [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -369,8 +377,8 @@ fn parse_ssh_option(
         "--native" => {
             state.native = true;
         }
-        "--accept-unknown-host-key" => {
-            state.accept_unknown_host_key = true;
+        "--accept-unknown-host-key" | "--trust-on-first-use" => {
+            parse_native_host_key_policy(args[*index].as_str(), state)?;
         }
         "--osc52" => {
             *index += 1;
@@ -402,7 +410,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         forwards,
         no_shell,
         native,
-        accept_unknown_host_key,
+        native_host_key_policy,
         osc52_policy,
         log,
     } = state;
@@ -438,8 +446,11 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
     if native && matches!(target, SshTarget::OpenSsh(_)) {
         return Err("--native requires --host and cannot use --target".to_owned());
     }
-    if accept_unknown_host_key && !native {
+    if matches!(native_host_key_policy, NativeHostKeyPolicy::AcceptUnknown) && !native {
         return Err("--accept-unknown-host-key requires --native".to_owned());
+    }
+    if matches!(native_host_key_policy, NativeHostKeyPolicy::TrustOnFirstUse) && !native {
+        return Err("--trust-on-first-use requires --native".to_owned());
     }
 
     Ok(SshOptions {
@@ -448,7 +459,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         forwards,
         no_shell,
         native,
-        accept_unknown_host_key,
+        native_host_key_policy,
         osc52_policy,
         log,
     })
@@ -575,6 +586,28 @@ fn set_ssh_auth(auth: &mut Option<SshAuthMethod>, next: SshAuthMethod) -> Result
     Ok(())
 }
 
+fn parse_native_host_key_policy(option: &str, state: &mut SshParseState) -> Result<(), String> {
+    let policy = match option {
+        "--accept-unknown-host-key" => NativeHostKeyPolicy::AcceptUnknown,
+        "--trust-on-first-use" => NativeHostKeyPolicy::TrustOnFirstUse,
+        _ => unreachable!("only native host-key policy options call this helper"),
+    };
+
+    set_native_host_key_policy(&mut state.native_host_key_policy, policy)
+}
+
+fn set_native_host_key_policy(
+    policy: &mut NativeHostKeyPolicy,
+    next: NativeHostKeyPolicy,
+) -> Result<(), String> {
+    if !matches!(policy, NativeHostKeyPolicy::RejectUnknown) {
+        return Err("only one native SSH host-key policy can be selected".to_owned());
+    }
+
+    *policy = next;
+    Ok(())
+}
+
 fn ssh_terminal_size(columns: Option<u16>, rows: Option<u16>) -> Result<TerminalSize, String> {
     match (columns, rows) {
         (None, None) => Ok(ssh_default_terminal_size()),
@@ -592,7 +625,7 @@ const fn ssh_default_terminal_size() -> TerminalSize {
 mod tests {
     use rssh_ssh::SshAuthMethod;
 
-    use super::{AppCommand, parse_args};
+    use super::{AppCommand, NativeHostKeyPolicy, parse_args};
 
     #[test]
     fn parses_default_window_command() {
@@ -832,7 +865,10 @@ mod tests {
         };
 
         assert!(options.native);
-        assert!(!options.accept_unknown_host_key);
+        assert_eq!(
+            options.native_host_key_policy,
+            NativeHostKeyPolicy::RejectUnknown
+        );
     }
 
     #[test]
@@ -853,7 +889,34 @@ mod tests {
             panic!("expected ssh command");
         };
 
-        assert!(options.accept_unknown_host_key);
+        assert_eq!(
+            options.native_host_key_policy,
+            NativeHostKeyPolicy::AcceptUnknown
+        );
+    }
+
+    #[test]
+    fn parses_ssh_native_trust_on_first_use_host_key_flag() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "--native",
+            "--trust-on-first-use",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.native_host_key_policy,
+            NativeHostKeyPolicy::TrustOnFirstUse
+        );
     }
 
     #[test]
@@ -970,6 +1033,40 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("--accept-unknown-host-key requires --native"));
+    }
+
+    #[test]
+    fn rejects_trust_on_first_use_without_native() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--trust-on-first-use",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("--trust-on-first-use requires --native"));
+    }
+
+    #[test]
+    fn rejects_conflicting_native_host_key_policies() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--native",
+            "--accept-unknown-host-key",
+            "--trust-on-first-use",
+            "--host",
+            "example.com",
+            "--user",
+            "ops",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("only one native SSH host-key policy"));
     }
 
     #[test]
