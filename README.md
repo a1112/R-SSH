@@ -148,7 +148,8 @@ host-console writes while continuing to answer terminal queries.
 The console path also answers basic terminal status and device-attribute queries.
 XTGETTCAP capability replies include terminal name, 256-color/true-color
 markers, OSC 52 clipboard support, italic/style underline/underline-color
-templates, and current column/row counts.
+templates, foundational cursor/screen/style/color capabilities, and current
+column/row counts.
 OSC 52 clipboard writes and read queries are handled in the console path so
 local and OpenSSH-backed terminal programs can use terminal clipboard
 integration. Use `--osc52 off|write|read-write` on `console`/`local`, `ssh`,

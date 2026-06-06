@@ -131,9 +131,11 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   (`DCS + q <hex-cap> ST`) for common compatibility probes, including
   `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, `Tc = 1`, `Ms` OSC
   52 clipboard template support, `sitm`/`ritm` italic style templates, `Smulx`
-  styled underline, `Setulc` underline color, and dynamic `co`/`li` column and
-  row counts from the current PTY size. Unsupported capabilities return
-  `DCS 0+r ST`, and C1 DCS/ST forms are handled too.
+  styled underline, `Setulc` underline color, foundational cursor/screen/style
+  capabilities (`clear`, `cup`, `home`, `civis`/`cnorm`, `smcup`/`rmcup`,
+  `sgr0`, common SGR styles, `smul`/`rmul`, `setaf`/`setab`), and dynamic
+  `co`/`li` column and row counts from the current PTY size. Unsupported
+  capabilities return `DCS 0+r ST`, and C1 DCS/ST forms are handled too.
 - The app answers DEC request status string queries (`DECRQSS`,
   `DCS $ q <selector> ST`) for current SGR style (`m`), including bold, faint,
   italic, blink, underline, double underline, colon-separated underline styles,
@@ -281,7 +283,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
   queries for colors, terminal name, true-color markers, OSC 52 clipboard
   template, italic style templates, styled/colored underline templates, current
-  columns/rows, and unknown capability fallback.
+  columns/rows, foundational cursor/screen/style/color capabilities, and
+  unknown capability fallback.
 - DECRQSS response: unit tests cover current SGR, including faint, italic,
   blink, double underline, colon-separated underline style, underline color, and
   concealed text plus overline, cursor-shape, and scroll-region status queries

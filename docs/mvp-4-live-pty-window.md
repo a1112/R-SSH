@@ -15,8 +15,11 @@ in the native `winit` window.
   queries, plus xterm XTGETTCAP terminal-capability and DECRQSS state queries,
   plus XTVERSION queries, then returns responses that are written back to the
   PTY. XTGETTCAP responses include modern style/color templates plus dynamic
-  `co`/`li` column and row counts from the current runtime size. Standard and
-  DEC private cursor-position responses use the current terminal grid cursor.
+  `co`/`li` column and row counts from the current runtime size, plus
+  foundational cursor/screen/style/color capabilities such as `clear`, `cup`,
+  `home`, `civis`/`cnorm`, `smcup`/`rmcup`, `sgr0`, common SGR styles, and
+  `setaf`/`setab`. Standard and DEC private cursor-position responses use the
+  current terminal grid cursor.
   Equivalent 8-bit C1 CSI query forms are handled through the same runtime path.
   Runtime query matching does not inspect
   inside OSC or ST-terminated control-string payloads, so query-like bytes
@@ -218,8 +221,8 @@ MVP 4 tests cover:
   and visible-output filtering
 - XTGETTCAP terminal-capability query responses for colors, terminal name,
   true-color markers, OSC 52 template support, italic style templates,
-  styled/colored underline templates, current columns/rows, and unknown
-  capability fallback
+  styled/colored underline templates, foundational cursor/screen/style/color
+  capabilities, current columns/rows, and unknown capability fallback
 - DECRQSS state query responses for current SGR style, including faint, italic,
   blink, double underline, colon-separated underline style, underline color,
   concealed text, and overline, cursor shape, and scroll-region state

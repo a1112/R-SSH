@@ -2130,6 +2130,23 @@ fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
         ),
         b"sitm" => Some(b"1b5b336d".to_vec()),
         b"ritm" => Some(b"1b5b32336d".to_vec()),
+        b"clear" => Some(encode_ascii_hex(b"\x1b[H\x1b[2J")),
+        b"cup" => Some(encode_ascii_hex(b"\x1b[%i%p1%d;%p2%dH")),
+        b"home" => Some(encode_ascii_hex(b"\x1b[H")),
+        b"civis" => Some(encode_ascii_hex(b"\x1b[?25l")),
+        b"cnorm" => Some(encode_ascii_hex(b"\x1b[?25h")),
+        b"smcup" => Some(encode_ascii_hex(b"\x1b[?1049h")),
+        b"rmcup" => Some(encode_ascii_hex(b"\x1b[?1049l")),
+        b"sgr0" => Some(encode_ascii_hex(b"\x1b[0m")),
+        b"bold" => Some(encode_ascii_hex(b"\x1b[1m")),
+        b"dim" => Some(encode_ascii_hex(b"\x1b[2m")),
+        b"blink" => Some(encode_ascii_hex(b"\x1b[5m")),
+        b"rev" => Some(encode_ascii_hex(b"\x1b[7m")),
+        b"invis" => Some(encode_ascii_hex(b"\x1b[8m")),
+        b"smul" => Some(encode_ascii_hex(b"\x1b[4m")),
+        b"rmul" => Some(encode_ascii_hex(b"\x1b[24m")),
+        b"setaf" => Some(encode_ascii_hex(b"\x1b[38;5;%p1%dm")),
+        b"setab" => Some(encode_ascii_hex(b"\x1b[48;5;%p1%dm")),
         b"co" => Some(decimal_value_hex(size.columns())),
         b"li" => Some(decimal_value_hex(size.rows())),
         _ => None,
@@ -3564,6 +3581,32 @@ mod tests {
         text
     }
 
+    fn xtgettcap_query(names: &[&[u8]]) -> Vec<u8> {
+        let mut query = b"\x1bP+q".to_vec();
+        for (index, name) in names.iter().enumerate() {
+            if index > 0 {
+                query.push(b';');
+            }
+            query.extend_from_slice(&super::encode_ascii_hex(name));
+        }
+        query.extend_from_slice(b"\x1b\\");
+        query
+    }
+
+    fn xtgettcap_response(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
+        let mut response = b"\x1bP1+r".to_vec();
+        for (index, (name, value)) in entries.iter().enumerate() {
+            if index > 0 {
+                response.push(b';');
+            }
+            response.extend_from_slice(&super::encode_ascii_hex(name));
+            response.push(b'=');
+            response.extend_from_slice(&super::encode_ascii_hex(value));
+        }
+        response.extend_from_slice(b"\x1b\\");
+        response
+    }
+
     #[test]
     fn explicit_local_size_overrides_console_size() {
         let size = rssh_pty::PtySize::try_new(101, 31).unwrap();
@@ -4633,6 +4676,67 @@ mod tests {
         assert_eq!(
             responses,
             b"\x1bP1+r5463=31;536d756c78=1b5b343a25703125646d;536574756c63=1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d;7369746d=1b5b336d;7269746d=1b5b32336d\x1b\\"
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_foundational_terminal_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"clear".as_slice(),
+            b"cup".as_slice(),
+            b"home".as_slice(),
+            b"civis".as_slice(),
+            b"cnorm".as_slice(),
+            b"smcup".as_slice(),
+            b"rmcup".as_slice(),
+            b"sgr0".as_slice(),
+            b"bold".as_slice(),
+            b"dim".as_slice(),
+            b"blink".as_slice(),
+            b"rev".as_slice(),
+            b"invis".as_slice(),
+            b"smul".as_slice(),
+            b"rmul".as_slice(),
+            b"setaf".as_slice(),
+            b"setab".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"clear".as_slice(), b"\x1b[H\x1b[2J".as_slice()),
+                (b"cup".as_slice(), b"\x1b[%i%p1%d;%p2%dH".as_slice()),
+                (b"home".as_slice(), b"\x1b[H".as_slice()),
+                (b"civis".as_slice(), b"\x1b[?25l".as_slice()),
+                (b"cnorm".as_slice(), b"\x1b[?25h".as_slice()),
+                (b"smcup".as_slice(), b"\x1b[?1049h".as_slice()),
+                (b"rmcup".as_slice(), b"\x1b[?1049l".as_slice()),
+                (b"sgr0".as_slice(), b"\x1b[0m".as_slice()),
+                (b"bold".as_slice(), b"\x1b[1m".as_slice()),
+                (b"dim".as_slice(), b"\x1b[2m".as_slice()),
+                (b"blink".as_slice(), b"\x1b[5m".as_slice()),
+                (b"rev".as_slice(), b"\x1b[7m".as_slice()),
+                (b"invis".as_slice(), b"\x1b[8m".as_slice()),
+                (b"smul".as_slice(), b"\x1b[4m".as_slice()),
+                (b"rmul".as_slice(), b"\x1b[24m".as_slice()),
+                (b"setaf".as_slice(), b"\x1b[38;5;%p1%dm".as_slice()),
+                (b"setab".as_slice(), b"\x1b[48;5;%p1%dm".as_slice()),
+            ])
         );
     }
 
