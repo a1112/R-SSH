@@ -66,7 +66,8 @@ in the native `winit` window.
   visual line.
 - The native window supports scrollback search with `Ctrl+F`, `Enter`/`F3` for
   the next match, `Shift+F3` for the previous match, and `Esc` to exit search
-  mode. Search is literal by default; use `regex:<pattern>` to run a regular
+  mode. Search is literal by default; use `literal:<text>` when the text itself
+  starts with a reserved search prefix, or `regex:<pattern>` to run a regular
   expression search, where invalid regex input and zero-width regex matches
   behave as no match. Matches can span visual row boundaries across scrollback
   and the live grid, scroll the viewport into history, and use the selection
@@ -219,9 +220,9 @@ MVP 4 tests cover:
 - native window local selection text extraction, highlight overlay, mouse drag,
   double-click word selection, triple-click line selection, and copy shortcut
   detection
-- native window literal and `regex:<pattern>` scrollback search across visual
-  rows, zero-width regex filtering, next/previous navigation, and search
-  shortcut detection
+- native window literal, `literal:<text>`, and `regex:<pattern>` scrollback
+  search across visual rows, zero-width regex filtering, next/previous
+  navigation, and search shortcut detection
 - native window custom startup command parsing and configured PTY command
   storage
 - shared PTY command terminal environment defaults for `TERM` and `COLORTERM`

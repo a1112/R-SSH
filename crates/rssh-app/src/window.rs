@@ -1774,6 +1774,7 @@ impl<'a> WindowSearchQuery<'a> {
             return (!pattern.is_empty()).then_some(Self::Regex(pattern));
         }
 
+        let query = query.strip_prefix("literal:").unwrap_or(query);
         let query: Vec<char> = query
             .chars()
             .filter(|character| !matches!(character, '\r' | '\n'))
@@ -3363,6 +3364,19 @@ mod tests {
             app.effective_window_title(),
             "R-SSH - Search: regex:\\b (no match)"
         );
+    }
+
+    #[test]
+    fn window_search_supports_literal_prefix_for_regex_like_text() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"regex:h.*beta").unwrap();
+
+        assert!(app.update_search_query("literal:regex:h.*beta"));
+
+        assert_eq!(app.selected_text().as_deref(), Some("regex:h.*beta"));
+        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 0, 12).unwrap().inverse);
     }
 
     #[test]

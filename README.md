@@ -317,8 +317,9 @@ wide threshold gates, bundled profile validation, a
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
   terminal damage, snapshot update/rebuild, full/dirty rendering, and
   input-write metrics with `window --metrics` or `window --metrics-json`;
-  native window literal search, plus `regex:<pattern>` search, can match across
-  visual row boundaries in scrollback and the live grid;
+  native window literal search, `literal:<text>` forced-literal search, and
+  `regex:<pattern>` search can match across visual row boundaries in scrollback
+  and the live grid;
   the native window now draws a clickable and draggable right-edge scrollback
   scrollbar instead of putting scrollback position in the title;
   `bench --json` now provides a repeatable
