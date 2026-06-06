@@ -45,11 +45,22 @@ jobs:
       - name: Smoke test packaged console
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
           Push-Location dist/R-SSH-windows-x64
           ./rssh-app.exe version --json
           ./rssh-app.exe doctor --json
           ./rssh-app.exe self-test --json
-          ./rssh-app.exe bench --json --render-frames 30
+          $bench = ./rssh-app.exe bench --json --render-frames 30 --idle-ms 200 | ConvertFrom-Json
+          if ($bench.idle_sample_ms -ne 200) {
+            throw "bench idle sample did not use requested duration"
+          }
+          if ($bench.process_memory_bytes -le 0) {
+            throw "bench did not report process memory"
+          }
+          if ($null -eq $bench.idle_cpu_usage_percent -or $null -eq $bench.process_virtual_memory_bytes -or $null -eq $bench.process_accumulated_cpu_ms) {
+            throw "bench did not report idle CPU and process resource fields"
+          }
           ./rssh-app.exe profile --check --file examples/rssh-profiles.toml
           $windowShow = ./rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml
           if ($windowShow -notmatch "--metrics-json") {

@@ -34,7 +34,7 @@ The release package is not uploaded until all gates pass:
 - `dist/R-SSH-windows-x64/rssh-app.exe version --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe doctor --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe self-test --json`
-- `dist/R-SSH-windows-x64/rssh-app.exe bench --json --render-frames 30`
+- `dist/R-SSH-windows-x64/rssh-app.exe bench --json --render-frames 30 --idle-ms 200`
 - `dist/R-SSH-windows-x64/rssh-app.exe profile --check --file examples/rssh-profiles.toml`
 - `dist/R-SSH-windows-x64/rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml`
 - `dist/R-SSH-windows-x64/rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke`
@@ -52,7 +52,8 @@ test proves that the downloaded executable can run the deterministic
 terminal-runtime benchmark and emit parser throughput, p95 chunk latency,
 response count, visible output bytes, bell count, scrollback lines, and final
 cursor position as machine-readable metrics, plus offscreen renderer p95 frame
-time, rendered pixels, and rendered pixel throughput. The packaged profile
+time, rendered pixels, rendered pixel throughput, idle CPU usage, process
+resident memory, virtual memory, and accumulated CPU time. The packaged profile
 checks prove that bundled examples validate and that `window-smoke` resolves
 `--metrics-json` for native-window automation. The packaged `console` smoke tests
 prove that both the explicit CLI alias and the Windows launcher enter the same
@@ -66,7 +67,7 @@ After extracting the zip:
 .\rssh-app.exe doctor
 .\rssh-app.exe version --json
 .\rssh-app.exe self-test --json
-.\rssh-app.exe bench --json --render-frames 30
+.\rssh-app.exe bench --json --render-frames 30 --idle-ms 200
 .\rssh-app.exe console
 .\rssh-console.cmd
 .\rssh-app.exe local
@@ -116,7 +117,9 @@ pilot:
   throughput, p95 chunk processing latency, visible output bytes, response
   count, bell count, scrollback lines, and final cursor position from a
   deterministic ANSI/CSI/OSC workload, plus offscreen render frame p95 and
-  rendered pixel throughput from `PixelRenderer`.
+  rendered pixel throughput from `PixelRenderer`, plus idle CPU usage,
+  process resident memory, virtual memory, and accumulated CPU time from the
+  current process resource sampler.
 - Profile readiness: packaged profile checks validate bundled profiles and
   verify that the native-window smoke profile resolves `--metrics-json`.
 - Console coverage: explicit `console` launcher, local shell, positional

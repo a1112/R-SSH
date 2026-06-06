@@ -1,8 +1,13 @@
-use std::{error::Error, time::Instant};
+use std::{
+    error::Error,
+    thread,
+    time::{Duration, Instant},
+};
 
 use rssh_core::TerminalSize;
 use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use serde::Serialize;
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 use crate::{cli::BenchOptions, terminal_runtime::TerminalRuntime};
 
@@ -10,7 +15,7 @@ const WORKLOAD_NAME: &str = "ansi-scroll-query";
 const BENCH_CELL_WIDTH: u32 = 8;
 const BENCH_CELL_HEIGHT: u32 = 16;
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct BenchReport {
     pub ok: bool,
     pub workload: String,
@@ -26,6 +31,11 @@ pub struct BenchReport {
     pub render_frame_p95_us: u128,
     pub rendered_pixels: u128,
     pub render_pixels_per_sec: u64,
+    pub idle_sample_ms: usize,
+    pub idle_cpu_usage_percent: f32,
+    pub process_memory_bytes: u64,
+    pub process_virtual_memory_bytes: u64,
+    pub process_accumulated_cpu_ms: u64,
     pub display_bytes: usize,
     pub responses: usize,
     pub bells: u64,
@@ -54,6 +64,7 @@ pub fn run_bench(options: &BenchOptions) -> BenchReport {
         &workload,
         options.chunk_size,
         options.render_frames,
+        options.idle_ms,
         options.size,
     )
 }
@@ -85,6 +96,14 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
             report.render_pixels_per_sec
         ),
         format!(
+            "metric\tidle_sample_ms={}\tidle_cpu_usage_percent={:.2}\tprocess_memory_bytes={}\tprocess_virtual_memory_bytes={}\tprocess_accumulated_cpu_ms={}",
+            report.idle_sample_ms,
+            report.idle_cpu_usage_percent,
+            report.process_memory_bytes,
+            report.process_virtual_memory_bytes,
+            report.process_accumulated_cpu_ms
+        ),
+        format!(
             "metric\tdisplay_bytes={}\tresponses={}\tbells={}\tscrollback_lines={}",
             report.display_bytes, report.responses, report.bells, report.scrollback_lines
         ),
@@ -95,6 +114,7 @@ fn run_benchmark_workload(
     workload: &[u8],
     chunk_size: usize,
     render_frames: usize,
+    idle_ms: usize,
     size: TerminalSize,
 ) -> BenchReport {
     let mut runtime = TerminalRuntime::new(size);
@@ -115,6 +135,7 @@ fn run_benchmark_workload(
     let elapsed = started.elapsed();
     let (cursor_row, cursor_column) = runtime.terminal().cursor();
     let render_report = benchmark_rendering(runtime.terminal(), render_frames, size);
+    let resource_report = sample_process_resources(idle_ms);
 
     BenchReport {
         ok: true,
@@ -131,6 +152,11 @@ fn run_benchmark_workload(
         render_frame_p95_us: render_report.frame_p95_us,
         rendered_pixels: render_report.rendered_pixels,
         render_pixels_per_sec: render_report.pixels_per_sec,
+        idle_sample_ms: resource_report.idle_sample_ms,
+        idle_cpu_usage_percent: resource_report.idle_cpu_usage_percent,
+        process_memory_bytes: resource_report.process_memory_bytes,
+        process_virtual_memory_bytes: resource_report.process_virtual_memory_bytes,
+        process_accumulated_cpu_ms: resource_report.process_accumulated_cpu_ms,
         display_bytes,
         responses,
         bells,
@@ -138,6 +164,51 @@ fn run_benchmark_workload(
         cursor_row,
         cursor_column,
     }
+}
+
+#[derive(Default)]
+struct ProcessResourceReport {
+    idle_sample_ms: usize,
+    idle_cpu_usage_percent: f32,
+    process_memory_bytes: u64,
+    process_virtual_memory_bytes: u64,
+    process_accumulated_cpu_ms: u64,
+}
+
+fn sample_process_resources(idle_ms: usize) -> ProcessResourceReport {
+    let Ok(pid) = sysinfo::get_current_pid() else {
+        return ProcessResourceReport {
+            idle_sample_ms: idle_ms,
+            ..ProcessResourceReport::default()
+        };
+    };
+
+    let refreshes = RefreshKind::nothing().with_processes(
+        ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .without_tasks(),
+    );
+    let mut system = System::new_with_specifics(refreshes);
+    let _ = system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+
+    thread::sleep(Duration::from_millis(usize_to_u64(idle_ms)));
+
+    let _ = system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+
+    system
+        .process(pid)
+        .map(|process| ProcessResourceReport {
+            idle_sample_ms: idle_ms,
+            idle_cpu_usage_percent: process.cpu_usage(),
+            process_memory_bytes: process.memory(),
+            process_virtual_memory_bytes: process.virtual_memory(),
+            process_accumulated_cpu_ms: process.accumulated_cpu_time(),
+        })
+        .unwrap_or(ProcessResourceReport {
+            idle_sample_ms: idle_ms,
+            ..ProcessResourceReport::default()
+        })
 }
 
 struct RenderBenchReport {
@@ -242,6 +313,10 @@ fn usize_to_u128(value: usize) -> u128 {
     u128::try_from(value).expect("usize fits into u128")
 }
 
+fn usize_to_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
+}
+
 fn u128_to_u64(value: u128) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
@@ -267,6 +342,7 @@ mod tests {
             bytes: 2048,
             chunk_size: 256,
             render_frames: 3,
+            idle_ms: 1,
             size: TerminalSize::new(40, 10),
         });
 
@@ -282,6 +358,11 @@ mod tests {
         assert!(report.render_frame_p95_us > 0);
         assert!(report.rendered_pixels > 0);
         assert!(report.render_pixels_per_sec > 0);
+        assert_eq!(report.idle_sample_ms, 1);
+        assert!(report.process_memory_bytes > 0);
+        assert!(report.process_virtual_memory_bytes > 0);
+        assert!(report.process_accumulated_cpu_ms > 0);
+        assert!(report.idle_cpu_usage_percent >= 0.0);
         assert!(report.display_bytes > 0);
         assert!(report.responses > 0);
         assert!(report.cursor_row < report.rows);
@@ -305,6 +386,11 @@ mod tests {
             render_frame_p95_us: 11,
             rendered_pixels: 737_280,
             render_pixels_per_sec: 61_440_000,
+            idle_sample_ms: 200,
+            idle_cpu_usage_percent: 1.25,
+            process_memory_bytes: 2_097_152,
+            process_virtual_memory_bytes: 67_108_864,
+            process_accumulated_cpu_ms: 123,
             display_bytes: 900,
             responses: 4,
             bells: 1,
@@ -323,6 +409,11 @@ mod tests {
         assert_eq!(value["render_frames"], 3);
         assert_eq!(value["render_frame_p95_us"], 11);
         assert_eq!(value["render_pixels_per_sec"], 61_440_000);
+        assert_eq!(value["idle_sample_ms"], 200);
+        assert_eq!(value["idle_cpu_usage_percent"], 1.25);
+        assert_eq!(value["process_memory_bytes"], 2_097_152);
+        assert_eq!(value["process_virtual_memory_bytes"], 67_108_864);
+        assert_eq!(value["process_accumulated_cpu_ms"], 123);
     }
 
     #[test]
@@ -342,6 +433,11 @@ mod tests {
             render_frame_p95_us: 11,
             rendered_pixels: 737_280,
             render_pixels_per_sec: 61_440_000,
+            idle_sample_ms: 200,
+            idle_cpu_usage_percent: 1.25,
+            process_memory_bytes: 2_097_152,
+            process_virtual_memory_bytes: 67_108_864,
+            process_accumulated_cpu_ms: 123,
             display_bytes: 900,
             responses: 4,
             bells: 1,
@@ -363,6 +459,16 @@ mod tests {
             lines
                 .iter()
                 .any(|line| line.contains("render_pixels_per_sec=61440000"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("idle_cpu_usage_percent=1.25"))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("process_memory_bytes=2097152"))
         );
     }
 }
