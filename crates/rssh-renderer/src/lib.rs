@@ -341,18 +341,22 @@ fn render_cell(
     let scale_y = cell_height.max(8) / 8;
 
     for (glyph_y, row_bits) in glyph.iter().enumerate() {
+        let row_offset = italic_row_offset(glyph_y, scale_x, cell.italic);
         for glyph_x in 0..8 {
             if row_bits & (1 << glyph_x) == 0 {
                 continue;
             }
 
-            let draw_x = origin_x + glyph_x * scale_x;
+            let draw_x = origin_x + glyph_x * scale_x + row_offset;
             let draw_y = origin_y + u32::try_from(glyph_y).unwrap_or(0) * scale_y;
+            let Some(width) = clipped_cell_width(draw_x, origin_x, cell_width, scale_x) else {
+                continue;
+            };
             surface.fill_rect(
                 Rect {
                     x: draw_x,
                     y: draw_y,
-                    width: scale_x,
+                    width,
                     height: scale_y,
                 },
                 foreground,
@@ -381,6 +385,23 @@ fn render_cell(
         cell_height,
         foreground,
     );
+}
+
+fn italic_row_offset(glyph_y: usize, scale_x: u32, italic: bool) -> u32 {
+    if italic {
+        u32::try_from(7usize.saturating_sub(glyph_y)).unwrap_or(0) / 3 * scale_x
+    } else {
+        0
+    }
+}
+
+fn clipped_cell_width(draw_x: u32, origin_x: u32, cell_width: u32, width: u32) -> Option<u32> {
+    let cell_right = origin_x.saturating_add(cell_width);
+    if draw_x >= cell_right {
+        None
+    } else {
+        Some(width.min(cell_right - draw_x))
+    }
 }
 
 fn render_text_decorations(
@@ -1360,6 +1381,31 @@ mod tests {
         assert!(
             count_pixels(&bold_target, [255, 0, 0, 255])
                 > count_pixels(&normal_target, [255, 0, 0, 255])
+        );
+    }
+
+    #[test]
+    fn pixel_renderer_slants_italic_text() {
+        let renderer = PixelRenderer::new();
+        let mut normal = Terminal::new(TerminalSize::new(2, 1));
+        normal.feed(b"\x1b[38;2;255;0;0mI");
+        let normal_snapshot = TerminalRenderSnapshot::from_terminal(&normal);
+        let mut normal_target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&normal_snapshot, &mut normal_target, 16, 8, 8, 8);
+
+        let mut italic = Terminal::new(TerminalSize::new(2, 1));
+        italic.feed(b"\x1b[3;38;2;255;0;0mI");
+        let italic_snapshot = TerminalRenderSnapshot::from_terminal(&italic);
+        assert!(italic_snapshot.cells()[0].italic);
+        let mut italic_target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&italic_snapshot, &mut italic_target, 16, 8, 8, 8);
+
+        assert_ne!(italic_target, normal_target);
+        assert_eq!(
+            count_pixels(&italic_target, [255, 0, 0, 255]),
+            count_pixels(&normal_target, [255, 0, 0, 255])
         );
     }
 

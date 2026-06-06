@@ -327,6 +327,9 @@ wide threshold gates, bundled profile validation, a
 - MVP 1/3 compatibility: SGR double underline now parses through the terminal
   core, reports through SGR state queries, survives renderer snapshots, and
   draws as two native underline strokes.
+- MVP 1/3 compatibility: SGR italic now parses through the terminal core,
+  reports through SGR state queries, survives renderer snapshots, and renders
+  with a slanted bitmap glyph pass in the native pixel renderer.
 - MVP 2: Local terminal path is complete as a console-hosted prototype. See
   `docs/mvp-2-local-terminal.md`.
 - MVP 3: Native window renderer demo is complete. See
