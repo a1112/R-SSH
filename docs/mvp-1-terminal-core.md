@@ -8,7 +8,8 @@ support the next PTY and SSH milestones.
 ## Completed Scope
 
 - `Cell` model with character, foreground color, background color, bold, faint,
-  italic, underline, conceal, strikethrough, and inverse-video attributes.
+  italic, underline, conceal, strikethrough, overline, and inverse-video
+  attributes.
 - `TerminalGrid` allocation, bounds-checked reads, and bounds-checked writes.
 - `Terminal::feed` for printable UTF-8 text.
 - Newline and carriage-return handling.
@@ -102,7 +103,8 @@ support the next PTY and SSH milestones.
   ST-terminated control strings.
 - Basic SGR handling:
   - reset
-  - bold, faint, italic, underline, conceal, strikethrough, inverse video
+  - bold, faint, italic, underline, conceal, strikethrough, overline,
+    inverse video
   - 8-color and bright 8-color foreground/background
   - indexed and RGB extended color forms, including semicolon and xterm
     colon-separated SGR parameters
@@ -183,7 +185,7 @@ cover:
 - DCS/SOS/PM/APC control-string filtering with split-sequence buffering
 - C1 byte-form OSC/ST control-string filtering
 - SGR color/style parsing, including inverse video, faint, conceal,
-  strikethrough, and colon-separated extended color parameters
+  strikethrough, overline, and colon-separated extended color parameters
 - CJK wide-character layout
 - terminal grid resize growth/shrink, cursor clamping, and resize damage
 - merged damage tracking

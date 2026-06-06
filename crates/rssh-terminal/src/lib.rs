@@ -30,6 +30,7 @@ pub struct Cell {
     pub underline: bool,
     pub conceal: bool,
     pub strikethrough: bool,
+    pub overline: bool,
     pub inverse: bool,
     pub hyperlink: Option<String>,
 }
@@ -46,6 +47,7 @@ impl Default for Cell {
             underline: false,
             conceal: false,
             strikethrough: false,
+            overline: false,
             inverse: false,
             hyperlink: None,
         }
@@ -181,6 +183,7 @@ mod tests {
         assert!(!cell.underline);
         assert!(!cell.conceal);
         assert!(!cell.strikethrough);
+        assert!(!cell.overline);
         assert!(!cell.inverse);
         assert_eq!(cell.hyperlink, None);
     }
@@ -198,6 +201,7 @@ mod tests {
             underline: true,
             conceal: false,
             strikethrough: false,
+            overline: false,
             inverse: false,
             hyperlink: None,
         };
@@ -958,6 +962,21 @@ mod tests {
         let normal = terminal.grid().get(0, 1).unwrap();
         assert_eq!(normal.ch, 'B');
         assert!(!normal.conceal);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_overline() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[53mA\x1b[55mB");
+
+        let overlined = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(overlined.ch, 'A');
+        assert!(overlined.overline);
+
+        let normal = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(normal.ch, 'B');
+        assert!(!normal.overline);
     }
 
     #[test]

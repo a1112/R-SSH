@@ -1389,6 +1389,8 @@ impl Terminal {
                     self.style.background = Color::Indexed(saturating_u8(values[index] - 40));
                 }
                 49 => self.style.background = Color::Default,
+                53 => self.style.overline = true,
+                55 => self.style.overline = false,
                 90..=97 => {
                     self.style.foreground = Color::Indexed(saturating_u8(values[index] - 90 + 8));
                 }

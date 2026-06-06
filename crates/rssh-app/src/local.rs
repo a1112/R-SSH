@@ -1821,6 +1821,9 @@ fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
     if style.strikethrough {
         params.push("9".to_owned());
     }
+    if style.overline {
+        params.push("53".to_owned());
+    }
     append_color_sgr(38, style.foreground, &mut params);
     append_color_sgr(48, style.background, &mut params);
 
@@ -4430,7 +4433,7 @@ mod tests {
 
         filter
             .write(
-                b"before\x1b[1;2;4;8;9;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
+                b"before\x1b[1;2;4;8;9;53;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);
@@ -4442,11 +4445,11 @@ mod tests {
 
         assert_eq!(
             output,
-            b"before\x1b[1;2;4;8;9;38;5;196;48;2;1;2;3m middle\x1b[5 q after\x1b[2;5rdone"
+            b"before\x1b[1;2;4;8;9;53;38;5;196;48;2;1;2;3m middle\x1b[5 q after\x1b[2;5rdone"
         );
         assert_eq!(
             responses,
-            b"\x1bP1$r1;2;4;8;9;38;5;196;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
+            b"\x1bP1$r1;2;4;8;9;53;38;5;196;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
         );
     }
 
