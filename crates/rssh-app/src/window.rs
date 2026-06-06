@@ -1348,18 +1348,9 @@ impl NativeWindowApp {
 
     fn apply_search_match(&mut self, search_match: WindowSearchMatch) {
         let scrollback_len = self.runtime.terminal().scrollback().len();
-        let (offset, viewport_row) = search_match.viewport_position(scrollback_len);
+        let (offset, selection) = search_match.viewport_selection(scrollback_len);
         self.scrollback_offset = offset;
-        self.selection = Some(WindowSelection::new(
-            SelectionCell {
-                row: viewport_row,
-                column: search_match.start_column,
-            },
-            SelectionCell {
-                row: viewport_row,
-                column: search_match.end_column,
-            },
-        ));
+        self.selection = Some(selection);
         self.refresh_snapshot();
         self.apply_window_title();
     }
@@ -1672,6 +1663,7 @@ fn search_status(search: &WindowSearch) -> String {
 struct WindowSearchMatch {
     source_row: usize,
     start_column: u16,
+    end_source_row: usize,
     end_column: u16,
 }
 
@@ -1683,6 +1675,27 @@ impl WindowSearchMatch {
             let row = self.source_row.saturating_sub(scrollback_len);
             (0, u16::try_from(row).unwrap_or(u16::MAX))
         }
+    }
+
+    fn viewport_selection(self, scrollback_len: usize) -> (usize, WindowSelection) {
+        let (offset, start_row) = self.viewport_position(scrollback_len);
+        let first_source_row = scrollback_len.saturating_sub(offset);
+        let end_row = self.end_source_row.saturating_sub(first_source_row);
+        let end_row = u16::try_from(end_row).unwrap_or(u16::MAX);
+
+        (
+            offset,
+            WindowSelection::new(
+                SelectionCell {
+                    row: start_row,
+                    column: self.start_column,
+                },
+                SelectionCell {
+                    row: end_row,
+                    column: self.end_column,
+                },
+            ),
+        )
     }
 }
 
@@ -1739,10 +1752,39 @@ fn window_search_matches(
     terminal: &rssh_terminal::Terminal,
     query: &str,
 ) -> Vec<WindowSearchMatch> {
-    terminal_search_lines(terminal)
-        .into_iter()
-        .enumerate()
-        .flat_map(|(source_row, line)| search_line_matches(source_row, &line, query))
+    let query: Vec<char> = query
+        .chars()
+        .filter(|character| !matches!(character, '\r' | '\n'))
+        .collect();
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let cells = terminal_search_cells(terminal);
+    if cells.len() < query.len() {
+        return Vec::new();
+    }
+
+    cells
+        .windows(query.len())
+        .filter_map(|candidate| {
+            if candidate
+                .iter()
+                .zip(query.iter().copied())
+                .all(|(cell, query_character)| cell.character == query_character)
+            {
+                let start = candidate.first()?;
+                let end = candidate.last()?;
+                Some(WindowSearchMatch {
+                    source_row: start.source_row,
+                    start_column: start.column,
+                    end_source_row: end.source_row,
+                    end_column: end.column,
+                })
+            } else {
+                None
+            }
+        })
         .collect()
 }
 
@@ -1771,17 +1813,29 @@ fn terminal_search_lines(terminal: &rssh_terminal::Terminal) -> Vec<String> {
     lines
 }
 
-fn search_line_matches(source_row: usize, line: &str, query: &str) -> Vec<WindowSearchMatch> {
-    line.match_indices(query)
-        .filter_map(|(byte_index, _)| {
-            let start = u16::try_from(line[..byte_index].chars().count()).ok()?;
-            let width = u16::try_from(query.chars().count()).ok()?;
-            let end = start.checked_add(width.saturating_sub(1))?;
-            Some(WindowSearchMatch {
-                source_row,
-                start_column: start,
-                end_column: end,
-            })
+#[derive(Clone, Copy)]
+struct WindowSearchCell {
+    character: char,
+    source_row: usize,
+    column: u16,
+}
+
+fn terminal_search_cells(terminal: &rssh_terminal::Terminal) -> Vec<WindowSearchCell> {
+    terminal_search_lines(terminal)
+        .into_iter()
+        .enumerate()
+        .flat_map(|(source_row, line)| {
+            line.trim_end_matches(' ')
+                .chars()
+                .enumerate()
+                .filter_map(move |(column, character)| {
+                    Some(WindowSearchCell {
+                        character,
+                        source_row,
+                        column: u16::try_from(column).ok()?,
+                    })
+                })
+                .collect::<Vec<_>>()
         })
         .collect()
 }
@@ -3189,6 +3243,22 @@ mod tests {
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
         assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
         assert!(app.scrollback_offset > 0);
+    }
+
+    #[test]
+    fn window_search_finds_match_across_scrollback_and_grid_rows() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 2));
+        app.handle_pty_output(b"alpha\r\nbeta\r\ngamma").unwrap();
+
+        assert!(app.update_search_query("habeta"));
+
+        assert_eq!(app.selected_text().as_deref(), Some("ha\nbeta"));
+        assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('h'));
+        assert_eq!(snapshot_char(&app.snapshot, 1, 0), Some('b'));
+        assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
+        assert_eq!(app.scrollback_offset, 1);
     }
 
     #[test]
