@@ -40,6 +40,7 @@ fn scp_command_for_options(options: &ScpOptions) -> PtyCommand {
 fn scp_command_for_request(options: &ScpOptions, request: &SshConnectRequest) -> PtyCommand {
     let mut args = Vec::new();
 
+    args.extend(options.openssh_args.clone());
     append_common_args(&mut args, &request.auth, options.recursive);
     if request.config.port != 22 {
         args.push("-P".to_owned());
@@ -55,6 +56,7 @@ fn scp_command_for_request(options: &ScpOptions, request: &SshConnectRequest) ->
 fn scp_command_for_target(options: &ScpOptions, target: &OpenSshTarget) -> PtyCommand {
     let mut args = Vec::new();
 
+    args.extend(options.openssh_args.clone());
     append_common_args(&mut args, &target.auth, options.recursive);
     if let Some(username) = &target.username {
         args.push("-o".to_owned());
@@ -119,6 +121,7 @@ mod tests {
 
         let command = scp_command_for_options(&ScpOptions {
             target: SshTarget::Direct(request),
+            openssh_args: Vec::new(),
             transfer: ScpTransfer::Upload {
                 local: "local.txt".into(),
                 remote: "/tmp/remote.txt".to_owned(),
@@ -148,6 +151,7 @@ mod tests {
                     passphrase: None,
                 },
             }),
+            openssh_args: Vec::new(),
             transfer: ScpTransfer::Download {
                 remote: "/var/log/app".to_owned(),
                 local: "logs".into(),
@@ -170,6 +174,44 @@ mod tests {
                 "2200",
                 "prod:/var/log/app",
                 "logs"
+            ]
+        );
+    }
+
+    #[test]
+    fn scp_command_preserves_passthrough_options_before_transfer_operands() {
+        let command = scp_command_for_options(&ScpOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: TerminalSize::new(100, 40),
+                auth: SshAuthMethod::Agent,
+            }),
+            transfer: ScpTransfer::Upload {
+                local: "local.txt".into(),
+                remote: "/tmp/remote.txt".to_owned(),
+            },
+            recursive: false,
+            openssh_args: vec![
+                "-F".to_owned(),
+                "C:/Users/ops/.ssh/prod_config".to_owned(),
+                "-o".to_owned(),
+                "ProxyJump=bastion".to_owned(),
+            ],
+            console: crate::cli::ConsoleOptions::default(),
+            log: None,
+        });
+
+        assert_eq!(
+            command.args(),
+            [
+                "-F",
+                "C:/Users/ops/.ssh/prod_config",
+                "-o",
+                "ProxyJump=bastion",
+                "local.txt",
+                "prod:/tmp/remote.txt"
             ]
         );
     }

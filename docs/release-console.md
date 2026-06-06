@@ -58,8 +58,10 @@ After extracting the zip:
 .\rssh-app.exe ssh --target prod --preflight
 .\rssh-app.exe sftp ops@example.com
 .\rssh-app.exe sftp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 ops@example.com
+.\rssh-app.exe sftp -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
 .\rssh-app.exe scp local.txt ops@example.com:/tmp/remote.txt
 .\rssh-app.exe scp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 -r logs ops@example.com:/tmp/logs
+.\rssh-app.exe scp -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion local.txt prod:/tmp/remote.txt
 .\rssh-app.exe scp ops@example.com:/tmp/remote.txt local.txt
 .\rssh-app.exe scp ops@example.com --upload local.txt /tmp/remote.txt
 .\rssh-app.exe ssh -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
@@ -82,8 +84,9 @@ pilot:
 - Console coverage: local shell, positional `[USER@]HOST` SSH/SFTP/SCP
   launches, SSH trailing remote commands, SCP `HOST:PATH` upload/download
   operands, common OpenSSH short options (`ssh -p/-l/-i/-F/-o/-L/-R/-D/-N`,
-  `sftp -P/-i`, and `scp -P/-i/-r`), OpenSSH config targets, profiles,
-  metrics, and native russh startup remain covered by workspace tests.
+  `sftp -P/-i/-F/-o`, and `scp -P/-i/-F/-o/-r`), OpenSSH config targets,
+  profiles, metrics, and native russh startup remain covered by workspace
+  tests.
 - Runtime observability: console sessions can emit `--metrics` or
   `--metrics-json`.
 - Safe startup: `--preflight` is available for local, SSH, SFTP, and SCP

@@ -729,6 +729,7 @@ log = "sftp.log"
                         passphrase: None,
                     },
                 }),
+                openssh_args: Vec::new(),
                 console: crate::cli::ConsoleOptions::default(),
                 log: Some(PathBuf::from("sftp.log")),
             })
@@ -768,6 +769,7 @@ log = "scp.log"
                     initial_size: TerminalSize::new(80, 24),
                     auth: SshAuthMethod::Agent,
                 }),
+                openssh_args: Vec::new(),
                 transfer: crate::cli::ScpTransfer::Upload {
                     local: "local".into(),
                     remote: "/tmp/remote".to_owned(),

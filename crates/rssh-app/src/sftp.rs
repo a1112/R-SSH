@@ -32,14 +32,15 @@ fn local_options_for_options(options: &SftpOptions) -> Result<LocalOptions, Box<
 
 fn sftp_command_for_options(options: &SftpOptions) -> PtyCommand {
     match &options.target {
-        SshTarget::Direct(request) => sftp_command_for_request(request),
-        SshTarget::OpenSsh(target) => sftp_command_for_target(target),
+        SshTarget::Direct(request) => sftp_command_for_request(options, request),
+        SshTarget::OpenSsh(target) => sftp_command_for_target(options, target),
     }
 }
 
-fn sftp_command_for_request(request: &SshConnectRequest) -> PtyCommand {
+fn sftp_command_for_request(options: &SftpOptions, request: &SshConnectRequest) -> PtyCommand {
     let mut args = Vec::new();
 
+    args.extend(options.openssh_args.clone());
     append_auth_args(&mut args, &request.auth);
     if request.config.port != 22 {
         args.push("-P".to_owned());
@@ -53,9 +54,10 @@ fn sftp_command_for_request(request: &SshConnectRequest) -> PtyCommand {
     PtyCommand::new("sftp").with_args(args)
 }
 
-fn sftp_command_for_target(target: &OpenSshTarget) -> PtyCommand {
+fn sftp_command_for_target(options: &SftpOptions, target: &OpenSshTarget) -> PtyCommand {
     let mut args = Vec::new();
 
+    args.extend(options.openssh_args.clone());
     append_auth_args(&mut args, &target.auth);
     if let Some(username) = &target.username {
         args.push("-o".to_owned());
@@ -101,6 +103,7 @@ mod tests {
 
         let command = sftp_command_for_options(&SftpOptions {
             target: SshTarget::Direct(request),
+            openssh_args: Vec::new(),
             console: crate::cli::ConsoleOptions::default(),
             log: None,
         });
@@ -122,6 +125,7 @@ mod tests {
                     passphrase: None,
                 },
             }),
+            openssh_args: Vec::new(),
             console: crate::cli::ConsoleOptions::default(),
             log: None,
         });
@@ -136,6 +140,38 @@ mod tests {
                 "User=deploy",
                 "-P",
                 "2200",
+                "prod"
+            ]
+        );
+    }
+
+    #[test]
+    fn sftp_command_preserves_passthrough_options_before_target() {
+        let command = sftp_command_for_options(&SftpOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: TerminalSize::new(100, 40),
+                auth: SshAuthMethod::Agent,
+            }),
+            openssh_args: vec![
+                "-F".to_owned(),
+                "C:/Users/ops/.ssh/prod_config".to_owned(),
+                "-o".to_owned(),
+                "ProxyJump=bastion".to_owned(),
+            ],
+            console: crate::cli::ConsoleOptions::default(),
+            log: None,
+        });
+
+        assert_eq!(
+            command.args(),
+            [
+                "-F",
+                "C:/Users/ops/.ssh/prod_config",
+                "-o",
+                "ProxyJump=bastion",
                 "prod"
             ]
         );
