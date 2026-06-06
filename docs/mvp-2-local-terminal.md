@@ -44,6 +44,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   (`0x9b ? … h/l`) private mode toggles. Mode-like bytes embedded inside
   unrelated OSC or ST-terminated control-string payloads are ignored, including
   when the payload is split across PTY chunks.
+- The same mode tracker recognizes ANSI insert/replace mode (`CSI 4 h/l`),
+  including the 8-bit C1 CSI form.
 - The console path answers DECRQM private-mode status queries
   (`CSI ? <mode> $ p`) for tracked terminal modes, including application cursor
   keys (`1`), origin mode (`6`), auto-wrap (`7`), cursor visibility (`25`),
@@ -52,6 +54,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   reporting (`1004`), bracketed paste (`2004`), and synchronized output
   (`2026`). `RIS` (`ESC c`) resets tracked mode state to defaults. Unknown
   modes return an xterm-style unknown status.
+- The console path also answers ANSI DECRQM mode status queries
+  (`CSI <mode> $ p`) for insert/replace mode (`4`), including the C1 CSI form;
+  unknown ANSI modes return an xterm-style unknown status.
 - The console output filter handles xterm synchronized output
   (`ESC[?2026h/l`) by consuming the mode markers, buffering visible host-console
   writes while the mode is enabled, continuing to update its mirror terminal and
@@ -314,6 +319,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   ST-terminated control-string payloads, plus DECRQM private-mode status
   queries for tracked input, display, alternate-screen/private-cursor, reset,
   and unknown modes.
+- ANSI mode negotiation: unit tests cover insert/replace (`CSI 4 h/l`) tracking
+  and ordinary DECRQM status queries (`CSI 4 $ p`) in both 7-bit and C1 CSI
+  forms.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
 - Synchronized output negotiation: unit tests cover xterm `ESC[?2026h/l`

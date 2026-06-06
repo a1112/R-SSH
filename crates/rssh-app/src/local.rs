@@ -1130,21 +1130,8 @@ impl TerminalOutputFilter {
                 })
             })
             .min_by_key(|(index, _)| *index);
-        let mode_response = find_private_mode_status_query(&self.pending).map(
-            |PrivateModeStatusQuery {
-                 index,
-                 consumed,
-                 mode,
-             }| {
-                (
-                    index,
-                    MatchedTerminalResponse {
-                        consumed,
-                        response: TerminalResponse::PrivateModeStatus(mode),
-                    },
-                )
-            },
-        );
+        let mode_response = self.find_private_mode_response();
+        let ansi_mode_response = self.find_ansi_mode_response();
         let osc_color_response = find_osc_color_query(&self.pending).map(
             |OscColorQuery {
                  index,
@@ -1206,6 +1193,7 @@ impl TerminalOutputFilter {
         static_response
             .into_iter()
             .chain(mode_response)
+            .chain(ansi_mode_response)
             .chain(osc_color_response)
             .chain(decrqss_response)
             .chain(xtgettcap_response)
@@ -1213,6 +1201,42 @@ impl TerminalOutputFilter {
             .chain(osc8_response)
             .filter(|(index, _)| !is_inside_osc_or_st_control_string(&self.pending, *index))
             .min_by_key(|(index, _)| *index)
+    }
+
+    fn find_private_mode_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
+        find_private_mode_status_query(&self.pending).map(
+            |PrivateModeStatusQuery {
+                 index,
+                 consumed,
+                 mode,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::PrivateModeStatus(mode),
+                    },
+                )
+            },
+        )
+    }
+
+    fn find_ansi_mode_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
+        find_ansi_mode_status_query(&self.pending).map(
+            |AnsiModeStatusQuery {
+                 index,
+                 consumed,
+                 mode,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::AnsiModeStatus(mode),
+                    },
+                )
+            },
+        )
     }
 
     fn find_osc52_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
@@ -1246,6 +1270,7 @@ impl TerminalOutputFilter {
             .unwrap_or(0);
         static_query_suffix
             .max(private_mode_status_query_suffix_len(pending))
+            .max(ansi_mode_status_query_suffix_len(pending))
             .max(synchronized_output_mode_sequence_suffix_len(pending))
             .max(osc_color_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
@@ -1342,6 +1367,12 @@ impl TerminalOutputFilter {
                 self.mode_tracker.private_mode_report_value(mode)
             )
             .into_bytes(),
+            TerminalResponse::AnsiModeStatus(mode) => format!(
+                "\x1b[{};{}$y",
+                mode,
+                self.mode_tracker.ansi_mode_report_value(mode)
+            )
+            .into_bytes(),
             TerminalResponse::OscColor(query) => self.color_state.response(query),
             TerminalResponse::Decrqss(query) => query.response(&self.mirror),
             TerminalResponse::XtGetTcap(query) => query.response(),
@@ -1404,6 +1435,7 @@ enum TerminalResponse {
     IconLabel,
     WindowTitle,
     PrivateModeStatus(u16),
+    AnsiModeStatus(u16),
     OscColor(OscColorResponse),
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
@@ -2621,6 +2653,12 @@ struct PrivateModeStatusQuery {
     mode: u16,
 }
 
+struct AnsiModeStatusQuery {
+    index: usize,
+    consumed: usize,
+    mode: u16,
+}
+
 fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery> {
     let mut match_query = None;
     for (prefix, prefix_len) in [
@@ -2637,6 +2675,32 @@ fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery
                 if match_query
                     .as_ref()
                     .is_none_or(|current: &PrivateModeStatusQuery| query.index < current.index)
+                {
+                    match_query = Some(query);
+                }
+            }
+            offset = index.saturating_add(1);
+        }
+    }
+    match_query
+}
+
+fn find_ansi_mode_status_query(bytes: &[u8]) -> Option<AnsiModeStatusQuery> {
+    let mut match_query = None;
+    for (prefix, prefix_len) in [
+        (b"\x1b[".as_slice(), b"\x1b[".len()),
+        (b"\x9b".as_slice(), b"\x9b".len()),
+    ] {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                break;
+            };
+            let index = offset + relative_index;
+            if let Some(query) = parse_ansi_mode_status_query(bytes, index, prefix_len) {
+                if match_query
+                    .as_ref()
+                    .is_none_or(|current: &AnsiModeStatusQuery| query.index < current.index)
                 {
                     match_query = Some(query);
                 }
@@ -2671,10 +2735,41 @@ fn parse_private_mode_status_query(
     })
 }
 
+fn parse_ansi_mode_status_query(
+    bytes: &[u8],
+    index: usize,
+    prefix_len: usize,
+) -> Option<AnsiModeStatusQuery> {
+    let mut cursor = index + prefix_len;
+    let start = cursor;
+    let mut mode = 0u16;
+    while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+        mode = mode
+            .saturating_mul(10)
+            .saturating_add(u16::from(bytes[cursor] - b'0'));
+        cursor += 1;
+    }
+    if cursor == start || bytes.get(cursor..cursor + 2) != Some(b"$p") {
+        return None;
+    }
+    Some(AnsiModeStatusQuery {
+        index,
+        consumed: cursor + 2 - index,
+        mode,
+    })
+}
+
 fn private_mode_status_query_suffix_len(bytes: &[u8]) -> usize {
     (1..=bytes.len())
         .rev()
         .find(|&length| is_private_mode_status_query_prefix(&bytes[bytes.len() - length..]))
+        .unwrap_or(0)
+}
+
+fn ansi_mode_status_query_suffix_len(bytes: &[u8]) -> usize {
+    (1..=bytes.len())
+        .rev()
+        .find(|&length| is_ansi_mode_status_query_prefix(&bytes[bytes.len() - length..]))
         .unwrap_or(0)
 }
 
@@ -2686,6 +2781,22 @@ fn is_private_mode_status_query_prefix(bytes: &[u8]) -> bool {
         return b"\x1b[".starts_with(bytes)
             || b"\x1b[?".starts_with(bytes)
             || b"\x9b?".starts_with(bytes);
+    };
+
+    let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+    if digits == 0 {
+        return rest.is_empty();
+    }
+    let tail = &rest[digits..];
+    tail.is_empty() || tail == b"$"
+}
+
+fn is_ansi_mode_status_query_prefix(bytes: &[u8]) -> bool {
+    let Some(rest) = bytes
+        .strip_prefix(b"\x1b[")
+        .or_else(|| bytes.strip_prefix(b"\x9b"))
+    else {
+        return b"\x1b[".starts_with(bytes);
     };
 
     let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
@@ -4610,6 +4721,47 @@ mod tests {
         assert_eq!(output, b"beforemid\x1bcafter");
         assert_eq!(responses, b"\x1b[?2026;2$y");
         assert!(!filter.mode_tracker.synchronized_output());
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_ansi_mode_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b[4$p \x1b[4h\x1b[4$p \x1b[4l\x1b[4$p \x1b[999$p",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before \x1b[4h \x1b[4l ");
+        assert_eq!(responses, b"\x1b[4;2$y\x1b[4;1$y\x1b[4;2$y\x1b[999;0$y");
+        assert!(!mirror_text(&filter).contains("$p"));
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_ansi_mode_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"\x9b4h\x9b4$p", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x9b4h");
+        assert_eq!(responses, b"\x1b[4;1$y");
     }
 
     #[test]

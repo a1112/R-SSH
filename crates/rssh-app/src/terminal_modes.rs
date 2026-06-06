@@ -146,7 +146,9 @@ pub(crate) struct SynchronizedOutputModeSequence {
 
 impl TerminalModeTracker {
     const APPLICATION_KEYPAD_PREFIX: &'static [u8] = b"\x1b=";
+    const CSI_MODE_PREFIX: &'static [u8] = b"\x1b[";
     const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
+    const C1_CSI_MODE_PREFIX: &'static [u8] = b"\x9b";
     const C1_CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x9b?";
     const NUMERIC_KEYPAD_PREFIX: &'static [u8] = b"\x1b>";
     const RESET_PREFIX: &'static [u8] = b"\x1bc";
@@ -175,6 +177,24 @@ impl TerminalModeTracker {
                 ModeSequence::Reset => {
                     self.reset(&mut emit);
                     self.pending.drain(..2);
+                }
+                ModeSequence::CsiMode { prefix_len } => {
+                    match Self::parse_mode_sequence(&self.pending, prefix_len) {
+                        ModeParse::Complete {
+                            modes,
+                            enabled,
+                            consumed,
+                        } => {
+                            for mode in modes {
+                                self.apply_ansi_mode(mode, enabled);
+                            }
+                            self.pending.drain(..consumed);
+                        }
+                        ModeParse::Incomplete => return,
+                        ModeParse::Invalid => {
+                            self.pending.drain(..1);
+                        }
+                    }
                 }
                 ModeSequence::CsiPrivateMode { prefix_len } => {
                     match Self::parse_mode_sequence(&self.pending, prefix_len) {
@@ -223,6 +243,18 @@ impl TerminalModeTracker {
                 Self::C1_CSI_PRIVATE_MODE_PREFIX,
                 ModeSequence::CsiPrivateMode {
                     prefix_len: Self::C1_CSI_PRIVATE_MODE_PREFIX.len(),
+                },
+            ),
+            (
+                Self::CSI_MODE_PREFIX,
+                ModeSequence::CsiMode {
+                    prefix_len: Self::CSI_MODE_PREFIX.len(),
+                },
+            ),
+            (
+                Self::C1_CSI_MODE_PREFIX,
+                ModeSequence::CsiMode {
+                    prefix_len: Self::C1_CSI_MODE_PREFIX.len(),
                 },
             ),
             (
@@ -346,6 +378,13 @@ impl TerminalModeTracker {
         }
     }
 
+    fn apply_ansi_mode(&mut self, mode: u16, enabled: bool) {
+        if mode == 4 {
+            self.tracked_modes
+                .set(TrackedTerminalModes::INSERT_MODE, enabled);
+        }
+    }
+
     fn reset(&mut self, emit: &mut impl FnMut(TerminalModeChange)) {
         let application_cursor_keys = self.application_cursor_keys();
         let application_keypad = self.application_keypad();
@@ -457,9 +496,21 @@ impl TerminalModeTracker {
         }
     }
 
+    pub(crate) fn ansi_mode_report_value(&self, mode: u16) -> u8 {
+        match mode {
+            4 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::INSERT_MODE),
+            ),
+            _ => 0,
+        }
+    }
+
     fn retain_possible_prefix(&mut self) {
         let retained = [
+            Self::CSI_MODE_PREFIX,
             Self::CSI_PRIVATE_MODE_PREFIX,
+            Self::C1_CSI_MODE_PREFIX,
             Self::C1_CSI_PRIVATE_MODE_PREFIX,
             Self::APPLICATION_KEYPAD_PREFIX,
             Self::NUMERIC_KEYPAD_PREFIX,
@@ -556,6 +607,7 @@ impl TrackedTerminalModes {
     const ALTERNATE_SCREEN_1047: u16 = 1 << 9;
     const ALTERNATE_SCREEN_1049: u16 = 1 << 10;
     const PRIVATE_CURSOR_SAVE: u16 = 1 << 11;
+    const INSERT_MODE: u16 = 1 << 12;
 
     fn set(&mut self, mode: u16, enabled: bool) -> bool {
         let before = self.0;
@@ -676,6 +728,7 @@ struct ModeSequenceStart {
 #[derive(Clone, Copy)]
 enum ModeSequence {
     CsiPrivateMode { prefix_len: usize },
+    CsiMode { prefix_len: usize },
     ApplicationKeypad(bool),
     Reset,
 }

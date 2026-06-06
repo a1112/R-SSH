@@ -30,9 +30,11 @@ in the native `winit` window.
   navigation keys, and common editing keys.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
   console and native-window runtimes, including 7-bit CSI and 8-bit C1 CSI
-  private mode toggles plus DECRQM private-mode status query reporting for
-  tracked input, cursor visibility, auto-wrap, origin, alternate-screen, and
-  private cursor save modes. `RIS` resets tracked mode state to defaults.
+  private mode toggles, ANSI insert/replace mode (`CSI 4 h/l`), DECRQM
+  private-mode status query reporting for tracked input, cursor visibility,
+  auto-wrap, origin, alternate-screen, and private cursor save modes, plus ANSI
+  mode status query reporting for insert/replace mode (`CSI 4 $ p`). `RIS`
+  resets tracked mode state to defaults.
   Mode-like bytes embedded inside unrelated OSC or ST-terminated control-string
   payloads are ignored, including split payloads.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
@@ -234,6 +236,8 @@ MVP 4 tests cover:
   mouse, focus, bracketed paste, synchronized output, private cursor save,
   `RIS` defaults, and unknown modes, including mode-like bytes embedded inside
   OSC or ST-terminated control-string payloads
+- DECRQM ANSI-mode status query responses for insert/replace mode (`CSI 4 $ p`)
+  and unknown ANSI modes, including C1 CSI forms
 - native window OSC 52 policy parsing and write/query enforcement
 - native window local selection text extraction, highlight overlay, mouse drag,
   double-click word selection, triple-click line selection, and copy shortcut
@@ -264,10 +268,12 @@ MVP 4 tests cover:
 - application cursor key mode tracking for native window input
 - application keypad mode tracking for native window numpad input
 - bracketed paste mode tracking for native window paste
-- synchronized output plus display/private mode tracking, private-mode status
-  reporting, reset-on-`RIS`, and delayed render-damage exposure until reset
+- synchronized output plus display/private/ANSI insert mode tracking,
+  private-mode and ANSI-mode status reporting, reset-on-`RIS`, and delayed
+  render-damage exposure until reset
 - focus reporting mode tracking and native window focus event encoding
-- C1 CSI private input mode tracking in the shared local/window mode tracker
+- C1 CSI private input mode and ANSI insert mode tracking in the shared
+  local/window mode tracker
 - window pixel dimensions are converted to terminal rows and columns
 - native window snapshot rebuilds from runtime output, including cursor state
 - native window cursor shape propagation for block, underline, and bar cursors
