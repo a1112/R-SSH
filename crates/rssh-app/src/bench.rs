@@ -1,11 +1,14 @@
 use std::{error::Error, time::Instant};
 
 use rssh_core::TerminalSize;
+use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use serde::Serialize;
 
 use crate::{cli::BenchOptions, terminal_runtime::TerminalRuntime};
 
 const WORKLOAD_NAME: &str = "ansi-scroll-query";
+const BENCH_CELL_WIDTH: u32 = 8;
+const BENCH_CELL_HEIGHT: u32 = 16;
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct BenchReport {
@@ -19,6 +22,10 @@ pub struct BenchReport {
     pub elapsed_ms: u128,
     pub throughput_bytes_per_sec: u64,
     pub chunk_p95_us: u128,
+    pub render_frames: usize,
+    pub render_frame_p95_us: u128,
+    pub rendered_pixels: u128,
+    pub render_pixels_per_sec: u64,
     pub display_bytes: usize,
     pub responses: usize,
     pub bells: u64,
@@ -43,7 +50,12 @@ pub fn print_bench(options: &BenchOptions) -> Result<(), Box<dyn Error>> {
 
 pub fn run_bench(options: &BenchOptions) -> BenchReport {
     let workload = build_benchmark_workload(options.bytes);
-    run_benchmark_workload(&workload, options.chunk_size, options.size)
+    run_benchmark_workload(
+        &workload,
+        options.chunk_size,
+        options.render_frames,
+        options.size,
+    )
 }
 
 pub fn bench_json(report: &BenchReport) -> Result<String, Box<dyn Error>> {
@@ -66,13 +78,25 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
             report.throughput_bytes_per_sec, report.chunk_p95_us, report.elapsed_ms
         ),
         format!(
+            "metric\trender_frames={}\trender_frame_p95_us={}\trendered_pixels={}\trender_pixels_per_sec={}",
+            report.render_frames,
+            report.render_frame_p95_us,
+            report.rendered_pixels,
+            report.render_pixels_per_sec
+        ),
+        format!(
             "metric\tdisplay_bytes={}\tresponses={}\tbells={}\tscrollback_lines={}",
             report.display_bytes, report.responses, report.bells, report.scrollback_lines
         ),
     ]
 }
 
-fn run_benchmark_workload(workload: &[u8], chunk_size: usize, size: TerminalSize) -> BenchReport {
+fn run_benchmark_workload(
+    workload: &[u8],
+    chunk_size: usize,
+    render_frames: usize,
+    size: TerminalSize,
+) -> BenchReport {
     let mut runtime = TerminalRuntime::new(size);
     let mut chunk_timings = Vec::new();
     let mut responses = 0_usize;
@@ -90,6 +114,7 @@ fn run_benchmark_workload(workload: &[u8], chunk_size: usize, size: TerminalSize
     }
     let elapsed = started.elapsed();
     let (cursor_row, cursor_column) = runtime.terminal().cursor();
+    let render_report = benchmark_rendering(runtime.terminal(), render_frames, size);
 
     BenchReport {
         ok: true,
@@ -102,12 +127,69 @@ fn run_benchmark_workload(workload: &[u8], chunk_size: usize, size: TerminalSize
         elapsed_ms: elapsed.as_millis(),
         throughput_bytes_per_sec: bytes_per_second(workload.len(), elapsed.as_nanos()),
         chunk_p95_us: percentile_95(&mut chunk_timings),
+        render_frames,
+        render_frame_p95_us: render_report.frame_p95_us,
+        rendered_pixels: render_report.rendered_pixels,
+        render_pixels_per_sec: render_report.pixels_per_sec,
         display_bytes,
         responses,
         bells,
         scrollback_lines: runtime.terminal().scrollback().len(),
         cursor_row,
         cursor_column,
+    }
+}
+
+struct RenderBenchReport {
+    frame_p95_us: u128,
+    rendered_pixels: u128,
+    pixels_per_sec: u64,
+}
+
+fn benchmark_rendering(
+    terminal: &rssh_terminal::Terminal,
+    render_frames: usize,
+    size: TerminalSize,
+) -> RenderBenchReport {
+    let snapshot = TerminalRenderSnapshot::from_terminal(terminal);
+    let renderer = PixelRenderer::new();
+    let target_width = u32::from(size.columns).saturating_mul(BENCH_CELL_WIDTH);
+    let target_height = u32::from(size.rows).saturating_mul(BENCH_CELL_HEIGHT);
+    let buffer_len = usize::try_from(
+        u64::from(target_width)
+            .saturating_mul(u64::from(target_height))
+            .saturating_mul(4),
+    )
+    .unwrap_or(usize::MAX);
+    let mut target = vec![0; buffer_len];
+    let mut frame_timings = Vec::with_capacity(render_frames);
+
+    let started = Instant::now();
+    for _ in 0..render_frames {
+        let frame_started = Instant::now();
+        renderer.render(
+            &snapshot,
+            &mut target,
+            target_width,
+            target_height,
+            BENCH_CELL_WIDTH,
+            BENCH_CELL_HEIGHT,
+        );
+        frame_timings.push(frame_started.elapsed().as_micros());
+    }
+    let elapsed_nanos = started.elapsed().as_nanos();
+    let pixels_per_frame = u128::from(target_width).saturating_mul(u128::from(target_height));
+    let rendered_pixels = pixels_per_frame.saturating_mul(usize_to_u128(render_frames));
+
+    RenderBenchReport {
+        frame_p95_us: percentile_95(&mut frame_timings),
+        rendered_pixels,
+        pixels_per_sec: u128_to_u64(
+            rendered_pixels
+                .saturating_mul(1_000_000_000)
+                .checked_div(elapsed_nanos)
+                .unwrap_or(u128::from(u64::MAX)),
+        ),
     }
 }
 
@@ -153,11 +235,15 @@ fn bytes_per_second(bytes: usize, elapsed_nanos: u128) -> u64 {
     let rate = usize_to_u128(bytes)
         .saturating_mul(1_000_000_000)
         .saturating_div(elapsed_nanos);
-    u64::try_from(rate).unwrap_or(u64::MAX)
+    u128_to_u64(rate)
 }
 
 fn usize_to_u128(value: usize) -> u128 {
     u128::try_from(value).expect("usize fits into u128")
+}
+
+fn u128_to_u64(value: u128) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]
@@ -180,6 +266,7 @@ mod tests {
             json: false,
             bytes: 2048,
             chunk_size: 256,
+            render_frames: 3,
             size: TerminalSize::new(40, 10),
         });
 
@@ -191,6 +278,10 @@ mod tests {
         assert_eq!(report.columns, 40);
         assert_eq!(report.rows, 10);
         assert!(report.throughput_bytes_per_sec > 0);
+        assert_eq!(report.render_frames, 3);
+        assert!(report.render_frame_p95_us > 0);
+        assert!(report.rendered_pixels > 0);
+        assert!(report.render_pixels_per_sec > 0);
         assert!(report.display_bytes > 0);
         assert!(report.responses > 0);
         assert!(report.cursor_row < report.rows);
@@ -210,6 +301,10 @@ mod tests {
             elapsed_ms: 12,
             throughput_bytes_per_sec: 85_333,
             chunk_p95_us: 9,
+            render_frames: 3,
+            render_frame_p95_us: 11,
+            rendered_pixels: 737_280,
+            render_pixels_per_sec: 61_440_000,
             display_bytes: 900,
             responses: 4,
             bells: 1,
@@ -225,6 +320,9 @@ mod tests {
         assert_eq!(value["workload"], "ansi-scroll-query");
         assert_eq!(value["throughput_bytes_per_sec"], 85_333);
         assert_eq!(value["chunk_p95_us"], 9);
+        assert_eq!(value["render_frames"], 3);
+        assert_eq!(value["render_frame_p95_us"], 11);
+        assert_eq!(value["render_pixels_per_sec"], 61_440_000);
     }
 
     #[test]
@@ -240,6 +338,10 @@ mod tests {
             elapsed_ms: 12,
             throughput_bytes_per_sec: 85_333,
             chunk_p95_us: 9,
+            render_frames: 3,
+            render_frame_p95_us: 11,
+            rendered_pixels: 737_280,
+            render_pixels_per_sec: 61_440_000,
             display_bytes: 900,
             responses: 4,
             bells: 1,
@@ -257,5 +359,10 @@ mod tests {
                 .any(|line| line.contains("throughput_bytes_per_sec=85333"))
         );
         assert!(lines.iter().any(|line| line.contains("chunk_p95_us=9")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.contains("render_pixels_per_sec=61440000"))
+        );
     }
 }

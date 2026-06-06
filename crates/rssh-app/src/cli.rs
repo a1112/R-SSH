@@ -8,6 +8,7 @@ const DEFAULT_SSH_COLUMNS: u16 = 80;
 const DEFAULT_SSH_ROWS: u16 = 24;
 const DEFAULT_BENCH_BYTES: usize = 1_048_576;
 const DEFAULT_BENCH_CHUNK_SIZE: usize = 8192;
+const DEFAULT_BENCH_RENDER_FRAMES: usize = 30;
 const DEFAULT_BENCH_COLUMNS: u16 = 120;
 const DEFAULT_BENCH_ROWS: u16 = 30;
 const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
@@ -36,6 +37,7 @@ pub struct BenchOptions {
     pub json: bool,
     pub bytes: usize,
     pub chunk_size: usize,
+    pub render_frames: usize,
     pub size: TerminalSize,
 }
 
@@ -335,7 +337,7 @@ Usage:
   rssh-app doctor [--json]
   rssh-app version [--json]
   rssh-app self-test [--json]
-  rssh-app bench [--json] [--bytes N] [--chunk-size N] [--cols N --rows N]
+  rssh-app bench [--json] [--bytes N] [--chunk-size N] [--render-frames N] [--cols N --rows N]
   rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-- <program> [args...]]
   rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
@@ -403,6 +405,7 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
     let mut json = false;
     let mut bytes = DEFAULT_BENCH_BYTES;
     let mut chunk_size = DEFAULT_BENCH_CHUNK_SIZE;
+    let mut render_frames = DEFAULT_BENCH_RENDER_FRAMES;
     let mut columns = DEFAULT_BENCH_COLUMNS;
     let mut rows = DEFAULT_BENCH_ROWS;
     let mut index = 0;
@@ -417,6 +420,10 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
             "--chunk-size" => {
                 index += 1;
                 chunk_size = parse_nonzero_usize(args.get(index), "--chunk-size")?;
+            }
+            "--render-frames" => {
+                index += 1;
+                render_frames = parse_nonzero_usize(args.get(index), "--render-frames")?;
             }
             "--cols" => {
                 index += 1;
@@ -435,6 +442,7 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
         json,
         bytes,
         chunk_size,
+        render_frames,
         size: TerminalSize::new(columns, rows),
     }))
 }
@@ -1829,6 +1837,7 @@ mod tests {
         assert!(!options.json);
         assert_eq!(options.bytes, 1_048_576);
         assert_eq!(options.chunk_size, 8192);
+        assert_eq!(options.render_frames, 30);
         assert_eq!(options.size, rssh_core::TerminalSize::new(120, 30));
     }
 
@@ -1842,6 +1851,8 @@ mod tests {
             "4096",
             "--chunk-size",
             "512",
+            "--render-frames",
+            "7",
             "--cols",
             "100",
             "--rows",
@@ -1856,6 +1867,7 @@ mod tests {
         assert!(options.json);
         assert_eq!(options.bytes, 4096);
         assert_eq!(options.chunk_size, 512);
+        assert_eq!(options.render_frames, 7);
         assert_eq!(options.size, rssh_core::TerminalSize::new(100, 40));
     }
 
@@ -1863,6 +1875,7 @@ mod tests {
     fn rejects_invalid_console_benchmark_options() {
         assert!(parse_args(["rssh-app", "bench", "--bytes", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--chunk-size", "0"]).is_err());
+        assert!(parse_args(["rssh-app", "bench", "--render-frames", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--cols", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--rows", "0"]).is_err());
     }

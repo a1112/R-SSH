@@ -55,7 +55,7 @@ cargo run -p rssh-app -- version --json
 cargo run -p rssh-app -- self-test
 cargo run -p rssh-app -- self-test --json
 cargo run -p rssh-app -- bench --json
-cargo run -p rssh-app -- bench --bytes 4194304 --chunk-size 8192 --cols 120 --rows 30
+cargo run -p rssh-app -- bench --bytes 4194304 --chunk-size 8192 --render-frames 120 --cols 120 --rows 30
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- console --preflight -- cmd.exe /C echo console-alias-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
@@ -164,7 +164,10 @@ Use `bench` or `bench --json` to run a deterministic terminal-runtime benchmark
 without opening a network connection. It feeds ANSI/CSI/OSC workload bytes
 through the same terminal parser and query-response path used by the console and
 native window, reporting throughput, p95 chunk processing time, visible output
-bytes, response count, bell count, scrollback lines, and final cursor position.
+bytes, response count, bell count, scrollback lines, final cursor position,
+plus offscreen `PixelRenderer` frame count, p95 frame time, rendered pixels, and
+rendered pixel throughput. Use `--render-frames N` to tune the offscreen render
+sample count.
 Add `--preflight` to `console`/`local`, `ssh`, `sftp`, or `scp` when startup
 should run the same console dependency check before spawning the PTY child
 process. Add `--metrics` to `console`/`local`, `ssh`, `sftp`, or `scp` to print
@@ -285,9 +288,9 @@ starting with `v` also publish it as a GitHub Release asset. The workflow runs
 formatting, tests, clippy, release compilation, and packaged
 `rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
 `rssh-app.exe self-test --json` smoke tests, `rssh-app.exe bench --json`
-benchmark smoke, bundled profile validation, a `window-smoke` profile
-`--metrics-json` check, plus `rssh-app.exe console` and `rssh-console.cmd`
-console-launcher smoke tests before upload. See
+benchmark smoke with offscreen render frames, bundled profile validation, a
+`window-smoke` profile `--metrics-json` check, plus `rssh-app.exe console` and
+`rssh-console.cmd` console-launcher smoke tests before upload. See
 `docs/release-console.md`.
 
 ## MVP Status
@@ -302,8 +305,9 @@ console-launcher smoke tests before upload. See
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
   rendering, and input-write metrics with `window --metrics` or
   `window --metrics-json`; `bench --json` now provides a repeatable
-  terminal-runtime throughput and p95 chunk latency baseline for
-  console/native-window parser work. The SSH crate now has a
+  terminal-runtime throughput, p95 chunk latency, offscreen renderer p95 frame
+  time, and rendered-pixel throughput baseline for console/native-window parser
+  and rendering work. The SSH crate now has a
   validated config, authentication request model, connector entry point,
   shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
   runner path for local input and remote output. `rssh-core` also includes a

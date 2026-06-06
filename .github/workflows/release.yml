@@ -49,7 +49,7 @@ jobs:
           ./rssh-app.exe version --json
           ./rssh-app.exe doctor --json
           ./rssh-app.exe self-test --json
-          ./rssh-app.exe bench --json
+          ./rssh-app.exe bench --json --render-frames 30
           ./rssh-app.exe profile --check --file examples/rssh-profiles.toml
           $windowShow = ./rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml
           if ($windowShow -notmatch "--metrics-json") {
