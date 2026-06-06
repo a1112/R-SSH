@@ -31,8 +31,9 @@ in the native `winit` window.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
   console and native-window runtimes, including 7-bit CSI and 8-bit C1 CSI
   private mode toggles plus DECRQM private-mode status query reporting for
-  tracked input modes. Mode-like bytes embedded inside unrelated OSC or
-  ST-terminated control-string payloads are ignored, including split payloads.
+  tracked input, cursor visibility, auto-wrap, origin, and alternate-screen
+  modes. Mode-like bytes embedded inside unrelated OSC or ST-terminated
+  control-string payloads are ignored, including split payloads.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
   separate input mapping.
 - `rssh-app window` starts the platform default shell in a local PTY, and
@@ -227,8 +228,9 @@ MVP 4 tests cover:
   blink, double underline, colon-separated underline style, underline color,
   concealed text, and overline, cursor shape, and scroll-region state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
-- DECRQM private-mode status query responses for application cursor keys, mouse,
-  SGR mouse, focus, bracketed paste, synchronized output, and unknown modes,
+- DECRQM private-mode status query responses for application cursor keys,
+  origin, auto-wrap, cursor visibility, alternate-screen modes, mouse, SGR
+  mouse, focus, bracketed paste, synchronized output, and unknown modes,
   including mode-like bytes embedded inside OSC or ST-terminated control-string
   payloads
 - native window OSC 52 policy parsing and write/query enforcement
@@ -261,8 +263,8 @@ MVP 4 tests cover:
 - application cursor key mode tracking for native window input
 - application keypad mode tracking for native window numpad input
 - bracketed paste mode tracking for native window paste
-- synchronized output mode tracking, private-mode status reporting, and delayed
-  render-damage exposure until reset
+- synchronized output plus display/private mode tracking, private-mode status
+  reporting, and delayed render-damage exposure until reset
 - focus reporting mode tracking and native window focus event encoding
 - C1 CSI private input mode tracking in the shared local/window mode tracker
 - window pixel dimensions are converted to terminal rows and columns

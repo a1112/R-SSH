@@ -2140,6 +2140,41 @@ mod tests {
     }
 
     #[test]
+    fn answers_display_private_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(
+            b"\x1b[?7$p \x1b[?7l\x1b[?7$p \
+              \x1b[?25$p \x1b[?25l\x1b[?25$p \
+              \x1b[?6$p \x1b[?6h\x1b[?6$p \
+              \x1b[?47$p \x1b[?47h\x1b[?47$p\x1b[?47l\x1b[?47$p \
+              \x1b[?1047$p \x1b[?1047h\x1b[?1047$p\x1b[?1047l\x1b[?1047$p \
+              \x1b[?1049$p \x1b[?1049h\x1b[?1049$p\x1b[?1049l\x1b[?1049$p",
+        );
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?7;1$y".to_vec(),
+                b"\x1b[?7;2$y".to_vec(),
+                b"\x1b[?25;1$y".to_vec(),
+                b"\x1b[?25;2$y".to_vec(),
+                b"\x1b[?6;2$y".to_vec(),
+                b"\x1b[?6;1$y".to_vec(),
+                b"\x1b[?47;2$y".to_vec(),
+                b"\x1b[?47;1$y".to_vec(),
+                b"\x1b[?47;2$y".to_vec(),
+                b"\x1b[?1047;2$y".to_vec(),
+                b"\x1b[?1047;1$y".to_vec(),
+                b"\x1b[?1047;2$y".to_vec(),
+                b"\x1b[?1049;2$y".to_vec(),
+                b"\x1b[?1049;1$y".to_vec(),
+                b"\x1b[?1049;2$y".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
     fn answers_osc_color_queries() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 

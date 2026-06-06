@@ -308,6 +308,30 @@ impl TerminalModeTracker {
                     emit(TerminalModeChange::SynchronizedOutput(enabled));
                 }
             }
+            6 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::ORIGIN_MODE, enabled);
+            }
+            7 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::AUTO_WRAP, enabled);
+            }
+            25 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::CURSOR_VISIBLE, enabled);
+            }
+            47 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::ALTERNATE_SCREEN_47, enabled);
+            }
+            1047 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::ALTERNATE_SCREEN_1047, enabled);
+            }
+            1049 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::ALTERNATE_SCREEN_1049, enabled);
+            }
             _ => {}
         }
     }
@@ -359,8 +383,29 @@ impl TerminalModeTracker {
     pub(crate) fn private_mode_report_value(&self, mode: u16) -> u8 {
         match mode {
             1 => mode_report_value(self.application_cursor_keys()),
+            6 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::ORIGIN_MODE),
+            ),
+            7 => mode_report_value(self.tracked_modes.enabled(TrackedTerminalModes::AUTO_WRAP)),
+            25 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::CURSOR_VISIBLE),
+            ),
+            47 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_47),
+            ),
             1000 | 1002 | 1003 | 1006 => self.mouse_modes.report_value(mode).unwrap_or(0),
             1004 => mode_report_value(self.focus_reporting()),
+            1047 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_1047),
+            ),
+            1049 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_1049),
+            ),
             2004 => mode_report_value(self.bracketed_paste()),
             2026 => mode_report_value(self.synchronized_output()),
             _ => 0,
@@ -449,17 +494,23 @@ const fn mode_report_value(enabled: bool) -> u8 {
     if enabled { 1 } else { 2 }
 }
 
-#[derive(Clone, Copy, Default)]
-struct TrackedTerminalModes(u8);
+#[derive(Clone, Copy)]
+struct TrackedTerminalModes(u16);
 
 impl TrackedTerminalModes {
-    const APPLICATION_CURSOR_KEYS: u8 = 1;
-    const APPLICATION_KEYPAD: u8 = 1 << 1;
-    const BRACKETED_PASTE: u8 = 1 << 2;
-    const FOCUS: u8 = 1 << 3;
-    const SYNCHRONIZED_OUTPUT: u8 = 1 << 4;
+    const APPLICATION_CURSOR_KEYS: u16 = 1;
+    const APPLICATION_KEYPAD: u16 = 1 << 1;
+    const BRACKETED_PASTE: u16 = 1 << 2;
+    const FOCUS: u16 = 1 << 3;
+    const SYNCHRONIZED_OUTPUT: u16 = 1 << 4;
+    const ORIGIN_MODE: u16 = 1 << 5;
+    const AUTO_WRAP: u16 = 1 << 6;
+    const CURSOR_VISIBLE: u16 = 1 << 7;
+    const ALTERNATE_SCREEN_47: u16 = 1 << 8;
+    const ALTERNATE_SCREEN_1047: u16 = 1 << 9;
+    const ALTERNATE_SCREEN_1049: u16 = 1 << 10;
 
-    fn set(&mut self, mode: u8, enabled: bool) -> bool {
+    fn set(&mut self, mode: u16, enabled: bool) -> bool {
         let before = self.0;
         if enabled {
             self.0 |= mode;
@@ -469,8 +520,14 @@ impl TrackedTerminalModes {
         self.0 != before
     }
 
-    const fn enabled(self, mode: u8) -> bool {
+    const fn enabled(self, mode: u16) -> bool {
         self.0 & mode != 0
+    }
+}
+
+impl Default for TrackedTerminalModes {
+    fn default() -> Self {
+        Self(Self::AUTO_WRAP | Self::CURSOR_VISIBLE)
     }
 }
 

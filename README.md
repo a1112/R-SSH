@@ -145,7 +145,9 @@ Bracketed paste mode is negotiated from PTY output automatically.
 Synchronized output mode (`ESC[?2026h/l`) is handled from PTY output: the native
 runtime delays render damage until reset, and the console path buffers visible
 host-console writes while continuing to answer terminal queries.
-The console path also answers basic terminal status and device-attribute queries.
+The console path also answers basic terminal status, device-attribute, and
+DECRQM private-mode status queries, including input, cursor visibility,
+auto-wrap, origin, and alternate-screen modes.
 XTGETTCAP capability replies include terminal name, 256-color/true-color
 markers, OSC 52 clipboard support, italic/style underline/underline-color
 templates, foundational cursor/screen/style/color capabilities, and current

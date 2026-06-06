@@ -45,10 +45,12 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   unrelated OSC or ST-terminated control-string payloads are ignored, including
   when the payload is split across PTY chunks.
 - The console path answers DECRQM private-mode status queries
-  (`CSI ? <mode> $ p`) for tracked terminal input modes, including application
-  cursor keys (`1`), mouse reporting (`1000`/`1002`/`1003`), SGR mouse (`1006`),
-  focus reporting (`1004`), bracketed paste (`2004`), and synchronized output
-  (`2026`). Unknown modes return an xterm-style unknown status.
+  (`CSI ? <mode> $ p`) for tracked terminal modes, including application cursor
+  keys (`1`), origin mode (`6`), auto-wrap (`7`), cursor visibility (`25`),
+  alternate-screen modes (`47`/`1047`/`1049`), mouse reporting
+  (`1000`/`1002`/`1003`), SGR mouse (`1006`), focus reporting (`1004`),
+  bracketed paste (`2004`), and synchronized output (`2026`). Unknown modes
+  return an xterm-style unknown status.
 - The console output filter handles xterm synchronized output
   (`ESC[?2026h/l`) by consuming the mode markers, buffering visible host-console
   writes while the mode is enabled, continuing to update its mirror terminal and
@@ -309,7 +311,7 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   reporting granularity, `1006` SGR protocol toggling, and C1 CSI private mode
   input toggles. Unit tests also cover mode-like bytes inside OSC and
   ST-terminated control-string payloads, plus DECRQM private-mode status
-  queries for tracked and unknown modes.
+  queries for tracked input, display, alternate-screen, and unknown modes.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
 - Synchronized output negotiation: unit tests cover xterm `ESC[?2026h/l`

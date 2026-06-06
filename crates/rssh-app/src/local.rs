@@ -4487,6 +4487,44 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_display_private_mode_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b[?7$p \x1b[?7l\x1b[?7$p \
+                  \x1b[?25$p \x1b[?25l\x1b[?25$p \
+                  \x1b[?6$p \x1b[?6h\x1b[?6$p \
+                  \x1b[?47$p \x1b[?47h\x1b[?47$p\x1b[?47l\x1b[?47$p \
+                  \x1b[?1047$p \x1b[?1047h\x1b[?1047$p\x1b[?1047l\x1b[?1047$p \
+                  \x1b[?1049$p \x1b[?1049h\x1b[?1049$p\x1b[?1049l\x1b[?1049$p",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            output,
+            b" \x1b[?7l  \x1b[?25l  \x1b[?6h  \x1b[?47h\x1b[?47l  \x1b[?1047h\x1b[?1047l  \x1b[?1049h\x1b[?1049l"
+        );
+        assert_eq!(
+            responses,
+            b"\x1b[?7;1$y\x1b[?7;2$y\
+              \x1b[?25;1$y\x1b[?25;2$y\
+              \x1b[?6;2$y\x1b[?6;1$y\
+              \x1b[?47;2$y\x1b[?47;1$y\x1b[?47;2$y\
+              \x1b[?1047;2$y\x1b[?1047;1$y\x1b[?1047;2$y\
+              \x1b[?1049;2$y\x1b[?1049;1$y\x1b[?1049;2$y"
+        );
+    }
+
+    #[test]
     fn terminal_output_filter_answers_osc_color_queries() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
