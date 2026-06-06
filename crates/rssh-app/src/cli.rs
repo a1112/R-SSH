@@ -288,7 +288,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -660,7 +660,7 @@ fn parse_sftp_option(
         }
         "--target" => {
             *index += 1;
-            state.target = Some(required_option_value(args.get(*index), "--target")?.to_owned());
+            set_explicit_ssh_target(state, required_option_value(args.get(*index), "--target")?)?;
         }
         "--user" => {
             *index += 1;
@@ -706,12 +706,9 @@ fn parse_sftp_option(
             set_ssh_console_metrics(&mut state.console, metrics_flag)?;
         }
         "--log" => {
-            *index += 1;
-            state.log = Some(PathBuf::from(required_option_value(
-                args.get(*index),
-                "--log",
-            )?));
+            state.log = Some(parse_path_option(args, index, "--log")?);
         }
+        value if !value.starts_with('-') => set_positional_ssh_target(state, value, "sftp")?,
         value => return Err(format!("unexpected sftp option: {value}")),
     }
 
@@ -730,7 +727,7 @@ fn parse_ssh_option(
         }
         "--target" => {
             *index += 1;
-            state.target = Some(required_option_value(args.get(*index), "--target")?.to_owned());
+            set_explicit_ssh_target(state, required_option_value(args.get(*index), "--target")?)?;
         }
         "--user" => {
             *index += 1;
@@ -814,16 +811,46 @@ fn parse_ssh_option(
             state.osc52_policy = parse_osc52_policy(args.get(*index))?;
         }
         "--log" => {
-            *index += 1;
-            state.log = Some(PathBuf::from(required_option_value(
-                args.get(*index),
-                "--log",
-            )?));
+            state.log = Some(parse_path_option(args, index, "--log")?);
         }
+        value if !value.starts_with('-') => set_positional_ssh_target(state, value, "ssh")?,
         value => return Err(format!("unexpected ssh option: {value}")),
     }
 
     Ok(())
+}
+
+fn set_explicit_ssh_target(state: &mut SshParseState, target: &str) -> Result<(), String> {
+    if state.target.is_some() {
+        return Err("only one SSH target can be selected".to_owned());
+    }
+
+    state.target = Some(target.to_owned());
+    Ok(())
+}
+
+fn set_positional_ssh_target(
+    state: &mut SshParseState,
+    target: &str,
+    command: &str,
+) -> Result<(), String> {
+    if state.host.is_some() {
+        return Err(format!("unexpected {command} option: {target}"));
+    }
+
+    set_explicit_ssh_target(state, target)
+}
+
+fn parse_path_option(
+    args: &[String],
+    index: &mut usize,
+    option_name: &str,
+) -> Result<PathBuf, String> {
+    *index += 1;
+    Ok(PathBuf::from(required_option_value(
+        args.get(*index),
+        option_name,
+    )?))
 }
 
 fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
@@ -1595,6 +1622,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_ssh_positional_openssh_target() {
+        let parsed = parse_args(["rssh-app", "ssh", "ops@example.com", "--preflight"]).unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "ops@example.com".to_owned(),
+                username: None,
+                port: None,
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::Agent
+            })
+        );
+        assert!(options.console.preflight);
+    }
+
+    #[test]
     fn parses_ssh_openssh_config_target_with_overrides() {
         let parsed = parse_args([
             "rssh-app",
@@ -1941,6 +1989,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_sftp_positional_openssh_target() {
+        let parsed = parse_args(["rssh-app", "sftp", "ops@example.com", "--port", "2222"]).unwrap();
+
+        let AppCommand::Sftp(options) = parsed else {
+            panic!("expected sftp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "ops@example.com".to_owned(),
+                username: None,
+                port: Some(2222),
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::Agent
+            })
+        );
+    }
+
+    #[test]
     fn parses_sftp_preflight() {
         let parsed = parse_args(["rssh-app", "sftp", "--target", "prod", "--preflight"]).unwrap();
 
@@ -2018,6 +2086,34 @@ mod tests {
         );
         assert!(options.recursive);
         assert_eq!(options.log, Some(std::path::PathBuf::from("scp.log")));
+    }
+
+    #[test]
+    fn parses_scp_positional_openssh_target() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "ops@example.com",
+            "--upload",
+            "local.txt",
+            "/tmp/remote.txt",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "ops@example.com".to_owned(),
+                username: None,
+                port: None,
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::Agent
+            })
+        );
     }
 
     #[test]
@@ -2173,6 +2269,14 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("only one of --host or --target can be selected"));
+    }
+
+    #[test]
+    fn rejects_positional_ssh_target_with_explicit_target() {
+        let error =
+            parse_args(["rssh-app", "ssh", "ops@example.com", "--target", "prod"]).unwrap_err();
+
+        assert!(error.contains("only one SSH target can be selected"));
     }
 
     #[test]

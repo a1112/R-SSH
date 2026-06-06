@@ -66,6 +66,7 @@ cargo run -p rssh-app -- local --mouse
 cargo run -p rssh-app -- local --osc52 write
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
+cargo run -p rssh-app -- ssh ops@example.com
 cargo run -p rssh-app -- ssh --target prod --preflight
 cargo run -p rssh-app -- ssh --target prod --metrics
 cargo run -p rssh-app -- ssh --target prod --metrics-json
@@ -81,9 +82,11 @@ cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.in
 cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
 cargo run -p rssh-app -- ssh --target prod --osc52 write
 cargo run -p rssh-app -- ssh --target prod --log prod.log
+cargo run -p rssh-app -- sftp ops@example.com
 cargo run -p rssh-app -- sftp --target prod
 cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- sftp --target prod --log sftp.log
+cargo run -p rssh-app -- scp ops@example.com --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --download /tmp/remote.txt local.txt
 cargo run -p rssh-app -- profile --init --file rssh-profiles.toml
@@ -140,13 +143,17 @@ UI should consume the metrics as JSON.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
-secrets in the R-SSH command line.
+secrets in the R-SSH command line. Use `ssh ops@example.com` for the shortest
+console launch path, `ssh --target prod` for a saved OpenSSH config host, or
+`ssh --host example.com --user ops` when you want explicit host/user flags.
 `sftp` starts the system OpenSSH SFTP client inside the same PTY console
 runtime, using the same `--host`/`--target`, `--user`, `--port`, `--agent`,
-`--password`, `--key`, and `--log` shape for interactive file transfer.
+`--password`, `--key`, and `--log` shape for interactive file transfer; it also
+accepts the same positional `[USER@]HOST` target.
 `scp` starts the system OpenSSH SCP client inside the same PTY console runtime
 for one-shot upload and download transfers. Use `--upload LOCAL REMOTE` or
-`--download REMOTE LOCAL`; add `--recursive` for directories.
+`--download REMOTE LOCAL`; add `--recursive` for directories. It also accepts
+the same positional `[USER@]HOST` target before the transfer direction.
 Add `--native` to use the experimental in-process `russh` path instead of
 spawning an interactive OpenSSH session. The native path supports `--host`
 direct targets and `--target NAME` entries resolved through `ssh -G`, with
