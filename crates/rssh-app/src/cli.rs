@@ -124,8 +124,22 @@ pub struct ScpOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ScpTransfer {
-    Upload { local: PathBuf, remote: String },
-    Download { remote: String, local: PathBuf },
+    Upload {
+        local: PathBuf,
+        remote: String,
+    },
+    UploadMany {
+        locals: Vec<PathBuf>,
+        remote: String,
+    },
+    Download {
+        remote: String,
+        local: PathBuf,
+    },
+    DownloadMany {
+        remotes: Vec<String>,
+        local: PathBuf,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -292,7 +306,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-B IFACE] [-b ADDR] [-c CIPHER] [-E LOG] [-e CHAR] [-I PKCS11] [-m MAC] [-O CTL] [-P TAG] [-Q QUERY] [-S CTL_PATH] [-W HOST:PORT] [-w TUN] [-f] [-G] [-g] [-K | -k] [-M] [-n] [-s] [-T | -t | -tt] [-X | -x | -Y | -y] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-b FILE] [-B N] [-R N] [-D COMMAND] [-S PROGRAM] [-s SUBSYSTEM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] LOCAL [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-r | --recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-B IFACE] [-b ADDR] [-c CIPHER] [-E LOG] [-e CHAR] [-I PKCS11] [-m MAC] [-O CTL] [-P TAG] [-Q QUERY] [-S CTL_PATH] [-W HOST:PORT] [-w TUN] [-f] [-G] [-g] [-K | -k] [-M] [-n] [-s] [-T | -t | -tt] [-X | -x | -Y | -y] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-b FILE] [-B N] [-R N] [-D COMMAND] [-S PROGRAM] [-s SUBSYSTEM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] LOCAL... [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE... LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-r | --recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -648,44 +662,88 @@ fn apply_scp_positionals(
             }
         }
     } else {
-        let [source, destination] = positionals else {
+        let Some((destination, sources)) = positionals.split_last() else {
             return Ok(());
         };
-        infer_scp_transfer_from_operands(state, transfer, source, destination)
+        if sources.is_empty() {
+            return Ok(());
+        }
+        infer_scp_transfer_from_operands(state, transfer, sources, destination)
     }
 }
 
 fn infer_scp_transfer_from_operands(
     state: &mut SshParseState,
     transfer: &mut Option<ScpTransfer>,
-    source: &str,
+    sources: &[String],
     destination: &str,
 ) -> Result<(), String> {
-    let source_remote = split_scp_remote_operand(source);
     let destination_remote = split_scp_remote_operand(destination);
-    match (source_remote, destination_remote) {
-        (None, Some((target, remote))) => {
+    if let Some((target, remote)) = destination_remote {
+        if sources
+            .iter()
+            .all(|source| split_scp_remote_operand(source).is_none())
+        {
             set_positional_ssh_target(state, target, "scp")?;
-            set_scp_transfer(
-                transfer,
-                ScpTransfer::Upload {
-                    local: PathBuf::from(source),
-                    remote: remote.to_owned(),
-                },
-            )
+            let locals = sources.iter().map(PathBuf::from).collect::<Vec<_>>();
+            return if let [local] = locals.as_slice() {
+                set_scp_transfer(
+                    transfer,
+                    ScpTransfer::Upload {
+                        local: local.clone(),
+                        remote: remote.to_owned(),
+                    },
+                )
+            } else {
+                set_scp_transfer(
+                    transfer,
+                    ScpTransfer::UploadMany {
+                        locals,
+                        remote: remote.to_owned(),
+                    },
+                )
+            };
         }
-        (Some((target, remote)), None) => {
-            set_positional_ssh_target(state, target, "scp")?;
-            set_scp_transfer(
-                transfer,
-                ScpTransfer::Download {
-                    remote: remote.to_owned(),
-                    local: PathBuf::from(destination),
-                },
-            )
-        }
-        _ => Ok(()),
     }
+
+    let remote_sources = sources
+        .iter()
+        .map(|source| split_scp_remote_operand(source))
+        .collect::<Option<Vec<_>>>();
+    if let Some(remote_sources) = remote_sources {
+        if let Some((target, _)) = remote_sources.first() {
+            if remote_sources
+                .iter()
+                .any(|(next_target, _)| next_target != target)
+            {
+                return Err("scp multiple remote sources must use the same target".to_owned());
+            }
+            set_positional_ssh_target(state, target, "scp")?;
+            let remotes = remote_sources
+                .iter()
+                .map(|(_, remote)| (*remote).to_owned())
+                .collect::<Vec<_>>();
+            return if let [remote] = remotes.as_slice() {
+                set_scp_transfer(
+                    transfer,
+                    ScpTransfer::Download {
+                        remote: remote.clone(),
+                        local: PathBuf::from(destination),
+                    },
+                )
+            } else {
+                set_scp_transfer(
+                    transfer,
+                    ScpTransfer::DownloadMany {
+                        remotes,
+                        local: PathBuf::from(destination),
+                    },
+                )
+            };
+        }
+    }
+
+    Ok(())
 }
 
 fn split_scp_remote_operand(operand: &str) -> Option<(&str, &str)> {
@@ -2731,6 +2789,40 @@ mod tests {
     }
 
     #[test]
+    fn parses_scp_openssh_style_upload_with_multiple_sources() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "app.log",
+            "audit.log",
+            "ops@example.com:/tmp/logs/",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "ops@example.com".to_owned(),
+                username: None,
+                port: None,
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::Agent
+            })
+        );
+        assert_eq!(
+            options.transfer,
+            super::ScpTransfer::UploadMany {
+                locals: vec!["app.log".into(), "audit.log".into()],
+                remote: "/tmp/logs/".to_owned()
+            }
+        );
+    }
+
+    #[test]
     fn parses_scp_openssh_short_connection_options() {
         let parsed = parse_args([
             "rssh-app",
@@ -2896,6 +2988,43 @@ mod tests {
             super::ScpTransfer::Download {
                 remote: "/tmp/remote.txt".to_owned(),
                 local: "local.txt".into()
+            }
+        );
+    }
+
+    #[test]
+    fn parses_scp_openssh_style_download_with_multiple_sources() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "ops@example.com:/var/log/app.log",
+            "ops@example.com:/var/log/audit.log",
+            "logs",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "ops@example.com".to_owned(),
+                username: None,
+                port: None,
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::Agent
+            })
+        );
+        assert_eq!(
+            options.transfer,
+            super::ScpTransfer::DownloadMany {
+                remotes: vec![
+                    "/var/log/app.log".to_owned(),
+                    "/var/log/audit.log".to_owned()
+                ],
+                local: "logs".into()
             }
         );
     }

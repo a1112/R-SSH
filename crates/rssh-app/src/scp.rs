@@ -97,8 +97,24 @@ fn append_transfer_args(args: &mut Vec<String>, transfer: &ScpTransfer, remote_p
             args.push(local.to_string_lossy().into_owned());
             args.push(format!("{remote_prefix}{remote}"));
         }
+        ScpTransfer::UploadMany { locals, remote } => {
+            args.extend(
+                locals
+                    .iter()
+                    .map(|local| local.to_string_lossy().into_owned()),
+            );
+            args.push(format!("{remote_prefix}{remote}"));
+        }
         ScpTransfer::Download { remote, local } => {
             args.push(format!("{remote_prefix}{remote}"));
+            args.push(local.to_string_lossy().into_owned());
+        }
+        ScpTransfer::DownloadMany { remotes, local } => {
+            args.extend(
+                remotes
+                    .iter()
+                    .map(|remote| format!("{remote_prefix}{remote}")),
+            );
             args.push(local.to_string_lossy().into_owned());
         }
     }
@@ -213,6 +229,58 @@ mod tests {
                 "local.txt",
                 "prod:/tmp/remote.txt"
             ]
+        );
+    }
+
+    #[test]
+    fn scp_command_uploads_multiple_sources_to_config_target() {
+        let command = scp_command_for_options(&ScpOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: TerminalSize::new(100, 40),
+                auth: SshAuthMethod::Agent,
+            }),
+            transfer: ScpTransfer::UploadMany {
+                locals: vec!["app.log".into(), "audit.log".into()],
+                remote: "/tmp/logs/".to_owned(),
+            },
+            recursive: false,
+            openssh_args: Vec::new(),
+            console: crate::cli::ConsoleOptions::default(),
+            log: None,
+        });
+
+        assert_eq!(command.args(), ["app.log", "audit.log", "prod:/tmp/logs/"]);
+    }
+
+    #[test]
+    fn scp_command_downloads_multiple_sources_from_config_target() {
+        let command = scp_command_for_options(&ScpOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: TerminalSize::new(100, 40),
+                auth: SshAuthMethod::Agent,
+            }),
+            transfer: ScpTransfer::DownloadMany {
+                remotes: vec![
+                    "/var/log/app.log".to_owned(),
+                    "/var/log/audit.log".to_owned(),
+                ],
+                local: "logs".into(),
+            },
+            recursive: false,
+            openssh_args: Vec::new(),
+            console: crate::cli::ConsoleOptions::default(),
+            log: None,
+        });
+
+        assert_eq!(
+            command.args(),
+            ["prod:/var/log/app.log", "prod:/var/log/audit.log", "logs"]
         );
     }
 }

@@ -99,11 +99,13 @@ cargo run -p rssh-app -- sftp --target prod
 cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- sftp --target prod --log sftp.log
 cargo run -p rssh-app -- scp local.txt ops@example.com:/tmp/remote.txt
+cargo run -p rssh-app -- scp app.log audit.log ops@example.com:/tmp/logs/
 cargo run -p rssh-app -- scp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 -r logs ops@example.com:/tmp/logs
 cargo run -p rssh-app -- scp -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion local.txt prod:/tmp/remote.txt
 cargo run -p rssh-app -- scp -J bastion -C -vv local.txt prod:/tmp/remote.txt
 cargo run -p rssh-app -- scp -O -T -B local.txt prod:/tmp/remote.txt
 cargo run -p rssh-app -- scp ops@example.com:/tmp/remote.txt local.txt
+cargo run -p rssh-app -- scp ops@example.com:/var/log/app.log ops@example.com:/var/log/audit.log logs
 cargo run -p rssh-app -- scp ops@example.com --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --download /tmp/remote.txt local.txt
@@ -188,9 +190,12 @@ supported. SFTP-specific OpenSSH options `-b`, `-B`, `-R`, `-D`, `-S`, `-s`,
 `scp` starts the system OpenSSH SCP client inside the same PTY console runtime
 for one-shot upload and download transfers. Use `scp local.txt
 ops@example.com:/tmp/remote.txt` to upload and `scp
-ops@example.com:/tmp/remote.txt local.txt` to download. The longer `--upload
-LOCAL REMOTE` and `--download REMOTE LOCAL` forms remain available when the
-target is supplied separately; add `-r` or `--recursive` for directories.
+ops@example.com:/tmp/remote.txt local.txt` to download. OpenSSH-style
+positional transfers also accept multiple local sources before one remote
+destination, or multiple remote sources from the same target before one local
+destination. The longer `--upload LOCAL REMOTE` and `--download REMOTE LOCAL`
+forms remain available when the target is supplied separately; add `-r` or
+`--recursive` for directories.
 Common short options `scp -P PORT -i KEY -J JUMP -F CONFIG -o OPTION=VALUE -C
 -v` are supported. SCP-specific OpenSSH options `-3`, `-O`, `-T`, `-B`, `-D`,
 `-S`, `-X`, and `-c` are passed through for protocol and transfer tuning.
