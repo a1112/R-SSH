@@ -183,6 +183,9 @@ contract that a future in-process `russh` adapter must satisfy.
   back through the existing local, native-window, SSH, SFTP, or SCP CLI parser, so
   profile startup keeps the same validation and secret-handling rules as direct
   command-line startup.
+- SSH profiles can select the native russh backend with `native = true` and can
+  persist host-key policy as `host_key_policy = "trust-on-first-use"`,
+  `"accept-unknown"`, or `"reject-unknown"`.
 - `rssh-app profile --list --file PATH` prints configured profile names and
   kinds so console users can discover saved sessions before starting one.
 - `rssh-app profile --list --verbose --file PATH` also prints each profile's
@@ -471,6 +474,7 @@ SSH-boundary tests cover:
   prompt policy, secret non-leakage, PTY size, and mouse support
 - app-level profile command parsing and TOML profile loading for local,
   native-window, and SSH startup paths
+- profile loading for native SSH backend selection and host-key policy
 - app-level local and SSH log path parsing plus visible-output log tee behavior
 
 ## Explicit Non-Scope

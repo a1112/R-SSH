@@ -28,6 +28,8 @@ struct ProfileDefinition {
     mouse: Option<bool>,
     metrics: Option<ProfileMetrics>,
     preflight: Option<bool>,
+    native: Option<bool>,
+    host_key_policy: Option<String>,
     osc52: Option<String>,
     log: Option<String>,
     command: Option<Vec<String>>,
@@ -358,6 +360,7 @@ impl ProfileDefinition {
         append_optional(args, "--target", self.target.as_ref());
         self.append_preflight(args);
         self.append_console_metrics(args)?;
+        self.append_native_ssh_args(args)?;
         append_optional(args, "--user", self.user.as_ref());
         append_optional_u16(args, "--port", self.port);
         append_dimensions(args, self.cols, self.rows);
@@ -416,6 +419,25 @@ impl ProfileDefinition {
     fn append_console_metrics(&self, args: &mut Vec<String>) -> Result<(), String> {
         if let Some(flag) = self.metrics_flag()? {
             args.push(flag.to_owned());
+        }
+
+        Ok(())
+    }
+
+    fn append_native_ssh_args(&self, args: &mut Vec<String>) -> Result<(), String> {
+        if self.native.unwrap_or(false) {
+            args.push("--native".to_owned());
+        }
+
+        match self.host_key_policy.as_deref() {
+            None | Some("reject-unknown") => {}
+            Some("trust-on-first-use") => args.push("--trust-on-first-use".to_owned()),
+            Some("accept-unknown") => args.push("--accept-unknown-host-key".to_owned()),
+            Some(value) => {
+                return Err(format!(
+                    "invalid host_key_policy: {value}; expected \"reject-unknown\", \"trust-on-first-use\", or \"accept-unknown\""
+                ));
+            }
         }
 
         Ok(())
@@ -879,6 +901,48 @@ metrics = "json"
             super::args_from_toml("prod-shell", contents).unwrap(),
             ["rssh-app", "ssh", "--target", "prod", "--metrics-json"]
         );
+    }
+
+    #[test]
+    fn ssh_profiles_can_select_native_backend_and_host_key_policy() {
+        let contents = r#"
+[profiles.native-prod]
+kind = "ssh"
+target = "prod"
+native = true
+host_key_policy = "trust-on-first-use"
+auth = "agent"
+metrics = "json"
+"#;
+
+        assert_eq!(
+            super::args_from_toml("native-prod", contents).unwrap(),
+            [
+                "rssh-app",
+                "ssh",
+                "--target",
+                "prod",
+                "--metrics-json",
+                "--native",
+                "--trust-on-first-use",
+                "--agent"
+            ]
+        );
+    }
+
+    #[test]
+    fn ssh_profiles_reject_invalid_host_key_policy() {
+        let contents = r#"
+[profiles.native-prod]
+kind = "ssh"
+target = "prod"
+native = true
+host_key_policy = "trust-everything"
+"#;
+
+        let error = super::args_from_toml("native-prod", contents).unwrap_err();
+
+        assert!(error.contains("invalid host_key_policy: trust-everything"));
     }
 
     #[test]

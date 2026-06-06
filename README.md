@@ -181,6 +181,9 @@ should run the console dependency check before spawning the PTY child process.
 Set `metrics = true` in local, SSH, SFTP, or SCP profiles when saved sessions
 should print the same console runtime metrics on exit. Use `metrics = "json"`
 when saved console sessions should emit machine-readable JSON metrics.
+For saved native SSH sessions, set `native = true` and choose
+`host_key_policy = "trust-on-first-use"`, `"accept-unknown"`, or
+`"reject-unknown"`.
 Use `profile --check --file PATH` to validate every configured profile without
 starting a local process or network connection; add `--json` for a structured
 per-profile report that still exits non-zero when any profile is invalid.
