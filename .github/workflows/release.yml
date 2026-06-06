@@ -51,7 +51,10 @@ jobs:
           ./rssh-app.exe version --json
           ./rssh-app.exe doctor --json
           ./rssh-app.exe self-test --json
-          $bench = ./rssh-app.exe bench --json --render-frames 30 --idle-ms 200 | ConvertFrom-Json
+          $bench = ./rssh-app.exe bench --json --render-frames 30 --idle-ms 200 --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296 | ConvertFrom-Json
+          if ($bench.ok -ne $true) {
+            throw "bench threshold gate failed"
+          }
           if ($bench.idle_sample_ms -ne 200) {
             throw "bench idle sample did not use requested duration"
           }
@@ -60,6 +63,9 @@ jobs:
           }
           if ($null -eq $bench.idle_cpu_usage_percent -or $null -eq $bench.process_virtual_memory_bytes -or $null -eq $bench.process_accumulated_cpu_ms) {
             throw "bench did not report idle CPU and process resource fields"
+          }
+          if ($bench.threshold_violations.Count -ne 0) {
+            throw "bench reported unexpected threshold violations"
           }
           ./rssh-app.exe profile --check --file examples/rssh-profiles.toml
           $windowShow = ./rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml

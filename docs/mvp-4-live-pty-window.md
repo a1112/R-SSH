@@ -268,18 +268,21 @@ output. Both formats report:
   response bytes.
 - `bells`: PTY-side BEL events observed by the terminal runtime.
 
-The next instrumentation layer should promote these metrics into thresholds:
+The current benchmark path can promote these metrics into thresholded gates:
 
 - Steady idle CPU: `rssh-app bench --json --idle-ms N` now samples the current
-  app process during an idle window and reports idle CPU usage.
+  app process during an idle window and reports idle CPU usage; add
+  `--max-idle-cpu-percent N` to fail the command when it exceeds a budget.
 - Burst throughput: `rssh-app bench --json` now reports deterministic
   terminal-runtime bytes parsed per second, p95 chunk processing latency,
   offscreen `PixelRenderer` p95 frame time, rendered pixels, and rendered pixel
-  throughput without opening a GUI window.
+  throughput without opening a GUI window; add `--min-throughput-bytes-per-sec`,
+  `--max-chunk-p95-us`, or `--max-render-frame-p95-us` to turn those metrics
+  into release gates.
 - Memory footprint: `rssh-app bench --json --idle-ms N` now reports process
   resident memory, virtual memory, and accumulated CPU time; the remaining
-  work is to compare baseline window, active shell, and future scrollback
-  sizes.
+  work is to compare baseline window, active shell, and future scrollback sizes
+  before tightening `--max-process-memory-bytes`.
 
 Recommended MVP 5 targets:
 
@@ -305,5 +308,5 @@ and Shift page/navigation shortcuts.
 
 1. Track dirty regions instead of rebuilding the full snapshot each chunk.
 2. Replace title-only scrollback position with a real scrollbar or status area.
-3. Promote idle CPU and memory smoke fields into thresholded release checks
-   after collecting stable packaged-build baselines.
+3. Collect stable packaged-build baselines, then tighten the wide bench
+   threshold gates into real release budgets.

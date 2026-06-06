@@ -40,7 +40,17 @@ pub struct BenchOptions {
     pub chunk_size: usize,
     pub render_frames: usize,
     pub idle_ms: usize,
+    pub thresholds: BenchThresholds,
     pub size: TerminalSize,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct BenchThresholds {
+    pub min_throughput_bytes_per_sec: Option<usize>,
+    pub max_chunk_p95_us: Option<usize>,
+    pub max_render_frame_p95_us: Option<usize>,
+    pub max_idle_cpu_percent: Option<u16>,
+    pub max_process_memory_bytes: Option<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -339,7 +349,7 @@ Usage:
   rssh-app doctor [--json]
   rssh-app version [--json]
   rssh-app self-test [--json]
-  rssh-app bench [--json] [--bytes N] [--chunk-size N] [--render-frames N] [--idle-ms N] [--cols N --rows N]
+  rssh-app bench [--json] [--bytes N] [--chunk-size N] [--render-frames N] [--idle-ms N] [--min-throughput-bytes-per-sec N] [--max-chunk-p95-us N] [--max-render-frame-p95-us N] [--max-idle-cpu-percent N] [--max-process-memory-bytes N] [--cols N --rows N]
   rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-- <program> [args...]]
   rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
@@ -409,6 +419,7 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
     let mut chunk_size = DEFAULT_BENCH_CHUNK_SIZE;
     let mut render_frames = DEFAULT_BENCH_RENDER_FRAMES;
     let mut idle_ms = DEFAULT_BENCH_IDLE_MS;
+    let mut thresholds = BenchThresholds::default();
     let mut columns = DEFAULT_BENCH_COLUMNS;
     let mut rows = DEFAULT_BENCH_ROWS;
     let mut index = 0;
@@ -432,6 +443,39 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
                 index += 1;
                 idle_ms = parse_nonzero_usize(args.get(index), "--idle-ms")?;
             }
+            "--min-throughput-bytes-per-sec" => {
+                index += 1;
+                thresholds.min_throughput_bytes_per_sec = Some(parse_nonzero_usize(
+                    args.get(index),
+                    "--min-throughput-bytes-per-sec",
+                )?);
+            }
+            "--max-chunk-p95-us" => {
+                index += 1;
+                thresholds.max_chunk_p95_us =
+                    Some(parse_nonzero_usize(args.get(index), "--max-chunk-p95-us")?);
+            }
+            "--max-render-frame-p95-us" => {
+                index += 1;
+                thresholds.max_render_frame_p95_us = Some(parse_nonzero_usize(
+                    args.get(index),
+                    "--max-render-frame-p95-us",
+                )?);
+            }
+            "--max-idle-cpu-percent" => {
+                index += 1;
+                thresholds.max_idle_cpu_percent = Some(parse_nonzero_dimension(
+                    args.get(index),
+                    "--max-idle-cpu-percent",
+                )?);
+            }
+            "--max-process-memory-bytes" => {
+                index += 1;
+                thresholds.max_process_memory_bytes = Some(parse_nonzero_usize(
+                    args.get(index),
+                    "--max-process-memory-bytes",
+                )?);
+            }
             "--cols" => {
                 index += 1;
                 columns = parse_nonzero_dimension(args.get(index), "--cols")?;
@@ -451,6 +495,7 @@ fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
         chunk_size,
         render_frames,
         idle_ms,
+        thresholds,
         size: TerminalSize::new(columns, rows),
     }))
 }
@@ -1847,6 +1892,7 @@ mod tests {
         assert_eq!(options.chunk_size, 8192);
         assert_eq!(options.render_frames, 30);
         assert_eq!(options.idle_ms, 200);
+        assert_eq!(options.thresholds, super::BenchThresholds::default());
         assert_eq!(options.size, rssh_core::TerminalSize::new(120, 30));
     }
 
@@ -1864,6 +1910,16 @@ mod tests {
             "7",
             "--idle-ms",
             "250",
+            "--min-throughput-bytes-per-sec",
+            "100000",
+            "--max-chunk-p95-us",
+            "2000",
+            "--max-render-frame-p95-us",
+            "16000",
+            "--max-idle-cpu-percent",
+            "3",
+            "--max-process-memory-bytes",
+            "268435456",
             "--cols",
             "100",
             "--rows",
@@ -1880,6 +1936,16 @@ mod tests {
         assert_eq!(options.chunk_size, 512);
         assert_eq!(options.render_frames, 7);
         assert_eq!(options.idle_ms, 250);
+        assert_eq!(
+            options.thresholds,
+            super::BenchThresholds {
+                min_throughput_bytes_per_sec: Some(100_000),
+                max_chunk_p95_us: Some(2_000),
+                max_render_frame_p95_us: Some(16_000),
+                max_idle_cpu_percent: Some(3),
+                max_process_memory_bytes: Some(268_435_456),
+            }
+        );
         assert_eq!(options.size, rssh_core::TerminalSize::new(100, 40));
     }
 
@@ -1889,6 +1955,8 @@ mod tests {
         assert!(parse_args(["rssh-app", "bench", "--chunk-size", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--render-frames", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--idle-ms", "0"]).is_err());
+        assert!(parse_args(["rssh-app", "bench", "--max-chunk-p95-us", "0"]).is_err());
+        assert!(parse_args(["rssh-app", "bench", "--max-idle-cpu-percent", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--cols", "0"]).is_err());
         assert!(parse_args(["rssh-app", "bench", "--rows", "0"]).is_err());
     }

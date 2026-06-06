@@ -56,6 +56,7 @@ cargo run -p rssh-app -- self-test
 cargo run -p rssh-app -- self-test --json
 cargo run -p rssh-app -- bench --json
 cargo run -p rssh-app -- bench --bytes 4194304 --chunk-size 8192 --render-frames 120 --idle-ms 500 --cols 120 --rows 30
+cargo run -p rssh-app -- bench --json --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- console --preflight -- cmd.exe /C echo console-alias-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
@@ -169,7 +170,11 @@ plus offscreen `PixelRenderer` frame count, p95 frame time, rendered pixels, and
 rendered pixel throughput. It also samples the current `rssh-app` process during
 an idle window and reports idle CPU usage, resident memory, virtual memory, and
 accumulated CPU time. Use `--render-frames N` to tune the offscreen render
-sample count and `--idle-ms N` to tune the resource sampling window.
+sample count and `--idle-ms N` to tune the resource sampling window. Add
+`--min-throughput-bytes-per-sec`, `--max-chunk-p95-us`,
+`--max-render-frame-p95-us`, `--max-idle-cpu-percent`, or
+`--max-process-memory-bytes` to turn the benchmark into a non-zero-exit quality
+gate; JSON output includes `threshold_violations` when a gate fails.
 Add `--preflight` to `console`/`local`, `ssh`, `sftp`, or `scp` when startup
 should run the same console dependency check before spawning the PTY child
 process. Add `--metrics` to `console`/`local`, `ssh`, `sftp`, or `scp` to print
@@ -290,8 +295,8 @@ starting with `v` also publish it as a GitHub Release asset. The workflow runs
 formatting, tests, clippy, release compilation, and packaged
 `rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
 `rssh-app.exe self-test --json` smoke tests, `rssh-app.exe bench --json`
-benchmark smoke with offscreen render frames and idle resource sampling,
-bundled profile validation, a
+benchmark smoke with offscreen render frames, idle resource sampling, and
+wide threshold gates, bundled profile validation, a
 `window-smoke` profile `--metrics-json` check, plus `rssh-app.exe console` and
 `rssh-console.cmd` console-launcher smoke tests before upload. See
 `docs/release-console.md`.
@@ -310,8 +315,8 @@ bundled profile validation, a
   `window --metrics-json`; `bench --json` now provides a repeatable
   terminal-runtime throughput, p95 chunk latency, offscreen renderer p95 frame
   time, rendered-pixel throughput, idle CPU, process memory, virtual memory,
-  and accumulated CPU-time baseline for console/native-window parser,
-  rendering, and resource work. The SSH crate now has a
+  accumulated CPU-time baseline, and optional threshold-gate failures for
+  console/native-window parser, rendering, and resource work. The SSH crate now has a
   validated config, authentication request model, connector entry point,
   shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
   runner path for local input and remote output. `rssh-core` also includes a

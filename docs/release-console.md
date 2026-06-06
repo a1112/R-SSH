@@ -34,7 +34,7 @@ The release package is not uploaded until all gates pass:
 - `dist/R-SSH-windows-x64/rssh-app.exe version --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe doctor --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe self-test --json`
-- `dist/R-SSH-windows-x64/rssh-app.exe bench --json --render-frames 30 --idle-ms 200`
+- `dist/R-SSH-windows-x64/rssh-app.exe bench --json --render-frames 30 --idle-ms 200 --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296`
 - `dist/R-SSH-windows-x64/rssh-app.exe profile --check --file examples/rssh-profiles.toml`
 - `dist/R-SSH-windows-x64/rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml`
 - `dist/R-SSH-windows-x64/rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke`
@@ -53,7 +53,9 @@ terminal-runtime benchmark and emit parser throughput, p95 chunk latency,
 response count, visible output bytes, bell count, scrollback lines, and final
 cursor position as machine-readable metrics, plus offscreen renderer p95 frame
 time, rendered pixels, rendered pixel throughput, idle CPU usage, process
-resident memory, virtual memory, and accumulated CPU time. The packaged profile
+resident memory, virtual memory, and accumulated CPU time. It also exercises
+the threshold gate path with intentionally wide limits and fails the package
+smoke if `threshold_violations` is non-empty. The packaged profile
 checks prove that bundled examples validate and that `window-smoke` resolves
 `--metrics-json` for native-window automation. The packaged `console` smoke tests
 prove that both the explicit CLI alias and the Windows launcher enter the same
@@ -68,6 +70,7 @@ After extracting the zip:
 .\rssh-app.exe version --json
 .\rssh-app.exe self-test --json
 .\rssh-app.exe bench --json --render-frames 30 --idle-ms 200
+.\rssh-app.exe bench --json --render-frames 30 --idle-ms 200 --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296
 .\rssh-app.exe console
 .\rssh-console.cmd
 .\rssh-app.exe local
@@ -119,7 +122,9 @@ pilot:
   deterministic ANSI/CSI/OSC workload, plus offscreen render frame p95 and
   rendered pixel throughput from `PixelRenderer`, plus idle CPU usage,
   process resident memory, virtual memory, and accumulated CPU time from the
-  current process resource sampler.
+  current process resource sampler. Wide packaged threshold gates prove the
+  non-zero-exit budget path works; tighten the limits after collecting stable
+  release-machine baselines.
 - Profile readiness: packaged profile checks validate bundled profiles and
   verify that the native-window smoke profile resolves `--metrics-json`.
 - Console coverage: explicit `console` launcher, local shell, positional

@@ -1,6 +1,6 @@
 use std::{
     error::Error,
-    thread,
+    io, thread,
     time::{Duration, Instant},
 };
 
@@ -9,7 +9,10 @@ use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 use serde::Serialize;
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
-use crate::{cli::BenchOptions, terminal_runtime::TerminalRuntime};
+use crate::{
+    cli::{BenchOptions, BenchThresholds},
+    terminal_runtime::TerminalRuntime,
+};
 
 const WORKLOAD_NAME: &str = "ansi-scroll-query";
 const BENCH_CELL_WIDTH: u32 = 8;
@@ -36,12 +39,20 @@ pub struct BenchReport {
     pub process_memory_bytes: u64,
     pub process_virtual_memory_bytes: u64,
     pub process_accumulated_cpu_ms: u64,
+    pub threshold_violations: Vec<BenchThresholdViolation>,
     pub display_bytes: usize,
     pub responses: usize,
     pub bells: u64,
     pub scrollback_lines: usize,
     pub cursor_row: u16,
     pub cursor_column: u16,
+}
+
+#[derive(Debug, PartialEq, Eq, Serialize)]
+pub struct BenchThresholdViolation {
+    pub metric: String,
+    pub actual: String,
+    pub limit: String,
 }
 
 pub fn print_bench(options: &BenchOptions) -> Result<(), Box<dyn Error>> {
@@ -55,18 +66,24 @@ pub fn print_bench(options: &BenchOptions) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    Ok(())
+    if report.ok {
+        Ok(())
+    } else {
+        Err(bench_threshold_error(&report))
+    }
 }
 
 pub fn run_bench(options: &BenchOptions) -> BenchReport {
     let workload = build_benchmark_workload(options.bytes);
-    run_benchmark_workload(
+    let mut report = run_benchmark_workload(
         &workload,
         options.chunk_size,
         options.render_frames,
         options.idle_ms,
         options.size,
-    )
+    );
+    apply_bench_thresholds(&mut report, &options.thresholds);
+    report
 }
 
 pub fn bench_json(report: &BenchReport) -> Result<String, Box<dyn Error>> {
@@ -74,7 +91,7 @@ pub fn bench_json(report: &BenchReport) -> Result<String, Box<dyn Error>> {
 }
 
 pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
-    vec![
+    let mut lines = vec![
         format!(
             "ok\tbench\tworkload={} bytes={} chunks={} chunk_size={} size={}x{}",
             report.workload,
@@ -107,7 +124,16 @@ pub fn bench_text_lines(report: &BenchReport) -> Vec<String> {
             "metric\tdisplay_bytes={}\tresponses={}\tbells={}\tscrollback_lines={}",
             report.display_bytes, report.responses, report.bells, report.scrollback_lines
         ),
-    ]
+    ];
+
+    lines.extend(report.threshold_violations.iter().map(|violation| {
+        format!(
+            "fail\tthreshold\tmetric={} actual={} limit={}",
+            violation.metric, violation.actual, violation.limit
+        )
+    }));
+
+    lines
 }
 
 fn run_benchmark_workload(
@@ -157,6 +183,7 @@ fn run_benchmark_workload(
         process_memory_bytes: resource_report.process_memory_bytes,
         process_virtual_memory_bytes: resource_report.process_virtual_memory_bytes,
         process_accumulated_cpu_ms: resource_report.process_accumulated_cpu_ms,
+        threshold_violations: Vec::new(),
         display_bytes,
         responses,
         bells,
@@ -164,6 +191,120 @@ fn run_benchmark_workload(
         cursor_row,
         cursor_column,
     }
+}
+
+fn apply_bench_thresholds(report: &mut BenchReport, thresholds: &BenchThresholds) {
+    report.threshold_violations.clear();
+
+    if let Some(limit) = thresholds.min_throughput_bytes_per_sec {
+        record_min_violation(
+            &mut report.threshold_violations,
+            "throughput_bytes_per_sec",
+            u128::from(report.throughput_bytes_per_sec),
+            usize_to_u128(limit),
+        );
+    }
+
+    if let Some(limit) = thresholds.max_chunk_p95_us {
+        record_max_violation(
+            &mut report.threshold_violations,
+            "chunk_p95_us",
+            report.chunk_p95_us,
+            usize_to_u128(limit),
+        );
+    }
+
+    if let Some(limit) = thresholds.max_render_frame_p95_us {
+        record_max_violation(
+            &mut report.threshold_violations,
+            "render_frame_p95_us",
+            report.render_frame_p95_us,
+            usize_to_u128(limit),
+        );
+    }
+
+    if let Some(limit) = thresholds.max_idle_cpu_percent {
+        record_max_float_violation(
+            &mut report.threshold_violations,
+            "idle_cpu_usage_percent",
+            report.idle_cpu_usage_percent,
+            f32::from(limit),
+        );
+    }
+
+    if let Some(limit) = thresholds.max_process_memory_bytes {
+        record_max_violation(
+            &mut report.threshold_violations,
+            "process_memory_bytes",
+            u128::from(report.process_memory_bytes),
+            usize_to_u128(limit),
+        );
+    }
+
+    report.ok = report.threshold_violations.is_empty();
+}
+
+fn record_min_violation(
+    violations: &mut Vec<BenchThresholdViolation>,
+    metric: &str,
+    actual: u128,
+    limit: u128,
+) {
+    if actual >= limit {
+        return;
+    }
+
+    violations.push(BenchThresholdViolation {
+        metric: metric.to_owned(),
+        actual: actual.to_string(),
+        limit: format!(">={limit}"),
+    });
+}
+
+fn record_max_violation(
+    violations: &mut Vec<BenchThresholdViolation>,
+    metric: &str,
+    actual: u128,
+    limit: u128,
+) {
+    if actual <= limit {
+        return;
+    }
+
+    violations.push(BenchThresholdViolation {
+        metric: metric.to_owned(),
+        actual: actual.to_string(),
+        limit: format!("<={limit}"),
+    });
+}
+
+fn record_max_float_violation(
+    violations: &mut Vec<BenchThresholdViolation>,
+    metric: &str,
+    actual: f32,
+    limit: f32,
+) {
+    if actual <= limit {
+        return;
+    }
+
+    violations.push(BenchThresholdViolation {
+        metric: metric.to_owned(),
+        actual: format!("{actual:.2}"),
+        limit: format!("<={limit:.2}"),
+    });
+}
+
+fn bench_threshold_error(report: &BenchReport) -> Box<dyn Error> {
+    Box::new(io::Error::other(format!(
+        "bench thresholds failed: {}",
+        report
+            .threshold_violations
+            .iter()
+            .map(|violation| violation.metric.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )))
 }
 
 #[derive(Default)]
@@ -343,6 +484,7 @@ mod tests {
             chunk_size: 256,
             render_frames: 3,
             idle_ms: 1,
+            thresholds: crate::cli::BenchThresholds::default(),
             size: TerminalSize::new(40, 10),
         });
 
@@ -391,6 +533,7 @@ mod tests {
             process_memory_bytes: 2_097_152,
             process_virtual_memory_bytes: 67_108_864,
             process_accumulated_cpu_ms: 123,
+            threshold_violations: Vec::new(),
             display_bytes: 900,
             responses: 4,
             bells: 1,
@@ -438,6 +581,7 @@ mod tests {
             process_memory_bytes: 2_097_152,
             process_virtual_memory_bytes: 67_108_864,
             process_accumulated_cpu_ms: 123,
+            threshold_violations: Vec::new(),
             display_bytes: 900,
             responses: 4,
             bells: 1,
@@ -470,5 +614,69 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("process_memory_bytes=2097152"))
         );
+    }
+
+    #[test]
+    fn benchmark_thresholds_mark_report_failed_with_violation_details() {
+        let mut report = super::BenchReport {
+            ok: true,
+            workload: "ansi-scroll-query".to_owned(),
+            bytes: 1024,
+            chunk_size: 128,
+            chunks: 8,
+            columns: 80,
+            rows: 24,
+            elapsed_ms: 12,
+            throughput_bytes_per_sec: 85_333,
+            chunk_p95_us: 9,
+            render_frames: 3,
+            render_frame_p95_us: 11,
+            rendered_pixels: 737_280,
+            render_pixels_per_sec: 61_440_000,
+            idle_sample_ms: 200,
+            idle_cpu_usage_percent: 1.25,
+            process_memory_bytes: 2_097_152,
+            process_virtual_memory_bytes: 67_108_864,
+            process_accumulated_cpu_ms: 123,
+            threshold_violations: Vec::new(),
+            display_bytes: 900,
+            responses: 4,
+            bells: 1,
+            scrollback_lines: 2,
+            cursor_row: 3,
+            cursor_column: 7,
+        };
+        let thresholds = crate::cli::BenchThresholds {
+            min_throughput_bytes_per_sec: Some(100_000),
+            max_chunk_p95_us: Some(8),
+            max_render_frame_p95_us: Some(10),
+            max_idle_cpu_percent: Some(1),
+            max_process_memory_bytes: Some(1_048_576),
+        };
+
+        super::apply_bench_thresholds(&mut report, &thresholds);
+
+        assert!(!report.ok);
+        assert_eq!(report.threshold_violations.len(), 5);
+        assert!(
+            report
+                .threshold_violations
+                .iter()
+                .any(|violation| violation.metric == "throughput_bytes_per_sec")
+        );
+        assert!(
+            report
+                .threshold_violations
+                .iter()
+                .any(|violation| violation.metric == "process_memory_bytes")
+        );
+
+        let lines = super::bench_text_lines(&report);
+        assert!(lines.iter().any(|line| line.contains("fail\tthreshold")));
+
+        let json = super::bench_json(&report).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["threshold_violations"].as_array().unwrap().len(), 5);
     }
 }
