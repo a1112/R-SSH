@@ -288,7 +288,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [--recursive] [--log PATH] LOCAL [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [--recursive] [--log PATH] [USER@]HOST:REMOTE LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-r | --recursive] [--log PATH] LOCAL [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-r | --recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -589,7 +589,7 @@ fn parse_scp(args: &[String]) -> Result<AppCommand, String> {
     while index < args.len() {
         match args[index].as_str() {
             "--" => return Err("scp does not accept a remote command separator".to_owned()),
-            "--recursive" => recursive = true,
+            "-r" | "--recursive" => recursive = true,
             "--upload" => {
                 index += 1;
                 let local = PathBuf::from(required_option_value(args.get(index), "--upload")?);
@@ -738,13 +738,15 @@ fn parse_sftp_option(
             *index += 1;
             set_explicit_ssh_target(state, required_option_value(args.get(*index), "--target")?)?;
         }
-        "--user" => {
+        "-l" | "--user" => {
             *index += 1;
-            state.username = Some(required_option_value(args.get(*index), "--user")?.to_owned());
+            state.username = Some(
+                required_option_value(args.get(*index), args[*index - 1].as_str())?.to_owned(),
+            );
         }
-        "--port" => {
+        "-P" | "--port" => {
             *index += 1;
-            state.port = Some(parse_port(args.get(*index), "--port")?);
+            state.port = Some(parse_port(args.get(*index), args[*index - 1].as_str())?);
         }
         "--cols" => {
             *index += 1;
@@ -760,9 +762,9 @@ fn parse_sftp_option(
         "--password" => {
             set_ssh_auth(&mut state.auth, SshAuthMethod::PasswordPrompt)?;
         }
-        "--key" => {
+        "-i" | "--key" => {
             *index += 1;
-            let path = required_option_value(args.get(*index), "--key")?;
+            let path = required_option_value(args.get(*index), args[*index - 1].as_str())?;
             set_ssh_auth(
                 &mut state.auth,
                 SshAuthMethod::private_key(path, None::<String>)
@@ -805,13 +807,15 @@ fn parse_ssh_option(
             *index += 1;
             set_explicit_ssh_target(state, required_option_value(args.get(*index), "--target")?)?;
         }
-        "--user" => {
+        "-l" | "--user" => {
             *index += 1;
-            state.username = Some(required_option_value(args.get(*index), "--user")?.to_owned());
+            state.username = Some(
+                required_option_value(args.get(*index), args[*index - 1].as_str())?.to_owned(),
+            );
         }
-        "--port" => {
+        "-p" | "--port" => {
             *index += 1;
-            state.port = Some(parse_port(args.get(*index), "--port")?);
+            state.port = Some(parse_port(args.get(*index), args[*index - 1].as_str())?);
         }
         "--cols" => {
             *index += 1;
@@ -827,9 +831,9 @@ fn parse_ssh_option(
         "--password" => {
             set_ssh_auth(&mut state.auth, SshAuthMethod::PasswordPrompt)?;
         }
-        "--key" => {
+        "-i" | "--key" => {
             *index += 1;
-            let path = required_option_value(args.get(*index), "--key")?;
+            let path = required_option_value(args.get(*index), args[*index - 1].as_str())?;
             set_ssh_auth(
                 &mut state.auth,
                 SshAuthMethod::private_key(path, None::<String>)
@@ -1719,6 +1723,40 @@ mod tests {
     }
 
     #[test]
+    fn parses_ssh_openssh_short_connection_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "-p",
+            "2222",
+            "-l",
+            "ops",
+            "-i",
+            "C:/Users/ops/.ssh/id_ed25519",
+            "example.com",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "example.com".to_owned(),
+                username: Some("ops".to_owned()),
+                port: Some(2222),
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::PrivateKey {
+                    path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                    passphrase: None
+                }
+            })
+        );
+    }
+
+    #[test]
     fn parses_ssh_positional_target_with_remote_command() {
         let parsed = parse_args([
             "rssh-app",
@@ -2116,6 +2154,38 @@ mod tests {
     }
 
     #[test]
+    fn parses_sftp_openssh_short_connection_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "sftp",
+            "-P",
+            "2222",
+            "-i",
+            "C:/Users/ops/.ssh/id_ed25519",
+            "ops@example.com",
+        ])
+        .unwrap();
+
+        let AppCommand::Sftp(options) = parsed else {
+            panic!("expected sftp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "ops@example.com".to_owned(),
+                username: None,
+                port: Some(2222),
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::PrivateKey {
+                    path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                    passphrase: None
+                }
+            })
+        );
+    }
+
+    #[test]
     fn parses_sftp_preflight() {
         let parsed = parse_args(["rssh-app", "sftp", "--target", "prod", "--preflight"]).unwrap();
 
@@ -2252,6 +2322,48 @@ mod tests {
             super::ScpTransfer::Upload {
                 local: "local.txt".into(),
                 remote: "/tmp/remote.txt".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn parses_scp_openssh_short_connection_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "-P",
+            "2222",
+            "-i",
+            "C:/Users/ops/.ssh/id_ed25519",
+            "-r",
+            "logs",
+            "ops@example.com:/tmp/logs",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert_eq!(
+            options.target,
+            super::SshTarget::OpenSsh(super::OpenSshTarget {
+                target: "ops@example.com".to_owned(),
+                username: None,
+                port: Some(2222),
+                initial_size: super::ssh_default_terminal_size(),
+                auth: SshAuthMethod::PrivateKey {
+                    path: "C:/Users/ops/.ssh/id_ed25519".into(),
+                    passphrase: None
+                }
+            })
+        );
+        assert!(options.recursive);
+        assert_eq!(
+            options.transfer,
+            super::ScpTransfer::Upload {
+                local: "logs".into(),
+                remote: "/tmp/logs".to_owned()
             }
         );
     }

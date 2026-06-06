@@ -67,6 +67,7 @@ cargo run -p rssh-app -- local --osc52 write
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 cargo run -p rssh-app -- ssh ops@example.com
+cargo run -p rssh-app -- ssh -p 2222 -i C:\Users\ops\.ssh\id_ed25519 -l ops example.com
 cargo run -p rssh-app -- ssh ops@example.com uptime -p
 cargo run -p rssh-app -- ssh --target prod --preflight
 cargo run -p rssh-app -- ssh --target prod --metrics
@@ -84,10 +85,12 @@ cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no
 cargo run -p rssh-app -- ssh --target prod --osc52 write
 cargo run -p rssh-app -- ssh --target prod --log prod.log
 cargo run -p rssh-app -- sftp ops@example.com
+cargo run -p rssh-app -- sftp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 ops@example.com
 cargo run -p rssh-app -- sftp --target prod
 cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- sftp --target prod --log sftp.log
 cargo run -p rssh-app -- scp local.txt ops@example.com:/tmp/remote.txt
+cargo run -p rssh-app -- scp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 -r logs ops@example.com:/tmp/logs
 cargo run -p rssh-app -- scp ops@example.com:/tmp/remote.txt local.txt
 cargo run -p rssh-app -- scp ops@example.com --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
@@ -153,17 +156,20 @@ For OpenSSH-style positional targets and `--target NAME`, a trailing command is
 passed through as the remote command, for example `ssh ops@example.com uptime
 -p` or `ssh --target prod uname -a`. Direct `--host/--user` launches keep using
 `--` before remote commands so password and key prompts cannot be mistaken for
-command-line secrets.
+command-line secrets. Common OpenSSH short options are accepted on the console
+path: `ssh -p PORT -l USER -i KEY HOST`.
 `sftp` starts the system OpenSSH SFTP client inside the same PTY console
 runtime, using the same `--host`/`--target`, `--user`, `--port`, `--agent`,
 `--password`, `--key`, and `--log` shape for interactive file transfer; it also
-accepts the same positional `[USER@]HOST` target.
+accepts the same positional `[USER@]HOST` target. Common short options
+`sftp -P PORT -i KEY HOST` are supported.
 `scp` starts the system OpenSSH SCP client inside the same PTY console runtime
 for one-shot upload and download transfers. Use `scp local.txt
 ops@example.com:/tmp/remote.txt` to upload and `scp
 ops@example.com:/tmp/remote.txt local.txt` to download. The longer `--upload
 LOCAL REMOTE` and `--download REMOTE LOCAL` forms remain available when the
-target is supplied separately; add `--recursive` for directories.
+target is supplied separately; add `-r` or `--recursive` for directories.
+Common short options `scp -P PORT -i KEY` are supported.
 Add `--native` to use the experimental in-process `russh` path instead of
 spawning an interactive OpenSSH session. The native path supports `--host`
 direct targets and `--target NAME` entries resolved through `ssh -G`, with

@@ -53,10 +53,13 @@ After extracting the zip:
 .\rssh-app.exe self-test --json
 .\rssh-app.exe local
 .\rssh-app.exe ssh ops@example.com
+.\rssh-app.exe ssh -p 2222 -i C:\Users\ops\.ssh\id_ed25519 -l ops example.com
 .\rssh-app.exe ssh ops@example.com uptime -p
 .\rssh-app.exe ssh --target prod --preflight
 .\rssh-app.exe sftp ops@example.com
+.\rssh-app.exe sftp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 ops@example.com
 .\rssh-app.exe scp local.txt ops@example.com:/tmp/remote.txt
+.\rssh-app.exe scp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 -r logs ops@example.com:/tmp/logs
 .\rssh-app.exe scp ops@example.com:/tmp/remote.txt local.txt
 .\rssh-app.exe scp ops@example.com --upload local.txt /tmp/remote.txt
 .\rssh-app.exe ssh --native --trust-on-first-use --host example.com --user ops --agent
@@ -76,8 +79,9 @@ pilot:
   `scp -h` can launch.
 - Console coverage: local shell, positional `[USER@]HOST` SSH/SFTP/SCP
   launches, SSH trailing remote commands, SCP `HOST:PATH` upload/download
-  operands, OpenSSH config targets, profiles, metrics, and native russh startup
-  remain covered by workspace tests.
+  operands, common OpenSSH short options (`ssh -p/-l/-i`, `sftp -P/-i`, and
+  `scp -P/-i/-r`), OpenSSH config targets, profiles, metrics, and native russh
+  startup remain covered by workspace tests.
 - Runtime observability: console sessions can emit `--metrics` or
   `--metrics-json`.
 - Safe startup: `--preflight` is available for local, SSH, SFTP, and SCP
