@@ -64,11 +64,12 @@ in the native `winit` window.
   `Ctrl+Shift+C` or `Ctrl+Insert`. A double click selects the contiguous
   non-whitespace word under the cursor, and a triple click selects the whole
   visual line.
-- The native window supports literal scrollback search with `Ctrl+F`,
-  `Enter`/`F3` for the next match, `Shift+F3` for the previous match, and
-  `Esc` to exit search mode. Matches can span visual row boundaries across
-  scrollback and the live grid, scroll the viewport into history, and use the
-  selection highlight.
+- The native window supports scrollback search with `Ctrl+F`, `Enter`/`F3` for
+  the next match, `Shift+F3` for the previous match, and `Esc` to exit search
+  mode. Search is literal by default; use `regex:<pattern>` to run a regular
+  expression search, where invalid regex input behaves as no match. Matches can
+  span visual row boundaries across scrollback and the live grid, scroll the
+  viewport into history, and use the selection highlight.
 - The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
   and sends SS3 arrow-key sequences while it is enabled.
 - The native window tracks PTY-side application keypad mode (`ESC=` / `ESC>`)
@@ -217,8 +218,8 @@ MVP 4 tests cover:
 - native window local selection text extraction, highlight overlay, mouse drag,
   double-click word selection, triple-click line selection, and copy shortcut
   detection
-- native window literal scrollback search across visual rows, next/previous
-  navigation, and search shortcut detection
+- native window literal and `regex:<pattern>` scrollback search across visual
+  rows, next/previous navigation, and search shortcut detection
 - native window custom startup command parsing and configured PTY command
   storage
 - shared PTY command terminal environment defaults for `TERM` and `COLORTERM`
@@ -312,7 +313,6 @@ Recommended MVP 5 targets:
 ## Explicit Non-Scope
 
 - SSH protocol sessions in the native window.
-- Regex scrollback search.
 - Advanced selection behavior such as selection across changing scrollback.
 - GPU text shaping, glyph atlas caching, and font fallback.
 

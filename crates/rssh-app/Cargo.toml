@@ -11,6 +11,7 @@ arboard = "3"
 base64 = "0.22"
 crossterm = "0.29"
 pixels = "0.15"
+regex = "1"
 rpassword = "7"
 rssh-core = { path = "../rssh-core" }
 rssh-pty = { path = "../rssh-pty" }

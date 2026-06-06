@@ -1752,15 +1752,49 @@ fn window_search_matches(
     terminal: &rssh_terminal::Terminal,
     query: &str,
 ) -> Vec<WindowSearchMatch> {
+    let Some(query) = WindowSearchQuery::parse(query) else {
+        return Vec::new();
+    };
+    let cells = terminal_search_cells(terminal);
+
+    match query {
+        WindowSearchQuery::Literal(query) => literal_window_search_matches(&cells, &query),
+        WindowSearchQuery::Regex(pattern) => regex_window_search_matches(&cells, pattern),
+    }
+}
+
+enum WindowSearchQuery<'a> {
+    Literal(Vec<char>),
+    Regex(&'a str),
+}
+
+impl<'a> WindowSearchQuery<'a> {
+    fn parse(query: &'a str) -> Option<Self> {
+        if let Some(pattern) = query.strip_prefix("regex:") {
+            return (!pattern.is_empty()).then_some(Self::Regex(pattern));
+        }
+
+        let query: Vec<char> = query
+            .chars()
+            .filter(|character| !matches!(character, '\r' | '\n'))
+            .collect();
+        (!query.is_empty()).then_some(Self::Literal(query))
+    }
+}
+
+fn literal_window_search_matches(
+    cells: &[WindowSearchCell],
+    query: &[char],
+) -> Vec<WindowSearchMatch> {
     let query: Vec<char> = query
-        .chars()
+        .iter()
+        .copied()
         .filter(|character| !matches!(character, '\r' | '\n'))
         .collect();
     if query.is_empty() {
         return Vec::new();
     }
 
-    let cells = terminal_search_cells(terminal);
     if cells.len() < query.len() {
         return Vec::new();
     }
@@ -1784,6 +1818,41 @@ fn window_search_matches(
             } else {
                 None
             }
+        })
+        .collect()
+}
+
+fn regex_window_search_matches(
+    cells: &[WindowSearchCell],
+    pattern: &str,
+) -> Vec<WindowSearchMatch> {
+    let Ok(pattern) = regex::Regex::new(pattern) else {
+        return Vec::new();
+    };
+
+    let mut text = String::new();
+    let mut byte_to_cell_index = Vec::new();
+    for (cell_index, cell) in cells.iter().enumerate() {
+        for _ in 0..cell.character.len_utf8() {
+            byte_to_cell_index.push(cell_index);
+        }
+        text.push(cell.character);
+    }
+
+    pattern
+        .find_iter(&text)
+        .filter_map(|matched| {
+            let start_index = *byte_to_cell_index.get(matched.start())?;
+            let end_byte = matched.end().checked_sub(1)?;
+            let end_index = *byte_to_cell_index.get(end_byte)?;
+            let start = cells.get(start_index)?;
+            let end = cells.get(end_index)?;
+            Some(WindowSearchMatch {
+                source_row: start.source_row,
+                start_column: start.column,
+                end_source_row: end.source_row,
+                end_column: end.column,
+            })
         })
         .collect()
 }
@@ -3256,6 +3325,22 @@ mod tests {
         assert_eq!(app.selected_text().as_deref(), Some("ha\nbeta"));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('h'));
         assert_eq!(snapshot_char(&app.snapshot, 1, 0), Some('b'));
+        assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
+        assert_eq!(app.scrollback_offset, 1);
+    }
+
+    #[test]
+    fn window_search_supports_regex_prefix_across_terminal_rows() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 2));
+        app.handle_pty_output(b"alpha\r\nbeta\r\ngamma").unwrap();
+
+        assert!(app.update_search_query("regex:h.*beta"));
+
+        assert_eq!(app.selected_text().as_deref(), Some("ha\nbeta"));
+        assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('h'));
+        assert_eq!(snapshot_char(&app.snapshot, 1, 3), Some('a'));
         assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
         assert_eq!(app.scrollback_offset, 1);
