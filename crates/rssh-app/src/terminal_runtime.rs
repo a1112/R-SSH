@@ -955,7 +955,15 @@ fn xtgettcap_value_hex(name: &[u8], size: TerminalSize) -> Option<Vec<u8>> {
         b"Co" | b"colors" => Some(b"323536".to_vec()),
         b"TN" => Some(b"787465726d2d323536636f6c6f72".to_vec()),
         b"RGB" => Some(b"524742".to_vec()),
+        b"Tc" => Some(b"31".to_vec()),
         b"Ms" => Some(b"1b5d35323b25703125733b257032257307".to_vec()),
+        b"Smulx" => Some(b"1b5b343a25703125646d".to_vec()),
+        b"Setulc" => Some(
+            b"1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d"
+                .to_vec(),
+        ),
+        b"sitm" => Some(b"1b5b336d".to_vec()),
+        b"ritm" => Some(b"1b5b32336d".to_vec()),
         b"co" => Some(decimal_value_hex(size.columns)),
         b"li" => Some(decimal_value_hex(size.rows)),
         _ => None,
@@ -2157,6 +2165,23 @@ mod tests {
         assert_eq!(
             output.responses,
             vec![b"\x1bP1+r636f=313332;6c69=3433\x1b\\".to_vec()]
+        );
+        assert_eq!(output.display, b"beforeafter");
+    }
+
+    #[test]
+    fn answers_xtgettcap_modern_style_and_color_capabilities() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"before\x1bP+q5463;536d756c78;536574756c63;7369746d;7269746d\x1b\\after",
+        );
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1bP1+r5463=31;536d756c78=1b5b343a25703125646d;536574756c63=1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d;7369746d=1b5b336d;7269746d=1b5b32336d\x1b\\".to_vec()
+            ]
         );
         assert_eq!(output.display, b"beforeafter");
     }
