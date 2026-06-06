@@ -13,6 +13,7 @@ pub struct RenderCell {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub strikethrough: bool,
     pub inverse: bool,
     pub hyperlink: Option<String>,
 }
@@ -346,6 +347,22 @@ fn render_cell(surface: &mut Surface<'_>, cell: &RenderCell, cell_width: u32, ce
             foreground,
         );
     }
+
+    if cell.strikethrough {
+        let strike_height = (cell_height / 8).max(1);
+        let strike_y = origin_y
+            .saturating_add(cell_height / 2)
+            .saturating_sub(strike_height / 2);
+        surface.fill_rect(
+            Rect {
+                x: origin_x,
+                y: strike_y,
+                width: cell_width,
+                height: strike_height,
+            },
+            foreground,
+        );
+    }
 }
 
 fn render_cursor(
@@ -539,6 +556,7 @@ impl TerminalRenderSnapshot {
                     bold: cell.bold,
                     italic: cell.italic,
                     underline: cell.underline,
+                    strikethrough: cell.strikethrough,
                     inverse: cell.inverse,
                     hyperlink: cell.hyperlink.clone(),
                 });
@@ -702,6 +720,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         bold: cell.bold,
         italic: cell.italic,
         underline: cell.underline,
+        strikethrough: cell.strikethrough,
         inverse: cell.inverse,
         hyperlink: cell.hyperlink.clone(),
     });
@@ -735,6 +754,7 @@ mod tests {
                 bold: true,
                 italic: false,
                 underline: true,
+                strikethrough: false,
                 inverse: false,
                 hyperlink: None,
             },
@@ -766,6 +786,7 @@ mod tests {
                 bold: false,
                 italic: false,
                 underline: false,
+                strikethrough: false,
                 inverse: true,
                 hyperlink: None,
             },
@@ -774,6 +795,16 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
 
         assert!(snapshot.cells()[0].inverse);
+    }
+
+    #[test]
+    fn render_snapshot_preserves_strikethrough_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[9mS");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(snapshot.cells()[0].strikethrough);
     }
 
     #[test]
@@ -853,6 +884,7 @@ mod tests {
                 bold: false,
                 italic: false,
                 underline: false,
+                strikethrough: false,
                 inverse: false,
                 hyperlink: None,
             },
@@ -884,6 +916,7 @@ mod tests {
                 bold: false,
                 italic: false,
                 underline: false,
+                strikethrough: false,
                 inverse: false,
                 hyperlink: None,
             },
@@ -898,6 +931,7 @@ mod tests {
                 bold: false,
                 italic: false,
                 underline: false,
+                strikethrough: false,
                 inverse: false,
                 hyperlink: None,
             },
@@ -925,6 +959,7 @@ mod tests {
                 bold: false,
                 italic: false,
                 underline: false,
+                strikethrough: false,
                 inverse: false,
                 hyperlink: None,
             },
@@ -1035,6 +1070,21 @@ mod tests {
     }
 
     #[test]
+    fn pixel_renderer_draws_strikethrough_text() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[9;38;2;255;0;0m.");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].strikethrough);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 4), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 4), [255, 0, 0, 255]);
+    }
+
+    #[test]
     fn pixel_renderer_draws_bold_text_with_more_foreground_pixels() {
         let renderer = PixelRenderer::new();
         let mut normal = Terminal::new(TerminalSize::new(2, 1));
@@ -1071,6 +1121,7 @@ mod tests {
                 bold: false,
                 italic: false,
                 underline: false,
+                strikethrough: false,
                 inverse: true,
                 hyperlink: None,
             },

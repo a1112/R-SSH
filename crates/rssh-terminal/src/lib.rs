@@ -27,6 +27,7 @@ pub struct Cell {
     pub bold: bool,
     pub italic: bool,
     pub underline: bool,
+    pub strikethrough: bool,
     pub inverse: bool,
     pub hyperlink: Option<String>,
 }
@@ -40,6 +41,7 @@ impl Default for Cell {
             bold: false,
             italic: false,
             underline: false,
+            strikethrough: false,
             inverse: false,
             hyperlink: None,
         }
@@ -172,6 +174,7 @@ mod tests {
         assert!(!cell.bold);
         assert!(!cell.italic);
         assert!(!cell.underline);
+        assert!(!cell.strikethrough);
         assert!(!cell.inverse);
         assert_eq!(cell.hyperlink, None);
     }
@@ -186,6 +189,7 @@ mod tests {
             bold: true,
             italic: false,
             underline: true,
+            strikethrough: false,
             inverse: false,
             hyperlink: None,
         };
@@ -901,6 +905,21 @@ mod tests {
         let normal = terminal.grid().get(0, 1).unwrap();
         assert_eq!(normal.ch, 'B');
         assert!(!normal.inverse);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_strikethrough() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[9mA\x1b[29mB");
+
+        let struck = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(struck.ch, 'A');
+        assert!(struck.strikethrough);
+
+        let normal = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(normal.ch, 'B');
+        assert!(!normal.strikethrough);
     }
 
     #[test]

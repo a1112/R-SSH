@@ -1369,10 +1369,12 @@ impl Terminal {
                 3 => self.style.italic = true,
                 4 => self.style.underline = true,
                 7 => self.style.inverse = true,
+                9 => self.style.strikethrough = true,
                 22 => self.style.bold = false,
                 23 => self.style.italic = false,
                 24 => self.style.underline = false,
                 27 => self.style.inverse = false,
+                29 => self.style.strikethrough = false,
                 30..=37 => {
                     self.style.foreground = Color::Indexed(saturating_u8(values[index] - 30));
                 }
