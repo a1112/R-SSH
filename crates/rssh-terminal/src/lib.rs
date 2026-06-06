@@ -25,6 +25,7 @@ pub struct Cell {
     pub foreground: Color,
     pub background: Color,
     pub bold: bool,
+    pub faint: bool,
     pub italic: bool,
     pub underline: bool,
     pub strikethrough: bool,
@@ -39,6 +40,7 @@ impl Default for Cell {
             foreground: Color::Default,
             background: Color::Default,
             bold: false,
+            faint: false,
             italic: false,
             underline: false,
             strikethrough: false,
@@ -172,6 +174,7 @@ mod tests {
         assert_eq!(cell.foreground, Color::Default);
         assert_eq!(cell.background, Color::Default);
         assert!(!cell.bold);
+        assert!(!cell.faint);
         assert!(!cell.italic);
         assert!(!cell.underline);
         assert!(!cell.strikethrough);
@@ -187,6 +190,7 @@ mod tests {
             foreground: Color::Indexed(2),
             background: Color::Rgb(1, 2, 3),
             bold: true,
+            faint: false,
             italic: false,
             underline: true,
             strikethrough: false,
@@ -920,6 +924,21 @@ mod tests {
         let normal = terminal.grid().get(0, 1).unwrap();
         assert_eq!(normal.ch, 'B');
         assert!(!normal.strikethrough);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_faint() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[2mA\x1b[22mB");
+
+        let faint = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(faint.ch, 'A');
+        assert!(faint.faint);
+
+        let normal = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(normal.ch, 'B');
+        assert!(!normal.faint);
     }
 
     #[test]

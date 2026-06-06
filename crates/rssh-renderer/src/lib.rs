@@ -11,6 +11,7 @@ pub struct RenderCell {
     pub foreground: Color,
     pub background: Color,
     pub bold: bool,
+    pub faint: bool,
     pub italic: bool,
     pub underline: bool,
     pub strikethrough: bool,
@@ -285,6 +286,11 @@ fn render_cell(surface: &mut Surface<'_>, cell: &RenderCell, cell_width: u32, ce
     } else {
         (foreground, background)
     };
+    let foreground = if cell.faint {
+        dim_foreground(foreground)
+    } else {
+        foreground
+    };
 
     surface.fill_rect(
         Rect {
@@ -446,6 +452,10 @@ fn color_to_rgba(color: Color, default: [u8; 4]) -> [u8; 4] {
     }
 }
 
+fn dim_foreground(color: [u8; 4]) -> [u8; 4] {
+    [color[0] / 2, color[1] / 2, color[2] / 2, color[3]]
+}
+
 fn indexed_color(index: u8) -> [u8; 4] {
     const ANSI: [[u8; 4]; 16] = [
         [0, 0, 0, 255],
@@ -554,6 +564,7 @@ impl TerminalRenderSnapshot {
                     foreground: cell.foreground,
                     background: cell.background,
                     bold: cell.bold,
+                    faint: cell.faint,
                     italic: cell.italic,
                     underline: cell.underline,
                     strikethrough: cell.strikethrough,
@@ -718,6 +729,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         foreground: cell.foreground,
         background: cell.background,
         bold: cell.bold,
+        faint: cell.faint,
         italic: cell.italic,
         underline: cell.underline,
         strikethrough: cell.strikethrough,
@@ -752,6 +764,7 @@ mod tests {
                 foreground: Color::Indexed(2),
                 background: Color::Rgb(1, 2, 3),
                 bold: true,
+                faint: false,
                 italic: false,
                 underline: true,
                 strikethrough: false,
@@ -784,6 +797,7 @@ mod tests {
                 foreground: Color::Default,
                 background: Color::Default,
                 bold: false,
+                faint: false,
                 italic: false,
                 underline: false,
                 strikethrough: false,
@@ -805,6 +819,16 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
 
         assert!(snapshot.cells()[0].strikethrough);
+    }
+
+    #[test]
+    fn render_snapshot_preserves_faint_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[2mF");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(snapshot.cells()[0].faint);
     }
 
     #[test]
@@ -882,6 +906,7 @@ mod tests {
                 foreground: Color::Rgb(255, 0, 0),
                 background: Color::Default,
                 bold: false,
+                faint: false,
                 italic: false,
                 underline: false,
                 strikethrough: false,
@@ -914,6 +939,7 @@ mod tests {
                 foreground: Color::Default,
                 background: Color::Rgb(20, 0, 0),
                 bold: false,
+                faint: false,
                 italic: false,
                 underline: false,
                 strikethrough: false,
@@ -929,6 +955,7 @@ mod tests {
                 foreground: Color::Default,
                 background: Color::Rgb(0, 20, 0),
                 bold: false,
+                faint: false,
                 italic: false,
                 underline: false,
                 strikethrough: false,
@@ -957,6 +984,7 @@ mod tests {
                 foreground: Color::Rgb(0, 0, 20),
                 background: Color::Rgb(0, 0, 20),
                 bold: false,
+                faint: false,
                 italic: false,
                 underline: false,
                 strikethrough: false,
@@ -1085,6 +1113,21 @@ mod tests {
     }
 
     #[test]
+    fn pixel_renderer_dims_faint_foreground_text() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[2;4;38;2;200;100;50m.");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].faint);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 7), [100, 50, 25, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 7), [100, 50, 25, 255]);
+    }
+
+    #[test]
     fn pixel_renderer_draws_bold_text_with_more_foreground_pixels() {
         let renderer = PixelRenderer::new();
         let mut normal = Terminal::new(TerminalSize::new(2, 1));
@@ -1119,6 +1162,7 @@ mod tests {
                 foreground: Color::Rgb(255, 0, 0),
                 background: Color::Rgb(0, 0, 255),
                 bold: false,
+                faint: false,
                 italic: false,
                 underline: false,
                 strikethrough: false,
