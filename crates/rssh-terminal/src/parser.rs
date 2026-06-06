@@ -1369,6 +1369,7 @@ impl Terminal {
                 2 => self.style.faint = true,
                 3 => self.style.italic = true,
                 4 => self.style.underline = true,
+                5 => self.style.blink = true,
                 7 => self.style.inverse = true,
                 8 => self.style.conceal = true,
                 9 => self.style.strikethrough = true,
@@ -1378,6 +1379,7 @@ impl Terminal {
                 }
                 23 => self.style.italic = false,
                 24 => self.style.underline = false,
+                25 => self.style.blink = false,
                 27 => self.style.inverse = false,
                 28 => self.style.conceal = false,
                 29 => self.style.strikethrough = false,

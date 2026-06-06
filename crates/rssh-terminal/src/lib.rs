@@ -27,6 +27,7 @@ pub struct Cell {
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
+    pub blink: bool,
     pub underline: bool,
     pub conceal: bool,
     pub strikethrough: bool,
@@ -44,6 +45,7 @@ impl Default for Cell {
             bold: false,
             faint: false,
             italic: false,
+            blink: false,
             underline: false,
             conceal: false,
             strikethrough: false,
@@ -180,6 +182,7 @@ mod tests {
         assert!(!cell.bold);
         assert!(!cell.faint);
         assert!(!cell.italic);
+        assert!(!cell.blink);
         assert!(!cell.underline);
         assert!(!cell.conceal);
         assert!(!cell.strikethrough);
@@ -198,6 +201,7 @@ mod tests {
             bold: true,
             faint: false,
             italic: false,
+            blink: false,
             underline: true,
             conceal: false,
             strikethrough: false,
@@ -977,6 +981,21 @@ mod tests {
         let normal = terminal.grid().get(0, 1).unwrap();
         assert_eq!(normal.ch, 'B');
         assert!(!normal.overline);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_blink() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[5mA\x1b[25mB");
+
+        let blinking = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(blinking.ch, 'A');
+        assert!(blinking.blink);
+
+        let normal = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(normal.ch, 'B');
+        assert!(!normal.blink);
     }
 
     #[test]

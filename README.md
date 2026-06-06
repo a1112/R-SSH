@@ -321,6 +321,9 @@ wide threshold gates, bundled profile validation, a
 - MVP 1/3 compatibility: SGR overline now parses through the terminal core,
   reports through SGR state queries, survives renderer snapshots, and draws in
   the native pixel renderer.
+- MVP 1/3 compatibility: SGR blink now parses through the terminal core,
+  reports through SGR state queries, survives renderer snapshots, and can hide
+  native foreground pixels during the renderer's hidden blink phase.
 - MVP 2: Local terminal path is complete as a console-hosted prototype. See
   `docs/mvp-2-local-terminal.md`.
 - MVP 3: Native window renderer demo is complete. See

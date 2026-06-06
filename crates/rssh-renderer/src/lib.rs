@@ -13,6 +13,7 @@ pub struct RenderCell {
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
+    pub blink: bool,
     pub underline: bool,
     pub conceal: bool,
     pub strikethrough: bool,
@@ -113,12 +114,22 @@ impl ScrollbackScrollbar {
     }
 }
 
-pub struct PixelRenderer;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PixelRenderer {
+    blink_visible: bool,
+}
 
 impl PixelRenderer {
     #[must_use]
-    pub fn new() -> Self {
-        Self
+    pub const fn new() -> Self {
+        Self {
+            blink_visible: true,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_blink_visible(blink_visible: bool) -> Self {
+        Self { blink_visible }
     }
 
     pub fn render(
@@ -143,7 +154,13 @@ impl PixelRenderer {
         surface.fill(default_background());
 
         for cell in snapshot.cells() {
-            render_cell(&mut surface, cell, cell_width, cell_height);
+            render_cell(
+                &mut surface,
+                cell,
+                cell_width,
+                cell_height,
+                self.blink_visible,
+            );
         }
 
         if let Some(cursor) = snapshot.cursor() {
@@ -219,6 +236,7 @@ impl PixelRenderer {
                 cell,
                 geometry.cell_width,
                 geometry.cell_height,
+                self.blink_visible,
             );
         }
 
@@ -278,7 +296,13 @@ impl Surface<'_> {
     }
 }
 
-fn render_cell(surface: &mut Surface<'_>, cell: &RenderCell, cell_width: u32, cell_height: u32) {
+fn render_cell(
+    surface: &mut Surface<'_>,
+    cell: &RenderCell,
+    cell_width: u32,
+    cell_height: u32,
+    blink_visible: bool,
+) {
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
     let foreground = color_to_rgba(cell.foreground, default_foreground());
@@ -304,7 +328,7 @@ fn render_cell(surface: &mut Surface<'_>, cell: &RenderCell, cell_width: u32, ce
         background,
     );
 
-    if cell.conceal {
+    if cell.conceal || (cell.blink && !blink_visible) {
         return;
     }
 
@@ -585,6 +609,7 @@ impl TerminalRenderSnapshot {
                     bold: cell.bold,
                     faint: cell.faint,
                     italic: cell.italic,
+                    blink: cell.blink,
                     underline: cell.underline,
                     conceal: cell.conceal,
                     strikethrough: cell.strikethrough,
@@ -752,6 +777,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         bold: cell.bold,
         faint: cell.faint,
         italic: cell.italic,
+        blink: cell.blink,
         underline: cell.underline,
         conceal: cell.conceal,
         strikethrough: cell.strikethrough,
@@ -789,6 +815,7 @@ mod tests {
                 bold: true,
                 faint: false,
                 italic: false,
+                blink: false,
                 underline: true,
                 conceal: false,
                 strikethrough: false,
@@ -824,6 +851,7 @@ mod tests {
                 bold: false,
                 faint: false,
                 italic: false,
+                blink: false,
                 underline: false,
                 conceal: false,
                 strikethrough: false,
@@ -876,6 +904,16 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
 
         assert!(snapshot.cells()[0].overline);
+    }
+
+    #[test]
+    fn render_snapshot_preserves_blink_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[5mB");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(snapshot.cells()[0].blink);
     }
 
     #[test]
@@ -955,6 +993,7 @@ mod tests {
                 bold: false,
                 faint: false,
                 italic: false,
+                blink: false,
                 underline: false,
                 conceal: false,
                 strikethrough: false,
@@ -990,6 +1029,7 @@ mod tests {
                 bold: false,
                 faint: false,
                 italic: false,
+                blink: false,
                 underline: false,
                 conceal: false,
                 strikethrough: false,
@@ -1008,6 +1048,7 @@ mod tests {
                 bold: false,
                 faint: false,
                 italic: false,
+                blink: false,
                 underline: false,
                 conceal: false,
                 strikethrough: false,
@@ -1039,6 +1080,7 @@ mod tests {
                 bold: false,
                 faint: false,
                 italic: false,
+                blink: false,
                 underline: false,
                 conceal: false,
                 strikethrough: false,
@@ -1214,6 +1256,22 @@ mod tests {
     }
 
     #[test]
+    fn pixel_renderer_hides_blinking_foreground_when_phase_is_hidden() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[5;4;38;2;255;0;0;48;2;3;4;5m.");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].blink);
+        let renderer = PixelRenderer::with_blink_visible(false);
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 7), [3, 4, 5, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 7), [3, 4, 5, 255]);
+        assert_eq!(count_pixels(&target, [255, 0, 0, 255]), 0);
+    }
+
+    #[test]
     fn pixel_renderer_draws_bold_text_with_more_foreground_pixels() {
         let renderer = PixelRenderer::new();
         let mut normal = Terminal::new(TerminalSize::new(2, 1));
@@ -1250,6 +1308,7 @@ mod tests {
                 bold: false,
                 faint: false,
                 italic: false,
+                blink: false,
                 underline: false,
                 conceal: false,
                 strikethrough: false,

@@ -214,8 +214,8 @@ MVP 4 tests cover:
 - XTGETTCAP terminal-capability query responses for colors, terminal name,
   true-color marker, OSC 52 template support, current columns/rows, and unknown
   capability fallback
-- DECRQSS state query responses for current SGR style, including faint and
-  concealed text plus overline, cursor shape, and scroll-region state
+- DECRQSS state query responses for current SGR style, including faint, blink,
+  concealed text, and overline, cursor shape, and scroll-region state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
 - DECRQM private-mode status query responses for application cursor keys, mouse,
   SGR mouse, focus, bracketed paste, and unknown modes, including mode-like

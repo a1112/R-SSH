@@ -17,6 +17,8 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   6x6x6 color cube and grayscale ramp.
 - `PixelRenderer` draws bold text with an extra bitmap stroke and faint text
   with a dimmed foreground color.
+- `PixelRenderer` can render hidden blink phases by suppressing foreground
+  pixels for blinking cells while preserving cell backgrounds.
 - `PixelRenderer` draws underlined, strikethrough, and overlined text using the
   cell foreground color.
 - `PixelRenderer` hides concealed text foreground pixels while preserving cell
@@ -72,10 +74,11 @@ Renderer-specific tests cover:
 - terminal grid to render snapshot conversion
 - terminal cursor position and shape to render snapshot conversion
 - preservation of cell position and style metadata, including faint and
-  concealed text plus overline
+  blinking cells, concealed text, and overline
 - glyph foreground pixels drawn into an RGBA target
 - bold terminal text drawn with additional foreground pixels
 - faint terminal text drawn with dimmed foreground pixels
+- blinking terminal text hidden during an explicit hidden blink phase
 - concealed terminal text rendered as background-only cells
 - underlined, strikethrough, and overlined terminal text drawn into an RGBA
   target
