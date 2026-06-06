@@ -15,6 +15,7 @@ pub struct RenderCell {
     pub italic: bool,
     pub blink: bool,
     pub underline: bool,
+    pub double_underline: bool,
     pub conceal: bool,
     pub strikethrough: bool,
     pub overline: bool,
@@ -371,17 +372,49 @@ fn render_cell(
         }
     }
 
-    if cell.underline {
+    render_text_decorations(
+        surface,
+        cell,
+        origin_x,
+        origin_y,
+        cell_width,
+        cell_height,
+        foreground,
+    );
+}
+
+fn render_text_decorations(
+    surface: &mut Surface<'_>,
+    cell: &RenderCell,
+    origin_x: u32,
+    origin_y: u32,
+    cell_width: u32,
+    cell_height: u32,
+    foreground: [u8; 4],
+) {
+    if cell.underline || cell.double_underline {
         let underline_height = (cell_height / 8).max(1);
+        let lower_y = origin_y + cell_height.saturating_sub(underline_height);
         surface.fill_rect(
             Rect {
                 x: origin_x,
-                y: origin_y + cell_height.saturating_sub(underline_height),
+                y: lower_y,
                 width: cell_width,
                 height: underline_height,
             },
             foreground,
         );
+        if cell.double_underline {
+            surface.fill_rect(
+                Rect {
+                    x: origin_x,
+                    y: lower_y.saturating_sub(underline_height.saturating_mul(2)),
+                    width: cell_width,
+                    height: underline_height,
+                },
+                foreground,
+            );
+        }
     }
 
     if cell.overline {
@@ -611,6 +644,7 @@ impl TerminalRenderSnapshot {
                     italic: cell.italic,
                     blink: cell.blink,
                     underline: cell.underline,
+                    double_underline: cell.double_underline,
                     conceal: cell.conceal,
                     strikethrough: cell.strikethrough,
                     overline: cell.overline,
@@ -779,6 +813,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         italic: cell.italic,
         blink: cell.blink,
         underline: cell.underline,
+        double_underline: cell.double_underline,
         conceal: cell.conceal,
         strikethrough: cell.strikethrough,
         overline: cell.overline,
@@ -817,6 +852,7 @@ mod tests {
                 italic: false,
                 blink: false,
                 underline: true,
+                double_underline: false,
                 conceal: false,
                 strikethrough: false,
                 overline: false,
@@ -853,6 +889,7 @@ mod tests {
                 italic: false,
                 blink: false,
                 underline: false,
+                double_underline: false,
                 conceal: false,
                 strikethrough: false,
                 overline: false,
@@ -914,6 +951,16 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
 
         assert!(snapshot.cells()[0].blink);
+    }
+
+    #[test]
+    fn render_snapshot_preserves_double_underline_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[21mD");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(snapshot.cells()[0].double_underline);
     }
 
     #[test]
@@ -995,6 +1042,7 @@ mod tests {
                 italic: false,
                 blink: false,
                 underline: false,
+                double_underline: false,
                 conceal: false,
                 strikethrough: false,
                 overline: false,
@@ -1031,6 +1079,7 @@ mod tests {
                 italic: false,
                 blink: false,
                 underline: false,
+                double_underline: false,
                 conceal: false,
                 strikethrough: false,
                 overline: false,
@@ -1050,6 +1099,7 @@ mod tests {
                 italic: false,
                 blink: false,
                 underline: false,
+                double_underline: false,
                 conceal: false,
                 strikethrough: false,
                 overline: false,
@@ -1082,6 +1132,7 @@ mod tests {
                 italic: false,
                 blink: false,
                 underline: false,
+                double_underline: false,
                 conceal: false,
                 strikethrough: false,
                 overline: false,
@@ -1190,6 +1241,23 @@ mod tests {
 
         renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
 
+        assert_eq!(pixel_at(&target, 16, 0, 7), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 7), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_draws_double_underlined_text() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[21;38;2;255;0;0mA");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].double_underline);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 5), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 5), [255, 0, 0, 255]);
         assert_eq!(pixel_at(&target, 16, 0, 7), [255, 0, 0, 255]);
         assert_eq!(pixel_at(&target, 16, 7, 7), [255, 0, 0, 255]);
     }
@@ -1310,6 +1378,7 @@ mod tests {
                 italic: false,
                 blink: false,
                 underline: false,
+                double_underline: false,
                 conceal: false,
                 strikethrough: false,
                 overline: false,

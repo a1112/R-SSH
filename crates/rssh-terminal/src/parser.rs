@@ -1368,7 +1368,10 @@ impl Terminal {
                 1 => self.style.bold = true,
                 2 => self.style.faint = true,
                 3 => self.style.italic = true,
-                4 => self.style.underline = true,
+                4 => {
+                    self.style.underline = true;
+                    self.style.double_underline = false;
+                }
                 5 => self.style.blink = true,
                 7 => self.style.inverse = true,
                 8 => self.style.conceal = true,
@@ -1377,8 +1380,15 @@ impl Terminal {
                     self.style.bold = false;
                     self.style.faint = false;
                 }
+                21 => {
+                    self.style.underline = false;
+                    self.style.double_underline = true;
+                }
                 23 => self.style.italic = false,
-                24 => self.style.underline = false,
+                24 => {
+                    self.style.underline = false;
+                    self.style.double_underline = false;
+                }
                 25 => self.style.blink = false,
                 27 => self.style.inverse = false,
                 28 => self.style.conceal = false,

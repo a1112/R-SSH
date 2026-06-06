@@ -215,7 +215,8 @@ MVP 4 tests cover:
   true-color marker, OSC 52 template support, current columns/rows, and unknown
   capability fallback
 - DECRQSS state query responses for current SGR style, including faint, blink,
-  concealed text, and overline, cursor shape, and scroll-region state
+  double underline, concealed text, and overline, cursor shape, and
+  scroll-region state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
 - DECRQM private-mode status query responses for application cursor keys, mouse,
   SGR mouse, focus, bracketed paste, and unknown modes, including mode-like

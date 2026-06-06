@@ -29,6 +29,7 @@ pub struct Cell {
     pub italic: bool,
     pub blink: bool,
     pub underline: bool,
+    pub double_underline: bool,
     pub conceal: bool,
     pub strikethrough: bool,
     pub overline: bool,
@@ -47,6 +48,7 @@ impl Default for Cell {
             italic: false,
             blink: false,
             underline: false,
+            double_underline: false,
             conceal: false,
             strikethrough: false,
             overline: false,
@@ -184,6 +186,7 @@ mod tests {
         assert!(!cell.italic);
         assert!(!cell.blink);
         assert!(!cell.underline);
+        assert!(!cell.double_underline);
         assert!(!cell.conceal);
         assert!(!cell.strikethrough);
         assert!(!cell.overline);
@@ -203,6 +206,7 @@ mod tests {
             italic: false,
             blink: false,
             underline: true,
+            double_underline: false,
             conceal: false,
             strikethrough: false,
             overline: false,
@@ -996,6 +1000,28 @@ mod tests {
         let normal = terminal.grid().get(0, 1).unwrap();
         assert_eq!(normal.ch, 'B');
         assert!(!normal.blink);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_double_underline() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"\x1b[4mA\x1b[21mB\x1b[24mC");
+
+        let single = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(single.ch, 'A');
+        assert!(single.underline);
+        assert!(!single.double_underline);
+
+        let double = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(double.ch, 'B');
+        assert!(!double.underline);
+        assert!(double.double_underline);
+
+        let normal = terminal.grid().get(0, 2).unwrap();
+        assert_eq!(normal.ch, 'C');
+        assert!(!normal.underline);
+        assert!(!normal.double_underline);
     }
 
     #[test]

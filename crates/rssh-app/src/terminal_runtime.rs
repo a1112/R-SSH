@@ -728,7 +728,7 @@ fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
     if style.italic {
         params.push("3".to_owned());
     }
-    if style.underline {
+    if style.underline && !style.double_underline {
         params.push("4".to_owned());
     }
     if style.blink {
@@ -742,6 +742,9 @@ fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
     }
     if style.strikethrough {
         params.push("9".to_owned());
+    }
+    if style.double_underline {
+        params.push("21".to_owned());
     }
     if style.overline {
         params.push("53".to_owned());
@@ -2151,13 +2154,13 @@ mod tests {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
         let output = runtime.feed_pty_output_with_display(
-            b"before\x1b[1;2;4;5;8;9;53;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
+            b"before\x1b[1;2;4;21;5;8;9;53;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
         );
 
         assert_eq!(
             output.responses,
             vec![
-                b"\x1bP1$r1;2;4;5;8;9;53;38;5;196;48;2;1;2;3m\x1b\\".to_vec(),
+                b"\x1bP1$r1;2;5;8;9;21;53;38;5;196;48;2;1;2;3m\x1b\\".to_vec(),
                 b"\x1bP1$r5 q\x9c".to_vec(),
                 b"\x1bP1$r2;5r\x1b\\".to_vec(),
             ]
