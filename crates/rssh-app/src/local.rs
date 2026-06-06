@@ -2167,6 +2167,10 @@ fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
             b"1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d"
                 .to_vec(),
         ),
+        b"Cr" => Some(encode_ascii_hex(b"\x1b]112\x1b\\")),
+        b"Cs" => Some(encode_ascii_hex(b"\x1b]12;%p1%s\x1b\\")),
+        b"Se" => Some(encode_ascii_hex(b"\x1b[2 q")),
+        b"Ss" => Some(encode_ascii_hex(b"\x1b[%p1%d q")),
         b"sitm" => Some(b"1b5b336d".to_vec()),
         b"ritm" => Some(b"1b5b32336d".to_vec()),
         b"clear" => Some(encode_ascii_hex(b"\x1b[H\x1b[2J")),
@@ -4954,6 +4958,41 @@ mod tests {
         assert_eq!(
             responses,
             b"\x1bP1+r5463=31;536d756c78=1b5b343a25703125646d;536574756c63=1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d;7369746d=1b5b336d;7269746d=1b5b32336d\x1b\\"
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_tmux_cursor_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"Cr".as_slice(),
+            b"Cs".as_slice(),
+            b"Se".as_slice(),
+            b"Ss".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"Cr".as_slice(), b"\x1b]112\x1b\\".as_slice()),
+                (b"Cs".as_slice(), b"\x1b]12;%p1%s\x1b\\".as_slice()),
+                (b"Se".as_slice(), b"\x1b[2 q".as_slice()),
+                (b"Ss".as_slice(), b"\x1b[%p1%d q".as_slice()),
+            ])
         );
     }
 
