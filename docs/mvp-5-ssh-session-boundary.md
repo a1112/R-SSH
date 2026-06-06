@@ -373,7 +373,7 @@ command = ["powershell", "-NoProfile", "-Command", "Write-Output rssh-profile-sm
 [profiles.window-smoke]
 kind = "window"
 frames = 120
-metrics = true
+metrics = "json"
 osc52 = "write"
 command = ["cmd.exe", "/K", "echo", "rssh-window-profile-smoke"]
 ```

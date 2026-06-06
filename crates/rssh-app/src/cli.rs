@@ -210,6 +210,7 @@ pub struct WindowOptions {
     pub frame_limit: Option<u64>,
     pub osc52_policy: Osc52Policy,
     pub metrics: bool,
+    pub metrics_json: bool,
     pub command: PtyCommand,
     pub log: Option<PathBuf>,
 }
@@ -244,6 +245,7 @@ where
             frame_limit: None,
             osc52_policy: Osc52Policy::default(),
             metrics: false,
+            metrics_json: false,
             command: PtyCommand::default_shell(),
             log: None,
         }));
@@ -334,7 +336,7 @@ Usage:
   rssh-app version [--json]
   rssh-app self-test [--json]
   rssh-app bench [--json] [--bytes N] [--chunk-size N] [--cols N --rows N]
-  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]
+  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-- <program> [args...]]
   rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-B IFACE] [-b ADDR] [-c CIPHER] [-E LOG] [-e CHAR] [-I PKCS11] [-m MAC] [-O CTL] [-P TAG] [-Q QUERY] [-S CTL_PATH] [-W HOST:PORT] [-w TUN] [-f] [-G] [-g] [-K | -k] [-M] [-n] [-s] [-T | -t | -tt] [-X | -x | -Y | -y] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]
@@ -1254,6 +1256,7 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
     let mut frame_limit = None;
     let mut osc52_policy = Osc52Policy::default();
     let mut metrics = false;
+    let mut metrics_json = false;
     let mut log = None;
     let mut command_args = Vec::new();
     let mut index = 0;
@@ -1269,7 +1272,10 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
                 osc52_policy = parse_osc52_policy(args.get(index))?;
             }
             "--metrics" => {
-                metrics = true;
+                set_console_metrics(&mut metrics, &mut metrics_json, "--metrics")?;
+            }
+            "--metrics-json" => {
+                set_console_metrics(&mut metrics, &mut metrics_json, "--metrics-json")?;
             }
             "--log" => {
                 index += 1;
@@ -1299,6 +1305,7 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
         frame_limit,
         osc52_policy,
         metrics,
+        metrics_json,
         command,
         log,
     }))
@@ -1444,6 +1451,7 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: false,
+                metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -1458,6 +1466,7 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: false,
+                metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -1673,6 +1682,7 @@ mod tests {
                 frame_limit: Some(1),
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: false,
+                metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -1687,6 +1697,22 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::ReadWrite,
                 metrics: true,
+                metrics_json: false,
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None
+            })
+        );
+    }
+
+    #[test]
+    fn parses_window_metrics_json_flag() {
+        assert_eq!(
+            parse_args(["rssh-app", "window", "--metrics-json"]).unwrap(),
+            AppCommand::Window(super::WindowOptions {
+                frame_limit: None,
+                osc52_policy: super::Osc52Policy::ReadWrite,
+                metrics: false,
+                metrics_json: true,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -1736,6 +1762,7 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::Off,
                 metrics: false,
+                metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
@@ -1746,6 +1773,7 @@ mod tests {
                 frame_limit: None,
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
+                metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })

@@ -461,9 +461,7 @@ impl ProfileDefinition {
         append_optional(args, "--osc52", self.osc52.as_ref());
         match self.metrics_flag()? {
             Some("--metrics") => args.push("--metrics".to_owned()),
-            Some("--metrics-json") => {
-                return Err("window metrics does not support json format".to_owned());
-            }
+            Some("--metrics-json") => args.push("--metrics-json".to_owned()),
             Some(_) => unreachable!("validated metrics flag"),
             None => {}
         }
@@ -977,12 +975,46 @@ command = ["cmd.exe", "/K", "echo", "window-profile-smoke"]
                 frame_limit: Some(120),
                 osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 metrics: true,
+                metrics_json: false,
                 command: rssh_pty::PtyCommand::new("cmd.exe").with_args([
                     "/K",
                     "echo",
                     "window-profile-smoke"
                 ]),
                 log: Some(PathBuf::from("window.log")),
+            })
+        );
+    }
+
+    #[test]
+    fn window_profiles_can_enable_json_metrics() {
+        let file = temp_profile_file(
+            "window-json-metrics-profile",
+            r#"
+[profiles.ops-window]
+kind = "window"
+frames = 3
+metrics = "json"
+"#,
+        );
+
+        let command = super::load_command(&ProfileOptions {
+            name: "ops-window".to_owned(),
+            file: file.clone(),
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        assert_eq!(
+            command,
+            AppCommand::Window(WindowOptions {
+                frame_limit: Some(3),
+                osc52_policy: crate::cli::Osc52Policy::ReadWrite,
+                metrics: false,
+                metrics_json: true,
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None,
             })
         );
     }

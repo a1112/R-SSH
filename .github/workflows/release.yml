@@ -50,6 +50,11 @@ jobs:
           ./rssh-app.exe doctor --json
           ./rssh-app.exe self-test --json
           ./rssh-app.exe bench --json
+          ./rssh-app.exe profile --check --file examples/rssh-profiles.toml
+          $windowShow = ./rssh-app.exe profile --show window-smoke --file examples/rssh-profiles.toml
+          if ($windowShow -notmatch "--metrics-json") {
+            throw "window-smoke profile did not resolve --metrics-json"
+          }
           ./rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke
           ./rssh-console.cmd --preflight -- cmd.exe /C echo packaged-console-launcher-smoke
           Pop-Location

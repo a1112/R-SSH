@@ -61,6 +61,7 @@ cargo run -p rssh-app -- console --preflight -- cmd.exe /C echo console-alias-sm
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
 cargo run -p rssh-app -- local --metrics-json -- cmd.exe /C echo console-metrics-json-smoke
 cargo run -p rssh-app -- window --frames 30 --metrics
+cargo run -p rssh-app -- window --frames 30 --metrics-json
 cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
 cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.exe /K echo window-log-smoke
 cargo run -p rssh-app -- local
@@ -173,6 +174,9 @@ elapsed time, exit code, signal, and success state, plus PTY input/output bytes,
 terminal output bytes, and resize events.
 Use `--metrics-json` on the same commands when a launcher, script, or desktop
 UI should consume the metrics as JSON.
+Native window runs also support `--metrics-json`, including automated
+`window --frames N` smoke runs, so render and PTY processing metrics can feed
+external benchmark dashboards.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
@@ -262,9 +266,10 @@ command line without starting a local process or network connection; add
 `--json` to return the single launch plan as name, kind, command, and argv.
 Set `preflight = true` in local, SSH, SFTP, or SCP profiles when saved sessions
 should run the console dependency check before spawning the PTY child process.
-Set `metrics = true` in local, SSH, SFTP, or SCP profiles when saved sessions
-should print the same console runtime metrics on exit. Use `metrics = "json"`
-when saved console sessions should emit machine-readable JSON metrics.
+Set `metrics = true` in local, window, SSH, SFTP, or SCP profiles when saved
+sessions should print runtime metrics on exit. Use `metrics = "json"` when
+saved console or native-window sessions should emit machine-readable JSON
+metrics.
 For saved native SSH sessions, set `native = true` and choose
 `host_key_policy = "trust-on-first-use"`, `"accept-unknown"`, or
 `"reject-unknown"`.
@@ -280,7 +285,8 @@ starting with `v` also publish it as a GitHub Release asset. The workflow runs
 formatting, tests, clippy, release compilation, and packaged
 `rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
 `rssh-app.exe self-test --json` smoke tests, `rssh-app.exe bench --json`
-benchmark smoke, plus `rssh-app.exe console` and `rssh-console.cmd`
+benchmark smoke, bundled profile validation, a `window-smoke` profile
+`--metrics-json` check, plus `rssh-app.exe console` and `rssh-console.cmd`
 console-launcher smoke tests before upload. See
 `docs/release-console.md`.
 
@@ -294,9 +300,10 @@ console-launcher smoke tests before upload. See
 - MVP 4: Live PTY session inside the native renderer is complete. See
   `docs/mvp-4-live-pty-window.md`.
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
-  rendering, and input-write metrics with `window --metrics`; `bench --json`
-  now provides a repeatable terminal-runtime throughput and p95 chunk latency
-  baseline for console/native-window parser work. The SSH crate now has a
+  rendering, and input-write metrics with `window --metrics` or
+  `window --metrics-json`; `bench --json` now provides a repeatable
+  terminal-runtime throughput and p95 chunk latency baseline for
+  console/native-window parser work. The SSH crate now has a
   validated config, authentication request model, connector entry point,
   shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
   runner path for local input and remote output. `rssh-core` also includes a

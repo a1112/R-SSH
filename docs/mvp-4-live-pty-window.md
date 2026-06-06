@@ -87,9 +87,9 @@ in the native `winit` window.
 - The native window tracks PTY-side xterm mouse modes (`1000`/`1002`/`1003`
   and `1006`) and forwards button, wheel, drag, and any-motion events as
   legacy or SGR mouse reports when reporting is enabled.
-- `rssh-app window --metrics` prints startup, PTY processing, render-frame,
-  PTY input-write, and bell-event counters plus p95 timings when the window run
-  exits.
+- `rssh-app window --metrics` and `--metrics-json` print startup, PTY
+  processing, render-frame, PTY input-write, and bell-event counters plus p95
+  timings when the window run exits.
 - `rssh-app window --log PATH` writes visible native-window terminal output to
   a session log file, omitting non-visible terminal control sequences such as
   OSC title updates and BEL.
@@ -135,6 +135,7 @@ Automated window smoke with metrics:
 
 ```powershell
 cargo run -p rssh-app -- window --frames 30 --metrics
+cargo run -p rssh-app -- window --frames 30 --metrics-json
 ```
 
 Run a custom command inside the native window:
@@ -176,6 +177,7 @@ Native window smoke:
 ```powershell
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- window --frames 120 --metrics -- cmd.exe /K echo window-smoke
+cargo run -p rssh-app -- window --frames 120 --metrics-json -- cmd.exe /K echo window-smoke
 cargo run -p rssh-app -- window --frames 120 --metrics --log window.log -- cmd.exe /K echo window-log-smoke
 cargo run -p rssh-app -- profile window-smoke --file examples/rssh-profiles.toml
 ```
@@ -218,8 +220,8 @@ MVP 4 tests cover:
 - native window log path parsing and visible PTY output logging
 - native window session logs omit OSC title control sequences while still
   applying the title update to the window state
-- native window TOML profile loading for frame limits, metrics, OSC 52 policy,
-  custom commands, and log paths
+- native window TOML profile loading for frame limits, text/JSON metrics, OSC
+  52 policy, custom commands, and log paths
 - native window BEL event propagation into metrics without writing BEL bytes to
   the visible-output log
 - console path reuse of the shared key encoder
@@ -249,7 +251,8 @@ MVP 4 tests cover:
 ## Metrics
 
 The current MVP uses tests and smoke checks as completion gates. Window runs can
-now add `--metrics` to print:
+now add `--metrics` for text output or `--metrics-json` for machine-readable
+output. Both formats report:
 
 - `first_pty_byte_ms`: process spawn timer to first PTY output chunk.
 - `first_rendered_cell_ms`: process spawn timer to first non-empty render

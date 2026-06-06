@@ -14,6 +14,7 @@ use rssh_pty::{PtyCommand, PtySession, PtySize};
 use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 #[cfg(test)]
 use rssh_terminal::Terminal;
+use serde::Serialize;
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
@@ -55,7 +56,9 @@ pub fn run(options: &WindowOptions) -> Result<(), Box<dyn Error>> {
     );
 
     event_loop.run_app(&mut app)?;
-    if options.metrics {
+    if options.metrics_json {
+        println!("{}", app.metrics_json_report()?);
+    } else if options.metrics {
         print!("{}", app.metrics_report());
     }
 
@@ -109,7 +112,7 @@ enum WindowUserEvent {
     ReadError(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 struct WindowMetricsSnapshot {
     first_pty_byte_ms: Option<u128>,
     first_rendered_cell_ms: Option<u128>,
@@ -153,6 +156,10 @@ bells={}
             self.input_write_p95_us,
             self.bells
         )
+    }
+
+    fn json_report(self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(&self)
     }
 }
 
@@ -941,6 +948,10 @@ impl NativeWindowApp {
 
     fn metrics_report(&self) -> String {
         self.metrics_snapshot().report()
+    }
+
+    fn metrics_json_report(&self) -> Result<String, serde_json::Error> {
+        self.metrics_snapshot().json_report()
     }
 
     fn handle_keyboard_input(&mut self, key: &winit::event::KeyEvent) -> io::Result<()> {
@@ -2476,6 +2487,21 @@ mod tests {
         let metrics = app.metrics_snapshot();
         assert_eq!(metrics.bells, 2);
         assert!(app.metrics_report().contains("bells=2"));
+    }
+
+    #[test]
+    fn window_metrics_json_report_is_machine_readable() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.handle_pty_output(b"live").unwrap();
+
+        let json = app.metrics_json_report().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["pty_chunks"], 1);
+        assert_eq!(value["pty_bytes"], 4);
+        assert!(value["first_pty_byte_ms"].is_number());
+        assert!(value["first_rendered_cell_ms"].is_number());
     }
 
     #[test]
