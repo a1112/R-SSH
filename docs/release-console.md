@@ -62,6 +62,7 @@ After extracting the zip:
 .\rssh-app.exe scp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 -r logs ops@example.com:/tmp/logs
 .\rssh-app.exe scp ops@example.com:/tmp/remote.txt local.txt
 .\rssh-app.exe scp ops@example.com --upload local.txt /tmp/remote.txt
+.\rssh-app.exe ssh -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
 .\rssh-app.exe ssh -L 127.0.0.1:15432:db.internal:5432 -D 127.0.0.1:1080 -N prod
 .\rssh-app.exe ssh --native --trust-on-first-use --host example.com --user ops --agent
 ```
@@ -80,7 +81,7 @@ pilot:
   `scp -h` can launch.
 - Console coverage: local shell, positional `[USER@]HOST` SSH/SFTP/SCP
   launches, SSH trailing remote commands, SCP `HOST:PATH` upload/download
-  operands, common OpenSSH short options (`ssh -p/-l/-i/-L/-R/-D/-N`,
+  operands, common OpenSSH short options (`ssh -p/-l/-i/-F/-o/-L/-R/-D/-N`,
   `sftp -P/-i`, and `scp -P/-i/-r`), OpenSSH config targets, profiles,
   metrics, and native russh startup remain covered by workspace tests.
 - Runtime observability: console sessions can emit `--metrics` or

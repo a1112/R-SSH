@@ -644,6 +644,7 @@ dynamic_forward = ["127.0.0.1:1080"]
                     SshForward::Local("127.0.0.1:15432:db.internal:5432".to_owned()),
                     SshForward::Dynamic("127.0.0.1:1080".to_owned()),
                 ],
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,

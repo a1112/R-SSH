@@ -80,6 +80,7 @@ cargo run -p rssh-app -- ssh --target prod
 cargo run -p rssh-app -- ssh --target prod -- uname -a
 cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
+cargo run -p rssh-app -- ssh -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
 cargo run -p rssh-app -- ssh -L 127.0.0.1:15432:db.internal:5432 -D 127.0.0.1:1080 -N prod
 cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.internal:5432 --no-shell
 cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
@@ -158,7 +159,8 @@ passed through as the remote command, for example `ssh ops@example.com uptime
 -p` or `ssh --target prod uname -a`. Direct `--host/--user` launches keep using
 `--` before remote commands so password and key prompts cannot be mistaken for
 command-line secrets. Common OpenSSH short options are accepted on the console
-path: `ssh -p PORT -l USER -i KEY -L SPEC -R SPEC -D SPEC -N HOST`.
+path: `ssh -p PORT -l USER -i KEY -F CONFIG -o OPTION=VALUE -L SPEC -R
+SPEC -D SPEC -N HOST`.
 `sftp` starts the system OpenSSH SFTP client inside the same PTY console
 runtime, using the same `--host`/`--target`, `--user`, `--port`, `--agent`,
 `--password`, `--key`, and `--log` shape for interactive file transfer; it also
@@ -197,7 +199,9 @@ instead of opening the default interactive shell.
 Use `--local-forward`, `--remote-forward`, or `--dynamic-forward` with OpenSSH
 forward specs for tunnels. Add `--no-shell` when the session should only keep
 the tunnel open. The OpenSSH short aliases `-L`, `-R`, `-D`, and `-N` work on
-the same console path.
+the same console path. Use `-F CONFIG` or repeated `-o OPTION=VALUE` on the
+OpenSSH console backend when a launch needs an alternate config file,
+ProxyJump/ProxyCommand, or host-key options.
 `profile NAME --file PATH` loads a TOML session profile and then starts the
 same local, native-window, SSH, SFTP, or SCP runtime. See
 `examples/rssh-profiles.toml` for the current file format, including

@@ -95,6 +95,7 @@ pub struct SshOptions {
     pub target: SshTarget,
     pub remote_command: Vec<String>,
     pub forwards: Vec<SshForward>,
+    pub openssh_args: Vec<String>,
     pub no_shell: bool,
     pub native: bool,
     pub native_host_key_policy: NativeHostKeyPolicy,
@@ -166,6 +167,7 @@ struct SshParseState {
     auth: Option<SshAuthMethod>,
     remote_command: Vec<String>,
     forwards: Vec<SshForward>,
+    openssh_args: Vec<String>,
     no_shell: bool,
     native: bool,
     native_host_key_policy: NativeHostKeyPolicy,
@@ -288,7 +290,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-r | --recursive] [--log PATH] LOCAL [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-r | --recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-F PATH] [-o OPTION] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-r | --recursive] [--log PATH] LOCAL [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-r | --recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -846,30 +848,9 @@ fn parse_ssh_option(
                     .to_owned(),
             );
         }
-        "-L" | "--local-forward" => {
-            *index += 1;
-            state.forwards.push(SshForward::Local(required_forward_spec(
-                args.get(*index),
-                args[*index - 1].as_str(),
-            )?));
-        }
-        "-R" | "--remote-forward" => {
-            *index += 1;
-            state
-                .forwards
-                .push(SshForward::Remote(required_forward_spec(
-                    args.get(*index),
-                    args[*index - 1].as_str(),
-                )?));
-        }
-        "-D" | "--dynamic-forward" => {
-            *index += 1;
-            state
-                .forwards
-                .push(SshForward::Dynamic(required_forward_spec(
-                    args.get(*index),
-                    args[*index - 1].as_str(),
-                )?));
+        "-F" | "-o" => parse_ssh_passthrough_option(args, index, state)?,
+        "-L" | "--local-forward" | "-R" | "--remote-forward" | "-D" | "--dynamic-forward" => {
+            parse_ssh_forward_option(args, index, state)?;
         }
         "-N" | "--no-shell" => {
             state.no_shell = true;
@@ -897,6 +878,36 @@ fn parse_ssh_option(
         value => return Err(format!("unexpected ssh option: {value}")),
     }
 
+    Ok(())
+}
+
+fn parse_ssh_passthrough_option(
+    args: &[String],
+    index: &mut usize,
+    state: &mut SshParseState,
+) -> Result<(), String> {
+    let option_name = args[*index].clone();
+    *index += 1;
+    let value = required_option_value(args.get(*index), option_name.as_str())?;
+    state.openssh_args.push(option_name);
+    state.openssh_args.push(value.to_owned());
+    Ok(())
+}
+
+fn parse_ssh_forward_option(
+    args: &[String],
+    index: &mut usize,
+    state: &mut SshParseState,
+) -> Result<(), String> {
+    let option_name = args[*index].clone();
+    *index += 1;
+    let spec = required_forward_spec(args.get(*index), option_name.as_str())?;
+    match option_name.as_str() {
+        "-L" | "--local-forward" => state.forwards.push(SshForward::Local(spec)),
+        "-R" | "--remote-forward" => state.forwards.push(SshForward::Remote(spec)),
+        "-D" | "--dynamic-forward" => state.forwards.push(SshForward::Dynamic(spec)),
+        _ => unreachable!("only SSH forwarding options call this helper"),
+    }
     Ok(())
 }
 
@@ -944,6 +955,7 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         auth,
         remote_command,
         forwards,
+        openssh_args,
         no_shell,
         native,
         native_host_key_policy,
@@ -986,11 +998,15 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
     if matches!(native_host_key_policy, NativeHostKeyPolicy::TrustOnFirstUse) && !native {
         return Err("--trust-on-first-use requires --native".to_owned());
     }
+    if native && !openssh_args.is_empty() {
+        return Err("-o and -F require the OpenSSH console backend; remove --native".to_owned());
+    }
 
     Ok(SshOptions {
         target,
         remote_command,
         forwards,
+        openssh_args,
         no_shell,
         native,
         native_host_key_policy,
@@ -1757,6 +1773,39 @@ mod tests {
     }
 
     #[test]
+    fn parses_ssh_openssh_passthrough_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "ssh",
+            "-F",
+            "C:/Users/ops/.ssh/prod_config",
+            "-o",
+            "ProxyJump=bastion",
+            "-o",
+            "StrictHostKeyChecking=accept-new",
+            "prod",
+        ])
+        .unwrap();
+
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+
+        assert_eq!(
+            options.openssh_args,
+            [
+                "-F",
+                "C:/Users/ops/.ssh/prod_config",
+                "-o",
+                "ProxyJump=bastion",
+                "-o",
+                "StrictHostKeyChecking=accept-new"
+            ]
+        );
+        assert!(matches!(options.target, super::SshTarget::OpenSsh(_)));
+    }
+
+    #[test]
     fn parses_ssh_positional_target_with_remote_command() {
         let parsed = parse_args([
             "rssh-app",
@@ -1913,6 +1962,21 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("only one native SSH host-key policy"));
+    }
+
+    #[test]
+    fn rejects_openssh_passthrough_options_with_native_ssh() {
+        let error = parse_args([
+            "rssh-app",
+            "ssh",
+            "--native",
+            "-o",
+            "ProxyJump=bastion",
+            "prod",
+        ])
+        .unwrap_err();
+
+        assert!(error.contains("-o and -F require the OpenSSH console backend"));
     }
 
     #[test]

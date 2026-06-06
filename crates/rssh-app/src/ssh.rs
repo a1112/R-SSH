@@ -699,6 +699,7 @@ fn write_socks5_connect_reply(output: &mut dyn Write, status: u8) -> Result<(), 
 fn openssh_command_for_request(request: &SshConnectRequest, options: &SshOptions) -> PtyCommand {
     let mut args = openssh_start_args(options);
 
+    args.extend(options.openssh_args.clone());
     append_auth_args(&mut args, &request.auth);
     append_forward_args(&mut args, &options.forwards);
 
@@ -719,6 +720,7 @@ fn openssh_command_for_request(request: &SshConnectRequest, options: &SshOptions
 fn openssh_command_for_target(target: &OpenSshTarget, options: &SshOptions) -> PtyCommand {
     let mut args = openssh_start_args(options);
 
+    args.extend(options.openssh_args.clone());
     append_auth_args(&mut args, &target.auth);
     append_forward_args(&mut args, &options.forwards);
 
@@ -799,6 +801,7 @@ fn local_options_for_request(request: &SshConnectRequest) -> Result<LocalOptions
         target: SshTarget::Direct(request.clone()),
         remote_command: Vec::new(),
         forwards: Vec::new(),
+        openssh_args: Vec::new(),
         no_shell: false,
         native: false,
         native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1304,6 +1307,7 @@ mod tests {
                 target: SshTarget::Direct(request.clone()),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1340,6 +1344,7 @@ mod tests {
                 target: SshTarget::Direct(request),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1375,6 +1380,7 @@ mod tests {
                 target: SshTarget::Direct(request.clone()),
                 remote_command: vec!["uname".to_owned(), "-a".to_owned()],
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1412,6 +1418,7 @@ mod tests {
                 target: SshTarget::Direct(request.clone()),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: true,
                 native: false,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1446,6 +1453,7 @@ mod tests {
                 target: SshTarget::Direct(request.clone()),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1484,6 +1492,7 @@ mod tests {
                 target: SshTarget::Direct(request),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1543,6 +1552,7 @@ mod tests {
                 forwards: vec![crate::cli::SshForward::Local(
                     "127.0.0.1:15432:db.internal:5432".to_owned(),
                 )],
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1589,6 +1599,7 @@ mod tests {
                 target: SshTarget::Direct(request.clone()),
                 remote_command: Vec::new(),
                 forwards: vec![crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned())],
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1635,6 +1646,7 @@ mod tests {
                 forwards: vec![crate::cli::SshForward::Remote(
                     "8080:127.0.0.1:80".to_owned(),
                 )],
+                openssh_args: Vec::new(),
                 no_shell: true,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1685,6 +1697,7 @@ mod tests {
                 }),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1723,6 +1736,7 @@ mod tests {
             forwards: vec![crate::cli::SshForward::Local(
                 "127.0.0.1:15432:db.internal:5432".to_owned(),
             )],
+            openssh_args: Vec::new(),
             no_shell: true,
             native: true,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1770,6 +1784,7 @@ mod tests {
             forwards: vec![crate::cli::SshForward::Remote(
                 "8080:127.0.0.1:80".to_owned(),
             )],
+            openssh_args: Vec::new(),
             no_shell: true,
             native: true,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1800,6 +1815,7 @@ mod tests {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: vec![crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned())],
+            openssh_args: Vec::new(),
             no_shell: true,
             native: true,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1881,6 +1897,7 @@ mod tests {
                 target: SshTarget::Direct(request),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1934,6 +1951,7 @@ mod tests {
                 }),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -1991,6 +2009,7 @@ mod tests {
                 target: SshTarget::Direct(request),
                 remote_command: Vec::new(),
                 forwards: Vec::new(),
+                openssh_args: Vec::new(),
                 no_shell: false,
                 native: true,
                 native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -2034,6 +2053,7 @@ mod tests {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: Vec::new(),
+            openssh_args: Vec::new(),
             no_shell: false,
             native: true,
             native_host_key_policy: NativeHostKeyPolicy::AcceptUnknown,
@@ -2058,6 +2078,7 @@ mod tests {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: Vec::new(),
+            openssh_args: Vec::new(),
             no_shell: false,
             native: true,
             native_host_key_policy: NativeHostKeyPolicy::TrustOnFirstUse,
@@ -2082,6 +2103,7 @@ mod tests {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: Vec::new(),
+            openssh_args: Vec::new(),
             no_shell: false,
             native: true,
             native_host_key_policy: NativeHostKeyPolicy::TrustOnFirstUse,
@@ -2185,6 +2207,7 @@ mod tests {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: Vec::new(),
+            openssh_args: Vec::new(),
             no_shell: false,
             native: false,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -2213,6 +2236,7 @@ mod tests {
             }),
             remote_command: Vec::new(),
             forwards: Vec::new(),
+            openssh_args: Vec::new(),
             no_shell: false,
             native: false,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -2239,6 +2263,47 @@ mod tests {
     }
 
     #[test]
+    fn openssh_command_preserves_passthrough_options_before_target() {
+        let options = SshOptions {
+            target: SshTarget::OpenSsh(OpenSshTarget {
+                target: "prod".to_owned(),
+                username: None,
+                port: None,
+                initial_size: TerminalSize::new(80, 24),
+                auth: rssh_ssh::SshAuthMethod::Agent,
+            }),
+            remote_command: Vec::new(),
+            forwards: Vec::new(),
+            openssh_args: vec![
+                "-F".to_owned(),
+                "C:/Users/ops/.ssh/prod_config".to_owned(),
+                "-o".to_owned(),
+                "ProxyJump=bastion".to_owned(),
+            ],
+            no_shell: false,
+            native: false,
+            native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
+            console: crate::cli::ConsoleOptions::default(),
+            osc52_policy: Osc52Policy::default(),
+            log: None,
+        };
+
+        let command = super::openssh_command_for_options(&options);
+
+        assert_eq!(
+            command.args(),
+            [
+                "-tt",
+                "-F",
+                "C:/Users/ops/.ssh/prod_config",
+                "-o",
+                "ProxyJump=bastion",
+                "prod"
+            ]
+        );
+    }
+
+    #[test]
     fn openssh_command_appends_remote_command_after_target() {
         let options = SshOptions {
             target: SshTarget::OpenSsh(OpenSshTarget {
@@ -2250,6 +2315,7 @@ mod tests {
             }),
             remote_command: vec!["uname".to_owned(), "-a".to_owned()],
             forwards: Vec::new(),
+            openssh_args: Vec::new(),
             no_shell: false,
             native: false,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -2279,6 +2345,7 @@ mod tests {
                 crate::cli::SshForward::Remote("8080:127.0.0.1:80".to_owned()),
                 crate::cli::SshForward::Dynamic("127.0.0.1:1080".to_owned()),
             ],
+            openssh_args: Vec::new(),
             no_shell: true,
             native: false,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
@@ -2415,6 +2482,7 @@ mod tests {
             target: SshTarget::Direct(request),
             remote_command: Vec::new(),
             forwards: Vec::new(),
+            openssh_args: Vec::new(),
             no_shell: false,
             native: false,
             native_host_key_policy: NativeHostKeyPolicy::RejectUnknown,
