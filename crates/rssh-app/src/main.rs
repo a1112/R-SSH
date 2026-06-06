@@ -8,6 +8,7 @@ mod ssh;
 mod terminal_input;
 mod terminal_modes;
 mod terminal_runtime;
+mod version;
 mod visible_output;
 mod window;
 
@@ -57,6 +58,10 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
         AppCommand::Scp(options) => scp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Sftp(options) => sftp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),
+        AppCommand::Version(options) => {
+            version::print_version(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::Window(options) => {
             window::run(&options)?;
             Ok(ExitCode::SUCCESS)

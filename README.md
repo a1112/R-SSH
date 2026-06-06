@@ -43,11 +43,14 @@ refs/                 Local reference source cache, ignored by Git
 cargo fmt --all
 cargo test --workspace
 cargo build --release -p rssh-app
+.\target\release\rssh-app.exe version --json
 .\target\release\rssh-app.exe doctor
 cargo run -p rssh-app
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- doctor
 cargo run -p rssh-app -- doctor --json
+cargo run -p rssh-app -- version
+cargo run -p rssh-app -- version --json
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
 cargo run -p rssh-app -- local --metrics-json -- cmd.exe /C echo console-metrics-json-smoke
@@ -195,8 +198,9 @@ per-profile report that still exits non-zero when any profile is invalid.
 The `Release` GitHub Actions workflow builds the Windows console package
 `R-SSH-windows-x64.zip`. Manual workflow runs upload it as an artifact; tags
 starting with `v` also publish it as a GitHub Release asset. The workflow runs
-formatting, tests, clippy, release compilation, and a packaged
-`rssh-app.exe doctor --json` smoke test before upload. See
+formatting, tests, clippy, release compilation, and packaged
+`rssh-app.exe version --json` plus `rssh-app.exe doctor --json` smoke tests
+before upload. See
 `docs/release-console.md`.
 
 ## MVP Status

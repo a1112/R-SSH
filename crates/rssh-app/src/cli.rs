@@ -20,12 +20,18 @@ pub enum AppCommand {
     Scp(ScpOptions),
     Sftp(SftpOptions),
     Ssh(SshOptions),
+    Version(VersionOptions),
     Window(WindowOptions),
     Help,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct DoctorOptions {
+    pub json: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct VersionOptions {
     pub json: bool,
 }
 
@@ -221,6 +227,13 @@ where
             }
             parse_doctor(&doctor_args)
         }
+        "version" => {
+            let version_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&version_args) {
+                return Ok(AppCommand::Help);
+            }
+            parse_version(&version_args)
+        }
         "profile" => {
             let profile_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&profile_args) {
@@ -262,7 +275,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--local-forward SPEC] [--remote-forward SPEC] [--dynamic-forward SPEC] [--no-shell] [--osc52 off|write|read-write] [--log PATH]\n  rssh-app sftp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--log PATH]\n  rssh-app scp (--host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--user USER] [--port N] [--cols N --rows N] [--agent | --password | --key PATH] [--recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -282,6 +295,19 @@ fn parse_doctor(args: &[String]) -> Result<AppCommand, String> {
     }
 
     Ok(AppCommand::Doctor(DoctorOptions { json }))
+}
+
+fn parse_version(args: &[String]) -> Result<AppCommand, String> {
+    let mut json = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--json" => json = true,
+            value => return Err(format!("unexpected version option: {value}")),
+        }
+    }
+
+    Ok(AppCommand::Version(VersionOptions { json }))
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -1044,6 +1070,22 @@ mod tests {
         assert_eq!(
             parse_args(["rssh-app", "doctor", "--json"]).unwrap(),
             AppCommand::Doctor(super::DoctorOptions { json: true })
+        );
+    }
+
+    #[test]
+    fn parses_version_command() {
+        assert_eq!(
+            parse_args(["rssh-app", "version"]).unwrap(),
+            AppCommand::Version(super::VersionOptions { json: false })
+        );
+    }
+
+    #[test]
+    fn parses_json_version_command() {
+        assert_eq!(
+            parse_args(["rssh-app", "version", "--json"]).unwrap(),
+            AppCommand::Version(super::VersionOptions { json: true })
         );
     }
 

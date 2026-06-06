@@ -30,12 +30,14 @@ The release package is not uploaded until all gates pass:
 - `cargo test --workspace`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo build --release -p rssh-app`
+- `dist/R-SSH-windows-x64/rssh-app.exe version --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe doctor --json`
 
-The packaged `doctor --json` smoke test proves that the downloaded executable
-can start as a console app and report the selected PTY backend, native SSH
-backend, terminal size, child terminal environment, default shell, and OpenSSH
-tool availability.
+The packaged `version --json` smoke test proves that the downloaded executable
+can identify its app version, target, console mode, PTY backend, and native SSH
+backend. The packaged `doctor --json` smoke test proves that it can start as a
+console app and report terminal size, child terminal environment, default shell,
+and OpenSSH tool availability.
 
 ## Console Startup After Download
 
@@ -43,6 +45,7 @@ After extracting the zip:
 
 ```powershell
 .\rssh-app.exe doctor
+.\rssh-app.exe version --json
 .\rssh-app.exe local
 .\rssh-app.exe ssh --target prod --preflight
 .\rssh-app.exe ssh --native --trust-on-first-use --host example.com --user ops --agent
@@ -54,6 +57,8 @@ Use these indicators to decide whether a build is ready for a wider console
 pilot:
 
 - Package build success rate: release workflow passes on the target tag.
+- Package identity: packaged `version --json` reports the expected version and
+  backends.
 - Startup health: packaged `doctor --json` exits successfully.
 - Console coverage: local shell, OpenSSH SSH, SFTP, SCP, profiles, metrics, and
   native russh startup remain covered by workspace tests.

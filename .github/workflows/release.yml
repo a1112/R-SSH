@@ -45,6 +45,7 @@ jobs:
         shell: pwsh
         run: |
           Push-Location dist/R-SSH-windows-x64
+          ./rssh-app.exe version --json
           ./rssh-app.exe doctor --json
           Pop-Location
 
