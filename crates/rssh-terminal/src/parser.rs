@@ -1403,19 +1403,21 @@ impl Terminal {
                 49 => self.style.background = Color::Default,
                 53 => self.style.overline = true,
                 55 => self.style.overline = false,
+                59 => self.style.underline_color = Color::Default,
                 90..=97 => {
                     self.style.foreground = Color::Indexed(saturating_u8(values[index] - 90 + 8));
                 }
                 100..=107 => {
                     self.style.background = Color::Indexed(saturating_u8(values[index] - 100 + 8));
                 }
-                38 | 48 => {
-                    let is_foreground = values[index] == 38;
+                38 | 48 | 58 => {
+                    let color_target = values[index];
                     if let Some((color, consumed)) = parse_extended_color(&values[index + 1..]) {
-                        if is_foreground {
-                            self.style.foreground = color;
-                        } else {
-                            self.style.background = color;
+                        match color_target {
+                            38 => self.style.foreground = color,
+                            48 => self.style.background = color,
+                            58 => self.style.underline_color = color,
+                            _ => {}
                         }
                         index += consumed;
                     }

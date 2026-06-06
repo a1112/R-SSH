@@ -24,6 +24,7 @@ pub struct Cell {
     pub ch: char,
     pub foreground: Color,
     pub background: Color,
+    pub underline_color: Color,
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
@@ -43,6 +44,7 @@ impl Default for Cell {
             ch: ' ',
             foreground: Color::Default,
             background: Color::Default,
+            underline_color: Color::Default,
             bold: false,
             faint: false,
             italic: false,
@@ -181,6 +183,7 @@ mod tests {
         assert_eq!(cell.ch, ' ');
         assert_eq!(cell.foreground, Color::Default);
         assert_eq!(cell.background, Color::Default);
+        assert_eq!(cell.underline_color, Color::Default);
         assert!(!cell.bold);
         assert!(!cell.faint);
         assert!(!cell.italic);
@@ -201,6 +204,7 @@ mod tests {
             ch: 'R',
             foreground: Color::Indexed(2),
             background: Color::Rgb(1, 2, 3),
+            underline_color: Color::Default,
             bold: true,
             faint: false,
             italic: false,
@@ -1022,6 +1026,22 @@ mod tests {
         assert_eq!(normal.ch, 'C');
         assert!(!normal.underline);
         assert!(!normal.double_underline);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_underline_color() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[4;58;5;196mA\x1b[59mB");
+
+        let colored = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(colored.ch, 'A');
+        assert!(colored.underline);
+        assert_eq!(colored.underline_color, Color::Indexed(196));
+
+        let default = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(default.ch, 'B');
+        assert_eq!(default.underline_color, Color::Default);
     }
 
     #[test]

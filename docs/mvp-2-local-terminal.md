@@ -131,9 +131,10 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - The app answers DEC request status string queries (`DECRQSS`,
   `DCS $ q <selector> ST`) for current SGR style (`m`), including bold, faint,
   italic, blink, underline, double underline, conceal, strikethrough, overline,
-  inverse video, and colors; cursor shape (`SP q`); and scrolling region (`r`),
-  preserving ST versus C1 ST response terminators and returning an invalid
-  status for unsupported selectors.
+  inverse video, foreground/background colors, and underline color; cursor
+  shape (`SP q`); and scrolling region (`r`), preserving ST versus C1 ST
+  response terminators and returning an invalid status for unsupported
+  selectors.
 - The app answers xterm version queries (`CSI > q` and `CSI > 0 q`) with a
   `DCS > | R-SSH <version> ST` response, including equivalent C1 CSI forms, so
   terminal programs can complete XTVERSION handshakes without leaking the query
@@ -274,8 +275,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   queries for colors, terminal name, true-color marker, current columns/rows,
   and unknown capability fallback.
 - DECRQSS response: unit tests cover current SGR, including faint, italic,
-  blink, double underline, and concealed text plus overline, cursor-shape, and
-  scroll-region status queries in both DCS and C1 DCS forms.
+  blink, double underline, underline color, and concealed text plus overline,
+  cursor-shape, and scroll-region status queries in both DCS and C1 DCS forms.
 - XTVERSION response: unit tests cover 7-bit and C1 CSI version queries and
   verify the query bytes are not written to visible output.
 - Session logging: unit tests cover teeing visible terminal output to a log

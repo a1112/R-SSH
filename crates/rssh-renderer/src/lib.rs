@@ -10,6 +10,7 @@ pub struct RenderCell {
     pub ch: char,
     pub foreground: Color,
     pub background: Color,
+    pub underline_color: Color,
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
@@ -379,11 +380,14 @@ fn render_cell(
     render_text_decorations(
         surface,
         cell,
-        origin_x,
-        origin_y,
-        cell_width,
-        cell_height,
+        Rect {
+            x: origin_x,
+            y: origin_y,
+            width: cell_width,
+            height: cell_height,
+        },
         foreground,
+        color_to_rgba(cell.underline_color, foreground),
     );
 }
 
@@ -407,44 +411,42 @@ fn clipped_cell_width(draw_x: u32, origin_x: u32, cell_width: u32, width: u32) -
 fn render_text_decorations(
     surface: &mut Surface<'_>,
     cell: &RenderCell,
-    origin_x: u32,
-    origin_y: u32,
-    cell_width: u32,
-    cell_height: u32,
+    cell_rect: Rect,
     foreground: [u8; 4],
+    underline_color: [u8; 4],
 ) {
     if cell.underline || cell.double_underline {
-        let underline_height = (cell_height / 8).max(1);
-        let lower_y = origin_y + cell_height.saturating_sub(underline_height);
+        let underline_height = (cell_rect.height / 8).max(1);
+        let lower_y = cell_rect.y + cell_rect.height.saturating_sub(underline_height);
         surface.fill_rect(
             Rect {
-                x: origin_x,
+                x: cell_rect.x,
                 y: lower_y,
-                width: cell_width,
+                width: cell_rect.width,
                 height: underline_height,
             },
-            foreground,
+            underline_color,
         );
         if cell.double_underline {
             surface.fill_rect(
                 Rect {
-                    x: origin_x,
+                    x: cell_rect.x,
                     y: lower_y.saturating_sub(underline_height.saturating_mul(2)),
-                    width: cell_width,
+                    width: cell_rect.width,
                     height: underline_height,
                 },
-                foreground,
+                underline_color,
             );
         }
     }
 
     if cell.overline {
-        let overline_height = (cell_height / 8).max(1);
+        let overline_height = (cell_rect.height / 8).max(1);
         surface.fill_rect(
             Rect {
-                x: origin_x,
-                y: origin_y,
-                width: cell_width,
+                x: cell_rect.x,
+                y: cell_rect.y,
+                width: cell_rect.width,
                 height: overline_height,
             },
             foreground,
@@ -452,15 +454,16 @@ fn render_text_decorations(
     }
 
     if cell.strikethrough {
-        let strike_height = (cell_height / 8).max(1);
-        let strike_y = origin_y
-            .saturating_add(cell_height / 2)
+        let strike_height = (cell_rect.height / 8).max(1);
+        let strike_y = cell_rect
+            .y
+            .saturating_add(cell_rect.height / 2)
             .saturating_sub(strike_height / 2);
         surface.fill_rect(
             Rect {
-                x: origin_x,
+                x: cell_rect.x,
                 y: strike_y,
-                width: cell_width,
+                width: cell_rect.width,
                 height: strike_height,
             },
             foreground,
@@ -660,6 +663,7 @@ impl TerminalRenderSnapshot {
                     ch: cell.ch,
                     foreground: cell.foreground,
                     background: cell.background,
+                    underline_color: cell.underline_color,
                     bold: cell.bold,
                     faint: cell.faint,
                     italic: cell.italic,
@@ -829,6 +833,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         ch: cell.ch,
         foreground: cell.foreground,
         background: cell.background,
+        underline_color: cell.underline_color,
         bold: cell.bold,
         faint: cell.faint,
         italic: cell.italic,
@@ -868,6 +873,7 @@ mod tests {
                 ch: 'R',
                 foreground: Color::Indexed(2),
                 background: Color::Rgb(1, 2, 3),
+                underline_color: Color::Default,
                 bold: true,
                 faint: false,
                 italic: false,
@@ -905,6 +911,7 @@ mod tests {
                 ch: 'I',
                 foreground: Color::Default,
                 background: Color::Default,
+                underline_color: Color::Default,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -985,6 +992,16 @@ mod tests {
     }
 
     #[test]
+    fn render_snapshot_preserves_underline_color() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[4;58;2;1;2;3mU");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert_eq!(snapshot.cells()[0].underline_color, Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
     fn render_snapshot_preserves_hyperlink_metadata() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
         terminal.feed(b"\x1b]8;;https://example.com\x1b\\ab\x1b]8;;\x1b\\");
@@ -1058,6 +1075,7 @@ mod tests {
                 ch: 'A',
                 foreground: Color::Rgb(255, 0, 0),
                 background: Color::Default,
+                underline_color: Color::Default,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1095,6 +1113,7 @@ mod tests {
                 ch: 'A',
                 foreground: Color::Default,
                 background: Color::Rgb(20, 0, 0),
+                underline_color: Color::Default,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1115,6 +1134,7 @@ mod tests {
                 ch: 'B',
                 foreground: Color::Default,
                 background: Color::Rgb(0, 20, 0),
+                underline_color: Color::Default,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1148,6 +1168,7 @@ mod tests {
                 ch: 'Z',
                 foreground: Color::Rgb(0, 0, 20),
                 background: Color::Rgb(0, 0, 20),
+                underline_color: Color::Default,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1264,6 +1285,27 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 16, 0, 7), [255, 0, 0, 255]);
         assert_eq!(pixel_at(&target, 16, 7, 7), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_draws_underlines_with_underline_color() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[4;38;2;255;0;0;58;2;0;255;0mA");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(snapshot.cells()[0].underline_color, Color::Rgb(0, 255, 0));
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 7), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 7), [0, 255, 0, 255]);
+        assert!(
+            target
+                .chunks_exact(4)
+                .any(|pixel| pixel == [255, 0, 0, 255]),
+            "glyph foreground should still use the foreground color"
+        );
     }
 
     #[test]
@@ -1419,6 +1461,7 @@ mod tests {
                 ch: 'A',
                 foreground: Color::Rgb(255, 0, 0),
                 background: Color::Rgb(0, 0, 255),
+                underline_color: Color::Default,
                 bold: false,
                 faint: false,
                 italic: false,

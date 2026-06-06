@@ -7,9 +7,9 @@ support the next PTY and SSH milestones.
 
 ## Completed Scope
 
-- `Cell` model with character, foreground color, background color, bold, faint,
-  italic, blink, underline, double underline, conceal, strikethrough, overline,
-  and inverse-video attributes.
+- `Cell` model with character, foreground color, background color, underline
+  color, bold, faint, italic, blink, underline, double underline, conceal,
+  strikethrough, overline, and inverse-video attributes.
 - `TerminalGrid` allocation, bounds-checked reads, and bounds-checked writes.
 - `Terminal::feed` for printable UTF-8 text.
 - Newline and carriage-return handling.
@@ -106,8 +106,9 @@ support the next PTY and SSH milestones.
   - bold, faint, italic, blink, underline, double underline, conceal,
     strikethrough, overline, inverse video
   - 8-color and bright 8-color foreground/background
-  - indexed and RGB extended color forms, including semicolon and xterm
-    colon-separated SGR parameters
+  - indexed and RGB extended color forms for foreground, background, and
+    underline color, including semicolon and xterm colon-separated SGR
+    parameters
 - CJK wide-character placement across two columns.
 - Terminal grid resizing preserves visible top-left cells, clamps cursor state,
   resets the active scroll region, and marks the resized viewport damaged.
@@ -185,8 +186,8 @@ cover:
 - DCS/SOS/PM/APC control-string filtering with split-sequence buffering
 - C1 byte-form OSC/ST control-string filtering
 - SGR color/style parsing, including inverse video, faint, blink, double
-  underline, conceal, strikethrough, overline, and colon-separated extended
-  color parameters
+  underline, underline color, conceal, strikethrough, overline, and
+  colon-separated extended color parameters
 - CJK wide-character layout
 - terminal grid resize growth/shrink, cursor clamping, and resize damage
 - merged damage tracking
