@@ -292,7 +292,7 @@ where
 }
 
 pub fn help_text() -> &'static str {
-    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] LOCAL [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-r | --recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
+    "R-SSH\n\nUsage:\n  rssh-app [window]\n  rssh-app doctor [--json]\n  rssh-app version [--json]\n  rssh-app self-test [--json]\n  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]\n  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]\n  rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]\n  rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-b FILE] [-B N] [-R N] [-D COMMAND] [-S PROGRAM] [-s SUBSYSTEM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] LOCAL [USER@]HOST:REMOTE\n  rssh-app scp [--preflight] [--metrics | --metrics-json] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] [USER@]HOST:REMOTE LOCAL\n  rssh-app scp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l USER | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-r | --recursive] [--log PATH] (--upload LOCAL REMOTE | --download REMOTE LOCAL)\n  rssh-app profile NAME [--file PATH]\n  rssh-app profile --check [--json] [--file PATH]\n  rssh-app profile --init [--file PATH] [--force]\n  rssh-app profile --list [--verbose | --json] [--file PATH]\n  rssh-app profile --show NAME [--json] [--file PATH]\n  rssh-app --help\n  rssh-app <command> --help\n"
 }
 
 fn subcommand_help_requested(args: &[String]) -> bool {
@@ -609,6 +609,12 @@ fn parse_scp(args: &[String]) -> Result<AppCommand, String> {
                 let local = PathBuf::from(required_option_value(args.get(index), "--download")?);
                 set_scp_transfer(&mut transfer, ScpTransfer::Download { remote, local })?;
             }
+            value if is_scp_value_passthrough(value) => {
+                parse_ssh_passthrough_option(args, &mut index, &mut state)?;
+            }
+            value if is_scp_flag_passthrough(value) => {
+                state.openssh_args.push(value.to_owned());
+            }
             value if !value.starts_with('-') => positionals.push(value.to_owned()),
             _ => parse_sftp_option(args, &mut index, &mut state)?,
         }
@@ -786,6 +792,9 @@ fn parse_sftp_option(
         value if is_openssh_value_passthrough(value) => {
             parse_ssh_passthrough_option(args, index, state)?;
         }
+        value if is_sftp_value_passthrough(value) => {
+            parse_ssh_passthrough_option(args, index, state)?;
+        }
         value if is_openssh_flag_passthrough(value) => {
             state.openssh_args.push(value.to_owned());
         }
@@ -911,6 +920,18 @@ fn parse_ssh_passthrough_option(
 
 fn is_openssh_value_passthrough(value: &str) -> bool {
     matches!(value, "-F" | "-o" | "-J")
+}
+
+fn is_sftp_value_passthrough(value: &str) -> bool {
+    matches!(value, "-b" | "-B" | "-c" | "-D" | "-R" | "-S" | "-s" | "-X")
+}
+
+fn is_scp_value_passthrough(value: &str) -> bool {
+    matches!(value, "-c" | "-D" | "-S" | "-X")
+}
+
+fn is_scp_flag_passthrough(value: &str) -> bool {
+    matches!(value, "-3" | "-O" | "-T" | "-B")
 }
 
 fn is_openssh_flag_passthrough(value: &str) -> bool {
@@ -2364,6 +2385,58 @@ mod tests {
     }
 
     #[test]
+    fn parses_sftp_openssh_batch_and_transfer_passthrough_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "sftp",
+            "-b",
+            "batch.txt",
+            "-B",
+            "32768",
+            "-R",
+            "64",
+            "-D",
+            "C:/tools/sftp-server.exe",
+            "-S",
+            "ssh",
+            "-s",
+            "sftp",
+            "-X",
+            "nrequests=128",
+            "-c",
+            "aes128-gcm@openssh.com",
+            "prod",
+        ])
+        .unwrap();
+
+        let AppCommand::Sftp(options) = parsed else {
+            panic!("expected sftp command");
+        };
+
+        assert_eq!(
+            options.openssh_args,
+            [
+                "-b",
+                "batch.txt",
+                "-B",
+                "32768",
+                "-R",
+                "64",
+                "-D",
+                "C:/tools/sftp-server.exe",
+                "-S",
+                "ssh",
+                "-s",
+                "sftp",
+                "-X",
+                "nrequests=128",
+                "-c",
+                "aes128-gcm@openssh.com",
+            ]
+        );
+    }
+
+    #[test]
     fn parses_sftp_preflight() {
         let parsed = parse_args(["rssh-app", "sftp", "--target", "prod", "--preflight"]).unwrap();
 
@@ -2594,6 +2667,51 @@ mod tests {
         };
 
         assert_eq!(options.openssh_args, ["-J", "bastion", "-C", "-vv"]);
+    }
+
+    #[test]
+    fn parses_scp_openssh_protocol_and_transfer_passthrough_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "scp",
+            "-3",
+            "-O",
+            "-T",
+            "-B",
+            "-D",
+            "C:/tools/sftp-server.exe",
+            "-S",
+            "ssh",
+            "-X",
+            "nrequests=128",
+            "-c",
+            "aes128-gcm@openssh.com",
+            "local.txt",
+            "prod:/tmp/remote.txt",
+        ])
+        .unwrap();
+
+        let AppCommand::Scp(options) = parsed else {
+            panic!("expected scp command");
+        };
+
+        assert_eq!(
+            options.openssh_args,
+            [
+                "-3",
+                "-O",
+                "-T",
+                "-B",
+                "-D",
+                "C:/tools/sftp-server.exe",
+                "-S",
+                "ssh",
+                "-X",
+                "nrequests=128",
+                "-c",
+                "aes128-gcm@openssh.com",
+            ]
+        );
     }
 
     #[test]
