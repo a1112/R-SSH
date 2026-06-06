@@ -317,8 +317,8 @@ wide threshold gates, bundled profile validation, a
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
   terminal damage, snapshot update/rebuild, full/dirty rendering, and
   input-write metrics with `window --metrics` or `window --metrics-json`;
-  the native window now draws a right-edge scrollback scrollbar instead of
-  putting scrollback position in the title;
+  the native window now draws a clickable and draggable right-edge scrollback
+  scrollbar instead of putting scrollback position in the title;
   `bench --json` now provides a repeatable
   terminal-runtime throughput, p95 chunk latency, offscreen renderer p95 frame
   time, rendered-pixel throughput, idle CPU, process memory, virtual memory,

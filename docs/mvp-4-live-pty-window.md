@@ -83,9 +83,10 @@ in the native `winit` window.
   native scrollback viewport while unmodified page/navigation keys remain
   available to the active PTY application.
 - The native window draws a right-edge scrollback scrollbar while history is
-  available; the thumb moves with mouse-wheel, Shift page/navigation, and
-  search-driven viewport changes. The title remains reserved for shell title
-  and search status.
+  available; users can click or drag it to move the viewport, and the thumb
+  also moves with mouse-wheel, Shift page/navigation, and search-driven
+  viewport changes. The title remains reserved for shell title and search
+  status.
 - The native window tracks PTY-side xterm mouse modes (`1000`/`1002`/`1003`
   and `1006`) and forwards button, wheel, drag, and any-motion events as
   legacy or SGR mouse reports when reporting is enabled.
@@ -248,8 +249,9 @@ MVP 4 tests cover:
 - renderer xterm 256-color palette mapping for indexed terminal colors
 - native window scrollback viewport clamping and mouse-wheel movement
 - native window Shift scrollback shortcuts without stealing unmodified page keys
-- native window scrollback scrollbar overlay, including search-driven history
-  viewport changes while the title remains reserved for search status
+- native window scrollback scrollbar overlay, including click/drag navigation
+  and search-driven history viewport changes while the title remains reserved
+  for search status
 - native window xterm mouse-mode tracking and button/wheel/drag/motion report
   encoding
 
@@ -318,10 +320,11 @@ Recommended MVP 5 targets:
 MVP 5 should replace the minimal bitmap-font renderer with a production-grade
 text rendering path and add basic terminal UX. The terminal core now has bounded
 main-screen scrollback storage, the renderer can build scrollback viewport
-snapshots, the native window can move that viewport with mouse-wheel input and
-Shift page/navigation shortcuts, the right-edge scrollbar now shows scrollback
-position in the framebuffer, and live bottom PTY output can update the existing
-render snapshot and framebuffer cells from terminal damage regions.
+snapshots, the native window can move that viewport with mouse-wheel input,
+Shift page/navigation shortcuts, and click/drag scrollbar input, the right-edge
+scrollbar now shows scrollback position in the framebuffer, and live bottom PTY
+output can update the existing render snapshot and framebuffer cells from
+terminal damage regions.
 
 1. Carry damage regions through the future GPU/text renderer instead of
    repainting the entire frame.

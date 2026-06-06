@@ -11,7 +11,9 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use pixels::{Pixels, SurfaceTexture};
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_pty::{PtyCommand, PtySession, PtySize};
-use rssh_renderer::{PixelRenderer, RenderGeometry, ScrollbackScrollbar, TerminalRenderSnapshot};
+use rssh_renderer::{
+    PixelRenderer, RenderGeometry, SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot,
+};
 #[cfg(test)]
 use rssh_terminal::Terminal;
 use serde::Serialize;
@@ -93,10 +95,12 @@ struct NativeWindowApp {
     reader_thread: Option<thread::JoinHandle<()>>,
     modifiers: ModifiersState,
     scrollback_offset: usize,
+    mouse_pixel_position: Option<PhysicalPosition<f64>>,
     mouse_position: Option<(u16, u16)>,
     active_mouse_button: Option<MouseButton>,
     selection: Option<WindowSelection>,
     selecting: bool,
+    scrollbar_dragging: bool,
     last_left_click: Option<WindowClick>,
     search: Option<WindowSearch>,
     osc52_policy: Osc52Policy,
@@ -442,10 +446,12 @@ impl NativeWindowApp {
             reader_thread: None,
             modifiers: ModifiersState::empty(),
             scrollback_offset: 0,
+            mouse_pixel_position: None,
             mouse_position: None,
             active_mouse_button: None,
             selection: None,
             selecting: false,
+            scrollbar_dragging: false,
             last_left_click: None,
             search: None,
             osc52_policy,
@@ -509,6 +515,7 @@ impl NativeWindowApp {
 
     fn draw_frame(&mut self, event_loop: &ActiveEventLoop) {
         let scrollbar = self.scrollback_scrollbar();
+        let geometry = self.render_geometry();
         let Some(pixels) = self.pixels.as_mut() else {
             return;
         };
@@ -521,7 +528,7 @@ impl NativeWindowApp {
             &mut self.pending_frame_damage,
             &mut self.frame_needs_full_repaint,
             pixels.frame_mut(),
-            RenderGeometry::new(self.frame_width, self.frame_height, CELL_WIDTH, CELL_HEIGHT),
+            geometry,
         );
         self.metrics.record_frame_render_mode(mode);
 
@@ -544,6 +551,7 @@ impl NativeWindowApp {
     #[cfg(test)]
     fn render_framebuffer(&mut self, frame: &mut [u8]) -> FrameRenderMode {
         let scrollbar = self.scrollback_scrollbar();
+        let geometry = self.render_geometry();
         let mode = render_framebuffer_with_state(
             &self.renderer,
             &self.snapshot,
@@ -551,7 +559,7 @@ impl NativeWindowApp {
             &mut self.pending_frame_damage,
             &mut self.frame_needs_full_repaint,
             frame,
-            RenderGeometry::new(self.frame_width, self.frame_height, CELL_WIDTH, CELL_HEIGHT),
+            geometry,
         );
         self.metrics.record_frame_render_mode(mode);
         mode
@@ -718,6 +726,10 @@ impl NativeWindowApp {
         };
         self.update_active_mouse_button(state, button);
 
+        if self.handle_scrollbar_mouse_input(state, button) {
+            return Ok(true);
+        }
+
         let mode = self.runtime.mouse_input_mode();
         if !mode.reporting_enabled() {
             return Ok(self.handle_selection_mouse_input(state, button));
@@ -744,11 +756,18 @@ impl NativeWindowApp {
     }
 
     fn handle_cursor_moved(&mut self, position: PhysicalPosition<f64>) -> io::Result<bool> {
+        self.mouse_pixel_position = Some(position);
         let next_position = window_mouse_cell(position);
-        if self.mouse_position == next_position {
+        let mouse_cell_changed = self.mouse_position != next_position;
+        self.mouse_position = next_position;
+
+        if self.scrollbar_dragging {
+            return Ok(self.scroll_to_scrollbar_position(position));
+        }
+
+        if !mouse_cell_changed {
             return Ok(false);
         }
-        self.mouse_position = next_position;
 
         let mode = self.runtime.mouse_input_mode();
         if !mode.reporting_enabled() {
@@ -777,6 +796,88 @@ impl NativeWindowApp {
 
         self.write_pty_bytes(&bytes)?;
         Ok(true)
+    }
+
+    fn handle_scrollbar_mouse_input(&mut self, state: ElementState, button: MouseButton) -> bool {
+        if button != MouseButton::Left {
+            return false;
+        }
+
+        match state {
+            ElementState::Pressed => {
+                let Some(position) = self.mouse_pixel_position else {
+                    return false;
+                };
+                if !self.scrollbar_hit_test(position) {
+                    return false;
+                }
+
+                self.scrollbar_dragging = true;
+                self.scroll_to_scrollbar_position(position)
+            }
+            ElementState::Released if self.scrollbar_dragging => {
+                self.scrollbar_dragging = false;
+                true
+            }
+            ElementState::Released => false,
+        }
+    }
+
+    fn scrollbar_hit_test(&self, position: PhysicalPosition<f64>) -> bool {
+        if self.scrollback_scrollbar().is_none()
+            || self.frame_width < SCROLLBAR_WIDTH
+            || self.frame_height == 0
+            || !position.x.is_finite()
+            || !position.y.is_finite()
+            || position.x < 0.0
+            || position.y < 0.0
+            || position.y >= f64::from(self.frame_height)
+        {
+            return false;
+        }
+
+        let track_left = f64::from(self.frame_width.saturating_sub(SCROLLBAR_WIDTH));
+        position.x >= track_left && position.x < f64::from(self.frame_width)
+    }
+
+    fn scroll_to_scrollbar_position(&mut self, position: PhysicalPosition<f64>) -> bool {
+        let Some(offset) = self.scrollbar_offset_from_pixel_y(position.y) else {
+            return false;
+        };
+
+        self.selecting = false;
+        self.last_left_click = None;
+
+        let old_offset = self.scrollback_offset;
+        let had_overlay = self.selection.is_some() || self.search.is_some();
+        self.scrollback_offset = offset.min(self.runtime.terminal().scrollback().len());
+        self.selection = None;
+        self.search = None;
+
+        if self.scrollback_offset != old_offset || had_overlay {
+            self.refresh_snapshot();
+            self.apply_window_title();
+        }
+
+        true
+    }
+
+    fn scrollbar_offset_from_pixel_y(&self, y: f64) -> Option<usize> {
+        if !y.is_finite() || self.frame_height == 0 {
+            return None;
+        }
+
+        let y = y.clamp(0.0, f64::from(self.frame_height.saturating_sub(1)));
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let y = y.floor() as u32;
+        Some(
+            self.scrollback_scrollbar()?
+                .offset_from_pixel_y(y, self.render_geometry()),
+        )
+    }
+
+    fn render_geometry(&self) -> RenderGeometry {
+        RenderGeometry::new(self.frame_width, self.frame_height, CELL_WIDTH, CELL_HEIGHT)
     }
 
     fn update_active_mouse_button(&mut self, state: ElementState, button: MouseButton) {
@@ -2663,6 +2764,54 @@ mod tests {
             frame_pixel_at(&frame, FRAME_WIDTH as usize, FRAME_WIDTH as usize - 1, 0),
             SCROLLBAR_THUMB_COLOR
         );
+    }
+
+    #[test]
+    fn window_app_clicking_scrollback_scrollbar_jumps_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\nbb\ncc\ndd\nee").unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(FRAME_WIDTH - 1), 0.0))
+            .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(app.scrollback_offset, 3);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_dragging_scrollback_scrollbar_updates_viewport() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\nbb\ncc\ndd\nee").unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(FRAME_WIDTH - 1),
+            f64::from(FRAME_HEIGHT - 1),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(FRAME_WIDTH - 1), 0.0))
+            .unwrap();
+
+        assert_eq!(app.scrollback_offset, 3);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!app.selecting);
     }
 
     #[test]

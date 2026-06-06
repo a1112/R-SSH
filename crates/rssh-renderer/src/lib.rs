@@ -56,8 +56,8 @@ impl RenderGeometry {
 
 pub const SCROLLBAR_TRACK_COLOR: [u8; 4] = [46, 46, 46, 255];
 pub const SCROLLBAR_THUMB_COLOR: [u8; 4] = [172, 172, 172, 255];
+pub const SCROLLBAR_WIDTH: u32 = 4;
 
-const SCROLLBAR_WIDTH: u32 = 4;
 const MIN_SCROLLBAR_THUMB_HEIGHT: u32 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -83,6 +83,28 @@ impl ScrollbackScrollbar {
             viewport_rows,
             scrollback_offset: scrollback_offset.min(scrollback_lines),
         })
+    }
+
+    #[must_use]
+    pub fn offset_from_pixel_y(self, y: u32, geometry: RenderGeometry) -> usize {
+        if geometry.target_height == 0 {
+            return self.scrollback_offset;
+        }
+
+        let thumb_height = scrollbar_thumb_height(self, geometry.target_height);
+        let travel = geometry.target_height.saturating_sub(thumb_height);
+        if travel == 0 {
+            return 0;
+        }
+
+        let y = y.min(geometry.target_height.saturating_sub(1));
+        let live_distance = u64::from(y)
+            .saturating_mul(self.scrollback_lines as u64)
+            .saturating_add(u64::from(travel / 2))
+            / u64::from(travel);
+        let live_distance = usize::try_from(live_distance).unwrap_or(self.scrollback_lines);
+        self.scrollback_lines
+            .saturating_sub(live_distance.min(self.scrollback_lines))
     }
 }
 
@@ -361,18 +383,7 @@ fn scrollbar_thumb_rect(
     geometry: RenderGeometry,
     track_width: u32,
 ) -> Rect {
-    let viewport_rows = u64::from(scrollbar.viewport_rows);
-    let total_rows = viewport_rows.saturating_add(scrollbar.scrollback_lines as u64);
-    let target_height = u64::from(geometry.target_height);
-    let proportional_height = if total_rows == 0 {
-        target_height
-    } else {
-        target_height.saturating_mul(viewport_rows) / total_rows
-    };
-    let thumb_height = u32::try_from(proportional_height)
-        .unwrap_or(geometry.target_height)
-        .max(MIN_SCROLLBAR_THUMB_HEIGHT)
-        .min(geometry.target_height);
+    let thumb_height = scrollbar_thumb_height(scrollbar, geometry.target_height);
     let travel = geometry.target_height.saturating_sub(thumb_height);
     let scrollback_lines = scrollbar.scrollback_lines as u64;
     let live_distance = scrollbar
@@ -391,6 +402,22 @@ fn scrollbar_thumb_rect(
         width: track_width,
         height: thumb_height,
     }
+}
+
+fn scrollbar_thumb_height(scrollbar: ScrollbackScrollbar, target_height: u32) -> u32 {
+    let viewport_rows = u64::from(scrollbar.viewport_rows);
+    let total_rows = viewport_rows.saturating_add(scrollbar.scrollback_lines as u64);
+    let target_height_u64 = u64::from(target_height);
+    let proportional_height = if total_rows == 0 {
+        target_height_u64
+    } else {
+        target_height_u64.saturating_mul(viewport_rows) / total_rows
+    };
+
+    u32::try_from(proportional_height)
+        .unwrap_or(target_height)
+        .max(MIN_SCROLLBAR_THUMB_HEIGHT)
+        .min(target_height)
 }
 
 fn color_to_rgba(color: Color, default: [u8; 4]) -> [u8; 4] {
@@ -922,6 +949,15 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 16, 15, 0), SCROLLBAR_THUMB_COLOR);
         assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_TRACK_COLOR);
+    }
+
+    #[test]
+    fn scrollback_scrollbar_maps_pixel_y_to_viewport_offset() {
+        let geometry = RenderGeometry::new(8, 100, 1, 1);
+        let scrollbar = ScrollbackScrollbar::new(10, 10, 0).unwrap();
+
+        assert_eq!(scrollbar.offset_from_pixel_y(0, geometry), 10);
+        assert_eq!(scrollbar.offset_from_pixel_y(99, geometry), 0);
     }
 
     #[test]
