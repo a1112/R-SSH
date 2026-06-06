@@ -1006,9 +1006,7 @@ impl TerminalOutputFilter {
 
         while let Some((index, event)) = self.find_next_event() {
             let prefix = self.pending[..index].to_vec();
-            self.write_visible_bytes(&prefix, output)?;
-            self.mode_tracker.process_without_emitting(&prefix);
-            self.feed_mirror_bytes(&prefix);
+            self.write_visible_bytes_and_update_state(&prefix, output)?;
 
             let consumed_end = index + event.consumed;
             let sequence = self.pending[index..consumed_end].to_vec();
@@ -1050,9 +1048,7 @@ impl TerminalOutputFilter {
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
             let visible = self.pending[..writable].to_vec();
-            self.write_visible_bytes(&visible, output)?;
-            self.mode_tracker.process_without_emitting(&visible);
-            self.feed_mirror_bytes(&visible);
+            self.write_visible_bytes_and_update_state(&visible, output)?;
             self.pending.drain(..writable);
         }
 
@@ -1075,6 +1071,21 @@ impl TerminalOutputFilter {
 
         output.write_all(&self.synchronized_output_buffer)?;
         self.synchronized_output_buffer.clear();
+        Ok(())
+    }
+
+    fn write_visible_bytes_and_update_state(
+        &mut self,
+        bytes: &[u8],
+        output: &mut dyn Write,
+    ) -> io::Result<()> {
+        let was_synchronized = self.mode_tracker.synchronized_output();
+        self.write_visible_bytes(bytes, output)?;
+        self.mode_tracker.process_without_emitting(bytes);
+        if was_synchronized && !self.mode_tracker.synchronized_output() {
+            self.flush_synchronized_output_buffer(output)?;
+        }
+        self.feed_mirror_bytes(bytes);
         Ok(())
     }
 
@@ -1249,18 +1260,14 @@ impl TerminalOutputFilter {
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
         if let Some(drop_start) = find_incomplete_control_sequence_start(&self.pending) {
             let visible = self.pending[..drop_start].to_vec();
-            self.write_visible_bytes(&visible, output)?;
-            self.mode_tracker.process_without_emitting(&visible);
-            self.feed_mirror_bytes(&visible);
+            self.write_visible_bytes_and_update_state(&visible, output)?;
             self.pending.clear();
             self.flush_synchronized_output_buffer(output)?;
             return Ok(());
         }
 
         let visible = self.pending.clone();
-        self.write_visible_bytes(&visible, output)?;
-        self.mode_tracker.process_without_emitting(&visible);
-        self.feed_mirror_bytes(&visible);
+        self.write_visible_bytes_and_update_state(&visible, output)?;
         self.pending.clear();
         self.flush_synchronized_output_buffer(output)?;
         Ok(())
@@ -3540,6 +3547,36 @@ mod tests {
         );
     }
 
+    #[test]
+    fn resets_tracked_modes_on_ris_from_pty_output() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?1;1004;2004;2026h\x1b[?1002;1006h\x1b=", |_| {});
+        tracker.process(b"\x1bc", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::ApplicationCursorKeys(false),
+                TerminalModeChange::ApplicationKeypad(false),
+                TerminalModeChange::BracketedPaste(false),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::None,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Focus(false),
+                TerminalModeChange::SynchronizedOutput(false),
+            ]
+        );
+        assert!(!tracker.application_cursor_keys());
+        assert!(!tracker.application_keypad());
+        assert!(!tracker.bracketed_paste());
+        assert!(!tracker.focus_reporting());
+        assert!(!tracker.synchronized_output());
+        assert_eq!(tracker.mouse_input_mode(), MouseInputMode::default());
+    }
+
     fn left_mouse_down() -> Event {
         Event::Mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -4498,6 +4535,7 @@ mod tests {
                   \x1b[?25$p \x1b[?25l\x1b[?25$p \
                   \x1b[?6$p \x1b[?6h\x1b[?6$p \
                   \x1b[?47$p \x1b[?47h\x1b[?47$p\x1b[?47l\x1b[?47$p \
+                  \x1b[?1048$p \x1b[?1048h\x1b[?1048$p\x1b[?1048l\x1b[?1048$p \
                   \x1b[?1047$p \x1b[?1047h\x1b[?1047$p\x1b[?1047l\x1b[?1047$p \
                   \x1b[?1049$p \x1b[?1049h\x1b[?1049$p\x1b[?1049l\x1b[?1049$p",
                 &mut output,
@@ -4511,7 +4549,7 @@ mod tests {
 
         assert_eq!(
             output,
-            b" \x1b[?7l  \x1b[?25l  \x1b[?6h  \x1b[?47h\x1b[?47l  \x1b[?1047h\x1b[?1047l  \x1b[?1049h\x1b[?1049l"
+            b" \x1b[?7l  \x1b[?25l  \x1b[?6h  \x1b[?47h\x1b[?47l  \x1b[?1048h\x1b[?1048l  \x1b[?1047h\x1b[?1047l  \x1b[?1049h\x1b[?1049l"
         );
         assert_eq!(
             responses,
@@ -4519,9 +4557,59 @@ mod tests {
               \x1b[?25;1$y\x1b[?25;2$y\
               \x1b[?6;2$y\x1b[?6;1$y\
               \x1b[?47;2$y\x1b[?47;1$y\x1b[?47;2$y\
+              \x1b[?1048;2$y\x1b[?1048;1$y\x1b[?1048;2$y\
               \x1b[?1047;2$y\x1b[?1047;1$y\x1b[?1047;2$y\
               \x1b[?1049;2$y\x1b[?1049;1$y\x1b[?1049;2$y"
         );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_private_mode_status_defaults_after_terminal_reset() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b[?1;6;25;47;1048;1049;1000;1006;1004;2004h\x1b[?7l\x1b=\x1bc\
+                  \x1b[?1$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?47$p\x1b[?1048$p\
+                  \x1b[?1049$p\x1b[?1000$p\x1b[?1006$p\x1b[?1004$p\x1b[?2004$p",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            responses,
+            b"\x1b[?1;2$y\x1b[?6;2$y\x1b[?7;1$y\x1b[?25;1$y\x1b[?47;2$y\x1b[?1048;2$y\x1b[?1049;2$y\x1b[?1000;2$y\x1b[?1006;2$y\x1b[?1004;2$y\x1b[?2004;2$y"
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_flushes_synchronized_output_on_terminal_reset() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b[?2026hmid\x1bcafter\x1b[?2026$p",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforemid\x1bcafter");
+        assert_eq!(responses, b"\x1b[?2026;2$y");
+        assert!(!filter.mode_tracker.synchronized_output());
     }
 
     #[test]

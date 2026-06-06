@@ -149,6 +149,7 @@ impl TerminalModeTracker {
     const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
     const C1_CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x9b?";
     const NUMERIC_KEYPAD_PREFIX: &'static [u8] = b"\x1b>";
+    const RESET_PREFIX: &'static [u8] = b"\x1bc";
 
     pub(crate) fn process(&mut self, bytes: &[u8], mut emit: impl FnMut(TerminalModeChange)) {
         self.pending.extend_from_slice(bytes);
@@ -169,6 +170,10 @@ impl TerminalModeTracker {
             match start.sequence {
                 ModeSequence::ApplicationKeypad(enabled) => {
                     self.set_application_keypad(enabled, &mut emit);
+                    self.pending.drain(..2);
+                }
+                ModeSequence::Reset => {
+                    self.reset(&mut emit);
                     self.pending.drain(..2);
                 }
                 ModeSequence::CsiPrivateMode { prefix_len } => {
@@ -228,6 +233,7 @@ impl TerminalModeTracker {
                 Self::NUMERIC_KEYPAD_PREFIX,
                 ModeSequence::ApplicationKeypad(false),
             ),
+            (Self::RESET_PREFIX, ModeSequence::Reset),
         ]
         .into_iter()
         .filter_map(|(prefix, sequence)| {
@@ -324,6 +330,10 @@ impl TerminalModeTracker {
                 self.tracked_modes
                     .set(TrackedTerminalModes::ALTERNATE_SCREEN_47, enabled);
             }
+            1048 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::PRIVATE_CURSOR_SAVE, enabled);
+            }
             1047 => {
                 self.tracked_modes
                     .set(TrackedTerminalModes::ALTERNATE_SCREEN_1047, enabled);
@@ -333,6 +343,37 @@ impl TerminalModeTracker {
                     .set(TrackedTerminalModes::ALTERNATE_SCREEN_1049, enabled);
             }
             _ => {}
+        }
+    }
+
+    fn reset(&mut self, emit: &mut impl FnMut(TerminalModeChange)) {
+        let application_cursor_keys = self.application_cursor_keys();
+        let application_keypad = self.application_keypad();
+        let bracketed_paste = self.bracketed_paste();
+        let mouse_input_mode = self.mouse_input_mode();
+        let focus_reporting = self.focus_reporting();
+        let synchronized_output = self.synchronized_output();
+
+        self.mouse_modes = MouseModes::default();
+        self.tracked_modes = TrackedTerminalModes::default();
+
+        if application_cursor_keys {
+            emit(TerminalModeChange::ApplicationCursorKeys(false));
+        }
+        if application_keypad {
+            emit(TerminalModeChange::ApplicationKeypad(false));
+        }
+        if bracketed_paste {
+            emit(TerminalModeChange::BracketedPaste(false));
+        }
+        if mouse_input_mode != MouseInputMode::default() {
+            emit(TerminalModeChange::Mouse(MouseInputMode::default()));
+        }
+        if focus_reporting {
+            emit(TerminalModeChange::Focus(false));
+        }
+        if synchronized_output {
+            emit(TerminalModeChange::SynchronizedOutput(false));
         }
     }
 
@@ -398,6 +439,10 @@ impl TerminalModeTracker {
             ),
             1000 | 1002 | 1003 | 1006 => self.mouse_modes.report_value(mode).unwrap_or(0),
             1004 => mode_report_value(self.focus_reporting()),
+            1048 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::PRIVATE_CURSOR_SAVE),
+            ),
             1047 => mode_report_value(
                 self.tracked_modes
                     .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_1047),
@@ -418,6 +463,7 @@ impl TerminalModeTracker {
             Self::C1_CSI_PRIVATE_MODE_PREFIX,
             Self::APPLICATION_KEYPAD_PREFIX,
             Self::NUMERIC_KEYPAD_PREFIX,
+            Self::RESET_PREFIX,
         ]
         .into_iter()
         .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
@@ -509,6 +555,7 @@ impl TrackedTerminalModes {
     const ALTERNATE_SCREEN_47: u16 = 1 << 8;
     const ALTERNATE_SCREEN_1047: u16 = 1 << 9;
     const ALTERNATE_SCREEN_1049: u16 = 1 << 10;
+    const PRIVATE_CURSOR_SAVE: u16 = 1 << 11;
 
     fn set(&mut self, mode: u16, enabled: bool) -> bool {
         let before = self.0;
@@ -630,6 +677,7 @@ struct ModeSequenceStart {
 enum ModeSequence {
     CsiPrivateMode { prefix_len: usize },
     ApplicationKeypad(bool),
+    Reset,
 }
 
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {

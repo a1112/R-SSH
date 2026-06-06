@@ -2148,6 +2148,7 @@ mod tests {
               \x1b[?25$p \x1b[?25l\x1b[?25$p \
               \x1b[?6$p \x1b[?6h\x1b[?6$p \
               \x1b[?47$p \x1b[?47h\x1b[?47$p\x1b[?47l\x1b[?47$p \
+              \x1b[?1048$p \x1b[?1048h\x1b[?1048$p\x1b[?1048l\x1b[?1048$p \
               \x1b[?1047$p \x1b[?1047h\x1b[?1047$p\x1b[?1047l\x1b[?1047$p \
               \x1b[?1049$p \x1b[?1049h\x1b[?1049$p\x1b[?1049l\x1b[?1049$p",
         );
@@ -2164,12 +2165,44 @@ mod tests {
                 b"\x1b[?47;2$y".to_vec(),
                 b"\x1b[?47;1$y".to_vec(),
                 b"\x1b[?47;2$y".to_vec(),
+                b"\x1b[?1048;2$y".to_vec(),
+                b"\x1b[?1048;1$y".to_vec(),
+                b"\x1b[?1048;2$y".to_vec(),
                 b"\x1b[?1047;2$y".to_vec(),
                 b"\x1b[?1047;1$y".to_vec(),
                 b"\x1b[?1047;2$y".to_vec(),
                 b"\x1b[?1049;2$y".to_vec(),
                 b"\x1b[?1049;1$y".to_vec(),
                 b"\x1b[?1049;2$y".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn answers_private_mode_status_defaults_after_terminal_reset() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(
+            b"\x1b[?1;6;25;47;1048;1049;1000;1006;1004;2004;2026h\x1b[?7l\x1b=\x1bc\
+              \x1b[?1$p\x1b[?6$p\x1b[?7$p\x1b[?25$p\x1b[?47$p\x1b[?1048$p\
+              \x1b[?1049$p\x1b[?1000$p\x1b[?1006$p\x1b[?1004$p\x1b[?2004$p\x1b[?2026$p",
+        );
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?1;2$y".to_vec(),
+                b"\x1b[?6;2$y".to_vec(),
+                b"\x1b[?7;1$y".to_vec(),
+                b"\x1b[?25;1$y".to_vec(),
+                b"\x1b[?47;2$y".to_vec(),
+                b"\x1b[?1048;2$y".to_vec(),
+                b"\x1b[?1049;2$y".to_vec(),
+                b"\x1b[?1000;2$y".to_vec(),
+                b"\x1b[?1006;2$y".to_vec(),
+                b"\x1b[?1004;2$y".to_vec(),
+                b"\x1b[?2004;2$y".to_vec(),
+                b"\x1b[?2026;2$y".to_vec(),
             ]
         );
     }

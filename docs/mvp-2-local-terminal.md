@@ -47,15 +47,16 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - The console path answers DECRQM private-mode status queries
   (`CSI ? <mode> $ p`) for tracked terminal modes, including application cursor
   keys (`1`), origin mode (`6`), auto-wrap (`7`), cursor visibility (`25`),
-  alternate-screen modes (`47`/`1047`/`1049`), mouse reporting
-  (`1000`/`1002`/`1003`), SGR mouse (`1006`), focus reporting (`1004`),
-  bracketed paste (`2004`), and synchronized output (`2026`). Unknown modes
-  return an xterm-style unknown status.
+  alternate-screen modes (`47`/`1047`/`1049`), private cursor save/restore
+  (`1048`), mouse reporting (`1000`/`1002`/`1003`), SGR mouse (`1006`), focus
+  reporting (`1004`), bracketed paste (`2004`), and synchronized output
+  (`2026`). `RIS` (`ESC c`) resets tracked mode state to defaults. Unknown
+  modes return an xterm-style unknown status.
 - The console output filter handles xterm synchronized output
   (`ESC[?2026h/l`) by consuming the mode markers, buffering visible host-console
   writes while the mode is enabled, continuing to update its mirror terminal and
-  answer terminal queries, and flushing buffered bytes when the mode resets or
-  the PTY output stream ends.
+  answer terminal queries, and flushing buffered bytes when the mode resets,
+  when `RIS` resets terminal modes, or when the PTY output stream ends.
 - `rssh-app local --mouse` allows terminal applications to enable and disable
   host mouse capture and focus events through xterm PTY output modes, then
   forwards active reports as xterm mouse and focus sequences. Mouse mode
@@ -311,12 +312,14 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   reporting granularity, `1006` SGR protocol toggling, and C1 CSI private mode
   input toggles. Unit tests also cover mode-like bytes inside OSC and
   ST-terminated control-string payloads, plus DECRQM private-mode status
-  queries for tracked input, display, alternate-screen, and unknown modes.
+  queries for tracked input, display, alternate-screen/private-cursor, reset,
+  and unknown modes.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
 - Synchronized output negotiation: unit tests cover xterm `ESC[?2026h/l`
   tracking, DECRQM status responses on the shared console/runtime path,
-  console-side visible-output buffering until reset, and EOF flushing.
+  console-side visible-output buffering until explicit reset, `RIS` reset, and
+  EOF flushing.
 - Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`
   tracking and SS3 arrow-key encoding.
 - Application keypad negotiation: unit tests cover xterm/VT `ESC=` and `ESC>`
