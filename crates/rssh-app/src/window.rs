@@ -1842,6 +1842,10 @@ fn regex_window_search_matches(
     pattern
         .find_iter(&text)
         .filter_map(|matched| {
+            if matched.start() == matched.end() {
+                return None;
+            }
+
             let start_index = *byte_to_cell_index.get(matched.start())?;
             let end_byte = matched.end().checked_sub(1)?;
             let end_index = *byte_to_cell_index.get(end_byte)?;
@@ -3344,6 +3348,21 @@ mod tests {
         assert!(snapshot_cell(&app.snapshot, 0, 3).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 1, 3).unwrap().inverse);
         assert_eq!(app.scrollback_offset, 1);
+    }
+
+    #[test]
+    fn window_search_ignores_zero_width_regex_matches() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(5, 1));
+        app.handle_pty_output(b"ab cd").unwrap();
+
+        assert!(!app.update_search_query("regex:\\b"));
+
+        assert!(app.selection.is_none());
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH - Search: regex:\\b (no match)"
+        );
     }
 
     #[test]

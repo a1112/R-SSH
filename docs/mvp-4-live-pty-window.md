@@ -67,9 +67,10 @@ in the native `winit` window.
 - The native window supports scrollback search with `Ctrl+F`, `Enter`/`F3` for
   the next match, `Shift+F3` for the previous match, and `Esc` to exit search
   mode. Search is literal by default; use `regex:<pattern>` to run a regular
-  expression search, where invalid regex input behaves as no match. Matches can
-  span visual row boundaries across scrollback and the live grid, scroll the
-  viewport into history, and use the selection highlight.
+  expression search, where invalid regex input and zero-width regex matches
+  behave as no match. Matches can span visual row boundaries across scrollback
+  and the live grid, scroll the viewport into history, and use the selection
+  highlight.
 - The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
   and sends SS3 arrow-key sequences while it is enabled.
 - The native window tracks PTY-side application keypad mode (`ESC=` / `ESC>`)
@@ -219,7 +220,8 @@ MVP 4 tests cover:
   double-click word selection, triple-click line selection, and copy shortcut
   detection
 - native window literal and `regex:<pattern>` scrollback search across visual
-  rows, next/previous navigation, and search shortcut detection
+  rows, zero-width regex filtering, next/previous navigation, and search
+  shortcut detection
 - native window custom startup command parsing and configured PTY command
   storage
 - shared PTY command terminal environment defaults for `TERM` and `COLORTERM`
