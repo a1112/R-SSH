@@ -11,7 +11,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use pixels::{Pixels, SurfaceTexture};
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_pty::{PtyCommand, PtySession, PtySize};
-use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
+use rssh_renderer::{PixelRenderer, RenderGeometry, TerminalRenderSnapshot};
 #[cfg(test)]
 use rssh_terminal::Terminal;
 use serde::Serialize;
@@ -103,6 +103,8 @@ struct NativeWindowApp {
     clipboard_writer: Box<dyn FnMut(&str) -> bool + Send>,
     clipboard_reader: Box<dyn FnMut() -> Option<String> + Send>,
     metrics: WindowMetrics,
+    pending_frame_damage: Vec<DamageRegion>,
+    frame_needs_full_repaint: bool,
 }
 
 #[derive(Debug)]
@@ -110,6 +112,12 @@ enum WindowUserEvent {
     Output(Vec<u8>),
     Exited,
     ReadError(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrameRenderMode {
+    Full,
+    Damage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -124,6 +132,8 @@ struct WindowMetricsSnapshot {
     snapshot_damage_updates: u64,
     snapshot_rebuilds: u64,
     render_frames: u64,
+    full_render_frames: u64,
+    dirty_render_frames: u64,
     render_frame_p95_us: u128,
     input_writes: u64,
     input_bytes: u64,
@@ -146,6 +156,8 @@ damaged_cells={}
 snapshot_damage_updates={}
 snapshot_rebuilds={}
 render_frames={}
+full_render_frames={}
+dirty_render_frames={}
 render_frame_p95_us={}
 input_writes={}
 input_bytes={}
@@ -162,6 +174,8 @@ bells={}
             self.snapshot_damage_updates,
             self.snapshot_rebuilds,
             self.render_frames,
+            self.full_render_frames,
+            self.dirty_render_frames,
             self.render_frame_p95_us,
             self.input_writes,
             self.input_bytes,
@@ -188,6 +202,8 @@ struct WindowMetrics {
     snapshot_damage_updates: u64,
     snapshot_rebuilds: u64,
     render_frame_times: Vec<Duration>,
+    full_render_frames: u64,
+    dirty_render_frames: u64,
     input_writes: u64,
     input_bytes: u64,
     input_write_times: Vec<Duration>,
@@ -208,6 +224,8 @@ impl WindowMetrics {
             snapshot_damage_updates: 0,
             snapshot_rebuilds: 0,
             render_frame_times: Vec::new(),
+            full_render_frames: 0,
+            dirty_render_frames: 0,
             input_writes: 0,
             input_bytes: 0,
             input_write_times: Vec::new(),
@@ -263,6 +281,17 @@ impl WindowMetrics {
         self.render_frame_times.push(duration);
     }
 
+    fn record_frame_render_mode(&mut self, mode: FrameRenderMode) {
+        match mode {
+            FrameRenderMode::Full => {
+                self.full_render_frames = self.full_render_frames.saturating_add(1);
+            }
+            FrameRenderMode::Damage => {
+                self.dirty_render_frames = self.dirty_render_frames.saturating_add(1);
+            }
+        }
+    }
+
     fn record_input_write(&mut self, byte_count: usize, duration: Duration) {
         self.input_writes = self.input_writes.saturating_add(1);
         self.input_bytes = self
@@ -289,6 +318,8 @@ impl WindowMetrics {
             snapshot_damage_updates: self.snapshot_damage_updates,
             snapshot_rebuilds: self.snapshot_rebuilds,
             render_frames: u64::try_from(self.render_frame_times.len()).unwrap_or(u64::MAX),
+            full_render_frames: self.full_render_frames,
+            dirty_render_frames: self.dirty_render_frames,
             render_frame_p95_us: p95_us(&self.render_frame_times),
             input_writes: self.input_writes,
             input_bytes: self.input_bytes,
@@ -324,6 +355,39 @@ fn damage_region_cells(region: DamageRegion) -> u64 {
 
 fn metric_option(value: Option<u128>) -> String {
     value.map_or_else(|| "NA".to_owned(), |value| value.to_string())
+}
+
+fn render_framebuffer_with_state(
+    renderer: &PixelRenderer,
+    snapshot: &TerminalRenderSnapshot,
+    pending_frame_damage: &mut Vec<DamageRegion>,
+    frame_needs_full_repaint: &mut bool,
+    frame: &mut [u8],
+    frame_width: u32,
+    frame_height: u32,
+) -> FrameRenderMode {
+    if *frame_needs_full_repaint || pending_frame_damage.is_empty() {
+        renderer.render(
+            snapshot,
+            frame,
+            frame_width,
+            frame_height,
+            CELL_WIDTH,
+            CELL_HEIGHT,
+        );
+        pending_frame_damage.clear();
+        *frame_needs_full_repaint = false;
+        return FrameRenderMode::Full;
+    }
+
+    let damage = std::mem::take(pending_frame_damage);
+    renderer.render_damage(
+        snapshot,
+        &damage,
+        frame,
+        RenderGeometry::new(frame_width, frame_height, CELL_WIDTH, CELL_HEIGHT),
+    );
+    FrameRenderMode::Damage
 }
 
 impl NativeWindowApp {
@@ -387,6 +451,8 @@ impl NativeWindowApp {
             clipboard_writer: Box::new(write_window_clipboard_text),
             clipboard_reader: Box::new(read_window_clipboard_text),
             metrics: WindowMetrics::new(),
+            pending_frame_damage: Vec::new(),
+            frame_needs_full_repaint: true,
         }
     }
 
@@ -446,14 +512,16 @@ impl NativeWindowApp {
         };
 
         let started = Instant::now();
-        self.renderer.render(
+        let mode = render_framebuffer_with_state(
+            &self.renderer,
             &self.snapshot,
+            &mut self.pending_frame_damage,
+            &mut self.frame_needs_full_repaint,
             pixels.frame_mut(),
             self.frame_width,
             self.frame_height,
-            CELL_WIDTH,
-            CELL_HEIGHT,
         );
+        self.metrics.record_frame_render_mode(mode);
 
         if let Err(error) = pixels.render() {
             eprintln!("render error: {error}");
@@ -469,6 +537,21 @@ impl NativeWindowApp {
         {
             event_loop.exit();
         }
+    }
+
+    #[cfg(test)]
+    fn render_framebuffer(&mut self, frame: &mut [u8]) -> FrameRenderMode {
+        let mode = render_framebuffer_with_state(
+            &self.renderer,
+            &self.snapshot,
+            &mut self.pending_frame_damage,
+            &mut self.frame_needs_full_repaint,
+            frame,
+            self.frame_width,
+            self.frame_height,
+        );
+        self.metrics.record_frame_render_mode(mode);
+        mode
     }
 
     fn handle_pty_output(&mut self, bytes: &[u8]) -> io::Result<()> {
@@ -515,6 +598,8 @@ impl NativeWindowApp {
     fn refresh_snapshot(&mut self) {
         self.rebuild_snapshot();
         self.metrics.record_snapshot_rebuild();
+        self.frame_needs_full_repaint = true;
+        self.pending_frame_damage.clear();
     }
 
     fn rebuild_snapshot(&mut self) {
@@ -540,6 +625,8 @@ impl NativeWindowApp {
         if self.can_update_snapshot_from_damage() {
             self.snapshot
                 .update_from_terminal_damage(self.runtime.terminal(), damage);
+            self.pending_frame_damage
+                .extend(damage.iter().copied().filter(|region| !region.is_empty()));
             self.metrics.record_snapshot_damage_update();
             return;
         }
@@ -2096,10 +2183,11 @@ mod tests {
     };
 
     use super::{
-        NativeWindowApp, SearchDirection, SelectionCell, WindowMouseEvent, WindowMouseEventKind,
-        WindowSelection, demo_snapshot, encode_window_focus_event, encode_window_key,
-        encode_window_mouse_event, encode_window_paste, terminal_size_from_window_pixels,
-        window_copy_shortcut, window_paste_shortcut, window_search_shortcut,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, NativeWindowApp, SearchDirection,
+        SelectionCell, WindowMouseEvent, WindowMouseEventKind, WindowSelection, demo_snapshot,
+        encode_window_focus_event, encode_window_key, encode_window_mouse_event,
+        encode_window_paste, terminal_size_from_window_pixels, window_copy_shortcut,
+        window_paste_shortcut, window_search_shortcut,
     };
 
     #[test]
@@ -2549,6 +2637,26 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_pending_terminal_damage_to_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        app.handle_pty_output(b"live").unwrap();
+
+        assert_eq!(
+            app.pending_frame_damage,
+            vec![DamageRegion::new(0, 0, 4, 1)]
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Damage);
+        assert!(app.pending_frame_damage.is_empty());
+
+        let metrics = app.metrics_snapshot();
+        assert_eq!(metrics.full_render_frames, 1);
+        assert_eq!(metrics.dirty_render_frames, 1);
+    }
+
+    #[test]
     fn window_app_collects_pty_processing_metrics() {
         let mut app = NativeWindowApp::new(None);
 
@@ -2587,6 +2695,8 @@ mod tests {
         assert_eq!(value["pty_bytes"], 4);
         assert_eq!(value["damage_regions"], 1);
         assert_eq!(value["damaged_cells"], 4);
+        assert_eq!(value["full_render_frames"], 0);
+        assert_eq!(value["dirty_render_frames"], 0);
         assert!(value["first_pty_byte_ms"].is_number());
         assert!(value["first_rendered_cell_ms"].is_number());
     }

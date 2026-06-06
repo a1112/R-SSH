@@ -29,6 +29,31 @@ pub struct TerminalRenderSnapshot {
     cursor: Option<RenderCursor>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderGeometry {
+    pub target_width: u32,
+    pub target_height: u32,
+    pub cell_width: u32,
+    pub cell_height: u32,
+}
+
+impl RenderGeometry {
+    #[must_use]
+    pub const fn new(
+        target_width: u32,
+        target_height: u32,
+        cell_width: u32,
+        cell_height: u32,
+    ) -> Self {
+        Self {
+            target_width,
+            target_height,
+            cell_width,
+            cell_height,
+        }
+    }
+}
+
 pub struct PixelRenderer;
 
 impl PixelRenderer {
@@ -59,84 +84,66 @@ impl PixelRenderer {
         surface.fill(default_background());
 
         for cell in snapshot.cells() {
-            let origin_x = u32::from(cell.column).saturating_mul(cell_width);
-            let origin_y = u32::from(cell.row).saturating_mul(cell_height);
-            let foreground = color_to_rgba(cell.foreground, default_foreground());
-            let background = color_to_rgba(cell.background, default_background());
-            let (foreground, background) = if cell.inverse {
-                (background, foreground)
-            } else {
-                (foreground, background)
-            };
-
-            surface.fill_rect(
-                Rect {
-                    x: origin_x,
-                    y: origin_y,
-                    width: cell_width,
-                    height: cell_height,
-                },
-                background,
-            );
-
-            let Some(glyph) = BASIC_FONTS.get(cell.ch) else {
-                continue;
-            };
-
-            let scale_x = cell_width.max(8) / 8;
-            let scale_y = cell_height.max(8) / 8;
-
-            for (glyph_y, row_bits) in glyph.iter().enumerate() {
-                for glyph_x in 0..8 {
-                    if row_bits & (1 << glyph_x) == 0 {
-                        continue;
-                    }
-
-                    let draw_x = origin_x + glyph_x * scale_x;
-                    let draw_y = origin_y + u32::try_from(glyph_y).unwrap_or(0) * scale_y;
-                    surface.fill_rect(
-                        Rect {
-                            x: draw_x,
-                            y: draw_y,
-                            width: scale_x,
-                            height: scale_y,
-                        },
-                        foreground,
-                    );
-                    let bold_x = draw_x.saturating_add(scale_x);
-                    if cell.bold && bold_x < origin_x.saturating_add(cell_width) {
-                        surface.fill_rect(
-                            Rect {
-                                x: bold_x,
-                                y: draw_y,
-                                width: scale_x,
-                                height: scale_y,
-                            },
-                            foreground,
-                        );
-                    }
-                }
-            }
-
-            if cell.underline {
-                let underline_height = (cell_height / 8).max(1);
-                surface.fill_rect(
-                    Rect {
-                        x: origin_x,
-                        y: origin_y + cell_height.saturating_sub(underline_height),
-                        width: cell_width,
-                        height: underline_height,
-                    },
-                    foreground,
-                );
-            }
+            render_cell(&mut surface, cell, cell_width, cell_height);
         }
 
         if let Some(cursor) = snapshot.cursor() {
-            let origin_x = u32::from(cursor.column).saturating_mul(cell_width);
-            let origin_y = u32::from(cursor.row).saturating_mul(cell_height);
-            let rect = cursor_rect(cursor.shape, origin_x, origin_y, cell_width, cell_height);
-            surface.fill_rect(rect, default_foreground());
+            render_cursor(&mut surface, cursor, cell_width, cell_height);
+        }
+    }
+
+    pub fn render_damage(
+        &self,
+        snapshot: &TerminalRenderSnapshot,
+        damage: &[DamageRegion],
+        target: &mut [u8],
+        geometry: RenderGeometry,
+    ) {
+        if geometry.target_width == 0
+            || geometry.target_height == 0
+            || geometry.cell_width == 0
+            || geometry.cell_height == 0
+            || damage.is_empty()
+        {
+            return;
+        }
+
+        let mut surface = Surface {
+            target,
+            width: geometry.target_width,
+            height: geometry.target_height,
+        };
+
+        for region in damage.iter().copied().filter(|region| !region.is_empty()) {
+            surface.fill_rect(
+                damage_rect(region, geometry.cell_width, geometry.cell_height),
+                default_background(),
+            );
+        }
+
+        for cell in snapshot
+            .cells()
+            .iter()
+            .filter(|cell| damage_contains_cell(damage, cell.row, cell.column))
+        {
+            render_cell(
+                &mut surface,
+                cell,
+                geometry.cell_width,
+                geometry.cell_height,
+            );
+        }
+
+        if let Some(cursor) = snapshot
+            .cursor()
+            .filter(|cursor| damage_contains_cell(damage, cursor.row, cursor.column))
+        {
+            render_cursor(
+                &mut surface,
+                cursor,
+                geometry.cell_width,
+                geometry.cell_height,
+            );
         }
     }
 }
@@ -181,6 +188,111 @@ impl Surface<'_> {
             }
         }
     }
+}
+
+fn render_cell(surface: &mut Surface<'_>, cell: &RenderCell, cell_width: u32, cell_height: u32) {
+    let origin_x = u32::from(cell.column).saturating_mul(cell_width);
+    let origin_y = u32::from(cell.row).saturating_mul(cell_height);
+    let foreground = color_to_rgba(cell.foreground, default_foreground());
+    let background = color_to_rgba(cell.background, default_background());
+    let (foreground, background) = if cell.inverse {
+        (background, foreground)
+    } else {
+        (foreground, background)
+    };
+
+    surface.fill_rect(
+        Rect {
+            x: origin_x,
+            y: origin_y,
+            width: cell_width,
+            height: cell_height,
+        },
+        background,
+    );
+
+    let Some(glyph) = BASIC_FONTS.get(cell.ch) else {
+        return;
+    };
+
+    let scale_x = cell_width.max(8) / 8;
+    let scale_y = cell_height.max(8) / 8;
+
+    for (glyph_y, row_bits) in glyph.iter().enumerate() {
+        for glyph_x in 0..8 {
+            if row_bits & (1 << glyph_x) == 0 {
+                continue;
+            }
+
+            let draw_x = origin_x + glyph_x * scale_x;
+            let draw_y = origin_y + u32::try_from(glyph_y).unwrap_or(0) * scale_y;
+            surface.fill_rect(
+                Rect {
+                    x: draw_x,
+                    y: draw_y,
+                    width: scale_x,
+                    height: scale_y,
+                },
+                foreground,
+            );
+            let bold_x = draw_x.saturating_add(scale_x);
+            if cell.bold && bold_x < origin_x.saturating_add(cell_width) {
+                surface.fill_rect(
+                    Rect {
+                        x: bold_x,
+                        y: draw_y,
+                        width: scale_x,
+                        height: scale_y,
+                    },
+                    foreground,
+                );
+            }
+        }
+    }
+
+    if cell.underline {
+        let underline_height = (cell_height / 8).max(1);
+        surface.fill_rect(
+            Rect {
+                x: origin_x,
+                y: origin_y + cell_height.saturating_sub(underline_height),
+                width: cell_width,
+                height: underline_height,
+            },
+            foreground,
+        );
+    }
+}
+
+fn render_cursor(
+    surface: &mut Surface<'_>,
+    cursor: RenderCursor,
+    cell_width: u32,
+    cell_height: u32,
+) {
+    let origin_x = u32::from(cursor.column).saturating_mul(cell_width);
+    let origin_y = u32::from(cursor.row).saturating_mul(cell_height);
+    let rect = cursor_rect(cursor.shape, origin_x, origin_y, cell_width, cell_height);
+    surface.fill_rect(rect, default_foreground());
+}
+
+fn damage_rect(region: DamageRegion, cell_width: u32, cell_height: u32) -> Rect {
+    Rect {
+        x: u32::from(region.x).saturating_mul(cell_width),
+        y: u32::from(region.y).saturating_mul(cell_height),
+        width: u32::from(region.width).saturating_mul(cell_width),
+        height: u32::from(region.height).saturating_mul(cell_height),
+    }
+}
+
+fn damage_contains_cell(damage: &[DamageRegion], row: u16, column: u16) -> bool {
+    damage.iter().copied().any(|region| {
+        !region.is_empty()
+            && row >= region.y
+            && row < region.y.saturating_add(region.height)
+            && column >= region.x
+            && column < region.x.saturating_add(region.width)
+    })
 }
 
 fn color_to_rgba(color: Color, default: [u8; 4]) -> [u8; 4] {
@@ -472,7 +584,7 @@ mod tests {
     use rssh_core::TerminalSize;
     use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid};
 
-    use super::{DamageRegion, PixelRenderer, TerminalRenderSnapshot};
+    use super::{DamageRegion, PixelRenderer, RenderGeometry, TerminalRenderSnapshot};
 
     #[test]
     fn zero_width_region_is_empty() {
@@ -609,6 +721,76 @@ mod tests {
                 .any(|pixel| pixel == [255, 0, 0, 255]),
             "renderer did not draw a red glyph pixel"
         );
+    }
+
+    #[test]
+    fn pixel_renderer_updates_only_damage_regions() {
+        let mut grid = TerminalGrid::new(TerminalSize::new(2, 1));
+        grid.set(
+            0,
+            0,
+            Cell {
+                ch: 'A',
+                foreground: Color::Default,
+                background: Color::Rgb(20, 0, 0),
+                bold: false,
+                italic: false,
+                underline: false,
+                inverse: false,
+                hyperlink: None,
+            },
+        );
+        grid.set(
+            0,
+            1,
+            Cell {
+                ch: 'B',
+                foreground: Color::Default,
+                background: Color::Rgb(0, 20, 0),
+                bold: false,
+                italic: false,
+                underline: false,
+                inverse: false,
+                hyperlink: None,
+            },
+        );
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(
+            &TerminalRenderSnapshot::from_grid(&grid),
+            &mut target,
+            16,
+            8,
+            8,
+            8,
+        );
+        let untouched_second_cell = pixel_at(&target, 16, 8, 0);
+
+        grid.set(
+            0,
+            0,
+            Cell {
+                ch: 'Z',
+                foreground: Color::Rgb(0, 0, 20),
+                background: Color::Rgb(0, 0, 20),
+                bold: false,
+                italic: false,
+                underline: false,
+                inverse: false,
+                hyperlink: None,
+            },
+        );
+
+        renderer.render_damage(
+            &TerminalRenderSnapshot::from_grid(&grid),
+            &[DamageRegion::new(0, 0, 1, 1)],
+            &mut target,
+            RenderGeometry::new(16, 8, 8, 8),
+        );
+
+        assert_eq!(pixel_at(&target, 16, 0, 0), [0, 0, 20, 255]);
+        assert_eq!(pixel_at(&target, 16, 8, 0), untouched_second_cell);
     }
 
     #[test]
