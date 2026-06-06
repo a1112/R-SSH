@@ -114,9 +114,9 @@ PTY-backed local, window, and OpenSSH child processes receive
 Use `--log PATH` on `local`, `ssh`, `sftp`, or `scp` to tee visible terminal
 output to a session log file.
 Use `doctor` before launching console sessions to report the selected PTY
-backend, terminal size, and child terminal environment, and to verify that the
-local default shell plus `ssh`, `sftp`, and `scp` are available; add `--json`
-for a machine-readable report.
+backend, native SSH backend, terminal size, and child terminal environment, and
+to verify that the local default shell plus `ssh`, `sftp`, and `scp` are
+available; add `--json` for a machine-readable report.
 Add `--preflight` to `local`, `ssh`, `sftp`, or `scp` when startup should run
 the same console dependency check before spawning the PTY child process.
 Add `--metrics` to `local`, `ssh`, `sftp`, or `scp` to print human-readable

@@ -118,6 +118,12 @@ pub fn diagnose_console_dependencies_in_paths_for_shell_and_size(
             path: None,
         },
         DoctorCheck {
+            name: "native-ssh-backend".to_owned(),
+            ok: true,
+            detail: Some("russh".to_owned()),
+            path: None,
+        },
+        DoctorCheck {
             name: "terminal-size".to_owned(),
             ok: true,
             detail: Some(terminal_size_detail(terminal_size)),
@@ -264,7 +270,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
 
         assert!(report.ok);
-        assert_eq!(report.checks.len(), 7);
+        assert_eq!(report.checks.len(), 8);
         assert!(report.checks.iter().all(|check| check.ok));
         assert!(matches!(
             report
@@ -281,6 +287,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 "pty-backend",
+                "native-ssh-backend",
                 "terminal-size",
                 "terminal-env",
                 "default-shell",
@@ -288,6 +295,14 @@ mod tests {
                 "sftp",
                 "scp"
             ]
+        );
+        assert_eq!(
+            report
+                .checks
+                .iter()
+                .find(|check| check.name == "native-ssh-backend")
+                .and_then(|check| check.detail.as_deref()),
+            Some("russh")
         );
         assert_eq!(
             report
