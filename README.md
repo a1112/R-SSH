@@ -42,6 +42,8 @@ refs/                 Local reference source cache, ignored by Git
 ```powershell
 cargo fmt --all
 cargo test --workspace
+cargo build --release -p rssh-app
+.\target\release\rssh-app.exe doctor
 cargo run -p rssh-app
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- doctor
@@ -187,6 +189,15 @@ For saved native SSH sessions, set `native = true` and choose
 Use `profile --check --file PATH` to validate every configured profile without
 starting a local process or network connection; add `--json` for a structured
 per-profile report that still exits non-zero when any profile is invalid.
+
+## Downloadable Console Build
+
+The `Release` GitHub Actions workflow builds the Windows console package
+`R-SSH-windows-x64.zip`. Manual workflow runs upload it as an artifact; tags
+starting with `v` also publish it as a GitHub Release asset. The workflow runs
+formatting, tests, clippy, release compilation, and a packaged
+`rssh-app.exe doctor --json` smoke test before upload. See
+`docs/release-console.md`.
 
 ## MVP Status
 

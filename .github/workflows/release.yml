@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-console:
+    name: Windows console package
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      - name: Lint workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build release binary
+        run: cargo build --release -p rssh-app
+
+      - name: Assemble package
+        shell: pwsh
+        run: |
+          $package = "dist/R-SSH-windows-x64"
+          New-Item -ItemType Directory -Force $package | Out-Null
+          Copy-Item target/release/rssh-app.exe "$package/rssh-app.exe"
+          Copy-Item README.md "$package/README.md"
+          Copy-Item LICENSE "$package/LICENSE"
+          New-Item -ItemType Directory -Force "$package/examples" | Out-Null
+          Copy-Item examples/rssh-profiles.toml "$package/examples/rssh-profiles.toml"
+
+      - name: Smoke test packaged console
+        shell: pwsh
+        run: |
+          Push-Location dist/R-SSH-windows-x64
+          ./rssh-app.exe doctor --json
+          Pop-Location
+
+      - name: Compress package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/R-SSH-windows-x64 -DestinationPath dist/R-SSH-windows-x64.zip -Force
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: R-SSH-windows-x64
+          path: dist/R-SSH-windows-x64.zip
+
+      - name: Publish GitHub release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create "${{ github.ref_name }}" dist/R-SSH-windows-x64.zip --title "R-SSH ${{ github.ref_name }}" --notes "Windows console build for R-SSH."
