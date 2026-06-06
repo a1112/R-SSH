@@ -320,6 +320,8 @@ wide threshold gates, bundled profile validation, a
   native window literal search, `literal:<text>` forced-literal search, and
   `regex:<pattern>` search can match across visual row boundaries in scrollback
   and the live grid;
+  OSC 8 hyperlinks now survive renderer snapshot conversion and can be opened
+  from the native window with `Ctrl` + left click;
   the native window now draws a clickable and draggable right-edge scrollback
   scrollbar instead of putting scrollback position in the title;
   `bench --json` now provides a repeatable

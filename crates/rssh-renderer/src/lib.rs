@@ -14,6 +14,7 @@ pub struct RenderCell {
     pub italic: bool,
     pub underline: bool,
     pub inverse: bool,
+    pub hyperlink: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -539,6 +540,7 @@ impl TerminalRenderSnapshot {
                     italic: cell.italic,
                     underline: cell.underline,
                     inverse: cell.inverse,
+                    hyperlink: cell.hyperlink.clone(),
                 });
             }
         }
@@ -701,6 +703,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         italic: cell.italic,
         underline: cell.underline,
         inverse: cell.inverse,
+        hyperlink: cell.hyperlink.clone(),
     });
 }
 
@@ -771,6 +774,23 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
 
         assert!(snapshot.cells()[0].inverse);
+    }
+
+    #[test]
+    fn render_snapshot_preserves_hyperlink_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.feed(b"\x1b]8;;https://example.com\x1b\\ab\x1b]8;;\x1b\\");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert_eq!(
+            snapshot.cells()[0].hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            snapshot.cells()[1].hyperlink.as_deref(),
+            Some("https://example.com")
+        );
     }
 
     #[test]

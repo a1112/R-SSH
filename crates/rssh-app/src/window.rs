@@ -2,6 +2,7 @@ use std::{
     error::Error,
     fs::File,
     io::{self, Read, Write},
+    process::Command,
     sync::Arc,
     thread,
     time::{Duration, Instant},
@@ -106,6 +107,7 @@ struct NativeWindowApp {
     osc52_policy: Osc52Policy,
     clipboard_writer: Box<dyn FnMut(&str) -> bool + Send>,
     clipboard_reader: Box<dyn FnMut() -> Option<String> + Send>,
+    hyperlink_opener: Box<dyn FnMut(&str) -> bool + Send>,
     metrics: WindowMetrics,
     pending_frame_damage: Vec<DamageRegion>,
     frame_needs_full_repaint: bool,
@@ -457,6 +459,7 @@ impl NativeWindowApp {
             osc52_policy,
             clipboard_writer: Box::new(write_window_clipboard_text),
             clipboard_reader: Box::new(read_window_clipboard_text),
+            hyperlink_opener: Box::new(open_window_hyperlink),
             metrics: WindowMetrics::new(),
             pending_frame_damage: Vec::new(),
             frame_needs_full_repaint: true,
@@ -732,6 +735,9 @@ impl NativeWindowApp {
 
         let mode = self.runtime.mouse_input_mode();
         if !mode.reporting_enabled() {
+            if self.handle_hyperlink_mouse_input(state, button) {
+                return Ok(true);
+            }
             return Ok(self.handle_selection_mouse_input(state, button));
         }
 
@@ -944,6 +950,32 @@ impl NativeWindowApp {
                 true
             }
         }
+    }
+
+    fn handle_hyperlink_mouse_input(&mut self, state: ElementState, button: MouseButton) -> bool {
+        if state != ElementState::Pressed
+            || button != MouseButton::Left
+            || !window_hyperlink_activation_modifiers(self.modifiers)
+        {
+            return false;
+        }
+
+        let Some(url) = self.hyperlink_at_mouse_position() else {
+            return false;
+        };
+
+        (self.hyperlink_opener)(&url);
+        true
+    }
+
+    fn hyperlink_at_mouse_position(&self) -> Option<String> {
+        let (column, row) = self.mouse_position?;
+        self.snapshot
+            .cells()
+            .iter()
+            .find(|cell| cell.row == row && cell.column == column)?
+            .hyperlink
+            .clone()
     }
 
     fn update_selection_from_mouse_position(&mut self) -> bool {
@@ -2222,6 +2254,10 @@ fn window_search_shortcut(key: &Key, modifiers: ModifiersState) -> bool {
         && matches!(key.as_ref(), Key::Character(character) if character.eq_ignore_ascii_case("f"))
 }
 
+fn window_hyperlink_activation_modifiers(modifiers: ModifiersState) -> bool {
+    modifiers.control_key() && !modifiers.shift_key() && !modifiers.alt_key()
+}
+
 fn read_window_clipboard_text() -> Option<String> {
     arboard::Clipboard::new().ok()?.get_text().ok()
 }
@@ -2230,6 +2266,30 @@ fn write_window_clipboard_text(text: &str) -> bool {
     arboard::Clipboard::new()
         .and_then(|mut clipboard| clipboard.set_text(text.to_owned()))
         .is_ok()
+}
+
+#[cfg(target_os = "windows")]
+fn open_window_hyperlink(url: &str) -> bool {
+    Command::new("rundll32")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(url)
+        .spawn()
+        .is_ok()
+}
+
+#[cfg(target_os = "macos")]
+fn open_window_hyperlink(url: &str) -> bool {
+    Command::new("open").arg(url).spawn().is_ok()
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_window_hyperlink(url: &str) -> bool {
+    Command::new("xdg-open").arg(url).spawn().is_ok()
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
+fn open_window_hyperlink(_url: &str) -> bool {
+    false
 }
 
 fn named_terminal_key(key: &Key) -> Option<TerminalKey> {
@@ -3303,6 +3363,32 @@ mod tests {
                 .unwrap()
                 .contains(0, 15, app.runtime.terminal().grid().size())
         );
+    }
+
+    #[test]
+    fn window_app_ctrl_click_opens_hyperlink_cell() {
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded.lock().unwrap().push(url.to_owned());
+            true
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\")
+            .unwrap();
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_cursor_moved(PhysicalPosition::new(0.0, 0.0))
+            .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert_eq!(opened.lock().unwrap().as_slice(), ["https://example.com"]);
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
     }
 
     #[test]
