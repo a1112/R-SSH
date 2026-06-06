@@ -102,6 +102,7 @@ cargo run -p rssh-app -- sftp --target prod --log sftp.log
 cargo run -p rssh-app -- scp local.txt ops@example.com:/tmp/remote.txt
 cargo run -p rssh-app -- scp app.log audit.log ops@example.com:/tmp/logs/
 cargo run -p rssh-app -- scp -l 4096 local.txt prod:/tmp/remote.txt
+cargo run -p rssh-app -- scp -p local.txt prod:/tmp/remote.txt
 cargo run -p rssh-app -- scp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 -r logs ops@example.com:/tmp/logs
 cargo run -p rssh-app -- scp -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion local.txt prod:/tmp/remote.txt
 cargo run -p rssh-app -- scp -J bastion -C -vv local.txt prod:/tmp/remote.txt
@@ -204,7 +205,8 @@ Common short options
 `scp -P PORT -i KEY -J JUMP -F CONFIG -o OPTION=VALUE -l LIMIT -C -v` are
 supported. Use `--user USER` when a username override is needed outside the
 `[USER@]HOST` target form. SCP-specific OpenSSH options `-3`, `-O`, `-T`, `-B`,
-`-D`, `-S`, `-X`, and `-c` are passed through for protocol and transfer tuning.
+`-p`, `-D`, `-S`, `-X`, and `-c` are passed through for protocol and transfer
+tuning.
 Add `--native` to use the experimental in-process `russh` path instead of
 spawning an interactive OpenSSH session. The native path supports `--host`
 direct targets and `--target NAME` entries resolved through `ssh -G`, with
