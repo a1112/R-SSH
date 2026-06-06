@@ -55,6 +55,7 @@ cargo run -p rssh-app -- version --json
 cargo run -p rssh-app -- self-test
 cargo run -p rssh-app -- self-test --json
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
+cargo run -p rssh-app -- console --preflight -- cmd.exe /C echo console-alias-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
 cargo run -p rssh-app -- local --metrics-json -- cmd.exe /C echo console-metrics-json-smoke
 cargo run -p rssh-app -- window --frames 30 --metrics
@@ -126,21 +127,23 @@ cargo test -p rssh-ssh
 window; without `--`, the native window starts the platform default shell.
 Use `window --log PATH` to write visible native-window terminal output to a
 session log file.
-`local` is the console-hosted startup path. Add `--mouse` when you want terminal
-applications to negotiate xterm mouse/focus reporting through PTY output modes.
+`console` is the explicit console-hosted startup path; `local` remains a
+backward-compatible alias for the same local PTY runtime. Add `--mouse` when
+you want terminal applications to negotiate xterm mouse/focus reporting through
+PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
 The console path also answers basic terminal status and device-attribute queries.
 XTGETTCAP capability replies include terminal name, 256-color/true-color
 markers, OSC 52 clipboard support, and current column/row counts.
 OSC 52 clipboard writes and read queries are handled in the console path so
 local and OpenSSH-backed terminal programs can use terminal clipboard
-integration. Use `--osc52 off|write|read-write` on `local`, `ssh`, or
-`window` to control whether PTY-side OSC 52 clipboard writes and read queries
-are allowed.
+integration. Use `--osc52 off|write|read-write` on `console`/`local`, `ssh`,
+or `window` to control whether PTY-side OSC 52 clipboard writes and read
+queries are allowed.
 PTY-backed local, window, and OpenSSH child processes receive
 `TERM=xterm-256color` and `COLORTERM=truecolor` by default.
-Use `--log PATH` on `local`, `ssh`, `sftp`, or `scp` to tee visible terminal
-output to a session log file.
+Use `--log PATH` on `console`/`local`, `ssh`, `sftp`, or `scp` to tee visible
+terminal output to a session log file.
 Use `doctor` before launching console sessions to report the selected PTY
 backend, native SSH backend, terminal size, and child terminal environment, and
 to verify that the local default shell plus `ssh`, `sftp`, and `scp` are
@@ -148,13 +151,13 @@ available; add `--json` for a machine-readable report.
 Use `self-test` or `self-test --json` after download to run a local PTY smoke
 and verify that `ssh -V`, `sftp -h`, and `scp -h` can launch without opening a
 network connection.
-Add `--preflight` to `local`, `ssh`, `sftp`, or `scp` when startup should run
-the same console dependency check before spawning the PTY child process.
-Add `--metrics` to `local`, `ssh`, `sftp`, or `scp` to print human-readable
-console runtime metrics after the PTY child process exits, including command,
-PTY backend, startup columns/rows, final session state, elapsed time, exit code,
-signal, and success state, plus PTY input/output bytes, terminal output bytes,
-and resize events.
+Add `--preflight` to `console`/`local`, `ssh`, `sftp`, or `scp` when startup
+should run the same console dependency check before spawning the PTY child
+process. Add `--metrics` to `console`/`local`, `ssh`, `sftp`, or `scp` to print
+human-readable console runtime metrics after the PTY child process exits,
+including command, PTY backend, startup columns/rows, final session state,
+elapsed time, exit code, signal, and success state, plus PTY input/output bytes,
+terminal output bytes, and resize events.
 Use `--metrics-json` on the same commands when a launcher, script, or desktop
 UI should consume the metrics as JSON.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
@@ -253,7 +256,8 @@ The `Release` GitHub Actions workflow builds the Windows console package
 starting with `v` also publish it as a GitHub Release asset. The workflow runs
 formatting, tests, clippy, release compilation, and packaged
 `rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
-`rssh-app.exe self-test --json` smoke tests before upload. See
+`rssh-app.exe self-test --json` smoke tests, plus `rssh-app.exe console` and
+`rssh-console.cmd` console-launcher smoke tests before upload. See
 `docs/release-console.md`.
 
 ## MVP Status

@@ -36,6 +36,7 @@ jobs:
           $package = "dist/R-SSH-windows-x64"
           New-Item -ItemType Directory -Force $package | Out-Null
           Copy-Item target/release/rssh-app.exe "$package/rssh-app.exe"
+          Copy-Item packaging/rssh-console.cmd "$package/rssh-console.cmd"
           Copy-Item README.md "$package/README.md"
           Copy-Item LICENSE "$package/LICENSE"
           New-Item -ItemType Directory -Force "$package/examples" | Out-Null
@@ -48,6 +49,8 @@ jobs:
           ./rssh-app.exe version --json
           ./rssh-app.exe doctor --json
           ./rssh-app.exe self-test --json
+          ./rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke
+          ./rssh-console.cmd --preflight -- cmd.exe /C echo packaged-console-launcher-smoke
           Pop-Location
 
       - name: Compress package

@@ -10,6 +10,7 @@ The release workflow builds `rssh-app` on `windows-latest` and publishes
 The zip contains:
 
 - `rssh-app.exe`
+- `rssh-console.cmd`
 - `README.md`
 - `LICENSE`
 - `examples/rssh-profiles.toml`
@@ -33,6 +34,8 @@ The release package is not uploaded until all gates pass:
 - `dist/R-SSH-windows-x64/rssh-app.exe version --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe doctor --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe self-test --json`
+- `dist/R-SSH-windows-x64/rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke`
+- `dist/R-SSH-windows-x64/rssh-console.cmd --preflight -- cmd.exe /C echo packaged-console-launcher-smoke`
 
 The packaged `version --json` smoke test proves that the downloaded executable
 can identify its app version, target, console mode, PTY backend, and native SSH
@@ -41,7 +44,9 @@ console app and report terminal size, child terminal environment, default shell,
 and OpenSSH tool availability. The packaged `self-test --json` smoke test proves
 that the downloaded executable can open a real local PTY, spawn a child command,
 capture its output, and launch the OpenSSH `ssh`, `sftp`, and `scp` console
-tools without opening a network connection.
+tools without opening a network connection. The packaged `console` smoke tests
+prove that both the explicit CLI alias and the Windows launcher enter the same
+console-hosted PTY path.
 
 ## Console Startup After Download
 
@@ -51,6 +56,8 @@ After extracting the zip:
 .\rssh-app.exe doctor
 .\rssh-app.exe version --json
 .\rssh-app.exe self-test --json
+.\rssh-app.exe console
+.\rssh-console.cmd
 .\rssh-app.exe local
 .\rssh-app.exe ssh ops@example.com
 .\rssh-app.exe ssh -p 2222 -i C:\Users\ops\.ssh\id_ed25519 -l ops example.com
@@ -88,9 +95,9 @@ pilot:
 - Local PTY and tool health: packaged `self-test --json` captures the expected
   PTY marker from a child process and verifies that `ssh -V`, `sftp -h`, and
   `scp -h` can launch.
-- Console coverage: local shell, positional `[USER@]HOST` SSH/SFTP/SCP
-  launches, SSH trailing remote commands, SCP `HOST:PATH` upload/download
-  operands, common OpenSSH short options (`ssh -p/-l/-i/-J/-F/-o/-4/-6/-A/-a/-C/-q/-v/-L/-R/-D/-N`,
+- Console coverage: explicit `console` launcher, local shell, positional
+  `[USER@]HOST` SSH/SFTP/SCP launches, SSH trailing remote commands, SCP
+  `HOST:PATH` upload/download operands, common OpenSSH short options (`ssh -p/-l/-i/-J/-F/-o/-4/-6/-A/-a/-C/-q/-v/-L/-R/-D/-N`,
   SSH control options `-B/-b/-c/-E/-e/-I/-m/-O/-P/-Q/-S/-W/-w/-f/-G/-g/-K/-k/-M/-n/-s/-T/-t/-X/-x/-Y/-y`,
   `sftp -P/-i/-J/-F/-o/-4/-6/-A/-a/-C/-q/-v/-b/-B/-R/-D/-S/-s/-X/-c`, and
   `scp -P/-i/-J/-F/-o/-4/-6/-A/-a/-C/-q/-v/-3/-O/-T/-B/-D/-S/-X/-c/-r`),
@@ -98,5 +105,5 @@ pilot:
   covered by workspace tests.
 - Runtime observability: console sessions can emit `--metrics` or
   `--metrics-json`.
-- Safe startup: `--preflight` is available for local, SSH, SFTP, and SCP
-  profile or direct launches.
+- Safe startup: `--preflight` is available for console/local, SSH, SFTP, and
+  SCP profile or direct launches.
