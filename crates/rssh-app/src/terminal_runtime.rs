@@ -3,7 +3,10 @@ use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle};
 
 use crate::{
-    terminal_modes::{MouseInputMode, TerminalModeTracker},
+    terminal_modes::{
+        MouseInputMode, SynchronizedOutputModeSequence, TerminalModeTracker,
+        find_synchronized_output_mode_sequence, synchronized_output_mode_sequence_suffix_len,
+    },
     visible_output::TerminalVisibleOutputFilter,
 };
 
@@ -41,7 +44,6 @@ impl TerminalRuntime {
 
     pub(crate) fn feed_pty_output_with_display(&mut self, bytes: &[u8]) -> TerminalRuntimeOutput {
         self.clipboard_tracker.process(bytes);
-        self.mode_tracker.process_without_emitting(bytes);
         let output = self.output_filter.process(bytes);
 
         let mut responses = Vec::new();
@@ -51,10 +53,14 @@ impl TerminalRuntime {
         for event in output.events {
             match event {
                 FilteredOutputEvent::Display(display) => {
+                    self.mode_tracker.process_without_emitting(&display);
                     self.terminal.feed(&display);
-                    damage.extend(self.terminal.take_damage());
                     bells = bells.saturating_add(self.terminal.take_bell_count());
                     display_bytes.extend(self.visible_output_filter.process(&display));
+                    if self.mode_tracker.synchronized_output() {
+                        continue;
+                    }
+                    damage.extend(self.terminal.take_damage());
                 }
                 FilteredOutputEvent::Response(response) => {
                     responses.push(self.output_filter.response_bytes(
@@ -62,6 +68,12 @@ impl TerminalRuntime {
                         &self.terminal,
                         &self.mode_tracker,
                     ));
+                }
+                FilteredOutputEvent::SynchronizedOutputMode { bytes, enabled } => {
+                    self.mode_tracker.process_without_emitting(&bytes);
+                    if !enabled {
+                        damage.extend(self.terminal.take_damage());
+                    }
                 }
             }
         }
@@ -137,6 +149,7 @@ struct FilteredOutput {
 enum FilteredOutputEvent {
     Display(Vec<u8>),
     Response(TerminalResponse),
+    SynchronizedOutputMode { bytes: Vec<u8>, enabled: bool },
 }
 
 impl TerminalOutputFilter {
@@ -291,12 +304,23 @@ impl TerminalOutputFilter {
 
         let mut events = Vec::new();
 
-        while let Some((index, response)) = self.find_next_response() {
+        while let Some((index, event)) = self.find_next_event() {
             if index > 0 {
                 events.push(FilteredOutputEvent::Display(self.pending[..index].to_vec()));
             }
-            events.push(FilteredOutputEvent::Response(response.response));
-            self.pending.drain(..index + response.consumed);
+            let consumed_end = index + event.consumed;
+            events.push(match event.event {
+                MatchedTerminalEventKind::Response(response) => {
+                    FilteredOutputEvent::Response(response)
+                }
+                MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
+                    FilteredOutputEvent::SynchronizedOutputMode {
+                        bytes: self.pending[index..consumed_end].to_vec(),
+                        enabled,
+                    }
+                }
+            });
+            self.pending.drain(..consumed_end);
         }
 
         let retained = Self::suffix_len_matching_query_prefix(&self.pending);
@@ -309,6 +333,32 @@ impl TerminalOutputFilter {
         }
 
         FilteredOutput { events }
+    }
+
+    fn find_next_event(&self) -> Option<(usize, MatchedTerminalEvent)> {
+        let response = self
+            .find_next_response()
+            .map(|(index, response)| (index, response.into()));
+        let synchronized_output = find_synchronized_output_mode_sequence(&self.pending).map(
+            |SynchronizedOutputModeSequence {
+                 index,
+                 consumed,
+                 enabled,
+             }| {
+                (
+                    index,
+                    MatchedTerminalEvent {
+                        consumed,
+                        event: MatchedTerminalEventKind::SynchronizedOutputMode { enabled },
+                    },
+                )
+            },
+        );
+
+        response
+            .into_iter()
+            .chain(synchronized_output)
+            .min_by_key(|(index, _)| *index)
     }
 
     fn find_next_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
@@ -405,6 +455,7 @@ impl TerminalOutputFilter {
             .unwrap_or(0);
         static_query_suffix
             .max(private_mode_status_query_suffix_len(pending))
+            .max(synchronized_output_mode_sequence_suffix_len(pending))
             .max(osc_color_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
@@ -430,6 +481,25 @@ struct TerminalQueryResponse {
 struct MatchedTerminalResponse {
     consumed: usize,
     response: TerminalResponse,
+}
+
+struct MatchedTerminalEvent {
+    consumed: usize,
+    event: MatchedTerminalEventKind,
+}
+
+enum MatchedTerminalEventKind {
+    Response(TerminalResponse),
+    SynchronizedOutputMode { enabled: bool },
+}
+
+impl From<MatchedTerminalResponse> for MatchedTerminalEvent {
+    fn from(response: MatchedTerminalResponse) -> Self {
+        Self {
+            consumed: response.consumed,
+            event: MatchedTerminalEventKind::Response(response.response),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -2319,6 +2389,32 @@ mod tests {
             runtime.feed_pty_output(b"\x1b[?2026$p"),
             vec![b"\x1b[?2026;2$y".to_vec()]
         );
+    }
+
+    #[test]
+    fn delays_synchronized_output_damage_until_mode_resets() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let first = runtime.feed_pty_output_with_display(b"before\x1b[?2026hmid");
+
+        assert_eq!(first.display, b"beforemid");
+        assert_eq!(first.damage, vec![rssh_core::DamageRegion::new(0, 0, 6, 1)]);
+        assert!(runtime.synchronized_output());
+        assert!(terminal_text(&runtime).contains("beforemid"));
+
+        let buffered = runtime.feed_pty_output_with_display(b"after\x1b[?2026$p");
+
+        assert_eq!(buffered.display, b"after");
+        assert!(buffered.damage.is_empty());
+        assert_eq!(buffered.responses, vec![b"\x1b[?2026;1$y".to_vec()]);
+        assert!(terminal_text(&runtime).contains("beforemidafter"));
+
+        let flushed = runtime.feed_pty_output_with_display(b"\x1b[?2026l done");
+
+        assert_eq!(flushed.display, b" done");
+        assert!(!flushed.damage.is_empty());
+        assert!(!runtime.synchronized_output());
+        assert!(terminal_text(&runtime).contains("beforemidafter done"));
     }
 
     #[test]

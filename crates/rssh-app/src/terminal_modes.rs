@@ -138,6 +138,12 @@ pub(crate) struct TerminalModeTracker {
     tracked_modes: TrackedTerminalModes,
 }
 
+pub(crate) struct SynchronizedOutputModeSequence {
+    pub(crate) index: usize,
+    pub(crate) consumed: usize,
+    pub(crate) enabled: bool,
+}
+
 impl TerminalModeTracker {
     const APPLICATION_KEYPAD_PREFIX: &'static [u8] = b"\x1b=";
     const CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\x1b[?";
@@ -466,6 +472,85 @@ impl TrackedTerminalModes {
     const fn enabled(self, mode: u8) -> bool {
         self.0 & mode != 0
     }
+}
+
+pub(crate) fn find_synchronized_output_mode_sequence(
+    bytes: &[u8],
+) -> Option<SynchronizedOutputModeSequence> {
+    synchronized_output_private_mode_prefixes()
+        .into_iter()
+        .filter_map(|(prefix, prefix_len)| {
+            let mut offset = 0;
+            let mut match_sequence = None;
+
+            while offset < bytes.len() {
+                let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                    break;
+                };
+                let index = offset + relative_index;
+                if !is_inside_osc_or_st_control_string(bytes, index)
+                    && let ModeParse::Complete {
+                        modes,
+                        enabled,
+                        consumed,
+                    } = TerminalModeTracker::parse_mode_sequence(&bytes[index..], prefix_len)
+                    && modes.contains(&2026)
+                {
+                    match_sequence = Some(SynchronizedOutputModeSequence {
+                        index,
+                        consumed,
+                        enabled,
+                    });
+                    break;
+                }
+                offset = index.saturating_add(1);
+            }
+
+            match_sequence
+        })
+        .min_by_key(|sequence| sequence.index)
+}
+
+pub(crate) fn synchronized_output_mode_sequence_suffix_len(bytes: &[u8]) -> usize {
+    synchronized_output_private_mode_prefixes()
+        .into_iter()
+        .map(|(prefix, prefix_len)| {
+            let mut offset = 0;
+            let mut retained = suffix_len_matching_prefix(bytes, prefix);
+
+            while offset < bytes.len() {
+                let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                    break;
+                };
+                let index = offset + relative_index;
+                if !is_inside_osc_or_st_control_string(bytes, index)
+                    && matches!(
+                        TerminalModeTracker::parse_mode_sequence(&bytes[index..], prefix_len),
+                        ModeParse::Incomplete
+                    )
+                {
+                    retained = retained.max(bytes.len() - index);
+                }
+                offset = index.saturating_add(1);
+            }
+
+            retained
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+fn synchronized_output_private_mode_prefixes() -> [(&'static [u8], usize); 2] {
+    [
+        (
+            TerminalModeTracker::CSI_PRIVATE_MODE_PREFIX,
+            TerminalModeTracker::CSI_PRIVATE_MODE_PREFIX.len(),
+        ),
+        (
+            TerminalModeTracker::C1_CSI_PRIVATE_MODE_PREFIX,
+            TerminalModeTracker::C1_CSI_PRIVATE_MODE_PREFIX.len(),
+        ),
+    ]
 }
 
 enum ModeParse {

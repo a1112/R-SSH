@@ -83,7 +83,9 @@ in the native `winit` window.
 - The native window tracks PTY-side focus reporting (`ESC[?1004h/l`) and
   reports focus gained/lost events back to the active PTY.
 - The shared runtime tracks PTY-side synchronized output mode
-  (`ESC[?2026h/l`) and reports it through DECRQM private-mode status queries.
+  (`ESC[?2026h/l`), reports it through DECRQM private-mode status queries, and
+  delays render damage while the mode is enabled so the native window can refresh
+  once the PTY-side application resets the mode.
 - `winit` resize events are converted to terminal cell geometry; the live
   terminal grid, PTY size, render buffer, and text-area size query response are
   updated together.
@@ -256,7 +258,8 @@ MVP 4 tests cover:
 - application cursor key mode tracking for native window input
 - application keypad mode tracking for native window numpad input
 - bracketed paste mode tracking for native window paste
-- synchronized output mode tracking and private-mode status reporting
+- synchronized output mode tracking, private-mode status reporting, and delayed
+  render-damage exposure until reset
 - focus reporting mode tracking and native window focus event encoding
 - C1 CSI private input mode tracking in the shared local/window mode tracker
 - window pixel dimensions are converted to terminal rows and columns

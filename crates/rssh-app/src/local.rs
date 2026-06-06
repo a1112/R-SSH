@@ -33,8 +33,9 @@ use crate::{
     diagnostics,
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_modes::{
-        MouseInputMode, MouseProtocolMode, MouseReportingMode, TerminalModeChange,
-        TerminalModeTracker,
+        MouseInputMode, MouseProtocolMode, MouseReportingMode, SynchronizedOutputModeSequence,
+        TerminalModeChange, TerminalModeTracker, find_synchronized_output_mode_sequence,
+        synchronized_output_mode_sequence_suffix_len,
     },
     visible_output::TerminalVisibleOutputFilter,
 };
@@ -821,6 +822,7 @@ fn run_input_loop(
 
 struct TerminalOutputFilter {
     pending: Vec<u8>,
+    synchronized_output_buffer: Vec<u8>,
     size: SharedTerminalSize,
     mirror: Terminal,
     mirror_size: PtySize,
@@ -971,6 +973,7 @@ impl TerminalOutputFilter {
         let mirror_size = size.snapshot();
         Self {
             pending: Vec::new(),
+            synchronized_output_buffer: Vec::new(),
             size,
             mirror: Terminal::new(terminal_size_from_pty(mirror_size)),
             mirror_size,
@@ -998,35 +1001,46 @@ impl TerminalOutputFilter {
         mut read_clipboard: impl FnMut() -> Option<String>,
         osc52_policy: Osc52Policy,
     ) -> io::Result<()> {
-        self.mode_tracker.process_without_emitting(bytes);
         self.color_state.process(bytes);
         self.pending.extend_from_slice(bytes);
 
-        while let Some((index, response)) = self.find_next_response() {
-            output.write_all(&self.pending[..index])?;
-            self.feed_mirror_through_output(index);
-            let consumed_end = index + response.consumed;
-            match response.response {
-                TerminalResponse::Osc8Hyperlink => {
-                    let sequence = self.pending[index..consumed_end].to_vec();
-                    self.feed_mirror_bytes(&sequence);
-                }
-                TerminalResponse::Osc52Write(text) => {
-                    if osc52_policy.allows_write() {
-                        let _ = write_clipboard(&text);
+        while let Some((index, event)) = self.find_next_event() {
+            let prefix = self.pending[..index].to_vec();
+            self.write_visible_bytes(&prefix, output)?;
+            self.mode_tracker.process_without_emitting(&prefix);
+            self.feed_mirror_bytes(&prefix);
+
+            let consumed_end = index + event.consumed;
+            let sequence = self.pending[index..consumed_end].to_vec();
+            match event.event {
+                MatchedTerminalEventKind::Response(response) => match response {
+                    TerminalResponse::Osc8Hyperlink => {
+                        self.feed_mirror_bytes(&sequence);
                     }
-                }
-                TerminalResponse::Osc52Query(selection) => {
-                    if osc52_policy.allows_query()
-                        && let Some(text) = read_clipboard()
-                    {
-                        let response_bytes = encode_osc52_clipboard_response(&selection, &text);
+                    TerminalResponse::Osc52Write(text) => {
+                        if osc52_policy.allows_write() {
+                            let _ = write_clipboard(&text);
+                        }
+                    }
+                    TerminalResponse::Osc52Query(selection) => {
+                        if osc52_policy.allows_query()
+                            && let Some(text) = read_clipboard()
+                        {
+                            let response_bytes = encode_osc52_clipboard_response(&selection, &text);
+                            respond(&response_bytes)?;
+                        }
+                    }
+                    response => {
+                        let response_bytes = self.response_bytes(response);
                         respond(&response_bytes)?;
                     }
-                }
-                response => {
-                    let response_bytes = self.response_bytes(response);
-                    respond(&response_bytes)?;
+                },
+                MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
+                    self.mode_tracker.process_without_emitting(&sequence);
+                    self.feed_mirror_bytes(&sequence);
+                    if !enabled {
+                        self.flush_synchronized_output_buffer(output)?;
+                    }
                 }
             }
             self.pending.drain(..consumed_end);
@@ -1035,12 +1049,59 @@ impl TerminalOutputFilter {
         let retained = Self::suffix_len_matching_query_prefix(&self.pending);
         let writable = self.pending.len().saturating_sub(retained);
         if writable > 0 {
-            output.write_all(&self.pending[..writable])?;
-            self.feed_mirror_through_output(writable);
+            let visible = self.pending[..writable].to_vec();
+            self.write_visible_bytes(&visible, output)?;
+            self.mode_tracker.process_without_emitting(&visible);
+            self.feed_mirror_bytes(&visible);
             self.pending.drain(..writable);
         }
 
         Ok(())
+    }
+
+    fn write_visible_bytes(&mut self, bytes: &[u8], output: &mut dyn Write) -> io::Result<()> {
+        if self.mode_tracker.synchronized_output() {
+            self.synchronized_output_buffer.extend_from_slice(bytes);
+        } else {
+            output.write_all(bytes)?;
+        }
+        Ok(())
+    }
+
+    fn flush_synchronized_output_buffer(&mut self, output: &mut dyn Write) -> io::Result<()> {
+        if self.synchronized_output_buffer.is_empty() {
+            return Ok(());
+        }
+
+        output.write_all(&self.synchronized_output_buffer)?;
+        self.synchronized_output_buffer.clear();
+        Ok(())
+    }
+
+    fn find_next_event(&self) -> Option<(usize, MatchedTerminalEvent)> {
+        let response = self
+            .find_next_response()
+            .map(|(index, response)| (index, response.into()));
+        let synchronized_output = find_synchronized_output_mode_sequence(&self.pending).map(
+            |SynchronizedOutputModeSequence {
+                 index,
+                 consumed,
+                 enabled,
+             }| {
+                (
+                    index,
+                    MatchedTerminalEvent {
+                        consumed,
+                        event: MatchedTerminalEventKind::SynchronizedOutputMode { enabled },
+                    },
+                )
+            },
+        );
+
+        response
+            .into_iter()
+            .chain(synchronized_output)
+            .min_by_key(|(index, _)| *index)
     }
 
     fn find_next_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
@@ -1174,6 +1235,7 @@ impl TerminalOutputFilter {
             .unwrap_or(0);
         static_query_suffix
             .max(private_mode_status_query_suffix_len(pending))
+            .max(synchronized_output_mode_sequence_suffix_len(pending))
             .max(osc_color_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
@@ -1186,21 +1248,22 @@ impl TerminalOutputFilter {
 
     fn flush(&mut self, output: &mut dyn Write) -> io::Result<()> {
         if let Some(drop_start) = find_incomplete_control_sequence_start(&self.pending) {
-            output.write_all(&self.pending[..drop_start])?;
-            self.feed_mirror_through_output(drop_start);
+            let visible = self.pending[..drop_start].to_vec();
+            self.write_visible_bytes(&visible, output)?;
+            self.mode_tracker.process_without_emitting(&visible);
+            self.feed_mirror_bytes(&visible);
             self.pending.clear();
+            self.flush_synchronized_output_buffer(output)?;
             return Ok(());
         }
 
-        output.write_all(&self.pending)?;
-        self.feed_mirror_through_output(self.pending.len());
+        let visible = self.pending.clone();
+        self.write_visible_bytes(&visible, output)?;
+        self.mode_tracker.process_without_emitting(&visible);
+        self.feed_mirror_bytes(&visible);
         self.pending.clear();
+        self.flush_synchronized_output_buffer(output)?;
         Ok(())
-    }
-
-    fn feed_mirror_through_output(&mut self, end: usize) {
-        self.sync_mirror_size();
-        self.mirror.feed(&self.pending[..end]);
     }
 
     fn feed_mirror_bytes(&mut self, bytes: &[u8]) {
@@ -1299,6 +1362,25 @@ struct TerminalQueryResponse {
 struct MatchedTerminalResponse {
     consumed: usize,
     response: TerminalResponse,
+}
+
+struct MatchedTerminalEvent {
+    consumed: usize,
+    event: MatchedTerminalEventKind,
+}
+
+enum MatchedTerminalEventKind {
+    Response(TerminalResponse),
+    SynchronizedOutputMode { enabled: bool },
+}
+
+impl From<MatchedTerminalResponse> for MatchedTerminalEvent {
+    fn from(response: MatchedTerminalResponse) -> Self {
+        Self {
+            consumed: response.consumed,
+            event: MatchedTerminalEventKind::Response(response.response),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -3468,6 +3550,20 @@ mod tests {
         })
     }
 
+    fn mirror_text(filter: &TerminalOutputFilter) -> String {
+        let grid = filter.mirror.grid();
+        let size = grid.size();
+        let mut text = String::new();
+
+        for row in 0..size.rows {
+            for column in 0..size.columns {
+                text.push(grid.get(row, column).unwrap().ch);
+            }
+        }
+
+        text
+    }
+
     #[test]
     fn explicit_local_size_overrides_console_size() {
         let size = rssh_pty::PtySize::try_new(101, 31).unwrap();
@@ -3511,6 +3607,48 @@ mod tests {
 
         assert_eq!(output, b"console-smoke");
         assert!(responses.is_empty());
+    }
+
+    #[test]
+    fn terminal_output_filter_buffers_synchronized_output_until_mode_resets() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[?2026hmid", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"before");
+        assert!(responses.is_empty());
+        assert!(filter.mode_tracker.synchronized_output());
+        assert!(mirror_text(&filter).contains("beforemid"));
+
+        filter
+            .write(b"after\x1b[?2026$p", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(output, b"before");
+        assert_eq!(responses, b"\x1b[?2026;1$y");
+        assert!(mirror_text(&filter).contains("beforemidafter"));
+
+        filter
+            .write(b"\x1b[?2026l done", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforemidafter done");
+        assert_eq!(responses, b"\x1b[?2026;1$y");
+        assert!(!filter.mode_tracker.synchronized_output());
     }
 
     #[test]
@@ -4881,7 +5019,7 @@ mod tests {
             .unwrap();
         filter.flush(&mut output).unwrap();
 
-        assert_eq!(output, b"\x9b?1000;1006h\x1b[?2004;2026h   ");
+        assert_eq!(output, b"\x9b?1000;1006h   ");
         assert_eq!(
             responses,
             b"\x1b[?1000;1$y\x1b[?1006;1$y\x1b[?2004;1$y\x1b[?2026;1$y"

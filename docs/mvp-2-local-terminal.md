@@ -49,6 +49,11 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   cursor keys (`1`), mouse reporting (`1000`/`1002`/`1003`), SGR mouse (`1006`),
   focus reporting (`1004`), bracketed paste (`2004`), and synchronized output
   (`2026`). Unknown modes return an xterm-style unknown status.
+- The console output filter handles xterm synchronized output
+  (`ESC[?2026h/l`) by consuming the mode markers, buffering visible host-console
+  writes while the mode is enabled, continuing to update its mirror terminal and
+  answer terminal queries, and flushing buffered bytes when the mode resets or
+  the PTY output stream ends.
 - `rssh-app local --mouse` allows terminal applications to enable and disable
   host mouse capture and focus events through xterm PTY output modes, then
   forwards active reports as xterm mouse and focus sequences. Mouse mode
@@ -305,7 +310,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
 - Synchronized output negotiation: unit tests cover xterm `ESC[?2026h/l`
-  tracking and DECRQM status responses on the shared console/runtime path.
+  tracking, DECRQM status responses on the shared console/runtime path,
+  console-side visible-output buffering until reset, and EOF flushing.
 - Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`
   tracking and SS3 arrow-key encoding.
 - Application keypad negotiation: unit tests cover xterm/VT `ESC=` and `ESC>`
