@@ -11,7 +11,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use pixels::{Pixels, SurfaceTexture};
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_pty::{PtyCommand, PtySession, PtySize};
-use rssh_renderer::{PixelRenderer, RenderGeometry, TerminalRenderSnapshot};
+use rssh_renderer::{PixelRenderer, RenderGeometry, ScrollbackScrollbar, TerminalRenderSnapshot};
 #[cfg(test)]
 use rssh_terminal::Terminal;
 use serde::Serialize;
@@ -360,33 +360,34 @@ fn metric_option(value: Option<u128>) -> String {
 fn render_framebuffer_with_state(
     renderer: &PixelRenderer,
     snapshot: &TerminalRenderSnapshot,
+    scrollbar: Option<ScrollbackScrollbar>,
     pending_frame_damage: &mut Vec<DamageRegion>,
     frame_needs_full_repaint: &mut bool,
     frame: &mut [u8],
-    frame_width: u32,
-    frame_height: u32,
+    geometry: RenderGeometry,
 ) -> FrameRenderMode {
     if *frame_needs_full_repaint || pending_frame_damage.is_empty() {
         renderer.render(
             snapshot,
             frame,
-            frame_width,
-            frame_height,
-            CELL_WIDTH,
-            CELL_HEIGHT,
+            geometry.target_width,
+            geometry.target_height,
+            geometry.cell_width,
+            geometry.cell_height,
         );
+        if let Some(scrollbar) = scrollbar {
+            renderer.render_scrollbar(scrollbar, frame, geometry);
+        }
         pending_frame_damage.clear();
         *frame_needs_full_repaint = false;
         return FrameRenderMode::Full;
     }
 
     let damage = std::mem::take(pending_frame_damage);
-    renderer.render_damage(
-        snapshot,
-        &damage,
-        frame,
-        RenderGeometry::new(frame_width, frame_height, CELL_WIDTH, CELL_HEIGHT),
-    );
+    renderer.render_damage(snapshot, &damage, frame, geometry);
+    if let Some(scrollbar) = scrollbar {
+        renderer.render_scrollbar(scrollbar, frame, geometry);
+    }
     FrameRenderMode::Damage
 }
 
@@ -507,6 +508,7 @@ impl NativeWindowApp {
     }
 
     fn draw_frame(&mut self, event_loop: &ActiveEventLoop) {
+        let scrollbar = self.scrollback_scrollbar();
         let Some(pixels) = self.pixels.as_mut() else {
             return;
         };
@@ -515,11 +517,11 @@ impl NativeWindowApp {
         let mode = render_framebuffer_with_state(
             &self.renderer,
             &self.snapshot,
+            scrollbar,
             &mut self.pending_frame_damage,
             &mut self.frame_needs_full_repaint,
             pixels.frame_mut(),
-            self.frame_width,
-            self.frame_height,
+            RenderGeometry::new(self.frame_width, self.frame_height, CELL_WIDTH, CELL_HEIGHT),
         );
         self.metrics.record_frame_render_mode(mode);
 
@@ -541,14 +543,15 @@ impl NativeWindowApp {
 
     #[cfg(test)]
     fn render_framebuffer(&mut self, frame: &mut [u8]) -> FrameRenderMode {
+        let scrollbar = self.scrollback_scrollbar();
         let mode = render_framebuffer_with_state(
             &self.renderer,
             &self.snapshot,
+            scrollbar,
             &mut self.pending_frame_damage,
             &mut self.frame_needs_full_repaint,
             frame,
-            self.frame_width,
-            self.frame_height,
+            RenderGeometry::new(self.frame_width, self.frame_height, CELL_WIDTH, CELL_HEIGHT),
         );
         self.metrics.record_frame_render_mode(mode);
         mode
@@ -1002,11 +1005,6 @@ impl NativeWindowApp {
     fn effective_window_title(&self) -> String {
         let mut title = self.window_title.clone();
 
-        if let Some(status) = self.scrollback_status() {
-            title.push_str(" - ");
-            title.push_str(&status);
-        }
-
         if let Some(search) = &self.search {
             title.push_str(" - ");
             title.push_str(&search_status(search));
@@ -1015,17 +1013,10 @@ impl NativeWindowApp {
         title
     }
 
-    fn scrollback_status(&self) -> Option<String> {
+    fn scrollback_scrollbar(&self) -> Option<ScrollbackScrollbar> {
         let history_len = self.runtime.terminal().scrollback().len();
-        if history_len == 0 || self.scrollback_offset == 0 {
-            return None;
-        }
-
-        Some(format!(
-            "Scrollback {}/{}",
-            self.scrollback_offset.min(history_len),
-            history_len
-        ))
+        let rows = self.runtime.terminal().grid().size().rows;
+        ScrollbackScrollbar::new(history_len, rows, self.scrollback_offset)
     }
 
     fn apply_window_title(&self) {
@@ -2177,6 +2168,8 @@ mod tests {
     use winit::event::{ElementState, MouseButton, MouseScrollDelta};
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
 
+    use rssh_renderer::SCROLLBAR_THUMB_COLOR;
+
     use crate::{
         cli::Osc52Policy,
         terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode},
@@ -2657,6 +2650,22 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_scrollback_scrollbar_to_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\nbb\ncc\ndd\nee").unwrap();
+        app.scroll_viewport_lines(99);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        assert_eq!(
+            frame_pixel_at(&frame, FRAME_WIDTH as usize, FRAME_WIDTH as usize - 1, 0),
+            SCROLLBAR_THUMB_COLOR
+        );
+    }
+
+    #[test]
     fn window_app_collects_pty_processing_metrics() {
         let mut app = NativeWindowApp::new(None);
 
@@ -2840,7 +2849,7 @@ mod tests {
     }
 
     #[test]
-    fn window_title_shows_scrollback_position() {
+    fn window_title_omits_scrollback_position_after_scrollbar_overlay() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
         app.handle_pty_output(b"aa\nbb\ncc\ndd\nee").unwrap();
@@ -2849,10 +2858,10 @@ mod tests {
         assert_eq!(app.effective_window_title(), "R-SSH");
 
         app.scroll_viewport_lines(1);
-        assert_eq!(app.effective_window_title(), "R-SSH - Scrollback 1/3");
+        assert_eq!(app.effective_window_title(), "R-SSH");
 
         app.scroll_viewport_lines(99);
-        assert_eq!(app.effective_window_title(), "R-SSH - Scrollback 3/3");
+        assert_eq!(app.effective_window_title(), "R-SSH");
 
         app.scroll_viewport_lines(-99);
         assert_eq!(app.effective_window_title(), "R-SSH");
@@ -2866,10 +2875,7 @@ mod tests {
 
         assert!(app.update_search_query("alpha"));
 
-        assert_eq!(
-            app.effective_window_title(),
-            "R-SSH - Scrollback 1/1 - Search: alpha"
-        );
+        assert_eq!(app.effective_window_title(), "R-SSH - Search: alpha");
     }
 
     #[test]
@@ -3195,6 +3201,16 @@ mod tests {
             .cells()
             .iter()
             .find(|cell| cell.row == row && cell.column == column)
+    }
+
+    fn frame_pixel_at(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
+        let index = (y * width + x) * 4;
+        [
+            frame[index],
+            frame[index + 1],
+            frame[index + 2],
+            frame[index + 3],
+        ]
     }
 
     struct SharedWriter(Arc<Mutex<Vec<u8>>>);

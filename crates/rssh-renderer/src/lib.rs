@@ -54,6 +54,38 @@ impl RenderGeometry {
     }
 }
 
+pub const SCROLLBAR_TRACK_COLOR: [u8; 4] = [46, 46, 46, 255];
+pub const SCROLLBAR_THUMB_COLOR: [u8; 4] = [172, 172, 172, 255];
+
+const SCROLLBAR_WIDTH: u32 = 4;
+const MIN_SCROLLBAR_THUMB_HEIGHT: u32 = 8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollbackScrollbar {
+    pub scrollback_lines: usize,
+    pub viewport_rows: u16,
+    pub scrollback_offset: usize,
+}
+
+impl ScrollbackScrollbar {
+    #[must_use]
+    pub fn new(
+        scrollback_lines: usize,
+        viewport_rows: u16,
+        scrollback_offset: usize,
+    ) -> Option<Self> {
+        if scrollback_lines == 0 || viewport_rows == 0 {
+            return None;
+        }
+
+        Some(Self {
+            scrollback_lines,
+            viewport_rows,
+            scrollback_offset: scrollback_offset.min(scrollback_lines),
+        })
+    }
+}
+
 pub struct PixelRenderer;
 
 impl PixelRenderer {
@@ -90,6 +122,35 @@ impl PixelRenderer {
         if let Some(cursor) = snapshot.cursor() {
             render_cursor(&mut surface, cursor, cell_width, cell_height);
         }
+    }
+
+    pub fn render_scrollbar(
+        &self,
+        scrollbar: ScrollbackScrollbar,
+        target: &mut [u8],
+        geometry: RenderGeometry,
+    ) {
+        if geometry.target_width == 0 || geometry.target_height == 0 {
+            return;
+        }
+
+        let mut surface = Surface {
+            target,
+            width: geometry.target_width,
+            height: geometry.target_height,
+        };
+        let track_width = SCROLLBAR_WIDTH.min(geometry.target_width);
+        let track = Rect {
+            x: geometry.target_width.saturating_sub(track_width),
+            y: 0,
+            width: track_width,
+            height: geometry.target_height,
+        };
+        surface.fill_rect(track, SCROLLBAR_TRACK_COLOR);
+        surface.fill_rect(
+            scrollbar_thumb_rect(scrollbar, geometry, track_width),
+            SCROLLBAR_THUMB_COLOR,
+        );
     }
 
     pub fn render_damage(
@@ -293,6 +354,43 @@ fn damage_contains_cell(damage: &[DamageRegion], row: u16, column: u16) -> bool 
             && column >= region.x
             && column < region.x.saturating_add(region.width)
     })
+}
+
+fn scrollbar_thumb_rect(
+    scrollbar: ScrollbackScrollbar,
+    geometry: RenderGeometry,
+    track_width: u32,
+) -> Rect {
+    let viewport_rows = u64::from(scrollbar.viewport_rows);
+    let total_rows = viewport_rows.saturating_add(scrollbar.scrollback_lines as u64);
+    let target_height = u64::from(geometry.target_height);
+    let proportional_height = if total_rows == 0 {
+        target_height
+    } else {
+        target_height.saturating_mul(viewport_rows) / total_rows
+    };
+    let thumb_height = u32::try_from(proportional_height)
+        .unwrap_or(geometry.target_height)
+        .max(MIN_SCROLLBAR_THUMB_HEIGHT)
+        .min(geometry.target_height);
+    let travel = geometry.target_height.saturating_sub(thumb_height);
+    let scrollback_lines = scrollbar.scrollback_lines as u64;
+    let live_distance = scrollbar
+        .scrollback_lines
+        .saturating_sub(scrollbar.scrollback_offset) as u64;
+    let thumb_y = if scrollback_lines == 0 {
+        0
+    } else {
+        u32::try_from(u64::from(travel).saturating_mul(live_distance) / scrollback_lines)
+            .unwrap_or(travel)
+    };
+
+    Rect {
+        x: geometry.target_width.saturating_sub(track_width),
+        y: thumb_y.min(travel),
+        width: track_width,
+        height: thumb_height,
+    }
 }
 
 fn color_to_rgba(color: Color, default: [u8; 4]) -> [u8; 4] {
@@ -584,7 +682,10 @@ mod tests {
     use rssh_core::TerminalSize;
     use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid};
 
-    use super::{DamageRegion, PixelRenderer, RenderGeometry, TerminalRenderSnapshot};
+    use super::{
+        DamageRegion, PixelRenderer, RenderGeometry, SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR,
+        ScrollbackScrollbar, TerminalRenderSnapshot,
+    };
 
     #[test]
     fn zero_width_region_is_empty() {
@@ -791,6 +892,36 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 16, 0, 0), [0, 0, 20, 255]);
         assert_eq!(pixel_at(&target, 16, 8, 0), untouched_second_cell);
+    }
+
+    #[test]
+    fn pixel_renderer_draws_scrollback_scrollbar_at_bottom_for_live_viewport() {
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 32 * 4];
+
+        renderer.render_scrollbar(
+            ScrollbackScrollbar::new(3, 1, 0).unwrap(),
+            &mut target,
+            RenderGeometry::new(16, 32, 8, 8),
+        );
+
+        assert_eq!(pixel_at(&target, 16, 15, 0), SCROLLBAR_TRACK_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_THUMB_COLOR);
+    }
+
+    #[test]
+    fn pixel_renderer_moves_scrollback_scrollbar_thumb_up_for_history_viewport() {
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 32 * 4];
+
+        renderer.render_scrollbar(
+            ScrollbackScrollbar::new(3, 1, 3).unwrap(),
+            &mut target,
+            RenderGeometry::new(16, 32, 8, 8),
+        );
+
+        assert_eq!(pixel_at(&target, 16, 15, 0), SCROLLBAR_THUMB_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_TRACK_COLOR);
     }
 
     #[test]
