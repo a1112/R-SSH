@@ -268,7 +268,10 @@ now add `--metrics` to print:
 The next instrumentation layer should add these metrics:
 
 - Steady idle CPU: open shell with no input.
-- Burst throughput: sustained bytes parsed and rendered per second.
+- Burst throughput: `rssh-app bench --json` now reports deterministic
+  terminal-runtime bytes parsed per second and p95 chunk processing latency;
+  native-window rendered-throughput benchmarking still needs a window smoke
+  harness.
 - Memory footprint: baseline window, active shell, and future scrollback sizes.
 
 Recommended MVP 5 targets:
@@ -295,4 +298,5 @@ and Shift page/navigation shortcuts.
 
 1. Track dirty regions instead of rebuilding the full snapshot each chunk.
 2. Replace title-only scrollback position with a real scrollbar or status area.
-3. Start collecting the metrics listed above in smoke and benchmark commands.
+3. Extend `bench --json` into native-window rendered-throughput, idle CPU, and
+   memory smoke commands.

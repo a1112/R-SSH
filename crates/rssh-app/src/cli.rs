@@ -6,10 +6,15 @@ use rssh_ssh::{SshAuthMethod, SshConnectRequest, SshSessionConfig};
 
 const DEFAULT_SSH_COLUMNS: u16 = 80;
 const DEFAULT_SSH_ROWS: u16 = 24;
+const DEFAULT_BENCH_BYTES: usize = 1_048_576;
+const DEFAULT_BENCH_CHUNK_SIZE: usize = 8192;
+const DEFAULT_BENCH_COLUMNS: u16 = 120;
+const DEFAULT_BENCH_ROWS: u16 = 30;
 const DEFAULT_PROFILE_FILE: &str = "rssh-profiles.toml";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AppCommand {
+    Bench(BenchOptions),
     Doctor(DoctorOptions),
     Local(LocalOptions),
     Profile(ProfileOptions),
@@ -24,6 +29,14 @@ pub enum AppCommand {
     Version(VersionOptions),
     Window(WindowOptions),
     Help,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BenchOptions {
+    pub json: bool,
+    pub bytes: usize,
+    pub chunk_size: usize,
+    pub size: TerminalSize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -237,6 +250,13 @@ where
     };
 
     match command.as_str() {
+        "bench" => {
+            let bench_args = args.collect::<Vec<_>>();
+            if subcommand_help_requested(&bench_args) {
+                return Ok(AppCommand::Help);
+            }
+            parse_bench(&bench_args)
+        }
         "local" | "console" => {
             let local_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&local_args) {
@@ -313,6 +333,7 @@ Usage:
   rssh-app doctor [--json]
   rssh-app version [--json]
   rssh-app self-test [--json]
+  rssh-app bench [--json] [--bytes N] [--chunk-size N] [--cols N --rows N]
   rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics] [--log PATH] [-- <program> [args...]]
   rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
@@ -374,6 +395,46 @@ fn parse_self_test(args: &[String]) -> Result<AppCommand, String> {
     }
 
     Ok(AppCommand::SelfTest(SelfTestOptions { json }))
+}
+
+fn parse_bench(args: &[String]) -> Result<AppCommand, String> {
+    let mut json = false;
+    let mut bytes = DEFAULT_BENCH_BYTES;
+    let mut chunk_size = DEFAULT_BENCH_CHUNK_SIZE;
+    let mut columns = DEFAULT_BENCH_COLUMNS;
+    let mut rows = DEFAULT_BENCH_ROWS;
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--json" => json = true,
+            "--bytes" => {
+                index += 1;
+                bytes = parse_nonzero_usize(args.get(index), "--bytes")?;
+            }
+            "--chunk-size" => {
+                index += 1;
+                chunk_size = parse_nonzero_usize(args.get(index), "--chunk-size")?;
+            }
+            "--cols" => {
+                index += 1;
+                columns = parse_nonzero_dimension(args.get(index), "--cols")?;
+            }
+            "--rows" => {
+                index += 1;
+                rows = parse_nonzero_dimension(args.get(index), "--rows")?;
+            }
+            value => return Err(format!("unexpected bench option: {value}")),
+        }
+        index += 1;
+    }
+
+    Ok(AppCommand::Bench(BenchOptions {
+        json,
+        bytes,
+        chunk_size,
+        size: TerminalSize::new(columns, rows),
+    }))
 }
 
 fn parse_local(args: &[String]) -> Result<AppCommand, String> {
@@ -1286,6 +1347,30 @@ fn parse_dimension(value: Option<&String>, name: &str) -> Result<u16, String> {
         .map_err(|_| format!("invalid value for {name}: {value}"))
 }
 
+fn parse_nonzero_dimension(value: Option<&String>, name: &str) -> Result<u16, String> {
+    let dimension = parse_dimension(value, name)?;
+    if dimension == 0 {
+        return Err(format!("{name} must be greater than zero"));
+    }
+
+    Ok(dimension)
+}
+
+fn parse_nonzero_usize(value: Option<&String>, name: &str) -> Result<usize, String> {
+    let Some(value) = value else {
+        return Err(format!("missing value for {name}"));
+    };
+
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid value for {name}: {value}"))?;
+    if parsed == 0 {
+        return Err(format!("{name} must be greater than zero"));
+    }
+
+    Ok(parsed)
+}
+
 fn required_option_value<'a>(value: Option<&'a String>, name: &str) -> Result<&'a str, String> {
     value
         .map(String::as_str)
@@ -1703,6 +1788,55 @@ mod tests {
         assert_eq!(options.command.program(), "cmd.exe");
         assert_eq!(options.command.args(), ["/C", "echo console-alias"]);
         assert!(options.console.preflight);
+    }
+
+    #[test]
+    fn parses_console_benchmark_command() {
+        let parsed = parse_args(["rssh-app", "bench"]).unwrap();
+
+        let AppCommand::Bench(options) = parsed else {
+            panic!("expected bench command");
+        };
+
+        assert!(!options.json);
+        assert_eq!(options.bytes, 1_048_576);
+        assert_eq!(options.chunk_size, 8192);
+        assert_eq!(options.size, rssh_core::TerminalSize::new(120, 30));
+    }
+
+    #[test]
+    fn parses_console_benchmark_options() {
+        let parsed = parse_args([
+            "rssh-app",
+            "bench",
+            "--json",
+            "--bytes",
+            "4096",
+            "--chunk-size",
+            "512",
+            "--cols",
+            "100",
+            "--rows",
+            "40",
+        ])
+        .unwrap();
+
+        let AppCommand::Bench(options) = parsed else {
+            panic!("expected bench command");
+        };
+
+        assert!(options.json);
+        assert_eq!(options.bytes, 4096);
+        assert_eq!(options.chunk_size, 512);
+        assert_eq!(options.size, rssh_core::TerminalSize::new(100, 40));
+    }
+
+    #[test]
+    fn rejects_invalid_console_benchmark_options() {
+        assert!(parse_args(["rssh-app", "bench", "--bytes", "0"]).is_err());
+        assert!(parse_args(["rssh-app", "bench", "--chunk-size", "0"]).is_err());
+        assert!(parse_args(["rssh-app", "bench", "--cols", "0"]).is_err());
+        assert!(parse_args(["rssh-app", "bench", "--rows", "0"]).is_err());
     }
 
     #[test]

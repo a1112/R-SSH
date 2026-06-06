@@ -34,6 +34,7 @@ The release package is not uploaded until all gates pass:
 - `dist/R-SSH-windows-x64/rssh-app.exe version --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe doctor --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe self-test --json`
+- `dist/R-SSH-windows-x64/rssh-app.exe bench --json`
 - `dist/R-SSH-windows-x64/rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke`
 - `dist/R-SSH-windows-x64/rssh-console.cmd --preflight -- cmd.exe /C echo packaged-console-launcher-smoke`
 
@@ -44,7 +45,11 @@ console app and report terminal size, child terminal environment, default shell,
 and OpenSSH tool availability. The packaged `self-test --json` smoke test proves
 that the downloaded executable can open a real local PTY, spawn a child command,
 capture its output, and launch the OpenSSH `ssh`, `sftp`, and `scp` console
-tools without opening a network connection. The packaged `console` smoke tests
+tools without opening a network connection. The packaged `bench --json` smoke
+test proves that the downloaded executable can run the deterministic
+terminal-runtime benchmark and emit parser throughput, p95 chunk latency,
+response count, visible output bytes, bell count, scrollback lines, and final
+cursor position as machine-readable metrics. The packaged `console` smoke tests
 prove that both the explicit CLI alias and the Windows launcher enter the same
 console-hosted PTY path.
 
@@ -56,6 +61,7 @@ After extracting the zip:
 .\rssh-app.exe doctor
 .\rssh-app.exe version --json
 .\rssh-app.exe self-test --json
+.\rssh-app.exe bench --json
 .\rssh-app.exe console
 .\rssh-console.cmd
 .\rssh-app.exe local
@@ -101,6 +107,10 @@ pilot:
 - Local PTY and tool health: packaged `self-test --json` captures the expected
   PTY marker from a child process and verifies that `ssh -V`, `sftp -h`, and
   `scp -h` can launch.
+- Benchmark baseline: packaged `bench --json` reports terminal-runtime
+  throughput, p95 chunk processing latency, visible output bytes, response
+  count, bell count, scrollback lines, and final cursor position from a
+  deterministic ANSI/CSI/OSC workload.
 - Console coverage: explicit `console` launcher, local shell, positional
   `[USER@]HOST` SSH/SFTP/SCP launches, SSH trailing remote commands, SCP
   `HOST:PATH` single-source and multi-source upload/download operands, common
@@ -111,6 +121,6 @@ pilot:
   OpenSSH config targets, profiles, metrics, and native russh startup remain
   covered by workspace tests.
 - Runtime observability: console sessions can emit `--metrics` or
-  `--metrics-json`.
+  `--metrics-json`; non-interactive parser runs can emit `bench --json`.
 - Safe startup: `--preflight` is available for console/local, SSH, SFTP, and
   SCP profile or direct launches.

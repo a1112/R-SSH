@@ -49,6 +49,7 @@ jobs:
           ./rssh-app.exe version --json
           ./rssh-app.exe doctor --json
           ./rssh-app.exe self-test --json
+          ./rssh-app.exe bench --json
           ./rssh-app.exe console --preflight -- cmd.exe /C echo packaged-console-alias-smoke
           ./rssh-console.cmd --preflight -- cmd.exe /C echo packaged-console-launcher-smoke
           Pop-Location

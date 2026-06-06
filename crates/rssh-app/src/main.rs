@@ -1,3 +1,4 @@
+mod bench;
 mod cli;
 mod diagnostics;
 mod local;
@@ -34,6 +35,10 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
 
 fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Error>> {
     match command {
+        AppCommand::Bench(options) => {
+            bench::print_bench(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::Doctor(options) => {
             diagnostics::print_doctor(&options)?;
             Ok(ExitCode::SUCCESS)

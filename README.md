@@ -54,6 +54,8 @@ cargo run -p rssh-app -- version
 cargo run -p rssh-app -- version --json
 cargo run -p rssh-app -- self-test
 cargo run -p rssh-app -- self-test --json
+cargo run -p rssh-app -- bench --json
+cargo run -p rssh-app -- bench --bytes 4194304 --chunk-size 8192 --cols 120 --rows 30
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- console --preflight -- cmd.exe /C echo console-alias-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
@@ -157,6 +159,11 @@ available; add `--json` for a machine-readable report.
 Use `self-test` or `self-test --json` after download to run a local PTY smoke
 and verify that `ssh -V`, `sftp -h`, and `scp -h` can launch without opening a
 network connection.
+Use `bench` or `bench --json` to run a deterministic terminal-runtime benchmark
+without opening a network connection. It feeds ANSI/CSI/OSC workload bytes
+through the same terminal parser and query-response path used by the console and
+native window, reporting throughput, p95 chunk processing time, visible output
+bytes, response count, bell count, scrollback lines, and final cursor position.
 Add `--preflight` to `console`/`local`, `ssh`, `sftp`, or `scp` when startup
 should run the same console dependency check before spawning the PTY child
 process. Add `--metrics` to `console`/`local`, `ssh`, `sftp`, or `scp` to print
@@ -272,8 +279,9 @@ The `Release` GitHub Actions workflow builds the Windows console package
 starting with `v` also publish it as a GitHub Release asset. The workflow runs
 formatting, tests, clippy, release compilation, and packaged
 `rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
-`rssh-app.exe self-test --json` smoke tests, plus `rssh-app.exe console` and
-`rssh-console.cmd` console-launcher smoke tests before upload. See
+`rssh-app.exe self-test --json` smoke tests, `rssh-app.exe bench --json`
+benchmark smoke, plus `rssh-app.exe console` and `rssh-console.cmd`
+console-launcher smoke tests before upload. See
 `docs/release-console.md`.
 
 ## MVP Status
@@ -286,8 +294,10 @@ formatting, tests, clippy, release compilation, and packaged
 - MVP 4: Live PTY session inside the native renderer is complete. See
   `docs/mvp-4-live-pty-window.md`.
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
-  rendering, and input-write metrics with `window --metrics`; the SSH crate now
-  has a validated config, authentication request model, connector entry point,
+  rendering, and input-write metrics with `window --metrics`; `bench --json`
+  now provides a repeatable terminal-runtime throughput and p95 chunk latency
+  baseline for console/native-window parser work. The SSH crate now has a
+  validated config, authentication request model, connector entry point,
   shell-session boundary, `rssh-app ssh` request parsing, and an injectable SSH
   runner path for local input and remote output. `rssh-core` also includes a
   shared session lifecycle model for created, connecting, connected,
