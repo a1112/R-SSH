@@ -1077,7 +1077,10 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
         return Err("--trust-on-first-use requires --native".to_owned());
     }
     if native && !openssh_args.is_empty() {
-        return Err("-o and -F require the OpenSSH console backend; remove --native".to_owned());
+        return Err(
+            "OpenSSH passthrough options require the OpenSSH console backend; remove --native"
+                .to_owned(),
+        );
     }
 
     Ok(SshOptions {
@@ -2181,7 +2184,15 @@ mod tests {
         ])
         .unwrap_err();
 
-        assert!(error.contains("-o and -F require the OpenSSH console backend"));
+        assert!(error.contains("OpenSSH passthrough options require the OpenSSH console backend"));
+    }
+
+    #[test]
+    fn rejects_common_openssh_passthrough_options_with_native_ssh() {
+        let error =
+            parse_args(["rssh-app", "ssh", "--native", "-J", "bastion", "prod"]).unwrap_err();
+
+        assert!(error.contains("OpenSSH passthrough options require the OpenSSH console backend"));
     }
 
     #[test]

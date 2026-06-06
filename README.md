@@ -202,6 +202,8 @@ private-key passphrase prompts. Use
 `--trust-on-first-use` to record a first-time host key in the user's
 `.ssh/known_hosts` file and verify it on later connections.
 `--accept-unknown-host-key` remains available for insecure test servers only.
+OpenSSH passthrough flags such as `-J`, `-F`, `-o`, `-W`, and `-T` require the
+OpenSSH console backend and are rejected with `--native`.
 Native `--local-forward` and `--dynamic-forward` start in-process listeners and
 open russh `direct-tcpip` channels for accepted local TCP or SOCKS5 CONNECT
 requests. Native `--remote-forward` requests a server-side TCP listener and
