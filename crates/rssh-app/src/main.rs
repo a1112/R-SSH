@@ -3,6 +3,7 @@ mod diagnostics;
 mod local;
 mod profiles;
 mod scp;
+mod self_test;
 mod sftp;
 mod ssh;
 mod terminal_input;
@@ -56,6 +57,10 @@ fn run_command(command: AppCommand) -> Result<ExitCode, Box<dyn std::error::Erro
             Ok(ExitCode::SUCCESS)
         }
         AppCommand::Scp(options) => scp::run(&options).map(|status| pty_exit_code(&status)),
+        AppCommand::SelfTest(options) => {
+            self_test::print_self_test(&options)?;
+            Ok(ExitCode::SUCCESS)
+        }
         AppCommand::Sftp(options) => sftp::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Ssh(options) => ssh::run(&options).map(|status| pty_exit_code(&status)),
         AppCommand::Version(options) => {

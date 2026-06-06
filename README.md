@@ -45,12 +45,15 @@ cargo test --workspace
 cargo build --release -p rssh-app
 .\target\release\rssh-app.exe version --json
 .\target\release\rssh-app.exe doctor
+.\target\release\rssh-app.exe self-test --json
 cargo run -p rssh-app
 cargo run -p rssh-app -- window --frames 3
 cargo run -p rssh-app -- doctor
 cargo run -p rssh-app -- doctor --json
 cargo run -p rssh-app -- version
 cargo run -p rssh-app -- version --json
+cargo run -p rssh-app -- self-test
+cargo run -p rssh-app -- self-test --json
 cargo run -p rssh-app -- local --preflight -- cmd.exe /C echo console-preflight-smoke
 cargo run -p rssh-app -- local --metrics -- cmd.exe /C echo console-metrics-smoke
 cargo run -p rssh-app -- local --metrics-json -- cmd.exe /C echo console-metrics-json-smoke
@@ -199,8 +202,8 @@ The `Release` GitHub Actions workflow builds the Windows console package
 `R-SSH-windows-x64.zip`. Manual workflow runs upload it as an artifact; tags
 starting with `v` also publish it as a GitHub Release asset. The workflow runs
 formatting, tests, clippy, release compilation, and packaged
-`rssh-app.exe version --json` plus `rssh-app.exe doctor --json` smoke tests
-before upload. See
+`rssh-app.exe version --json`, `rssh-app.exe doctor --json`, and
+`rssh-app.exe self-test --json` smoke tests before upload. See
 `docs/release-console.md`.
 
 ## MVP Status
