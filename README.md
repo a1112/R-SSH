@@ -81,6 +81,7 @@ cargo run -p rssh-app -- ssh --target prod -- uname -a
 cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- ssh -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
+cargo run -p rssh-app -- ssh -J bastion -C -vv prod
 cargo run -p rssh-app -- ssh -L 127.0.0.1:15432:db.internal:5432 -D 127.0.0.1:1080 -N prod
 cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.internal:5432 --no-shell
 cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
@@ -89,12 +90,14 @@ cargo run -p rssh-app -- ssh --target prod --log prod.log
 cargo run -p rssh-app -- sftp ops@example.com
 cargo run -p rssh-app -- sftp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 ops@example.com
 cargo run -p rssh-app -- sftp -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
+cargo run -p rssh-app -- sftp -J bastion -C -vv prod
 cargo run -p rssh-app -- sftp --target prod
 cargo run -p rssh-app -- sftp --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- sftp --target prod --log sftp.log
 cargo run -p rssh-app -- scp local.txt ops@example.com:/tmp/remote.txt
 cargo run -p rssh-app -- scp -P 2222 -i C:\Users\ops\.ssh\id_ed25519 -r logs ops@example.com:/tmp/logs
 cargo run -p rssh-app -- scp -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion local.txt prod:/tmp/remote.txt
+cargo run -p rssh-app -- scp -J bastion -C -vv local.txt prod:/tmp/remote.txt
 cargo run -p rssh-app -- scp ops@example.com:/tmp/remote.txt local.txt
 cargo run -p rssh-app -- scp ops@example.com --upload local.txt /tmp/remote.txt
 cargo run -p rssh-app -- scp --target prod --upload local.txt /tmp/remote.txt
@@ -162,20 +165,22 @@ passed through as the remote command, for example `ssh ops@example.com uptime
 `--` before remote commands so password and key prompts cannot be mistaken for
 command-line secrets. Common OpenSSH short options are accepted on the console
 path: `ssh -p PORT -l USER -i KEY -F CONFIG -o OPTION=VALUE -L SPEC -R
-SPEC -D SPEC -N HOST`.
+SPEC -D SPEC -N HOST`. `-J JUMP`, `-4`, `-6`, `-A`, `-a`, `-C`, `-q`, and
+`-v`/`-vv`/`-vvv` are also passed through to OpenSSH.
 `sftp` starts the system OpenSSH SFTP client inside the same PTY console
 runtime, using the same `--host`/`--target`, `--user`, `--port`, `--agent`,
 `--password`, `--key`, and `--log` shape for interactive file transfer; it also
 accepts the same positional `[USER@]HOST` target. Common short options
-`sftp -P PORT -i KEY -F CONFIG -o OPTION=VALUE HOST` are supported.
+`sftp -P PORT -i KEY -J JUMP -F CONFIG -o OPTION=VALUE -C -v HOST` are
+supported.
 `scp` starts the system OpenSSH SCP client inside the same PTY console runtime
 for one-shot upload and download transfers. Use `scp local.txt
 ops@example.com:/tmp/remote.txt` to upload and `scp
 ops@example.com:/tmp/remote.txt local.txt` to download. The longer `--upload
 LOCAL REMOTE` and `--download REMOTE LOCAL` forms remain available when the
 target is supplied separately; add `-r` or `--recursive` for directories.
-Common short options `scp -P PORT -i KEY -F CONFIG -o OPTION=VALUE` are
-supported.
+Common short options `scp -P PORT -i KEY -J JUMP -F CONFIG -o OPTION=VALUE -C
+-v` are supported.
 Add `--native` to use the experimental in-process `russh` path instead of
 spawning an interactive OpenSSH session. The native path supports `--host`
 direct targets and `--target NAME` entries resolved through `ssh -G`, with
