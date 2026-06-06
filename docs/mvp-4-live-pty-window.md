@@ -82,6 +82,8 @@ in the native `winit` window.
   and sends SS3 keypad sequences for physical numpad keys while it is enabled.
 - The native window tracks PTY-side focus reporting (`ESC[?1004h/l`) and
   reports focus gained/lost events back to the active PTY.
+- The shared runtime tracks PTY-side synchronized output mode
+  (`ESC[?2026h/l`) and reports it through DECRQM private-mode status queries.
 - `winit` resize events are converted to terminal cell geometry; the live
   terminal grid, PTY size, render buffer, and text-area size query response are
   updated together.
@@ -221,8 +223,9 @@ MVP 4 tests cover:
   concealed text, and overline, cursor shape, and scroll-region state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
 - DECRQM private-mode status query responses for application cursor keys, mouse,
-  SGR mouse, focus, bracketed paste, and unknown modes, including mode-like
-  bytes embedded inside OSC or ST-terminated control-string payloads
+  SGR mouse, focus, bracketed paste, synchronized output, and unknown modes,
+  including mode-like bytes embedded inside OSC or ST-terminated control-string
+  payloads
 - native window OSC 52 policy parsing and write/query enforcement
 - native window local selection text extraction, highlight overlay, mouse drag,
   double-click word selection, triple-click line selection, and copy shortcut
@@ -253,6 +256,7 @@ MVP 4 tests cover:
 - application cursor key mode tracking for native window input
 - application keypad mode tracking for native window numpad input
 - bracketed paste mode tracking for native window paste
+- synchronized output mode tracking and private-mode status reporting
 - focus reporting mode tracking and native window focus event encoding
 - C1 CSI private input mode tracking in the shared local/window mode tracker
 - window pixel dimensions are converted to terminal rows and columns

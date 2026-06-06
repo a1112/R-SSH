@@ -642,22 +642,25 @@ fn copy_pty_output(
             Ok(count) => {
                 metrics.add_pty_output(count as u64);
                 mode_tracker.process(&buffer[..count], |change| {
-                    let event = match change {
+                    let Some(event) = (match change {
                         TerminalModeChange::ApplicationCursorKeys(enabled) => {
-                            LocalControlEvent::SetApplicationCursorKeys(enabled)
+                            Some(LocalControlEvent::SetApplicationCursorKeys(enabled))
                         }
                         TerminalModeChange::ApplicationKeypad(enabled) => {
-                            LocalControlEvent::SetApplicationKeypad(enabled)
+                            Some(LocalControlEvent::SetApplicationKeypad(enabled))
                         }
                         TerminalModeChange::BracketedPaste(enabled) => {
-                            LocalControlEvent::SetBracketedPaste(enabled)
+                            Some(LocalControlEvent::SetBracketedPaste(enabled))
                         }
                         TerminalModeChange::Mouse(mode) => {
-                            LocalControlEvent::SetMouseReporting(mode)
+                            Some(LocalControlEvent::SetMouseReporting(mode))
                         }
                         TerminalModeChange::Focus(enabled) => {
-                            LocalControlEvent::SetFocusReporting(enabled)
+                            Some(LocalControlEvent::SetFocusReporting(enabled))
                         }
+                        TerminalModeChange::SynchronizedOutput(_) => None,
+                    }) else {
+                        return;
                     };
                     let _ = control_sender.send(event);
                 });
@@ -3369,18 +3372,37 @@ mod tests {
     }
 
     #[test]
+    fn tracks_synchronized_output_from_pty_output_modes() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?2026h", |change| changes.push(change));
+        tracker.process(b"\x1b[?2026l", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::SynchronizedOutput(true),
+                TerminalModeChange::SynchronizedOutput(false)
+            ]
+        );
+        assert!(!tracker.synchronized_output());
+    }
+
+    #[test]
     fn tracks_c1_private_input_modes_from_pty_output() {
         let mut tracker = TerminalModeTracker::default();
         let mut changes = Vec::new();
 
-        tracker.process(b"\x9b?1;1004;2004h", |change| changes.push(change));
+        tracker.process(b"\x9b?1;1004;2004;2026h", |change| changes.push(change));
 
         assert_eq!(
             changes,
             vec![
                 TerminalModeChange::ApplicationCursorKeys(true),
                 TerminalModeChange::Focus(true),
-                TerminalModeChange::BracketedPaste(true)
+                TerminalModeChange::BracketedPaste(true),
+                TerminalModeChange::SynchronizedOutput(true)
             ]
         );
     }
@@ -4849,7 +4871,7 @@ mod tests {
 
         filter
             .write(
-                b"\x9b?1000;1006h\x1b[?2004h\x9b?1000$p \x9b?1006$p \x9b?2004$p",
+                b"\x9b?1000;1006h\x1b[?2004;2026h\x9b?1000$p \x9b?1006$p \x9b?2004$p \x1b[?2026$p",
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);
@@ -4859,8 +4881,11 @@ mod tests {
             .unwrap();
         filter.flush(&mut output).unwrap();
 
-        assert_eq!(output, b"\x9b?1000;1006h\x1b[?2004h  ");
-        assert_eq!(responses, b"\x1b[?1000;1$y\x1b[?1006;1$y\x1b[?2004;1$y");
+        assert_eq!(output, b"\x9b?1000;1006h\x1b[?2004;2026h   ");
+        assert_eq!(
+            responses,
+            b"\x1b[?1000;1$y\x1b[?1006;1$y\x1b[?2004;1$y\x1b[?2026;1$y"
+        );
     }
 
     #[test]

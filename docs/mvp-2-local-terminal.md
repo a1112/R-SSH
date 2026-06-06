@@ -47,8 +47,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - The console path answers DECRQM private-mode status queries
   (`CSI ? <mode> $ p`) for tracked terminal input modes, including application
   cursor keys (`1`), mouse reporting (`1000`/`1002`/`1003`), SGR mouse (`1006`),
-  focus reporting (`1004`), and bracketed paste (`2004`). Unknown modes return
-  an xterm-style unknown status.
+  focus reporting (`1004`), bracketed paste (`2004`), and synchronized output
+  (`2026`). Unknown modes return an xterm-style unknown status.
 - `rssh-app local --mouse` allows terminal applications to enable and disable
   host mouse capture and focus events through xterm PTY output modes, then
   forwards active reports as xterm mouse and focus sequences. Mouse mode
@@ -304,6 +304,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   queries for tracked and unknown modes.
 - Bracketed paste negotiation: unit tests cover xterm `ESC[?2004h/l` tracking
   and wrapped paste encoding.
+- Synchronized output negotiation: unit tests cover xterm `ESC[?2026h/l`
+  tracking and DECRQM status responses on the shared console/runtime path.
 - Application cursor key negotiation: unit tests cover xterm `ESC[?1h/l`
   tracking and SS3 arrow-key encoding.
 - Application keypad negotiation: unit tests cover xterm/VT `ESC=` and `ESC>`

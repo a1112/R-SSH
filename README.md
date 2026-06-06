@@ -142,6 +142,8 @@ backward-compatible alias for the same local PTY runtime. Add `--mouse` when
 you want terminal applications to negotiate xterm mouse/focus reporting through
 PTY output modes.
 Bracketed paste mode is negotiated from PTY output automatically.
+Synchronized output mode (`ESC[?2026h/l`) is tracked from PTY output and reported
+through terminal private-mode status queries.
 The console path also answers basic terminal status and device-attribute queries.
 XTGETTCAP capability replies include terminal name, 256-color/true-color
 markers, OSC 52 clipboard support, italic/style underline/underline-color

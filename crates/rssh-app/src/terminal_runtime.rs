@@ -107,6 +107,12 @@ impl TerminalRuntime {
         self.mode_tracker.bracketed_paste()
     }
 
+    #[cfg(test)]
+    #[must_use]
+    pub fn synchronized_output(&self) -> bool {
+        self.mode_tracker.synchronized_output()
+    }
+
     #[must_use]
     pub fn application_keypad(&self) -> bool {
         self.mode_tracker.application_keypad()
@@ -2228,14 +2234,16 @@ mod tests {
     fn answers_c1_private_mode_status_queries() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
-        runtime.feed_pty_output(b"\x9b?1000;1006h\x1b[?2004h");
+        runtime.feed_pty_output(b"\x9b?1000;1006h\x1b[?2004h\x1b[?2026h");
         let normal_mouse = runtime.feed_pty_output(b"\x9b?1000$p");
         let sgr_mouse = runtime.feed_pty_output(b"\x9b?1006$p");
         let bracketed_paste = runtime.feed_pty_output(b"\x9b?2004$p");
+        let synchronized_output = runtime.feed_pty_output(b"\x1b[?2026$p");
 
         assert_eq!(normal_mouse, vec![b"\x1b[?1000;1$y".to_vec()]);
         assert_eq!(sgr_mouse, vec![b"\x1b[?1006;1$y".to_vec()]);
         assert_eq!(bracketed_paste, vec![b"\x1b[?2004;1$y".to_vec()]);
+        assert_eq!(synchronized_output, vec![b"\x1b[?2026;1$y".to_vec()]);
     }
 
     #[test]
@@ -2286,6 +2294,31 @@ mod tests {
 
         runtime.feed_pty_output(b"\x1b[?2004l");
         assert!(!runtime.bracketed_paste());
+    }
+
+    #[test]
+    fn tracks_synchronized_output_mode_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        assert!(!runtime.synchronized_output());
+        assert_eq!(
+            runtime.feed_pty_output(b"\x1b[?2026$p"),
+            vec![b"\x1b[?2026;2$y".to_vec()]
+        );
+
+        runtime.feed_pty_output(b"\x1b[?2026h");
+        assert!(runtime.synchronized_output());
+        assert_eq!(
+            runtime.feed_pty_output(b"\x1b[?2026$p"),
+            vec![b"\x1b[?2026;1$y".to_vec()]
+        );
+
+        runtime.feed_pty_output(b"\x1b[?2026l");
+        assert!(!runtime.synchronized_output());
+        assert_eq!(
+            runtime.feed_pty_output(b"\x1b[?2026$p"),
+            vec![b"\x1b[?2026;2$y".to_vec()]
+        );
     }
 
     #[test]

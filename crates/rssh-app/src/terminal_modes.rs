@@ -7,6 +7,7 @@ pub(crate) enum TerminalModeChange {
     BracketedPaste(bool),
     Mouse(MouseInputMode),
     Focus(bool),
+    SynchronizedOutput(bool),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -293,6 +294,14 @@ impl TerminalModeTracker {
                     emit(TerminalModeChange::BracketedPaste(enabled));
                 }
             }
+            2026 => {
+                if self
+                    .tracked_modes
+                    .set(TrackedTerminalModes::SYNCHRONIZED_OUTPUT, enabled)
+                {
+                    emit(TerminalModeChange::SynchronizedOutput(enabled));
+                }
+            }
             _ => {}
         }
     }
@@ -332,6 +341,11 @@ impl TerminalModeTracker {
             .enabled(TrackedTerminalModes::BRACKETED_PASTE)
     }
 
+    pub(crate) fn synchronized_output(&self) -> bool {
+        self.tracked_modes
+            .enabled(TrackedTerminalModes::SYNCHRONIZED_OUTPUT)
+    }
+
     pub(crate) fn mouse_input_mode(&self) -> MouseInputMode {
         self.mouse_modes.input_mode()
     }
@@ -342,6 +356,7 @@ impl TerminalModeTracker {
             1000 | 1002 | 1003 | 1006 => self.mouse_modes.report_value(mode).unwrap_or(0),
             1004 => mode_report_value(self.focus_reporting()),
             2004 => mode_report_value(self.bracketed_paste()),
+            2026 => mode_report_value(self.synchronized_output()),
             _ => 0,
         }
     }
@@ -436,6 +451,7 @@ impl TrackedTerminalModes {
     const APPLICATION_KEYPAD: u8 = 1 << 1;
     const BRACKETED_PASTE: u8 = 1 << 2;
     const FOCUS: u8 = 1 << 3;
+    const SYNCHRONIZED_OUTPUT: u8 = 1 << 4;
 
     fn set(&mut self, mode: u8, enabled: bool) -> bool {
         let before = self.0;
