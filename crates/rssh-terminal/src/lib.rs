@@ -1074,6 +1074,58 @@ mod tests {
     }
 
     #[test]
+    fn terminal_erase_line_uses_current_background_color() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"\x1b[42mabcdef\x1b[3D\x1b[K");
+
+        assert_eq!(row_text(&terminal, 0), "abc     ");
+        assert_eq!(
+            terminal.grid().get(0, 3).unwrap().background,
+            Color::Indexed(2)
+        );
+        assert_eq!(
+            terminal.grid().get(0, 7).unwrap().background,
+            Color::Indexed(2)
+        );
+    }
+
+    #[test]
+    fn terminal_erase_characters_use_current_background_color() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"\x1b[41mabcdef\x1b[3D\x1b[2X");
+
+        assert_eq!(row_text(&terminal, 0), "ab  ef");
+        assert_eq!(
+            terminal.grid().get(0, 2).unwrap().background,
+            Color::Indexed(1)
+        );
+        assert_eq!(
+            terminal.grid().get(0, 3).unwrap().background,
+            Color::Indexed(1)
+        );
+    }
+
+    #[test]
+    fn terminal_scrolling_uses_current_background_color_for_new_rows() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"\x1b[44mab\ncd\n");
+
+        assert_eq!(row_text(&terminal, 0), "cd  ");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(
+            terminal.grid().get(1, 0).unwrap().background,
+            Color::Indexed(4)
+        );
+        assert_eq!(
+            terminal.grid().get(1, 3).unwrap().background,
+            Color::Indexed(4)
+        );
+    }
+
+    #[test]
     fn terminal_inserts_blank_characters_with_ich() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 1));
 
@@ -1081,6 +1133,23 @@ mod tests {
 
         assert_eq!(row_text(&terminal, 0), "a  bcd");
         assert_eq!(terminal.cursor(), (0, 1));
+    }
+
+    #[test]
+    fn terminal_insert_blank_characters_use_current_background_color() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"\x1b[45mabcdef\x1b[4D\x1b[2@");
+
+        assert_eq!(row_text(&terminal, 0), "a  bcd");
+        assert_eq!(
+            terminal.grid().get(0, 1).unwrap().background,
+            Color::Indexed(5)
+        );
+        assert_eq!(
+            terminal.grid().get(0, 2).unwrap().background,
+            Color::Indexed(5)
+        );
     }
 
     #[test]
@@ -1101,6 +1170,23 @@ mod tests {
 
         assert_eq!(row_text(&terminal, 0), "abef  ");
         assert_eq!(terminal.cursor(), (0, 2));
+    }
+
+    #[test]
+    fn terminal_delete_characters_use_current_background_color_for_exposed_blanks() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"\x1b[46mabcdef\x1b[3D\x1b[2P");
+
+        assert_eq!(row_text(&terminal, 0), "abef  ");
+        assert_eq!(
+            terminal.grid().get(0, 4).unwrap().background,
+            Color::Indexed(6)
+        );
+        assert_eq!(
+            terminal.grid().get(0, 5).unwrap().background,
+            Color::Indexed(6)
+        );
     }
 
     #[test]

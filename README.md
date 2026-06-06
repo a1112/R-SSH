@@ -308,6 +308,7 @@ wide threshold gates, bundled profile validation, a
 ## MVP Status
 
 - MVP 1: Terminal core baseline is complete. See `docs/mvp-1-terminal-core.md`.
+  The core now supports background color erase for SGR-colored blank cells.
 - MVP 2: Local terminal path is complete as a console-hosted prototype. See
   `docs/mvp-2-local-terminal.md`.
 - MVP 3: Native window renderer demo is complete. See

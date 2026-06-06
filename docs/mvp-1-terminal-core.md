@@ -71,6 +71,9 @@ support the next PTY and SSH milestones.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
+- Background color erase behavior uses the active SGR background for blank
+  cells created by display/line/character erase, character insertion/deletion,
+  and scrolling.
 - xterm erase-saved-lines handling with `CSI 3 J`, clearing scrollback without
   erasing the visible grid.
 - Basic character editing within the active row:
@@ -166,6 +169,8 @@ cover:
 - `CAN`/`SUB` cancellation for CSI, OSC, and ST-terminated control strings
 - split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
+- background color erase for display/line/character erase, insert/delete
+  character blanks, and newly exposed scroll rows
 - CSI `3J` scrollback clearing without visible grid erasure
 - CSI insert/delete/erase character handling
 - CSI `IRM` insert/replace mode for printable character writes

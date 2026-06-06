@@ -621,7 +621,7 @@ impl Terminal {
         }
 
         for column in 0..size.columns {
-            self.grid.set(bottom, column, Cell::default());
+            self.grid.set(bottom, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, bottom - top + 1));
@@ -1195,7 +1195,7 @@ impl Terminal {
 
         for row in top..top + count {
             for column in 0..size.columns {
-                self.grid.set(row, column, Cell::default());
+                self.grid.set(row, column, self.blank_cell());
             }
         }
 
@@ -1232,7 +1232,7 @@ impl Terminal {
         };
         for row in blank_start..=bottom {
             for column in 0..size.columns {
-                self.grid.set(row, column, Cell::default());
+                self.grid.set(row, column, self.blank_cell());
             }
         }
 
@@ -1258,7 +1258,7 @@ impl Terminal {
         }
 
         for column in self.cursor_column..self.cursor_column + count {
-            self.grid.set(self.cursor_row, column, Cell::default());
+            self.grid.set(self.cursor_row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
@@ -1288,7 +1288,7 @@ impl Terminal {
         }
 
         for column in shift_end..size.columns {
-            self.grid.set(self.cursor_row, column, Cell::default());
+            self.grid.set(self.cursor_row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
@@ -1308,7 +1308,7 @@ impl Terminal {
 
         let count = count.min(size.columns - self.cursor_column);
         for column in self.cursor_column..self.cursor_column + count {
-            self.grid.set(self.cursor_row, column, Cell::default());
+            self.grid.set(self.cursor_row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
@@ -1341,7 +1341,7 @@ impl Terminal {
         }
 
         for column in start_column..end_column {
-            self.grid.set(row, column, Cell::default());
+            self.grid.set(row, column, self.blank_cell());
         }
 
         self.record_damage(DamageRegion::new(
@@ -1350,6 +1350,12 @@ impl Terminal {
             end_column - start_column,
             1,
         ));
+    }
+
+    fn blank_cell(&self) -> Cell {
+        let mut cell = self.style.clone();
+        cell.ch = ' ';
+        cell
     }
 
     fn apply_sgr(&mut self, params: &[char]) {
