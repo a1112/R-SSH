@@ -53,6 +53,7 @@ After extracting the zip:
 .\rssh-app.exe self-test --json
 .\rssh-app.exe local
 .\rssh-app.exe ssh ops@example.com
+.\rssh-app.exe ssh ops@example.com uptime -p
 .\rssh-app.exe ssh --target prod --preflight
 .\rssh-app.exe sftp ops@example.com
 .\rssh-app.exe scp ops@example.com --upload local.txt /tmp/remote.txt
@@ -72,8 +73,8 @@ pilot:
   PTY marker from a child process and verifies that `ssh -V`, `sftp -h`, and
   `scp -h` can launch.
 - Console coverage: local shell, positional `[USER@]HOST` SSH/SFTP/SCP
-  launches, OpenSSH config targets, profiles, metrics, and native russh startup
-  remain covered by workspace tests.
+  launches, SSH trailing remote commands, OpenSSH config targets, profiles,
+  metrics, and native russh startup remain covered by workspace tests.
 - Runtime observability: console sessions can emit `--metrics` or
   `--metrics-json`.
 - Safe startup: `--preflight` is available for local, SSH, SFTP, and SCP

@@ -67,6 +67,7 @@ cargo run -p rssh-app -- local --osc52 write
 cargo run -p rssh-app -- local -- cmd.exe /C echo console-smoke
 cargo run -p rssh-app -- local --log session.log -- powershell -NoProfile -Command "Write-Output logged-smoke"
 cargo run -p rssh-app -- ssh ops@example.com
+cargo run -p rssh-app -- ssh ops@example.com uptime -p
 cargo run -p rssh-app -- ssh --target prod --preflight
 cargo run -p rssh-app -- ssh --target prod --metrics
 cargo run -p rssh-app -- ssh --target prod --metrics-json
@@ -146,6 +147,11 @@ known-host handling, agent, key prompts, and password prompts without exposing
 secrets in the R-SSH command line. Use `ssh ops@example.com` for the shortest
 console launch path, `ssh --target prod` for a saved OpenSSH config host, or
 `ssh --host example.com --user ops` when you want explicit host/user flags.
+For OpenSSH-style positional targets and `--target NAME`, a trailing command is
+passed through as the remote command, for example `ssh ops@example.com uptime
+-p` or `ssh --target prod uname -a`. Direct `--host/--user` launches keep using
+`--` before remote commands so password and key prompts cannot be mistaken for
+command-line secrets.
 `sftp` starts the system OpenSSH SFTP client inside the same PTY console
 runtime, using the same `--host`/`--target`, `--user`, `--port`, `--agent`,
 `--password`, `--key`, and `--log` shape for interactive file transfer; it also

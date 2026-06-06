@@ -53,7 +53,18 @@ jobs:
       - name: Compress package
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/R-SSH-windows-x64 -DestinationPath dist/R-SSH-windows-x64.zip -Force
+          $attempts = 5
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            try {
+              Compress-Archive -Path dist/R-SSH-windows-x64 -DestinationPath dist/R-SSH-windows-x64.zip -Force
+              break
+            } catch {
+              if ($attempt -eq $attempts) {
+                throw
+              }
+              Start-Sleep -Seconds 2
+            }
+          }
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
