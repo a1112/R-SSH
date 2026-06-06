@@ -88,8 +88,8 @@ in the native `winit` window.
   and `1006`) and forwards button, wheel, drag, and any-motion events as
   legacy or SGR mouse reports when reporting is enabled.
 - `rssh-app window --metrics` and `--metrics-json` print startup, PTY
-  processing, render-frame, PTY input-write, and bell-event counters plus p95
-  timings when the window run exits.
+  processing, terminal damage, render-frame, PTY input-write, and bell-event
+  counters plus p95 timings when the window run exits.
 - `rssh-app window --log PATH` writes visible native-window terminal output to
   a session log file, omitting non-visible terminal control sequences such as
   OSC title updates and BEL.
@@ -224,6 +224,7 @@ MVP 4 tests cover:
   52 policy, custom commands, and log paths
 - native window BEL event propagation into metrics without writing BEL bytes to
   the visible-output log
+- terminal runtime damage propagation into native-window metrics
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
@@ -261,6 +262,10 @@ output. Both formats report:
 - `pty_chunk_process_p95_us`: p95 time from PTY output delivery through
   terminal runtime update, query responses, OSC 52 handling, title sync, and
   snapshot refresh.
+- `damage_regions`: cumulative terminal damage regions reported by PTY output
+  chunks.
+- `damaged_cells`: cumulative width x height cell count across reported damage
+  regions.
 - `render_frames` and `render_frame_p95_us`: successful framebuffer render
   count and p95 render-frame time.
 - `input_writes`, `input_bytes`, and `input_write_p95_us`: PTY write volume and
@@ -306,7 +311,8 @@ main-screen scrollback storage, the renderer can build scrollback viewport
 snapshots, and the native window can move that viewport with mouse-wheel input
 and Shift page/navigation shortcuts.
 
-1. Track dirty regions instead of rebuilding the full snapshot each chunk.
+1. Use the surfaced terminal damage regions to avoid rebuilding the full
+   snapshot each chunk.
 2. Replace title-only scrollback position with a real scrollbar or status area.
 3. Collect stable packaged-build baselines, then tighten the wide bench
    threshold gates into real release budgets.

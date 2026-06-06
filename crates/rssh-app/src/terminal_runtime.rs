@@ -1,5 +1,5 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
-use rssh_core::TerminalSize;
+use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::{Cell, Color, CursorShape, Terminal};
 
 use crate::{
@@ -18,6 +18,7 @@ pub struct TerminalRuntime {
 pub(crate) struct TerminalRuntimeOutput {
     pub(crate) responses: Vec<Vec<u8>>,
     pub(crate) display: Vec<u8>,
+    pub(crate) damage: Vec<DamageRegion>,
     pub(crate) bells: u64,
 }
 
@@ -45,11 +46,13 @@ impl TerminalRuntime {
 
         let mut responses = Vec::new();
         let mut display_bytes = Vec::new();
+        let mut damage = Vec::new();
         let mut bells = 0_u64;
         for event in output.events {
             match event {
                 FilteredOutputEvent::Display(display) => {
                     self.terminal.feed(&display);
+                    damage.extend(self.terminal.take_damage());
                     bells = bells.saturating_add(self.terminal.take_bell_count());
                     display_bytes.extend(self.visible_output_filter.process(&display));
                 }
@@ -66,6 +69,7 @@ impl TerminalRuntime {
         TerminalRuntimeOutput {
             responses,
             display: display_bytes,
+            damage,
             bells,
         }
     }
@@ -1635,6 +1639,18 @@ mod tests {
         assert_eq!(output.bells, 2);
         assert_eq!(output.display, b"abcd");
         assert_eq!(terminal_text(&runtime), "abcd                ");
+    }
+
+    #[test]
+    fn reports_damage_regions_from_terminal_feed() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(10, 2));
+
+        let output = runtime.feed_pty_output_with_display(b"abc");
+
+        assert_eq!(
+            output.damage,
+            vec![rssh_core::DamageRegion::new(0, 0, 3, 1)]
+        );
     }
 
     #[test]

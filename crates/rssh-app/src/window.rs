@@ -9,7 +9,7 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use pixels::{Pixels, SurfaceTexture};
-use rssh_core::TerminalSize;
+use rssh_core::{DamageRegion, TerminalSize};
 use rssh_pty::{PtyCommand, PtySession, PtySize};
 use rssh_renderer::{PixelRenderer, TerminalRenderSnapshot};
 #[cfg(test)]
@@ -119,6 +119,8 @@ struct WindowMetricsSnapshot {
     pty_chunks: u64,
     pty_bytes: u64,
     pty_chunk_process_p95_us: u128,
+    damage_regions: u64,
+    damaged_cells: u64,
     render_frames: u64,
     render_frame_p95_us: u128,
     input_writes: u64,
@@ -137,6 +139,8 @@ first_rendered_cell_ms={}
 pty_chunks={}
 pty_bytes={}
 pty_chunk_process_p95_us={}
+damage_regions={}
+damaged_cells={}
 render_frames={}
 render_frame_p95_us={}
 input_writes={}
@@ -149,6 +153,8 @@ bells={}
             self.pty_chunks,
             self.pty_bytes,
             self.pty_chunk_process_p95_us,
+            self.damage_regions,
+            self.damaged_cells,
             self.render_frames,
             self.render_frame_p95_us,
             self.input_writes,
@@ -171,6 +177,8 @@ struct WindowMetrics {
     pty_chunks: u64,
     pty_bytes: u64,
     pty_chunk_process_times: Vec<Duration>,
+    damage_regions: u64,
+    damaged_cells: u64,
     render_frame_times: Vec<Duration>,
     input_writes: u64,
     input_bytes: u64,
@@ -187,6 +195,8 @@ impl WindowMetrics {
             pty_chunks: 0,
             pty_bytes: 0,
             pty_chunk_process_times: Vec::new(),
+            damage_regions: 0,
+            damaged_cells: 0,
             render_frame_times: Vec::new(),
             input_writes: 0,
             input_bytes: 0,
@@ -221,6 +231,16 @@ impl WindowMetrics {
         self.pty_chunk_process_times.push(duration);
     }
 
+    fn record_damage(&mut self, damage: &[DamageRegion]) {
+        self.damage_regions = self
+            .damage_regions
+            .saturating_add(u64::try_from(damage.len()).unwrap_or(u64::MAX));
+        let cells = damage.iter().fold(0_u64, |total, region| {
+            total.saturating_add(damage_region_cells(*region))
+        });
+        self.damaged_cells = self.damaged_cells.saturating_add(cells);
+    }
+
     fn record_render_frame(&mut self, duration: Duration) {
         self.render_frame_times.push(duration);
     }
@@ -246,6 +266,8 @@ impl WindowMetrics {
             pty_chunks: self.pty_chunks,
             pty_bytes: self.pty_bytes,
             pty_chunk_process_p95_us: p95_us(&self.pty_chunk_process_times),
+            damage_regions: self.damage_regions,
+            damaged_cells: self.damaged_cells,
             render_frames: u64::try_from(self.render_frame_times.len()).unwrap_or(u64::MAX),
             render_frame_p95_us: p95_us(&self.render_frame_times),
             input_writes: self.input_writes,
@@ -274,6 +296,10 @@ fn p95_us(samples: &[Duration]) -> u128 {
         .saturating_sub(1);
 
     values[index]
+}
+
+fn damage_region_cells(region: DamageRegion) -> u64 {
+    u64::from(region.width).saturating_mul(u64::from(region.height))
 }
 
 fn metric_option(value: Option<u128>) -> String {
@@ -444,6 +470,7 @@ impl NativeWindowApp {
             }
         }
         self.sync_window_title_from_runtime();
+        self.metrics.record_damage(&runtime_output.damage);
         self.refresh_snapshot();
         self.metrics.record_bells(runtime_output.bells);
         self.metrics
@@ -2474,6 +2501,8 @@ mod tests {
         let metrics = app.metrics_snapshot();
         assert_eq!(metrics.pty_chunks, 1);
         assert_eq!(metrics.pty_bytes, 4);
+        assert_eq!(metrics.damage_regions, 1);
+        assert_eq!(metrics.damaged_cells, 4);
         assert!(metrics.first_pty_byte_ms.is_some());
         assert!(metrics.first_rendered_cell_ms.is_some());
     }
@@ -2500,6 +2529,8 @@ mod tests {
 
         assert_eq!(value["pty_chunks"], 1);
         assert_eq!(value["pty_bytes"], 4);
+        assert_eq!(value["damage_regions"], 1);
+        assert_eq!(value["damaged_cells"], 4);
         assert!(value["first_pty_byte_ms"].is_number());
         assert!(value["first_rendered_cell_ms"].is_number());
     }
