@@ -14,6 +14,7 @@ pub struct RenderCell {
     pub faint: bool,
     pub italic: bool,
     pub underline: bool,
+    pub conceal: bool,
     pub strikethrough: bool,
     pub inverse: bool,
     pub hyperlink: Option<String>,
@@ -302,6 +303,10 @@ fn render_cell(surface: &mut Surface<'_>, cell: &RenderCell, cell_width: u32, ce
         background,
     );
 
+    if cell.conceal {
+        return;
+    }
+
     let Some(glyph) = BASIC_FONTS.get(cell.ch) else {
         return;
     };
@@ -567,6 +572,7 @@ impl TerminalRenderSnapshot {
                     faint: cell.faint,
                     italic: cell.italic,
                     underline: cell.underline,
+                    conceal: cell.conceal,
                     strikethrough: cell.strikethrough,
                     inverse: cell.inverse,
                     hyperlink: cell.hyperlink.clone(),
@@ -732,6 +738,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         faint: cell.faint,
         italic: cell.italic,
         underline: cell.underline,
+        conceal: cell.conceal,
         strikethrough: cell.strikethrough,
         inverse: cell.inverse,
         hyperlink: cell.hyperlink.clone(),
@@ -767,6 +774,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 underline: true,
+                conceal: false,
                 strikethrough: false,
                 inverse: false,
                 hyperlink: None,
@@ -800,6 +808,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 underline: false,
+                conceal: false,
                 strikethrough: false,
                 inverse: true,
                 hyperlink: None,
@@ -829,6 +838,16 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
 
         assert!(snapshot.cells()[0].faint);
+    }
+
+    #[test]
+    fn render_snapshot_preserves_conceal_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[8mC");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(snapshot.cells()[0].conceal);
     }
 
     #[test]
@@ -909,6 +928,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 underline: false,
+                conceal: false,
                 strikethrough: false,
                 inverse: false,
                 hyperlink: None,
@@ -942,6 +962,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 underline: false,
+                conceal: false,
                 strikethrough: false,
                 inverse: false,
                 hyperlink: None,
@@ -958,6 +979,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 underline: false,
+                conceal: false,
                 strikethrough: false,
                 inverse: false,
                 hyperlink: None,
@@ -987,6 +1009,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 underline: false,
+                conceal: false,
                 strikethrough: false,
                 inverse: false,
                 hyperlink: None,
@@ -1128,6 +1151,22 @@ mod tests {
     }
 
     #[test]
+    fn pixel_renderer_hides_concealed_foreground_text() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[8;4;38;2;255;0;0;48;2;3;4;5m.");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].conceal);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 7), [3, 4, 5, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 7), [3, 4, 5, 255]);
+        assert_eq!(count_pixels(&target, [255, 0, 0, 255]), 0);
+    }
+
+    #[test]
     fn pixel_renderer_draws_bold_text_with_more_foreground_pixels() {
         let renderer = PixelRenderer::new();
         let mut normal = Terminal::new(TerminalSize::new(2, 1));
@@ -1165,6 +1204,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 underline: false,
+                conceal: false,
                 strikethrough: false,
                 inverse: true,
                 hyperlink: None,

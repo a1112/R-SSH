@@ -28,6 +28,7 @@ pub struct Cell {
     pub faint: bool,
     pub italic: bool,
     pub underline: bool,
+    pub conceal: bool,
     pub strikethrough: bool,
     pub inverse: bool,
     pub hyperlink: Option<String>,
@@ -43,6 +44,7 @@ impl Default for Cell {
             faint: false,
             italic: false,
             underline: false,
+            conceal: false,
             strikethrough: false,
             inverse: false,
             hyperlink: None,
@@ -177,6 +179,7 @@ mod tests {
         assert!(!cell.faint);
         assert!(!cell.italic);
         assert!(!cell.underline);
+        assert!(!cell.conceal);
         assert!(!cell.strikethrough);
         assert!(!cell.inverse);
         assert_eq!(cell.hyperlink, None);
@@ -193,6 +196,7 @@ mod tests {
             faint: false,
             italic: false,
             underline: true,
+            conceal: false,
             strikethrough: false,
             inverse: false,
             hyperlink: None,
@@ -939,6 +943,21 @@ mod tests {
         let normal = terminal.grid().get(0, 1).unwrap();
         assert_eq!(normal.ch, 'B');
         assert!(!normal.faint);
+    }
+
+    #[test]
+    fn terminal_applies_sgr_conceal() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[8mA\x1b[28mB");
+
+        let concealed = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(concealed.ch, 'A');
+        assert!(concealed.conceal);
+
+        let normal = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(normal.ch, 'B');
+        assert!(!normal.conceal);
     }
 
     #[test]

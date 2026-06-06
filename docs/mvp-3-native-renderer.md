@@ -19,6 +19,8 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   with a dimmed foreground color.
 - `PixelRenderer` draws underlined and strikethrough text using the cell
   foreground color.
+- `PixelRenderer` hides concealed text foreground pixels while preserving cell
+  background rendering.
 - `PixelRenderer` draws block, underline, and bar cursors for visible cursor
   snapshots.
 - The renderer uses `font8x8` for a minimal built-in glyph path.
@@ -69,10 +71,12 @@ Renderer-specific tests cover:
 
 - terminal grid to render snapshot conversion
 - terminal cursor position and shape to render snapshot conversion
-- preservation of cell position and style metadata, including faint text
+- preservation of cell position and style metadata, including faint and
+  concealed text
 - glyph foreground pixels drawn into an RGBA target
 - bold terminal text drawn with additional foreground pixels
 - faint terminal text drawn with dimmed foreground pixels
+- concealed terminal text rendered as background-only cells
 - underlined and strikethrough terminal text drawn into an RGBA target
 - xterm 256-color indexed foreground output from terminal bytes to RGBA pixels
 - inverse-video foreground/background swapping
