@@ -138,6 +138,7 @@ pilot:
   covered by workspace tests.
 - Runtime observability: console sessions can emit `--metrics` or
   `--metrics-json`; native-window sessions can report PTY, render, input, and
-  terminal-damage metrics; non-interactive parser runs can emit `bench --json`.
+  terminal-damage metrics, plus snapshot damage-update and full-rebuild counts;
+  non-interactive parser runs can emit `bench --json`.
 - Safe startup: `--preflight` is available for console/local, SSH, SFTP, and
   SCP profile or direct launches.

@@ -121,6 +121,8 @@ struct WindowMetricsSnapshot {
     pty_chunk_process_p95_us: u128,
     damage_regions: u64,
     damaged_cells: u64,
+    snapshot_damage_updates: u64,
+    snapshot_rebuilds: u64,
     render_frames: u64,
     render_frame_p95_us: u128,
     input_writes: u64,
@@ -141,6 +143,8 @@ pty_bytes={}
 pty_chunk_process_p95_us={}
 damage_regions={}
 damaged_cells={}
+snapshot_damage_updates={}
+snapshot_rebuilds={}
 render_frames={}
 render_frame_p95_us={}
 input_writes={}
@@ -155,6 +159,8 @@ bells={}
             self.pty_chunk_process_p95_us,
             self.damage_regions,
             self.damaged_cells,
+            self.snapshot_damage_updates,
+            self.snapshot_rebuilds,
             self.render_frames,
             self.render_frame_p95_us,
             self.input_writes,
@@ -179,6 +185,8 @@ struct WindowMetrics {
     pty_chunk_process_times: Vec<Duration>,
     damage_regions: u64,
     damaged_cells: u64,
+    snapshot_damage_updates: u64,
+    snapshot_rebuilds: u64,
     render_frame_times: Vec<Duration>,
     input_writes: u64,
     input_bytes: u64,
@@ -197,6 +205,8 @@ impl WindowMetrics {
             pty_chunk_process_times: Vec::new(),
             damage_regions: 0,
             damaged_cells: 0,
+            snapshot_damage_updates: 0,
+            snapshot_rebuilds: 0,
             render_frame_times: Vec::new(),
             input_writes: 0,
             input_bytes: 0,
@@ -241,6 +251,14 @@ impl WindowMetrics {
         self.damaged_cells = self.damaged_cells.saturating_add(cells);
     }
 
+    fn record_snapshot_damage_update(&mut self) {
+        self.snapshot_damage_updates = self.snapshot_damage_updates.saturating_add(1);
+    }
+
+    fn record_snapshot_rebuild(&mut self) {
+        self.snapshot_rebuilds = self.snapshot_rebuilds.saturating_add(1);
+    }
+
     fn record_render_frame(&mut self, duration: Duration) {
         self.render_frame_times.push(duration);
     }
@@ -268,6 +286,8 @@ impl WindowMetrics {
             pty_chunk_process_p95_us: p95_us(&self.pty_chunk_process_times),
             damage_regions: self.damage_regions,
             damaged_cells: self.damaged_cells,
+            snapshot_damage_updates: self.snapshot_damage_updates,
+            snapshot_rebuilds: self.snapshot_rebuilds,
             render_frames: u64::try_from(self.render_frame_times.len()).unwrap_or(u64::MAX),
             render_frame_p95_us: p95_us(&self.render_frame_times),
             input_writes: self.input_writes,
@@ -471,7 +491,7 @@ impl NativeWindowApp {
         }
         self.sync_window_title_from_runtime();
         self.metrics.record_damage(&runtime_output.damage);
-        self.refresh_snapshot();
+        self.refresh_snapshot_after_terminal_damage(&runtime_output.damage);
         self.metrics.record_bells(runtime_output.bells);
         self.metrics
             .record_first_rendered_cell(self.snapshot.cells().is_empty());
@@ -493,6 +513,11 @@ impl NativeWindowApp {
     }
 
     fn refresh_snapshot(&mut self) {
+        self.rebuild_snapshot();
+        self.metrics.record_snapshot_rebuild();
+    }
+
+    fn rebuild_snapshot(&mut self) {
         self.scrollback_offset = self
             .scrollback_offset
             .min(self.runtime.terminal().scrollback().len());
@@ -506,6 +531,24 @@ impl NativeWindowApp {
         } else {
             snapshot
         };
+    }
+
+    fn refresh_snapshot_after_terminal_damage(&mut self, damage: &[DamageRegion]) {
+        self.scrollback_offset = self
+            .scrollback_offset
+            .min(self.runtime.terminal().scrollback().len());
+        if self.can_update_snapshot_from_damage() {
+            self.snapshot
+                .update_from_terminal_damage(self.runtime.terminal(), damage);
+            self.metrics.record_snapshot_damage_update();
+            return;
+        }
+
+        self.refresh_snapshot();
+    }
+
+    fn can_update_snapshot_from_damage(&self) -> bool {
+        self.scrollback_offset == 0 && self.selection.is_none() && self.search.is_none()
     }
 
     fn scroll_viewport_lines(&mut self, lines: isize) {
@@ -2490,6 +2533,19 @@ mod tests {
 
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('l'));
         assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('e'));
+    }
+
+    #[test]
+    fn window_app_updates_live_snapshot_from_terminal_damage() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.handle_pty_output(b"live").unwrap();
+
+        let metrics = app.metrics_snapshot();
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('l'));
+        assert_eq!(snapshot_char(&app.snapshot, 0, 3), Some('e'));
+        assert_eq!(metrics.snapshot_damage_updates, 1);
+        assert_eq!(metrics.snapshot_rebuilds, 0);
     }
 
     #[test]

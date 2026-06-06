@@ -187,8 +187,9 @@ UI should consume the metrics as JSON.
 Native window runs also support `--metrics-json`, including automated
 `window --frames N` smoke runs, so render and PTY processing metrics can feed
 external benchmark dashboards. The window metrics include terminal damage
-region and damaged-cell totals, which are the measurement hook for future
-dirty-region rendering work.
+region, damaged-cell, snapshot damage-update, and full snapshot-rebuild totals;
+live bottom PTY output now uses damage regions to update the existing render
+snapshot before the later framebuffer/GPU dirty-render work.
 `ssh` currently starts the system OpenSSH client inside the same PTY console
 runtime, so remote login can use the existing host OpenSSH configuration,
 known-host handling, agent, key prompts, and password prompts without exposing
@@ -313,8 +314,8 @@ wide threshold gates, bundled profile validation, a
 - MVP 4: Live PTY session inside the native renderer is complete. See
   `docs/mvp-4-live-pty-window.md`.
 - MVP 5 groundwork: Window smoke runs can print startup, PTY processing,
-  terminal damage, rendering, and input-write metrics with `window --metrics`
-  or `window --metrics-json`; `bench --json` now provides a repeatable
+  terminal damage, snapshot update/rebuild, rendering, and input-write metrics
+  with `window --metrics` or `window --metrics-json`; `bench --json` now provides a repeatable
   terminal-runtime throughput, p95 chunk latency, offscreen renderer p95 frame
   time, rendered-pixel throughput, idle CPU, process memory, virtual memory,
   accumulated CPU-time baseline, and optional threshold-gate failures for

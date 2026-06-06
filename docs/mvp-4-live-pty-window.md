@@ -88,8 +88,9 @@ in the native `winit` window.
   and `1006`) and forwards button, wheel, drag, and any-motion events as
   legacy or SGR mouse reports when reporting is enabled.
 - `rssh-app window --metrics` and `--metrics-json` print startup, PTY
-  processing, terminal damage, render-frame, PTY input-write, and bell-event
-  counters plus p95 timings when the window run exits.
+  processing, terminal damage, snapshot update/rebuild, render-frame, PTY
+  input-write, and bell-event counters plus p95 timings when the window run
+  exits.
 - `rssh-app window --log PATH` writes visible native-window terminal output to
   a session log file, omitting non-visible terminal control sequences such as
   OSC title updates and BEL.
@@ -224,7 +225,8 @@ MVP 4 tests cover:
   52 policy, custom commands, and log paths
 - native window BEL event propagation into metrics without writing BEL bytes to
   the visible-output log
-- terminal runtime damage propagation into native-window metrics
+- terminal runtime damage propagation into native-window metrics and live
+  bottom render-snapshot updates
 - console path reuse of the shared key encoder
 - PTY output feeding into the shared terminal runtime
 - terminal runtime resize updates the grid and text-area size response
@@ -266,6 +268,10 @@ output. Both formats report:
   chunks.
 - `damaged_cells`: cumulative width x height cell count across reported damage
   regions.
+- `snapshot_damage_updates`: count of live bottom snapshot updates applied from
+  terminal damage regions.
+- `snapshot_rebuilds`: count of full render-snapshot rebuilds used for
+  scrollback, selection, search, and other fallback paths.
 - `render_frames` and `render_frame_p95_us`: successful framebuffer render
   count and p95 render-frame time.
 - `input_writes`, `input_bytes`, and `input_write_p95_us`: PTY write volume and
@@ -308,11 +314,12 @@ Recommended MVP 5 targets:
 MVP 5 should replace the minimal bitmap-font renderer with a production-grade
 text rendering path and add basic terminal UX. The terminal core now has bounded
 main-screen scrollback storage, the renderer can build scrollback viewport
-snapshots, and the native window can move that viewport with mouse-wheel input
-and Shift page/navigation shortcuts.
+snapshots, the native window can move that viewport with mouse-wheel input and
+Shift page/navigation shortcuts, and live bottom PTY output can update the
+existing render snapshot from terminal damage regions.
 
-1. Use the surfaced terminal damage regions to avoid rebuilding the full
-   snapshot each chunk.
+1. Carry damage regions through framebuffer/GPU drawing instead of repainting
+   the entire frame.
 2. Replace title-only scrollback position with a real scrollbar or status area.
 3. Collect stable packaged-build baselines, then tighten the wide bench
    threshold gates into real release budgets.

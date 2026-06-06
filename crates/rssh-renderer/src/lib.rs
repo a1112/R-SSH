@@ -257,16 +257,7 @@ impl TerminalRenderSnapshot {
         let scrollback = terminal.scrollback();
         let offset = scrollback_offset.min(scrollback.len());
         let first_source_row = scrollback.len().saturating_sub(offset);
-        let cursor = if terminal.cursor_visible() {
-            let (row, column) = terminal.cursor();
-            (offset == 0).then_some(RenderCursor {
-                row,
-                column,
-                shape: terminal.cursor_shape(),
-            })
-        } else {
-            None
-        };
+        let cursor = render_cursor_from_terminal(terminal, offset);
 
         let mut cells = Vec::new();
         for viewport_row in 0..size.rows {
@@ -328,6 +319,39 @@ impl TerminalRenderSnapshot {
         self.cursor
     }
 
+    pub fn update_from_terminal_damage(&mut self, terminal: &Terminal, damage: &[DamageRegion]) {
+        let grid = terminal.grid();
+        let size = grid.size();
+        for region in damage.iter().copied().filter(|region| !region.is_empty()) {
+            let start_row = region.y.min(size.rows);
+            let end_row = region.y.saturating_add(region.height).min(size.rows);
+            let start_column = region.x.min(size.columns);
+            let end_column = region.x.saturating_add(region.width).min(size.columns);
+            if start_row >= end_row || start_column >= end_column {
+                continue;
+            }
+
+            self.cells.retain(|cell| {
+                cell.row < start_row
+                    || cell.row >= end_row
+                    || cell.column < start_column
+                    || cell.column >= end_column
+            });
+
+            for row in start_row..end_row {
+                for column in start_column..end_column {
+                    let Some(cell) = grid.get(row, column) else {
+                        continue;
+                    };
+                    append_render_cell(&mut self.cells, row, column, cell);
+                }
+            }
+        }
+
+        self.cells.sort_by_key(|cell| (cell.row, cell.column));
+        self.cursor = render_cursor_from_terminal(terminal, 0);
+    }
+
     #[must_use]
     pub fn with_inverse_overlay(mut self, mut selected: impl FnMut(u16, u16) -> bool) -> Self {
         for cell in &mut self.cells {
@@ -338,6 +362,22 @@ impl TerminalRenderSnapshot {
 
         self
     }
+}
+
+fn render_cursor_from_terminal(
+    terminal: &Terminal,
+    scrollback_offset: usize,
+) -> Option<RenderCursor> {
+    if !terminal.cursor_visible() || scrollback_offset != 0 {
+        return None;
+    }
+
+    let (row, column) = terminal.cursor();
+    Some(RenderCursor {
+        row,
+        column,
+        shape: terminal.cursor_shape(),
+    })
 }
 
 fn cursor_rect(
@@ -504,6 +544,40 @@ mod tests {
         assert!(!snapshot.cells()[0].inverse);
         assert!(snapshot.cells()[1].inverse);
         assert!(!snapshot.cells()[2].inverse);
+    }
+
+    #[test]
+    fn render_snapshot_updates_cells_from_damage_regions() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+        terminal.feed(b"abc");
+        terminal.take_damage();
+        let mut snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        terminal.feed(b"\rZ");
+        let damage = terminal.take_damage();
+
+        snapshot.update_from_terminal_damage(&terminal, &damage);
+
+        assert_eq!(snapshot_char(&snapshot, 0, 0), Some('Z'));
+        assert_eq!(snapshot_char(&snapshot, 0, 1), Some('b'));
+        assert_eq!(snapshot_char(&snapshot, 0, 2), Some('c'));
+    }
+
+    #[test]
+    fn render_snapshot_removes_cells_cleared_by_damage_regions() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+        terminal.feed(b"abc");
+        terminal.take_damage();
+        let mut snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        terminal.feed(b"\r ");
+        let damage = terminal.take_damage();
+
+        snapshot.update_from_terminal_damage(&terminal, &damage);
+
+        assert_eq!(snapshot_char(&snapshot, 0, 0), None);
+        assert_eq!(snapshot_char(&snapshot, 0, 1), Some('b'));
+        assert_eq!(snapshot_char(&snapshot, 0, 2), Some('c'));
     }
 
     #[test]
@@ -737,6 +811,14 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 8, 0, 7), [229, 229, 229, 255]);
         assert_eq!(pixel_at(&target, 8, 0, 0), [12, 12, 12, 255]);
+    }
+
+    fn snapshot_char(snapshot: &TerminalRenderSnapshot, row: u16, column: u16) -> Option<char> {
+        snapshot
+            .cells()
+            .iter()
+            .find(|cell| cell.row == row && cell.column == column)
+            .map(|cell| cell.ch)
     }
 
     fn pixel_at(target: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {
