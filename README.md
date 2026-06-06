@@ -125,6 +125,9 @@ Use `doctor` before launching console sessions to report the selected PTY
 backend, native SSH backend, terminal size, and child terminal environment, and
 to verify that the local default shell plus `ssh`, `sftp`, and `scp` are
 available; add `--json` for a machine-readable report.
+Use `self-test` or `self-test --json` after download to run a local PTY smoke
+and verify that `ssh -V`, `sftp -h`, and `scp -h` can launch without opening a
+network connection.
 Add `--preflight` to `local`, `ssh`, `sftp`, or `scp` when startup should run
 the same console dependency check before spawning the PTY child process.
 Add `--metrics` to `local`, `ssh`, `sftp`, or `scp` to print human-readable

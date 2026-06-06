@@ -1,6 +1,7 @@
 use std::{
     error::Error,
     io::{Read, Write},
+    process::Command,
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -15,6 +16,7 @@ const SELF_TEST_MARKER: &str = "rssh-self-test";
 const SELF_TEST_COLUMNS: u16 = 80;
 const SELF_TEST_ROWS: u16 = 24;
 const SELF_TEST_TIMEOUT: Duration = Duration::from_secs(5);
+const OPENSSH_TOOL_TIMEOUT_DETAIL: &str = "tool did not produce expected startup output";
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct SelfTestReport {
@@ -56,7 +58,7 @@ fn run_self_test() -> SelfTestReport {
     let output = capture_local_pty_self_test_output(size, SELF_TEST_TIMEOUT);
     let elapsed_ms = started.elapsed().as_millis();
 
-    match output {
+    let local_pty_check = match output {
         Ok(output) => local_pty_self_test_report_from_output(&output, elapsed_ms),
         Err(error) => SelfTestReport {
             ok: false,
@@ -68,6 +70,14 @@ fn run_self_test() -> SelfTestReport {
                 output_bytes: 0,
             }],
         },
+    };
+    let mut checks = local_pty_check.checks;
+    checks.extend(run_openssh_tool_self_tests());
+
+    SelfTestReport {
+        ok: checks.iter().all(|check| check.ok),
+        elapsed_ms,
+        checks,
     }
 }
 
@@ -84,7 +94,7 @@ fn capture_local_pty_self_test_output(
     let mut writer = session.take_writer()?;
     let (sender, receiver) = mpsc::channel();
 
-    thread::spawn(move || {
+    let reader_thread = thread::spawn(move || {
         let mut buffer = [0; 4096];
         loop {
             match reader.read(&mut buffer) {
@@ -112,15 +122,6 @@ fn capture_local_pty_self_test_output(
     let started = Instant::now();
     let mut output = Vec::new();
     while started.elapsed() < timeout {
-        if let Some(status) = session.try_wait()? {
-            if !status.success() {
-                return Err(
-                    format!("self-test shell exited with code {}", status.exit_code()).into(),
-                );
-            }
-            break;
-        }
-
         match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(Ok(chunk)) => {
                 if chunk.is_empty() {
@@ -139,6 +140,15 @@ fn capture_local_pty_self_test_output(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
+
+        if let Some(status) = session.try_wait()? {
+            if !status.success() && !String::from_utf8_lossy(&output).contains(SELF_TEST_MARKER) {
+                return Err(
+                    format!("self-test shell exited with code {}", status.exit_code()).into(),
+                );
+            }
+            break;
+        }
     }
 
     if !String::from_utf8_lossy(&output).contains(SELF_TEST_MARKER) {
@@ -149,8 +159,30 @@ fn capture_local_pty_self_test_output(
     let _ = writer.write_all(b"exit\r\n");
     let _ = writer.flush();
     drop(writer);
+    wait_for_self_test_shell_exit(&mut session, timeout)?;
+    drop(session);
+    let _ = reader_thread.join();
 
     Ok(output)
+}
+
+fn wait_for_self_test_shell_exit(
+    session: &mut PtySession,
+    timeout: Duration,
+) -> Result<(), Box<dyn Error>> {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        if let Some(status) = session.try_wait()? {
+            if status.success() {
+                return Ok(());
+            }
+            return Err(format!("self-test shell exited with code {}", status.exit_code()).into());
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+
+    let _ = session.kill();
+    Err("self-test shell did not exit before timeout".into())
 }
 
 fn contains_cursor_position_query(bytes: &[u8]) -> bool {
@@ -198,6 +230,84 @@ pub fn local_pty_self_test_report_from_output(output: &[u8], elapsed_ms: u128) -
     }
 }
 
+fn run_openssh_tool_self_tests() -> Vec<SelfTestCheck> {
+    [
+        ("openssh-ssh", "ssh", &["-V"][..], "OpenSSH"),
+        ("openssh-sftp", "sftp", &["-h"][..], "usage:"),
+        ("openssh-scp", "scp", &["-h"][..], "usage:"),
+    ]
+    .into_iter()
+    .map(|(name, program, args, expected)| run_openssh_tool_check(name, program, args, expected))
+    .collect()
+}
+
+fn run_openssh_tool_check(
+    name: &str,
+    program: &str,
+    args: &[&str],
+    expected_output: &str,
+) -> SelfTestCheck {
+    match Command::new(program).args(args).output() {
+        Ok(output) => openssh_tool_check_from_output(
+            name,
+            program,
+            args,
+            output.status.code(),
+            &output.stdout,
+            &output.stderr,
+            expected_output,
+        ),
+        Err(error) => SelfTestCheck {
+            name: name.to_owned(),
+            ok: false,
+            detail: error.to_string(),
+            output_bytes: 0,
+        },
+    }
+}
+
+pub fn openssh_tool_check_from_output(
+    name: &str,
+    program: &str,
+    args: &[&str],
+    exit_code: Option<i32>,
+    stdout: &[u8],
+    stderr: &[u8],
+    expected_output: &str,
+) -> SelfTestCheck {
+    let mut output = Vec::with_capacity(stdout.len() + stderr.len());
+    output.extend_from_slice(stdout);
+    output.extend_from_slice(stderr);
+    let output_text = String::from_utf8_lossy(&output);
+    let ok = output_text.contains(expected_output);
+    let detail = if ok {
+        format!(
+            "{} {} launched with exit_code={}",
+            program,
+            args.join(" "),
+            exit_code.map_or_else(|| "unknown".to_owned(), |code| code.to_string())
+        )
+    } else {
+        format!(
+            "{} {} did not report {}",
+            program,
+            args.join(" "),
+            expected_output
+        )
+    };
+
+    SelfTestCheck {
+        name: name.to_owned(),
+        ok,
+        detail: if detail.trim().is_empty() {
+            OPENSSH_TOOL_TIMEOUT_DETAIL.to_owned()
+        } else {
+            detail
+        },
+        output_bytes: output.len(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -235,5 +345,38 @@ mod tests {
     fn detects_cursor_position_query_in_pty_output() {
         assert!(super::contains_cursor_position_query(b"before\x1b[6nafter"));
         assert!(!super::contains_cursor_position_query(b"before-after"));
+    }
+
+    #[test]
+    fn openssh_tool_check_accepts_expected_output_even_with_usage_exit_code() {
+        let check = super::openssh_tool_check_from_output(
+            "openssh-sftp",
+            "sftp",
+            &["-h"],
+            Some(1),
+            b"",
+            b"usage: sftp destination",
+            "usage:",
+        );
+
+        assert!(check.ok);
+        assert_eq!(check.name, "openssh-sftp");
+        assert_eq!(check.output_bytes, 23);
+    }
+
+    #[test]
+    fn openssh_tool_check_rejects_missing_expected_output() {
+        let check = super::openssh_tool_check_from_output(
+            "openssh-ssh",
+            "ssh",
+            &["-V"],
+            Some(0),
+            b"",
+            b"unexpected output",
+            "OpenSSH",
+        );
+
+        assert!(!check.ok);
+        assert_eq!(check.detail, "ssh -V did not report OpenSSH");
     }
 }
