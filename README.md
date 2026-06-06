@@ -82,6 +82,8 @@ cargo run -p rssh-app -- ssh --host example.com --user ops --password
 cargo run -p rssh-app -- ssh --host example.com --user ops --key C:\Users\ops\.ssh\id_ed25519
 cargo run -p rssh-app -- ssh -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
 cargo run -p rssh-app -- ssh -J bastion -C -vv prod
+cargo run -p rssh-app -- ssh -T -W db.internal:5432 prod
+cargo run -p rssh-app -- ssh -E ssh-debug.log -Q cipher prod
 cargo run -p rssh-app -- ssh -L 127.0.0.1:15432:db.internal:5432 -D 127.0.0.1:1080 -N prod
 cargo run -p rssh-app -- ssh --target prod --local-forward 127.0.0.1:15432:db.internal:5432 --no-shell
 cargo run -p rssh-app -- ssh --target prod --dynamic-forward 127.0.0.1:1080 --no-shell
@@ -168,7 +170,11 @@ passed through as the remote command, for example `ssh ops@example.com uptime
 command-line secrets. Common OpenSSH short options are accepted on the console
 path: `ssh -p PORT -l USER -i KEY -F CONFIG -o OPTION=VALUE -L SPEC -R
 SPEC -D SPEC -N HOST`. `-J JUMP`, `-4`, `-6`, `-A`, `-a`, `-C`, `-q`, and
-`-v`/`-vv`/`-vvv` are also passed through to OpenSSH.
+`-v`/`-vv`/`-vvv` are also passed through to OpenSSH. SSH-specific control,
+debugging, stdio forwarding, tunnel, TTY, and X11 options `-B`, `-b`, `-c`,
+`-E`, `-e`, `-I`, `-m`, `-O`, `-P`, `-Q`, `-S`, `-W`, `-w`, `-f`, `-G`, `-g`,
+`-K`, `-k`, `-M`, `-n`, `-s`, `-T`, `-t`, `-tt`, `-X`, `-x`, `-Y`, and `-y`
+are passed through on the OpenSSH console backend.
 `sftp` starts the system OpenSSH SFTP client inside the same PTY console
 runtime, using the same `--host`/`--target`, `--user`, `--port`, `--agent`,
 `--password`, `--key`, and `--log` shape for interactive file transfer; it also

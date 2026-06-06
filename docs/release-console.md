@@ -70,6 +70,8 @@ After extracting the zip:
 .\rssh-app.exe scp ops@example.com --upload local.txt /tmp/remote.txt
 .\rssh-app.exe ssh -F C:\Users\ops\.ssh\prod_config -o ProxyJump=bastion prod
 .\rssh-app.exe ssh -J bastion -C -vv prod
+.\rssh-app.exe ssh -T -W db.internal:5432 prod
+.\rssh-app.exe ssh -E ssh-debug.log -Q cipher prod
 .\rssh-app.exe ssh -L 127.0.0.1:15432:db.internal:5432 -D 127.0.0.1:1080 -N prod
 .\rssh-app.exe ssh --native --trust-on-first-use --host example.com --user ops --agent
 ```
@@ -89,6 +91,7 @@ pilot:
 - Console coverage: local shell, positional `[USER@]HOST` SSH/SFTP/SCP
   launches, SSH trailing remote commands, SCP `HOST:PATH` upload/download
   operands, common OpenSSH short options (`ssh -p/-l/-i/-J/-F/-o/-4/-6/-A/-a/-C/-q/-v/-L/-R/-D/-N`,
+  SSH control options `-B/-b/-c/-E/-e/-I/-m/-O/-P/-Q/-S/-W/-w/-f/-G/-g/-K/-k/-M/-n/-s/-T/-t/-X/-x/-Y/-y`,
   `sftp -P/-i/-J/-F/-o/-4/-6/-A/-a/-C/-q/-v/-b/-B/-R/-D/-S/-s/-X/-c`, and
   `scp -P/-i/-J/-F/-o/-4/-6/-A/-a/-C/-q/-v/-3/-O/-T/-B/-D/-S/-X/-c/-r`),
   OpenSSH config targets, profiles, metrics, and native russh startup remain
