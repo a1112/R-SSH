@@ -1,7 +1,7 @@
 use rssh_core::{DamageRegion, TerminalSize};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{Cell, Color, CursorShape, ScrollbackLine, TerminalGrid};
+use crate::{Cell, Color, CursorShape, ScrollbackLine, TerminalGrid, UnderlineStyle};
 
 const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 
@@ -1364,69 +1364,75 @@ impl Terminal {
 
         while index < values.len() {
             match values[index] {
-                0 => self.reset_style_preserving_hyperlink(),
-                1 => self.style.bold = true,
-                2 => self.style.faint = true,
-                3 => self.style.italic = true,
-                4 => {
-                    self.style.underline = true;
-                    self.style.double_underline = false;
-                }
-                5 => self.style.blink = true,
-                7 => self.style.inverse = true,
-                8 => self.style.conceal = true,
-                9 => self.style.strikethrough = true,
-                22 => {
-                    self.style.bold = false;
-                    self.style.faint = false;
-                }
-                21 => {
-                    self.style.underline = false;
-                    self.style.double_underline = true;
-                }
-                23 => self.style.italic = false,
-                24 => {
-                    self.style.underline = false;
-                    self.style.double_underline = false;
-                }
-                25 => self.style.blink = false,
-                27 => self.style.inverse = false,
-                28 => self.style.conceal = false,
-                29 => self.style.strikethrough = false,
-                30..=37 => {
-                    self.style.foreground = Color::Indexed(saturating_u8(values[index] - 30));
-                }
-                39 => self.style.foreground = Color::Default,
-                40..=47 => {
-                    self.style.background = Color::Indexed(saturating_u8(values[index] - 40));
-                }
-                49 => self.style.background = Color::Default,
-                53 => self.style.overline = true,
-                55 => self.style.overline = false,
-                59 => self.style.underline_color = Color::Default,
-                90..=97 => {
-                    self.style.foreground = Color::Indexed(saturating_u8(values[index] - 90 + 8));
-                }
-                100..=107 => {
-                    self.style.background = Color::Indexed(saturating_u8(values[index] - 100 + 8));
-                }
-                38 | 48 | 58 => {
-                    let color_target = values[index];
-                    if let Some((color, consumed)) = parse_extended_color(&values[index + 1..]) {
-                        match color_target {
-                            38 => self.style.foreground = color,
-                            48 => self.style.background = color,
-                            58 => self.style.underline_color = color,
-                            _ => {}
-                        }
-                        index += consumed;
+                SgrParameter::UnderlineStyle(style) => self.apply_underline_style(style),
+                SgrParameter::Code(code) => match code {
+                    0 => self.reset_style_preserving_hyperlink(),
+                    1 => self.style.bold = true,
+                    2 => self.style.faint = true,
+                    3 => self.style.italic = true,
+                    4 => self.apply_underline_style(UnderlineStyle::Single),
+                    5 => self.style.blink = true,
+                    7 => self.style.inverse = true,
+                    8 => self.style.conceal = true,
+                    9 => self.style.strikethrough = true,
+                    22 => {
+                        self.style.bold = false;
+                        self.style.faint = false;
                     }
-                }
-                _ => {}
+                    21 => self.apply_underline_style(UnderlineStyle::Double),
+                    23 => self.style.italic = false,
+                    24 => self.apply_underline_style(UnderlineStyle::None),
+                    25 => self.style.blink = false,
+                    27 => self.style.inverse = false,
+                    28 => self.style.conceal = false,
+                    29 => self.style.strikethrough = false,
+                    30..=37 => {
+                        self.style.foreground = Color::Indexed(saturating_u8(code - 30));
+                    }
+                    39 => self.style.foreground = Color::Default,
+                    40..=47 => {
+                        self.style.background = Color::Indexed(saturating_u8(code - 40));
+                    }
+                    49 => self.style.background = Color::Default,
+                    53 => self.style.overline = true,
+                    55 => self.style.overline = false,
+                    59 => self.style.underline_color = Color::Default,
+                    90..=97 => {
+                        self.style.foreground = Color::Indexed(saturating_u8(code - 90 + 8));
+                    }
+                    100..=107 => {
+                        self.style.background = Color::Indexed(saturating_u8(code - 100 + 8));
+                    }
+                    38 | 48 | 58 => {
+                        if let Some((color, consumed)) = parse_extended_color(&values[index + 1..])
+                        {
+                            match code {
+                                38 => self.style.foreground = color,
+                                48 => self.style.background = color,
+                                58 => self.style.underline_color = color,
+                                _ => {}
+                            }
+                            index += consumed;
+                        }
+                    }
+                    _ => {}
+                },
             }
 
             index += 1;
         }
+    }
+
+    fn apply_underline_style(&mut self, style: UnderlineStyle) {
+        self.style.underline_style = style;
+        self.style.underline = matches!(
+            style,
+            UnderlineStyle::Single
+                | UnderlineStyle::Curly
+                | UnderlineStyle::Dotted
+                | UnderlineStyle::Dashed
+        );
+        self.style.double_underline = style == UnderlineStyle::Double;
     }
 
     fn reset_style_preserving_hyperlink(&mut self) {
@@ -1628,27 +1634,69 @@ fn parse_private_csi_params(params: &[char]) -> Option<Vec<u16>> {
     Some(parse_csi_params(rest))
 }
 
-fn parse_sgr_params(params: &[char]) -> Vec<u16> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SgrParameter {
+    Code(u16),
+    UnderlineStyle(UnderlineStyle),
+}
+
+fn parse_sgr_params(params: &[char]) -> Vec<SgrParameter> {
     if params.is_empty() {
-        return vec![0];
+        return vec![SgrParameter::Code(0)];
     }
 
     let raw = params.iter().collect::<String>();
-    raw.split([';', ':'])
-        .map(|part| {
-            if part.is_empty() {
-                0
-            } else {
-                part.parse::<u16>().unwrap_or(0)
-            }
-        })
-        .collect()
+    let mut parsed = Vec::new();
+
+    for group in raw.split(';') {
+        if group.is_empty() {
+            parsed.push(SgrParameter::Code(0));
+            continue;
+        }
+
+        let values = group
+            .split(':')
+            .map(parse_sgr_numeric_part)
+            .collect::<Vec<_>>();
+
+        if group.contains(':') && values.first() == Some(&4) {
+            let style = values.get(1).map_or(UnderlineStyle::None, |value| {
+                underline_style_from_sgr(*value)
+            });
+            parsed.push(SgrParameter::UnderlineStyle(style));
+        } else {
+            parsed.extend(values.into_iter().map(SgrParameter::Code));
+        }
+    }
+
+    parsed
 }
 
-fn parse_extended_color(values: &[u16]) -> Option<(Color, usize)> {
+fn parse_sgr_numeric_part(part: &str) -> u16 {
+    if part.is_empty() {
+        0
+    } else {
+        part.parse::<u16>().unwrap_or(0)
+    }
+}
+
+const fn underline_style_from_sgr(style: u16) -> UnderlineStyle {
+    match style {
+        0 => UnderlineStyle::None,
+        2 => UnderlineStyle::Double,
+        3 => UnderlineStyle::Curly,
+        4 => UnderlineStyle::Dotted,
+        5 => UnderlineStyle::Dashed,
+        _ => UnderlineStyle::Single,
+    }
+}
+
+fn parse_extended_color(values: &[SgrParameter]) -> Option<(Color, usize)> {
+    use SgrParameter::Code;
+
     match values {
-        [5, index, ..] => Some((Color::Indexed(saturating_u8(*index)), 2)),
-        [2, 0, red, green, blue, ..] => Some((
+        [Code(5), Code(index), ..] => Some((Color::Indexed(saturating_u8(*index)), 2)),
+        [Code(2), Code(0), Code(red), Code(green), Code(blue), ..] => Some((
             Color::Rgb(
                 saturating_u8(*red),
                 saturating_u8(*green),
@@ -1656,7 +1704,7 @@ fn parse_extended_color(values: &[u16]) -> Option<(Color, usize)> {
             ),
             5,
         )),
-        [2, red, green, blue, ..] => Some((
+        [Code(2), Code(red), Code(green), Code(blue), ..] => Some((
             Color::Rgb(
                 saturating_u8(*red),
                 saturating_u8(*green),

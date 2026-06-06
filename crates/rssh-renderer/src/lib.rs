@@ -1,6 +1,6 @@
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 pub use rssh_core::DamageRegion;
-use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid};
+use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid, UnderlineStyle};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
@@ -11,6 +11,7 @@ pub struct RenderCell {
     pub foreground: Color,
     pub background: Color,
     pub underline_color: Color,
+    pub underline_style: UnderlineStyle,
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
@@ -415,30 +416,7 @@ fn render_text_decorations(
     foreground: [u8; 4],
     underline_color: [u8; 4],
 ) {
-    if cell.underline || cell.double_underline {
-        let underline_height = (cell_rect.height / 8).max(1);
-        let lower_y = cell_rect.y + cell_rect.height.saturating_sub(underline_height);
-        surface.fill_rect(
-            Rect {
-                x: cell_rect.x,
-                y: lower_y,
-                width: cell_rect.width,
-                height: underline_height,
-            },
-            underline_color,
-        );
-        if cell.double_underline {
-            surface.fill_rect(
-                Rect {
-                    x: cell_rect.x,
-                    y: lower_y.saturating_sub(underline_height.saturating_mul(2)),
-                    width: cell_rect.width,
-                    height: underline_height,
-                },
-                underline_color,
-            );
-        }
-    }
+    render_underline_style(surface, cell, cell_rect, underline_color);
 
     if cell.overline {
         let overline_height = (cell_rect.height / 8).max(1);
@@ -467,6 +445,100 @@ fn render_text_decorations(
                 height: strike_height,
             },
             foreground,
+        );
+    }
+}
+
+fn render_underline_style(
+    surface: &mut Surface<'_>,
+    cell: &RenderCell,
+    cell_rect: Rect,
+    underline_color: [u8; 4],
+) {
+    let style = effective_underline_style(cell);
+    if style == UnderlineStyle::None {
+        return;
+    }
+
+    let underline_height = (cell_rect.height / 8).max(1);
+    let lower_y = cell_rect.y + cell_rect.height.saturating_sub(underline_height);
+    let lower_rect = Rect {
+        x: cell_rect.x,
+        y: lower_y,
+        width: cell_rect.width,
+        height: underline_height,
+    };
+
+    match style {
+        UnderlineStyle::None => {}
+        UnderlineStyle::Single => surface.fill_rect(lower_rect, underline_color),
+        UnderlineStyle::Double => {
+            surface.fill_rect(lower_rect, underline_color);
+            surface.fill_rect(
+                Rect {
+                    y: lower_y.saturating_sub(underline_height.saturating_mul(2)),
+                    ..lower_rect
+                },
+                underline_color,
+            );
+        }
+        UnderlineStyle::Curly => render_curly_underline(surface, lower_rect, underline_color),
+        UnderlineStyle::Dotted => {
+            render_patterned_underline(surface, lower_rect, underline_color, 1, 1);
+        }
+        UnderlineStyle::Dashed => {
+            render_patterned_underline(surface, lower_rect, underline_color, 3, 2);
+        }
+    }
+}
+
+fn effective_underline_style(cell: &RenderCell) -> UnderlineStyle {
+    match cell.underline_style {
+        UnderlineStyle::None if cell.double_underline => UnderlineStyle::Double,
+        UnderlineStyle::None if cell.underline => UnderlineStyle::Single,
+        style => style,
+    }
+}
+
+fn render_patterned_underline(
+    surface: &mut Surface<'_>,
+    rect: Rect,
+    color: [u8; 4],
+    stroke_width: u32,
+    gap_width: u32,
+) {
+    let cycle = stroke_width.saturating_add(gap_width).max(1);
+    let mut offset = 0;
+    while offset < rect.width {
+        let segment_width = stroke_width.min(rect.width - offset);
+        surface.fill_rect(
+            Rect {
+                x: rect.x + offset,
+                width: segment_width,
+                ..rect
+            },
+            color,
+        );
+        offset = offset.saturating_add(cycle);
+    }
+}
+
+fn render_curly_underline(surface: &mut Surface<'_>, rect: Rect, color: [u8; 4]) {
+    let upper_y = rect.y.saturating_sub(rect.height);
+    for offset in 0..rect.width {
+        let y = if (offset / 2) % 2 == 0 {
+            upper_y
+        } else {
+            rect.y
+        };
+        surface.fill_rect(
+            Rect {
+                x: rect.x + offset,
+                y,
+                width: 1,
+                height: rect.height,
+            },
+            color,
         );
     }
 }
@@ -664,6 +736,7 @@ impl TerminalRenderSnapshot {
                     foreground: cell.foreground,
                     background: cell.background,
                     underline_color: cell.underline_color,
+                    underline_style: cell.underline_style,
                     bold: cell.bold,
                     faint: cell.faint,
                     italic: cell.italic,
@@ -834,6 +907,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         foreground: cell.foreground,
         background: cell.background,
         underline_color: cell.underline_color,
+        underline_style: cell.underline_style,
         bold: cell.bold,
         faint: cell.faint,
         italic: cell.italic,
@@ -851,7 +925,7 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
 #[cfg(test)]
 mod tests {
     use rssh_core::TerminalSize;
-    use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid};
+    use rssh_terminal::{Cell, Color, CursorShape, Terminal, TerminalGrid, UnderlineStyle};
 
     use super::{
         DamageRegion, PixelRenderer, RenderGeometry, SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR,
@@ -874,6 +948,7 @@ mod tests {
                 foreground: Color::Indexed(2),
                 background: Color::Rgb(1, 2, 3),
                 underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
                 bold: true,
                 faint: false,
                 italic: false,
@@ -912,6 +987,7 @@ mod tests {
                 foreground: Color::Default,
                 background: Color::Default,
                 underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1002,6 +1078,19 @@ mod tests {
     }
 
     #[test]
+    fn render_snapshot_preserves_colon_separated_underline_style() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[4:4mD");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert_eq!(
+            snapshot.cells()[0].underline_style,
+            rssh_terminal::UnderlineStyle::Dotted
+        );
+    }
+
+    #[test]
     fn render_snapshot_preserves_hyperlink_metadata() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
         terminal.feed(b"\x1b]8;;https://example.com\x1b\\ab\x1b]8;;\x1b\\");
@@ -1076,6 +1165,7 @@ mod tests {
                 foreground: Color::Rgb(255, 0, 0),
                 background: Color::Default,
                 underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1114,6 +1204,7 @@ mod tests {
                 foreground: Color::Default,
                 background: Color::Rgb(20, 0, 0),
                 underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1135,6 +1226,7 @@ mod tests {
                 foreground: Color::Default,
                 background: Color::Rgb(0, 20, 0),
                 underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1169,6 +1261,7 @@ mod tests {
                 foreground: Color::Rgb(0, 0, 20),
                 background: Color::Rgb(0, 0, 20),
                 underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
                 bold: false,
                 faint: false,
                 italic: false,
@@ -1306,6 +1399,25 @@ mod tests {
                 .any(|pixel| pixel == [255, 0, 0, 255]),
             "glyph foreground should still use the foreground color"
         );
+    }
+
+    #[test]
+    fn pixel_renderer_draws_dotted_underlines_with_gaps() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[4:4;58;2;0;255;0mA");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert_eq!(
+            snapshot.cells()[0].underline_style,
+            rssh_terminal::UnderlineStyle::Dotted
+        );
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 7), [0, 255, 0, 255]);
+        assert_ne!(pixel_at(&target, 16, 1, 7), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 2, 7), [0, 255, 0, 255]);
     }
 
     #[test]
@@ -1462,6 +1574,7 @@ mod tests {
                 foreground: Color::Rgb(255, 0, 0),
                 background: Color::Rgb(0, 0, 255),
                 underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
                 bold: false,
                 faint: false,
                 italic: false,

@@ -18,6 +18,16 @@ pub enum CursorShape {
     Bar,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnderlineStyle {
+    None,
+    Single,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Cell {
@@ -25,6 +35,7 @@ pub struct Cell {
     pub foreground: Color,
     pub background: Color,
     pub underline_color: Color,
+    pub underline_style: UnderlineStyle,
     pub bold: bool,
     pub faint: bool,
     pub italic: bool,
@@ -45,6 +56,7 @@ impl Default for Cell {
             foreground: Color::Default,
             background: Color::Default,
             underline_color: Color::Default,
+            underline_style: UnderlineStyle::None,
             bold: false,
             faint: false,
             italic: false,
@@ -165,7 +177,7 @@ impl ScrollbackLine {
 mod tests {
     use rssh_core::{DamageRegion, TerminalSize};
 
-    use super::{Cell, Color, CursorShape, Terminal, TerminalGrid};
+    use super::{Cell, Color, CursorShape, Terminal, TerminalGrid, UnderlineStyle};
 
     #[test]
     fn grid_allocates_one_cell_per_terminal_slot() {
@@ -184,6 +196,7 @@ mod tests {
         assert_eq!(cell.foreground, Color::Default);
         assert_eq!(cell.background, Color::Default);
         assert_eq!(cell.underline_color, Color::Default);
+        assert_eq!(cell.underline_style, UnderlineStyle::None);
         assert!(!cell.bold);
         assert!(!cell.faint);
         assert!(!cell.italic);
@@ -205,6 +218,7 @@ mod tests {
             foreground: Color::Indexed(2),
             background: Color::Rgb(1, 2, 3),
             underline_color: Color::Default,
+            underline_style: UnderlineStyle::Single,
             bold: true,
             faint: false,
             italic: false,
@@ -1042,6 +1056,42 @@ mod tests {
         let default = terminal.grid().get(0, 1).unwrap();
         assert_eq!(default.ch, 'B');
         assert_eq!(default.underline_color, Color::Default);
+    }
+
+    #[test]
+    fn terminal_applies_colon_separated_sgr_underline_styles() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"\x1b[4:2mD\x1b[4:0mN\x1b[4:3mC\x1b[4:4mO\x1b[4:5mA\x1b[4:1mS");
+
+        let double = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(double.ch, 'D');
+        assert_eq!(double.underline_style, UnderlineStyle::Double);
+        assert!(double.double_underline);
+        assert!(!double.faint, "SGR 4:2 must not leak the 2 as faint");
+
+        let none = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(none.ch, 'N');
+        assert_eq!(none.underline_style, UnderlineStyle::None);
+        assert!(!none.underline);
+        assert!(!none.double_underline);
+
+        let curly = terminal.grid().get(0, 2).unwrap();
+        assert_eq!(curly.underline_style, UnderlineStyle::Curly);
+        assert!(curly.underline);
+
+        let dotted = terminal.grid().get(0, 3).unwrap();
+        assert_eq!(dotted.underline_style, UnderlineStyle::Dotted);
+        assert!(dotted.underline);
+
+        let dashed = terminal.grid().get(0, 4).unwrap();
+        assert_eq!(dashed.underline_style, UnderlineStyle::Dashed);
+        assert!(dashed.underline);
+
+        let single = terminal.grid().get(0, 5).unwrap();
+        assert_eq!(single.underline_style, UnderlineStyle::Single);
+        assert!(single.underline);
+        assert!(!single.bold, "SGR 4:1 must not leak the 1 as bold");
     }
 
     #[test]

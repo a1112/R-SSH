@@ -25,7 +25,7 @@ use rssh_core::{
     session::{SessionLifecycle, SessionState},
 };
 use rssh_pty::{PtyBackend, PtyExitStatus, PtySession, PtySize};
-use rssh_terminal::{Cell, Color, CursorShape, Terminal};
+use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle};
 use serde::Serialize;
 
 use crate::{
@@ -1809,9 +1809,7 @@ fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
     if style.italic {
         params.push("3".to_owned());
     }
-    if style.underline && !style.double_underline {
-        params.push("4".to_owned());
-    }
+    append_underline_style_sgr(style, &mut params);
     if style.blink {
         params.push("5".to_owned());
     }
@@ -1840,6 +1838,19 @@ fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
         bytes.extend_from_slice(params.join(";").as_bytes());
     }
     bytes.push(b'm');
+}
+
+fn append_underline_style_sgr(style: &Cell, params: &mut Vec<String>) {
+    match style.underline_style {
+        UnderlineStyle::None if style.double_underline => params.push("21".to_owned()),
+        UnderlineStyle::None if style.underline => params.push("4".to_owned()),
+        UnderlineStyle::None => {}
+        UnderlineStyle::Single => params.push("4".to_owned()),
+        UnderlineStyle::Double => params.push("21".to_owned()),
+        UnderlineStyle::Curly => params.push("4:3".to_owned()),
+        UnderlineStyle::Dotted => params.push("4:4".to_owned()),
+        UnderlineStyle::Dashed => params.push("4:5".to_owned()),
+    }
 }
 
 fn append_color_sgr(prefix: u8, color: Color, params: &mut Vec<String>) {
@@ -4440,7 +4451,7 @@ mod tests {
 
         filter
             .write(
-                b"before\x1b[1;2;3;4;21;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
+                b"before\x1b[1;2;4:3;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);
@@ -4452,11 +4463,11 @@ mod tests {
 
         assert_eq!(
             output,
-            b"before\x1b[1;2;3;4;21;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m middle\x1b[5 q after\x1b[2;5rdone"
+            b"before\x1b[1;2;4:3;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m middle\x1b[5 q after\x1b[2;5rdone"
         );
         assert_eq!(
             responses,
-            b"\x1bP1$r1;2;3;5;8;9;21;53;58;5;34;38;5;196;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
+            b"\x1bP1$r1;2;4:3;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
         );
     }
 

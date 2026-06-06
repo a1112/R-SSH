@@ -333,6 +333,10 @@ wide threshold gates, bundled profile validation, a
 - MVP 1/3 compatibility: SGR underline color now parses through the terminal
   core, reports through SGR state queries, survives renderer snapshots, and
   renders underline strokes independently from glyph foreground color.
+- MVP 1/3 compatibility: colon-separated SGR underline styles (`4:0` through
+  `4:5`) now parse without leaking style parameters into bold/faint/italic,
+  report through SGR state queries, survive renderer snapshots, and render
+  single, double, curly, dotted, and dashed underline strokes.
 - MVP 2: Local terminal path is complete as a console-hosted prototype. See
   `docs/mvp-2-local-terminal.md`.
 - MVP 3: Native window renderer demo is complete. See

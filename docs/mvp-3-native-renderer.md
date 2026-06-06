@@ -22,6 +22,8 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
 - `PixelRenderer` draws underlined and double-underlined text with the cell
   underline color when set, and draws strikethrough and overlined text using
   the cell foreground color.
+- `PixelRenderer` draws colon-separated underline styles, including curly,
+  dotted, and dashed underline strokes, using the cell underline color when set.
 - `PixelRenderer` hides concealed text foreground pixels while preserving cell
   background rendering.
 - `PixelRenderer` draws block, underline, and bar cursors for visible cursor
@@ -75,15 +77,16 @@ Renderer-specific tests cover:
 - terminal grid to render snapshot conversion
 - terminal cursor position and shape to render snapshot conversion
 - preservation of cell position and style metadata, including faint, italic,
-  blinking, double-underlined, underline-colored, concealed, and overlined cells
+  blinking, double-underlined, underline-styled, underline-colored, concealed,
+  and overlined cells
 - glyph foreground pixels drawn into an RGBA target
 - bold terminal text drawn with additional foreground pixels
 - italic terminal text drawn with shifted foreground pixels
 - faint terminal text drawn with dimmed foreground pixels
 - blinking terminal text hidden during an explicit hidden blink phase
 - concealed terminal text rendered as background-only cells
-- underlined, underline-colored, double-underlined, strikethrough, and
-  overlined terminal text drawn into an RGBA target
+- underlined, underline-styled, underline-colored, double-underlined,
+  strikethrough, and overlined terminal text drawn into an RGBA target
 - xterm 256-color indexed foreground output from terminal bytes to RGBA pixels
 - inverse-video foreground/background swapping
 - block, underline, and bar cursor pixels drawn into an RGBA target
