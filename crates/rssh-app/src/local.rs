@@ -1001,7 +1001,6 @@ impl TerminalOutputFilter {
         mut read_clipboard: impl FnMut() -> Option<String>,
         osc52_policy: Osc52Policy,
     ) -> io::Result<()> {
-        self.color_state.process(bytes);
         self.pending.extend_from_slice(bytes);
 
         while let Some((index, event)) = self.find_next_event() {
@@ -1081,6 +1080,7 @@ impl TerminalOutputFilter {
     ) -> io::Result<()> {
         let was_synchronized = self.mode_tracker.synchronized_output();
         self.write_visible_bytes(bytes, output)?;
+        self.color_state.process(bytes);
         self.mode_tracker.process_without_emitting(bytes);
         if was_synchronized && !self.mode_tracker.synchronized_output() {
             self.flush_synchronized_output_buffer(output)?;
@@ -2261,6 +2261,7 @@ struct OscColorResponse {
 enum OscColorKind {
     DefaultForeground,
     DefaultBackground,
+    Cursor,
     Palette(u8),
 }
 
@@ -2349,6 +2350,7 @@ fn parse_osc_color_query_content(content: &[u8]) -> Option<OscColorKind> {
     match content {
         b"10;?" => Some(OscColorKind::DefaultForeground),
         b"11;?" => Some(OscColorKind::DefaultBackground),
+        b"12;?" => Some(OscColorKind::Cursor),
         _ => parse_palette_color_query(content),
     }
 }
@@ -2394,7 +2396,10 @@ fn is_osc_color_query_prefix(bytes: &[u8]) -> bool {
         return b"\x1b]".starts_with(bytes) || b"\x9d".starts_with(bytes);
     };
 
-    b"10;?".starts_with(rest) || b"11;?".starts_with(rest) || is_palette_color_query_prefix(rest)
+    b"10;?".starts_with(rest)
+        || b"11;?".starts_with(rest)
+        || b"12;?".starts_with(rest)
+        || is_palette_color_query_prefix(rest)
 }
 
 fn is_palette_color_query_prefix(bytes: &[u8]) -> bool {
@@ -2415,6 +2420,7 @@ fn is_palette_color_query_prefix(bytes: &[u8]) -> bool {
 struct TerminalColorState {
     foreground: [u8; 3],
     background: [u8; 3],
+    cursor: [u8; 3],
     palette_overrides: Vec<(u8, [u8; 3])>,
     pending: Vec<u8>,
 }
@@ -2424,6 +2430,7 @@ impl Default for TerminalColorState {
         Self {
             foreground: DEFAULT_FOREGROUND,
             background: DEFAULT_BACKGROUND,
+            cursor: DEFAULT_CURSOR,
             palette_overrides: Vec::new(),
             pending: Vec::new(),
         }
@@ -2474,6 +2481,7 @@ impl TerminalColorState {
             OscColorKind::DefaultBackground => {
                 format!("\x1b]11;{}", rgb_response(self.background)).into_bytes()
             }
+            OscColorKind::Cursor => format!("\x1b]12;{}", rgb_response(self.cursor)).into_bytes(),
             OscColorKind::Palette(index) => format!(
                 "\x1b]4;{};{}",
                 index,
@@ -2489,6 +2497,8 @@ impl TerminalColorState {
         match change {
             OscColorChange::DefaultForeground(color) => self.foreground = color,
             OscColorChange::DefaultBackground(color) => self.background = color,
+            OscColorChange::Cursor(color) => self.cursor = color,
+            OscColorChange::ResetCursor => self.cursor = DEFAULT_CURSOR,
             OscColorChange::Palette(index, color) => {
                 if let Some((_, existing)) = self
                     .palette_overrides
@@ -2530,6 +2540,8 @@ impl TerminalColorState {
 enum OscColorChange {
     DefaultForeground([u8; 3]),
     DefaultBackground([u8; 3]),
+    Cursor([u8; 3]),
+    ResetCursor,
     Palette(u8, [u8; 3]),
 }
 
@@ -2548,6 +2560,12 @@ fn parse_osc_color_change(content: &[u8]) -> Option<OscColorChange> {
     }
     if let Some(color) = content.strip_prefix(b"11;").and_then(parse_rgb_color_spec) {
         return Some(OscColorChange::DefaultBackground(color));
+    }
+    if let Some(color) = content.strip_prefix(b"12;").and_then(parse_rgb_color_spec) {
+        return Some(OscColorChange::Cursor(color));
+    }
+    if matches!(content, b"112" | b"112;") {
+        return Some(OscColorChange::ResetCursor);
     }
     parse_palette_color_change(content)
 }
@@ -2602,6 +2620,7 @@ impl OscResponseTerminator {
 
 const DEFAULT_FOREGROUND: [u8; 3] = [229, 229, 229];
 const DEFAULT_BACKGROUND: [u8; 3] = [12, 12, 12];
+const DEFAULT_CURSOR: [u8; 3] = DEFAULT_FOREGROUND;
 
 fn rgb_response(color: [u8; 3]) -> String {
     format!(
@@ -4809,6 +4828,56 @@ mod tests {
 
         assert!(output.is_empty());
         assert_eq!(responses, b"\x1b]4;196;rgb:ffff/0000/0000\x9c");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_cursor_color_queries_after_changes_and_reset() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b]12;rgb:aa/bb/cc\x07 middle\x1b]12;?\x07 after\x1b]112\x07 reset\x1b]12;?\x1b\\done",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            output,
+            b"before\x1b]12;rgb:aa/bb/cc\x07 middle after\x1b]112\x07 resetdone"
+        );
+        assert_eq!(
+            responses,
+            b"\x1b]12;rgb:aaaa/bbbb/cccc\x07\x1b]12;rgb:e5e5/e5e5/e5e5\x1b\\"
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_c1_cursor_color_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x9d12;rgb:01/02/03\x9c\x9d12;?\x9c",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x9d12;rgb:01/02/03\x9c");
+        assert_eq!(responses, b"\x1b]12;rgb:0101/0202/0303\x9c");
     }
 
     #[test]

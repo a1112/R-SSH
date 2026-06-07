@@ -217,10 +217,11 @@ MVP 4 tests cover:
 - C1 CSI cursor, device/status, window state/position, window/screen pixel-size,
   character-cell size, text-area/screen size, and title query responses in the
   shared terminal runtime
-- OSC default foreground/background and indexed palette color query responses
-  in the shared terminal runtime, including tracked OSC color-setting state
-  and ignored OSC color-setting bytes embedded inside ST-terminated
-  control-string payloads split across PTY chunks
+- OSC default foreground/background, cursor, and indexed palette color query
+  responses in the shared terminal runtime, including tracked OSC color-setting
+  state, cursor-color reset with `OSC 112`, stream-ordered response state, and
+  ignored OSC color-setting bytes embedded inside ST-terminated control-string
+  payloads split across PTY chunks
 - OSC 8 hyperlink metadata in the shared terminal runtime, including C1 OSC/ST
   forms, renderer snapshot propagation, native-window Ctrl-click activation,
   and visible-output filtering
