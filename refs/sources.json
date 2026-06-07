@@ -30,7 +30,7 @@
   {
     "name": "wezterm",
     "url": "https://github.com/wezterm/wezterm.git",
-    "commit": "577474d",
+    "commit": "093bf6b",
     "localPath": "refs/wezterm",
     "notes": "Rust reference for terminal core, GPU renderer, PTY, SSH, multiplexing, and font handling."
   },
