@@ -145,9 +145,13 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   styled underline, `Setulc` underline color, tmux/xterm cursor templates
   (`Cr`/`Cs`/`Se`/`Ss`), foundational cursor/screen/style capabilities
   (`clear`, `cup`, `home`, `civis`/`cnorm`, `smcup`/`rmcup`, `sgr0`, common
-  SGR styles, `smul`/`rmul`, `setaf`/`setab`), and dynamic `co`/`li` column
-  and row counts from the current PTY size. Unsupported capabilities return
-  `DCS 0+r ST`, and C1 DCS/ST forms are handled too.
+  SGR styles, `smul`/`rmul`, `setaf`/`setab`), common line/display editing and
+  cursor movement templates (`el`, `ed`, `el1`, `dch1`, `ich1`, `il1`, `dl1`,
+  `cuu`/`cud`/`cub`/`cuf`, `hpa`, `vpa`), insert/autowrap controls
+  (`smir`/`rmir`, `smam`/`rmam`), application cursor and function-key
+  capabilities, ACS metadata (`enacs`, `smacs`, `rmacs`, `acsc`), and dynamic
+  `co`/`li` column and row counts from the current PTY size. Unsupported
+  capabilities return `DCS 0+r ST`, and C1 DCS/ST forms are handled too.
 - The app answers DEC request status string queries (`DECRQSS`,
   `DCS $ q <selector> ST`) for current SGR style (`m`), including bold, faint,
   italic, blink, underline, double underline, colon-separated underline styles,
@@ -298,8 +302,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   queries for colors, terminal name, true-color markers, OSC 52 clipboard
   template, italic style templates, styled/colored underline templates,
   tmux/xterm cursor style and cursor color templates, current columns/rows,
-  foundational cursor/screen/style/color capabilities, and unknown capability
-  fallback.
+  foundational cursor/screen/style/color capabilities, line/display editing
+  controls, application cursor/function-key capabilities, ACS metadata, and
+  unknown capability fallback.
 - DECRQSS response: unit tests cover current SGR, including faint, italic,
   blink, double underline, colon-separated underline style, underline color, and
   concealed text plus overline, cursor-shape, and scroll-region status queries

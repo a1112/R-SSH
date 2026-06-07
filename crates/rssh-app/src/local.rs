@@ -2176,10 +2176,27 @@ fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
         b"clear" => Some(encode_ascii_hex(b"\x1b[H\x1b[2J")),
         b"cup" => Some(encode_ascii_hex(b"\x1b[%i%p1%d;%p2%dH")),
         b"home" => Some(encode_ascii_hex(b"\x1b[H")),
+        b"el" => Some(encode_ascii_hex(b"\x1b[K")),
+        b"ed" => Some(encode_ascii_hex(b"\x1b[J")),
+        b"el1" => Some(encode_ascii_hex(b"\x1b[1K")),
+        b"dch1" => Some(encode_ascii_hex(b"\x1b[P")),
+        b"ich1" => Some(encode_ascii_hex(b"\x1b[@")),
+        b"il1" => Some(encode_ascii_hex(b"\x1b[L")),
+        b"dl1" => Some(encode_ascii_hex(b"\x1b[M")),
+        b"cuu" => Some(encode_ascii_hex(b"\x1b[%p1%dA")),
+        b"cud" => Some(encode_ascii_hex(b"\x1b[%p1%dB")),
+        b"cub" => Some(encode_ascii_hex(b"\x1b[%p1%dD")),
+        b"cuf" => Some(encode_ascii_hex(b"\x1b[%p1%dC")),
+        b"hpa" => Some(encode_ascii_hex(b"\x1b[%i%p1%dG")),
+        b"vpa" => Some(encode_ascii_hex(b"\x1b[%i%p1%dd")),
         b"civis" => Some(encode_ascii_hex(b"\x1b[?25l")),
         b"cnorm" => Some(encode_ascii_hex(b"\x1b[?25h")),
         b"smcup" => Some(encode_ascii_hex(b"\x1b[?1049h")),
         b"rmcup" => Some(encode_ascii_hex(b"\x1b[?1049l")),
+        b"smir" => Some(encode_ascii_hex(b"\x1b[4h")),
+        b"rmir" => Some(encode_ascii_hex(b"\x1b[4l")),
+        b"smam" => Some(encode_ascii_hex(b"\x1b[?7h")),
+        b"rmam" => Some(encode_ascii_hex(b"\x1b[?7l")),
         b"sgr0" => Some(encode_ascii_hex(b"\x1b[0m")),
         b"bold" => Some(encode_ascii_hex(b"\x1b[1m")),
         b"dim" => Some(encode_ascii_hex(b"\x1b[2m")),
@@ -2190,6 +2207,34 @@ fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
         b"rmul" => Some(encode_ascii_hex(b"\x1b[24m")),
         b"setaf" => Some(encode_ascii_hex(b"\x1b[38;5;%p1%dm")),
         b"setab" => Some(encode_ascii_hex(b"\x1b[48;5;%p1%dm")),
+        b"kcuu1" => Some(encode_ascii_hex(b"\x1bOA")),
+        b"kcud1" => Some(encode_ascii_hex(b"\x1bOB")),
+        b"kcuf1" => Some(encode_ascii_hex(b"\x1bOC")),
+        b"kcub1" => Some(encode_ascii_hex(b"\x1bOD")),
+        b"khome" => Some(encode_ascii_hex(b"\x1bOH")),
+        b"kend" => Some(encode_ascii_hex(b"\x1bOF")),
+        b"kich1" => Some(encode_ascii_hex(b"\x1b[2~")),
+        b"kdch1" => Some(encode_ascii_hex(b"\x1b[3~")),
+        b"kpp" => Some(encode_ascii_hex(b"\x1b[5~")),
+        b"knp" => Some(encode_ascii_hex(b"\x1b[6~")),
+        b"kf1" => Some(encode_ascii_hex(b"\x1bOP")),
+        b"kf2" => Some(encode_ascii_hex(b"\x1bOQ")),
+        b"kf3" => Some(encode_ascii_hex(b"\x1bOR")),
+        b"kf4" => Some(encode_ascii_hex(b"\x1bOS")),
+        b"kf5" => Some(encode_ascii_hex(b"\x1b[15~")),
+        b"kf6" => Some(encode_ascii_hex(b"\x1b[17~")),
+        b"kf7" => Some(encode_ascii_hex(b"\x1b[18~")),
+        b"kf8" => Some(encode_ascii_hex(b"\x1b[19~")),
+        b"kf9" => Some(encode_ascii_hex(b"\x1b[20~")),
+        b"kf10" => Some(encode_ascii_hex(b"\x1b[21~")),
+        b"kf11" => Some(encode_ascii_hex(b"\x1b[23~")),
+        b"kf12" => Some(encode_ascii_hex(b"\x1b[24~")),
+        b"enacs" => Some(encode_ascii_hex(b"\x1b)0")),
+        b"smacs" => Some(encode_ascii_hex(b"\x0e")),
+        b"rmacs" => Some(encode_ascii_hex(b"\x0f")),
+        b"acsc" => Some(encode_ascii_hex(
+            b"``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~",
+        )),
         b"co" => Some(decimal_value_hex(size.columns())),
         b"li" => Some(decimal_value_hex(size.rows())),
         _ => None,
@@ -5240,6 +5285,176 @@ mod tests {
                 (b"rmul".as_slice(), b"\x1b[24m".as_slice()),
                 (b"setaf".as_slice(), b"\x1b[38;5;%p1%dm".as_slice()),
                 (b"setab".as_slice(), b"\x1b[48;5;%p1%dm".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_common_control_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"el".as_slice(),
+            b"ed".as_slice(),
+            b"el1".as_slice(),
+            b"dch1".as_slice(),
+            b"ich1".as_slice(),
+            b"il1".as_slice(),
+            b"dl1".as_slice(),
+            b"cuu".as_slice(),
+            b"cud".as_slice(),
+            b"cub".as_slice(),
+            b"cuf".as_slice(),
+            b"hpa".as_slice(),
+            b"vpa".as_slice(),
+            b"smir".as_slice(),
+            b"rmir".as_slice(),
+            b"smam".as_slice(),
+            b"rmam".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"el".as_slice(), b"\x1b[K".as_slice()),
+                (b"ed".as_slice(), b"\x1b[J".as_slice()),
+                (b"el1".as_slice(), b"\x1b[1K".as_slice()),
+                (b"dch1".as_slice(), b"\x1b[P".as_slice()),
+                (b"ich1".as_slice(), b"\x1b[@".as_slice()),
+                (b"il1".as_slice(), b"\x1b[L".as_slice()),
+                (b"dl1".as_slice(), b"\x1b[M".as_slice()),
+                (b"cuu".as_slice(), b"\x1b[%p1%dA".as_slice()),
+                (b"cud".as_slice(), b"\x1b[%p1%dB".as_slice()),
+                (b"cub".as_slice(), b"\x1b[%p1%dD".as_slice()),
+                (b"cuf".as_slice(), b"\x1b[%p1%dC".as_slice()),
+                (b"hpa".as_slice(), b"\x1b[%i%p1%dG".as_slice()),
+                (b"vpa".as_slice(), b"\x1b[%i%p1%dd".as_slice()),
+                (b"smir".as_slice(), b"\x1b[4h".as_slice()),
+                (b"rmir".as_slice(), b"\x1b[4l".as_slice()),
+                (b"smam".as_slice(), b"\x1b[?7h".as_slice()),
+                (b"rmam".as_slice(), b"\x1b[?7l".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_common_key_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"kcuu1".as_slice(),
+            b"kcud1".as_slice(),
+            b"kcuf1".as_slice(),
+            b"kcub1".as_slice(),
+            b"khome".as_slice(),
+            b"kend".as_slice(),
+            b"kich1".as_slice(),
+            b"kdch1".as_slice(),
+            b"kpp".as_slice(),
+            b"knp".as_slice(),
+            b"kf1".as_slice(),
+            b"kf2".as_slice(),
+            b"kf3".as_slice(),
+            b"kf4".as_slice(),
+            b"kf5".as_slice(),
+            b"kf6".as_slice(),
+            b"kf7".as_slice(),
+            b"kf8".as_slice(),
+            b"kf9".as_slice(),
+            b"kf10".as_slice(),
+            b"kf11".as_slice(),
+            b"kf12".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"kcuu1".as_slice(), b"\x1bOA".as_slice()),
+                (b"kcud1".as_slice(), b"\x1bOB".as_slice()),
+                (b"kcuf1".as_slice(), b"\x1bOC".as_slice()),
+                (b"kcub1".as_slice(), b"\x1bOD".as_slice()),
+                (b"khome".as_slice(), b"\x1bOH".as_slice()),
+                (b"kend".as_slice(), b"\x1bOF".as_slice()),
+                (b"kich1".as_slice(), b"\x1b[2~".as_slice()),
+                (b"kdch1".as_slice(), b"\x1b[3~".as_slice()),
+                (b"kpp".as_slice(), b"\x1b[5~".as_slice()),
+                (b"knp".as_slice(), b"\x1b[6~".as_slice()),
+                (b"kf1".as_slice(), b"\x1bOP".as_slice()),
+                (b"kf2".as_slice(), b"\x1bOQ".as_slice()),
+                (b"kf3".as_slice(), b"\x1bOR".as_slice()),
+                (b"kf4".as_slice(), b"\x1bOS".as_slice()),
+                (b"kf5".as_slice(), b"\x1b[15~".as_slice()),
+                (b"kf6".as_slice(), b"\x1b[17~".as_slice()),
+                (b"kf7".as_slice(), b"\x1b[18~".as_slice()),
+                (b"kf8".as_slice(), b"\x1b[19~".as_slice()),
+                (b"kf9".as_slice(), b"\x1b[20~".as_slice()),
+                (b"kf10".as_slice(), b"\x1b[21~".as_slice()),
+                (b"kf11".as_slice(), b"\x1b[23~".as_slice()),
+                (b"kf12".as_slice(), b"\x1b[24~".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_acs_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"enacs".as_slice(),
+            b"smacs".as_slice(),
+            b"rmacs".as_slice(),
+            b"acsc".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"enacs".as_slice(), b"\x1b)0".as_slice()),
+                (b"smacs".as_slice(), b"\x0e".as_slice()),
+                (b"rmacs".as_slice(), b"\x0f".as_slice()),
+                (
+                    b"acsc".as_slice(),
+                    b"``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~".as_slice()
+                ),
             ])
         );
     }

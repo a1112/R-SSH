@@ -229,8 +229,9 @@ MVP 4 tests cover:
 - XTGETTCAP terminal-capability query responses for colors, terminal name,
   true-color markers, OSC 52 template support, italic style templates,
   styled/colored underline templates, tmux/xterm cursor style and cursor color
-  templates, foundational cursor/screen/style/color capabilities, current
-  columns/rows, and unknown capability fallback
+  templates, foundational cursor/screen/style/color capabilities,
+  line/display editing controls, application cursor/function-key capabilities,
+  ACS metadata, current columns/rows, and unknown capability fallback
 - DECRQSS state query responses for current SGR style, including faint, italic,
   blink, double underline, colon-separated underline style, underline color,
   concealed text, and overline, cursor shape, and scroll-region state

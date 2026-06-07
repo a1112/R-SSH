@@ -153,7 +153,9 @@ synchronized-output buffers.
 XTGETTCAP capability replies include terminal name, 256-color/true-color
 markers, OSC 52 clipboard support, italic/style underline/underline-color
 templates, tmux/xterm cursor style and cursor color templates, foundational
-cursor/screen/style/color capabilities, and current column/row counts.
+cursor/screen/style/color capabilities, common line/display editing controls,
+application cursor/function-key capabilities, ACS metadata, and current
+column/row counts.
 OSC color handling tracks and answers default foreground/background, cursor
 color, and indexed palette queries, including `OSC 110`/`OSC 111`
 foreground/background reset, `OSC 112` cursor-color reset, and `OSC 104`
