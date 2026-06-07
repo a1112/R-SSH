@@ -82,7 +82,7 @@ fn run_self_test() -> SelfTestReport {
 }
 
 fn self_test_shell_input() -> String {
-    format!("echo {SELF_TEST_MARKER}\r\nexit\r\n")
+    format!("echo {SELF_TEST_MARKER}\r\n")
 }
 
 fn capture_local_pty_self_test_output(
@@ -140,15 +140,6 @@ fn capture_local_pty_self_test_output(
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
-
-        if let Some(status) = session.try_wait()? {
-            if !status.success() && !String::from_utf8_lossy(&output).contains(SELF_TEST_MARKER) {
-                return Err(
-                    format!("self-test shell exited with code {}", status.exit_code()).into(),
-                );
-            }
-            break;
-        }
     }
 
     if !String::from_utf8_lossy(&output).contains(SELF_TEST_MARKER) {
@@ -159,7 +150,9 @@ fn capture_local_pty_self_test_output(
     let _ = writer.write_all(b"exit\r\n");
     let _ = writer.flush();
     drop(writer);
-    wait_for_self_test_shell_exit(&mut session, timeout)?;
+    // The marker capture proves PTY I/O. Some ConPTY hosts report control-exit
+    // status during teardown, so cleanup should not override a captured marker.
+    let _ = wait_for_self_test_shell_exit(&mut session, timeout);
     drop(session);
     let _ = reader_thread.join();
 
@@ -334,11 +327,10 @@ mod tests {
     }
 
     #[test]
-    fn self_test_shell_input_echoes_marker_then_exits() {
+    fn self_test_shell_input_waits_for_marker_before_exit() {
         let input = super::self_test_shell_input();
 
-        assert!(input.contains("echo rssh-self-test"));
-        assert!(input.contains("exit"));
+        assert_eq!(input, "echo rssh-self-test\r\n");
     }
 
     #[test]

@@ -3230,6 +3230,58 @@ mod tests {
     }
 
     #[test]
+    fn tracks_extended_mouse_protocol_fallback_from_pty_output() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b[?1000;1005;1015;1006h");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Sgr)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1006l");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Urxvt)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1015l");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Utf8)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1005l");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::X10)
+        );
+    }
+
+    #[test]
+    fn answers_extended_mouse_protocol_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b[?1005;1015h");
+
+        assert_eq!(
+            runtime.feed_pty_output(b"\x1b[?1005$p\x1b[?1015$p\x1b[?1016$p"),
+            vec![
+                b"\x1b[?1005;1$y".to_vec(),
+                b"\x1b[?1015;1$y".to_vec(),
+                b"\x1b[?1016;0$y".to_vec(),
+            ]
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1005;1015l");
+
+        assert_eq!(
+            runtime.feed_pty_output(b"\x1b[?1005$p\x1b[?1015$p"),
+            vec![b"\x1b[?1005;2$y".to_vec(), b"\x1b[?1015;2$y".to_vec(),]
+        );
+    }
+
+    #[test]
     fn tracks_application_keypad_mode_from_pty_output() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 

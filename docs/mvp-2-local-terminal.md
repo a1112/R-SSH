@@ -50,10 +50,12 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   (`CSI ? <mode> $ p`) for tracked terminal modes, including application cursor
   keys (`1`), origin mode (`6`), auto-wrap (`7`), cursor visibility (`25`),
   alternate-screen modes (`47`/`1047`/`1049`), private cursor save/restore
-  (`1048`), mouse reporting (`1000`/`1002`/`1003`), SGR mouse (`1006`), focus
-  reporting (`1004`), bracketed paste (`2004`), and synchronized output
-  (`2026`). `RIS` (`ESC c`) resets tracked mode state to defaults. Unknown
-  modes return an xterm-style unknown status.
+  (`1048`), mouse reporting (`1000`/`1002`/`1003`), extended mouse protocols
+  (`1005`/`1006`/`1015`), focus reporting (`1004`), bracketed paste (`2004`),
+  and synchronized output (`2026`). `1016` SGR-pixels remains unknown because
+  the local input model carries cell coordinates, not pixel coordinates. `RIS`
+  (`ESC c`) resets tracked mode state to defaults. Unknown modes return an
+  xterm-style unknown status.
 - The console path also answers ANSI DECRQM mode status queries
   (`CSI <mode> $ p`) for insert/replace mode (`4`), including the C1 CSI form;
   unknown ANSI modes return an xterm-style unknown status.
@@ -66,8 +68,9 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   host mouse capture and focus events through xterm PTY output modes, then
   forwards active reports as xterm mouse and focus sequences. Mouse mode
   granularity follows xterm `1000` button, `1002` button-event, and `1003`
-  any-event reporting. Mouse encoding uses legacy `CSI M` by default and SGR
-  extended coordinates after `ESC[?1006h`.
+  any-event reporting. Mouse encoding uses legacy `CSI M` by default, UTF-8
+  coordinates after `ESC[?1005h`, SGR coordinates after `ESC[?1006h`, and
+  urxvt decimal coordinates after `ESC[?1015h`.
 - Resize events are forwarded to the PTY.
 - PTY output is streamed to the host console.
 - `rssh-app local --log PATH` writes visible terminal output to a session log
@@ -223,8 +226,12 @@ Mouse movement reporting follows the active xterm mode: `1000` reports button
 and wheel events, `1002` adds drag events, and `1003` also reports motion
 without buttons.
 
-Mouse coordinate encoding follows `ESC[?1006h` / `ESC[?1006l`: SGR mouse is
-used while `1006` is enabled, otherwise the legacy `CSI M` form is used.
+Mouse coordinate encoding follows the active xterm protocol: legacy `CSI M` by
+default, UTF-8 coordinates with `ESC[?1005h`, SGR coordinates with
+`ESC[?1006h`, and urxvt decimal coordinates with `ESC[?1015h`. When multiple
+extended protocols are active, the effective preference is SGR, then urxvt,
+then UTF-8, then legacy X10. `1016` SGR-pixels is not declared until pixel
+coordinates are represented in the input model.
 
 Bracketed paste wrapping follows PTY-side `ESC[?2004h` and `ESC[?2004l`
 automatically.
@@ -326,8 +333,9 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   arrives first.
 - Mouse/focus negotiation: unit tests cover split and combined PTY mode
   sequences for xterm mouse and focus reporting, including `1000`/`1002`/`1003`
-  reporting granularity, `1006` SGR protocol toggling, and C1 CSI private mode
-  input toggles. Unit tests also cover mode-like bytes inside OSC and
+  reporting granularity, `1005` UTF-8, `1006` SGR, and `1015` urxvt protocol
+  toggling, deterministic protocol fallback, and C1 CSI private mode input
+  toggles. Unit tests also cover mode-like bytes inside OSC and
   ST-terminated control-string payloads, plus DECRQM private-mode status
   queries for tracked input, display, alternate-screen/private-cursor, reset,
   and unknown modes.

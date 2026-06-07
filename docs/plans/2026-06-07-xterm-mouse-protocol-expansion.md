@@ -31,7 +31,7 @@ Add tests that assert:
 Run:
 
 ```powershell
-cargo test -p rssh-app terminal_modes --lib
+cargo test -p rssh-app mouse
 ```
 
 Expected: tests fail because `Utf8` and `Urxvt` variants do not exist and `1005`/`1015` are not tracked.
@@ -52,7 +52,7 @@ Update:
 Run:
 
 ```powershell
-cargo test -p rssh-app terminal_modes --lib
+cargo test -p rssh-app mouse
 ```
 
 Expected: new and existing mode tests pass.
@@ -69,14 +69,14 @@ Add tests that assert:
 
 - UTF-8 protocol encodes a left click at `(95, 96)` as `ESC [ M` plus UTF-8 bytes for button code `32`, column `128`, row `129`.
 - UTF-8 protocol encodes release with the X10-style release code.
-- urxvt protocol encodes down as `ESC [ 32 ; Cx ; Cy M` and release as `ESC [ 35 ; Cx ; Cy m`.
+- urxvt protocol encodes down as `ESC [ 32 ; Cx ; Cy M` and release as `ESC [ 35 ; Cx ; Cy M`.
 
 **Step 2: Run test to verify failure**
 
 Run:
 
 ```powershell
-cargo test -p rssh-app encodes_mouse_events_as --lib
+cargo test -p rssh-app encodes_mouse_events_as
 ```
 
 Expected: tests fail because the new protocol variants are not encoded.
@@ -91,7 +91,7 @@ SGR behavior unchanged.
 Run:
 
 ```powershell
-cargo test -p rssh-app encodes_mouse_events_as --lib
+cargo test -p rssh-app encodes_mouse_events_as
 ```
 
 Expected: mouse encoding tests pass.
@@ -111,7 +111,7 @@ Mirror the console UTF-8 and urxvt encoder tests for `WindowMouseEvent`.
 Run:
 
 ```powershell
-cargo test -p rssh-app encodes_window_mouse_events_as --lib
+cargo test -p rssh-app encodes_window_mouse_events_as
 ```
 
 Expected: tests fail because the native window encoder does not handle the new protocol variants.
@@ -126,7 +126,7 @@ the public API.
 Run:
 
 ```powershell
-cargo test -p rssh-app encodes_window_mouse_events_as --lib
+cargo test -p rssh-app encodes_window_mouse_events_as
 ```
 
 Expected: native window mouse encoding tests pass.
@@ -150,7 +150,7 @@ Add tests that assert:
 Run:
 
 ```powershell
-cargo test -p rssh-app mouse --lib
+cargo test -p rssh-app mouse
 ```
 
 Expected: new runtime assertions fail before implementation.
@@ -164,7 +164,7 @@ Runtime should need little or no new production code if the tracker is correct.
 Run:
 
 ```powershell
-cargo test -p rssh-app mouse --lib
+cargo test -p rssh-app mouse
 ```
 
 Expected: runtime mouse tests pass.

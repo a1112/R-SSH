@@ -14,20 +14,26 @@ pub(crate) enum TerminalModeChange {
 pub(crate) enum MouseProtocolMode {
     #[default]
     X10,
+    Utf8,
     Sgr,
+    Urxvt,
 }
 
 impl MouseProtocolMode {
     const fn bits(self) -> u8 {
         match self {
             Self::X10 => 0,
-            Self::Sgr => 1,
+            Self::Utf8 => 1,
+            Self::Sgr => 2,
+            Self::Urxvt => 3,
         }
     }
 
     const fn from_bits(bits: u8) -> Self {
         match bits {
-            1 => Self::Sgr,
+            1 => Self::Utf8,
+            2 => Self::Sgr,
+            3 => Self::Urxvt,
             _ => Self::X10,
         }
     }
@@ -106,7 +112,7 @@ impl MouseInputMode {
     pub(crate) const fn from_bits(bits: u8) -> Self {
         Self {
             reporting: MouseReportingMode::from_bits(bits & 0b11),
-            protocol: MouseProtocolMode::from_bits((bits >> Self::PROTOCOL_SHIFT) & 1),
+            protocol: MouseProtocolMode::from_bits((bits >> Self::PROTOCOL_SHIFT) & 0b11),
         }
     }
 
@@ -476,7 +482,9 @@ impl TerminalModeTracker {
                 self.tracked_modes
                     .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_47),
             ),
-            1000 | 1002 | 1003 | 1006 => self.mouse_modes.report_value(mode).unwrap_or(0),
+            1000 | 1002 | 1003 | 1005 | 1006 | 1015 => {
+                self.mouse_modes.report_value(mode).unwrap_or(0)
+            }
             1004 => mode_report_value(self.focus_reporting()),
             1048 => mode_report_value(
                 self.tracked_modes
@@ -537,7 +545,9 @@ impl MouseModes {
     const NORMAL: u8 = 1;
     const BUTTON_EVENT: u8 = 1 << 1;
     const ANY_EVENT: u8 = 1 << 2;
-    const SGR_PROTOCOL: u8 = 1 << 3;
+    const UTF8_PROTOCOL: u8 = 1 << 3;
+    const SGR_PROTOCOL: u8 = 1 << 4;
+    const URXVT_PROTOCOL: u8 = 1 << 5;
 
     fn set(&mut self, mode: u16, enabled: bool) -> bool {
         let Some(mask) = Self::mask(mode) else {
@@ -565,6 +575,10 @@ impl MouseModes {
         };
         let protocol = if self.0 & Self::SGR_PROTOCOL != 0 {
             MouseProtocolMode::Sgr
+        } else if self.0 & Self::URXVT_PROTOCOL != 0 {
+            MouseProtocolMode::Urxvt
+        } else if self.0 & Self::UTF8_PROTOCOL != 0 {
+            MouseProtocolMode::Utf8
         } else {
             MouseProtocolMode::X10
         };
@@ -577,7 +591,9 @@ impl MouseModes {
             1000 => Some(Self::NORMAL),
             1002 => Some(Self::BUTTON_EVENT),
             1003 => Some(Self::ANY_EVENT),
+            1005 => Some(Self::UTF8_PROTOCOL),
             1006 => Some(Self::SGR_PROTOCOL),
+            1015 => Some(Self::URXVT_PROTOCOL),
             _ => None,
         }
     }

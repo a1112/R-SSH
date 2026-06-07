@@ -36,10 +36,9 @@ Extend `MouseProtocolMode` from a two-state enum to four states:
 - `Urxvt`: urxvt `1015` `CSI Cb ; Cx ; Cy M/m`
 
 `MouseModes` continues to hold the active reporting granularity separately from
-the active encoding protocol. The protocol flags are mutually exclusive in the
-effective input mode. When a PTY enables `1005`, `1006`, or `1015`, that
-protocol becomes the active encoder. Disabling the active protocol falls back to
-the next still-enabled protocol in deterministic preference order:
+the active encoding protocol. The protocol flags may all be tracked for DECRQM,
+but the effective input mode exposes one encoder selected in deterministic
+preference order:
 
 1. SGR `1006`
 2. urxvt `1015`
@@ -57,8 +56,8 @@ All protocol paths use the existing button/modifier code calculation.
 - UTF-8 `1005`: encode `code + 32`, `column + 32`, and `row + 32` as UTF-8
   scalar values. Button release keeps the existing X10-style release code.
 - SGR `1006`: preserve current `CSI <...M/m` behavior.
-- urxvt `1015`: emit `CSI {code + 32};{column};{row}M`, and use final `m` for
-  release events.
+- urxvt `1015`: emit `CSI {code + 32};{column};{row}M`. Button release keeps
+  the X10-style release code and final `M`.
 
 The console (`local.rs`) and native window (`window.rs`) must use the same
 encoder semantics.

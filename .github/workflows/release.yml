@@ -50,7 +50,10 @@ jobs:
           Push-Location dist/R-SSH-windows-x64
           ./rssh-app.exe version --json
           ./rssh-app.exe doctor --json
-          ./rssh-app.exe self-test --json
+          $selfTest = ./rssh-app.exe self-test --json | ConvertFrom-Json
+          if ($selfTest.ok -ne $true) {
+            throw "self-test failed"
+          }
           $bench = ./rssh-app.exe bench --json --render-frames 30 --idle-ms 200 --min-throughput-bytes-per-sec 1 --max-chunk-p95-us 10000000 --max-render-frame-p95-us 10000000 --max-idle-cpu-percent 1000 --max-process-memory-bytes 4294967296 | ConvertFrom-Json
           if ($bench.ok -ne $true) {
             throw "bench threshold gate failed"

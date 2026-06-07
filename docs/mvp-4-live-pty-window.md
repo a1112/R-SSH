@@ -107,9 +107,12 @@ in the native `winit` window.
   also moves with mouse-wheel, Shift page/navigation, and search-driven
   viewport changes. The title remains reserved for shell title and search
   status.
-- The native window tracks PTY-side xterm mouse modes (`1000`/`1002`/`1003`
-  and `1006`) and forwards button, wheel, drag, and any-motion events as
-  legacy or SGR mouse reports when reporting is enabled.
+- The native window tracks PTY-side xterm mouse modes (`1000`/`1002`/`1003`)
+  and extended mouse protocols (`1005`/`1006`/`1015`), then forwards button,
+  wheel, drag, and any-motion events as legacy, UTF-8, SGR, or urxvt mouse
+  reports when reporting is enabled. `1016` SGR-pixels is not declared because
+  the window input path currently reports terminal cells rather than pixel
+  coordinates.
 - `rssh-app window --metrics` and `--metrics-json` print startup, PTY
   processing, terminal damage, snapshot update/rebuild, full/dirty
   render-frame, PTY input-write, and bell-event counters plus p95 timings when
@@ -237,8 +240,9 @@ MVP 4 tests cover:
   concealed text, and overline, cursor shape, and scroll-region state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
 - DECRQM private-mode status query responses for application cursor keys,
-  origin, auto-wrap, cursor visibility, alternate-screen modes, mouse, SGR
-  mouse, focus, bracketed paste, synchronized output, private cursor save,
+  origin, auto-wrap, cursor visibility, alternate-screen modes, mouse
+  reporting, extended mouse protocols, focus, bracketed paste, synchronized
+  output, private cursor save,
   `RIS` defaults, and unknown modes, including mode-like bytes embedded inside
   OSC or ST-terminated control-string payloads
 - DECRQM ANSI-mode status query responses for insert/replace mode (`CSI 4 $ p`)
@@ -288,8 +292,8 @@ MVP 4 tests cover:
 - native window scrollback scrollbar overlay, including click/drag navigation
   and search-driven history viewport changes while the title remains reserved
   for search status
-- native window xterm mouse-mode tracking and button/wheel/drag/motion report
-  encoding
+- native window xterm mouse-mode tracking and legacy/UTF-8/SGR/urxvt
+  button/wheel/drag/motion report encoding
 
 ## Metrics
 

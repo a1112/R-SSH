@@ -2922,7 +2922,7 @@ impl InputModes {
     const APPLICATION_KEYPAD: u8 = 1 << 1;
     const BRACKETED_PASTE: u8 = 1 << 2;
     const FOCUS_REPORTING: u8 = 1 << 3;
-    const MOUSE_INPUT_MASK: u8 = 0b0111_0000;
+    const MOUSE_INPUT_MASK: u8 = 0b1111_0000;
     const MOUSE_REPORTING_SHIFT: u8 = 4;
 
     fn application_cursor_keys(self) -> bool {
@@ -3048,6 +3048,8 @@ fn encode_mouse_event(event: MouseEvent, mode: MouseInputMode) -> Option<Vec<u8>
             };
             Some(format!("\x1b[<{code};{column};{row}{}", final_byte as char).into_bytes())
         }
+        MouseProtocolMode::Utf8 => encode_utf8_mouse_event(event.kind, code, column, row),
+        MouseProtocolMode::Urxvt => encode_urxvt_mouse_event(event.kind, code, column, row),
         MouseProtocolMode::X10 => encode_legacy_mouse_event(event.kind, code, column, row),
     }
 }
@@ -3059,7 +3061,7 @@ fn encode_legacy_mouse_event(
     row: u16,
 ) -> Option<Vec<u8>> {
     if matches!(kind, MouseEventKind::Up(_)) {
-        code = 3 + (code & !0b11);
+        code = legacy_mouse_release_code(code);
     }
 
     Some(vec![
@@ -3072,8 +3074,50 @@ fn encode_legacy_mouse_event(
     ])
 }
 
+fn encode_utf8_mouse_event(
+    kind: MouseEventKind,
+    mut code: u16,
+    column: u16,
+    row: u16,
+) -> Option<Vec<u8>> {
+    if matches!(kind, MouseEventKind::Up(_)) {
+        code = legacy_mouse_release_code(code);
+    }
+
+    let mut bytes = b"\x1b[M".to_vec();
+    push_utf8_mouse_value(&mut bytes, code)?;
+    push_utf8_mouse_value(&mut bytes, column)?;
+    push_utf8_mouse_value(&mut bytes, row)?;
+    Some(bytes)
+}
+
+fn encode_urxvt_mouse_event(
+    kind: MouseEventKind,
+    mut code: u16,
+    column: u16,
+    row: u16,
+) -> Option<Vec<u8>> {
+    if matches!(kind, MouseEventKind::Up(_)) {
+        code = legacy_mouse_release_code(code);
+    }
+
+    let encoded_code = code.checked_add(32)?;
+    Some(format!("\x1b[{encoded_code};{column};{row}M").into_bytes())
+}
+
 fn legacy_mouse_byte(value: u16) -> Option<u8> {
     u8::try_from(value.checked_add(32)?).ok()
+}
+
+fn push_utf8_mouse_value(bytes: &mut Vec<u8>, value: u16) -> Option<()> {
+    let ch = char::from_u32(u32::from(value.checked_add(32)?))?;
+    let mut buffer = [0; 4];
+    bytes.extend_from_slice(ch.encode_utf8(&mut buffer).as_bytes());
+    Some(())
+}
+
+const fn legacy_mouse_release_code(code: u16) -> u16 {
+    3 + (code & !0b11)
 }
 
 const fn mouse_button_code(button: MouseButton) -> u16 {
@@ -3442,6 +3486,58 @@ mod tests {
     }
 
     #[test]
+    fn encodes_mouse_events_as_utf8_sequences_when_enabled() {
+        let modes = InputModes::default().with_mouse_input_mode(MouseInputMode::new(
+            MouseReportingMode::Normal,
+            MouseProtocolMode::Utf8,
+        ));
+
+        assert_eq!(
+            encode_input_event(
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: 95,
+                    row: 96,
+                    modifiers: KeyModifiers::NONE,
+                }),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[M \xc2\x80\xc2\x81"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Mouse(MouseEvent {
+                    kind: MouseEventKind::Up(MouseButton::Left),
+                    column: 95,
+                    row: 96,
+                    modifiers: KeyModifiers::NONE,
+                }),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[M#\xc2\x80\xc2\x81"
+        );
+    }
+
+    #[test]
+    fn encodes_mouse_events_as_urxvt_sequences_when_enabled() {
+        let modes = InputModes::default().with_mouse_input_mode(MouseInputMode::new(
+            MouseReportingMode::Normal,
+            MouseProtocolMode::Urxvt,
+        ));
+
+        assert_eq!(
+            encode_input_event(left_mouse_down(), modes).unwrap(),
+            b"\x1b[32;1;2M"
+        );
+        assert_eq!(
+            encode_input_event(left_mouse_release(), modes).unwrap(),
+            b"\x1b[35;1;2M"
+        );
+    }
+
+    #[test]
     fn normal_mouse_reporting_ignores_motion_without_buttons() {
         let modes = InputModes::default().with_mouse_input_mode(MouseInputMode::new(
             MouseReportingMode::Normal,
@@ -3578,6 +3674,89 @@ mod tests {
                     MouseReportingMode::Normal,
                     MouseProtocolMode::X10,
                 ))
+            ]
+        );
+    }
+
+    #[test]
+    fn tracks_utf8_and_urxvt_mouse_protocols_from_pty_output() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?1000;1005h", |change| changes.push(change));
+        tracker.process(b"\x1b[?1005l", |change| changes.push(change));
+        tracker.process(b"\x1b[?1015h", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::Utf8,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::X10,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::Urxvt,
+                )),
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_extended_mouse_protocol_status_and_leaves_sgr_pixels_unknown() {
+        let mut tracker = TerminalModeTracker::default();
+
+        assert_eq!(tracker.private_mode_report_value(1005), 2);
+        assert_eq!(tracker.private_mode_report_value(1015), 2);
+        assert_eq!(tracker.private_mode_report_value(1016), 0);
+
+        tracker.process(b"\x1b[?1005;1015h", |_| {});
+
+        assert_eq!(tracker.private_mode_report_value(1005), 1);
+        assert_eq!(tracker.private_mode_report_value(1015), 1);
+        assert_eq!(tracker.private_mode_report_value(1016), 0);
+
+        tracker.process(b"\x1b[?1005;1015l", |_| {});
+
+        assert_eq!(tracker.private_mode_report_value(1005), 2);
+        assert_eq!(tracker.private_mode_report_value(1015), 2);
+    }
+
+    #[test]
+    fn prefers_sgr_then_urxvt_then_utf8_mouse_protocols_when_multiple_are_enabled() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?1000;1005;1015;1006h", |change| {
+            changes.push(change);
+        });
+        tracker.process(b"\x1b[?1006l", |change| changes.push(change));
+        tracker.process(b"\x1b[?1015l", |change| changes.push(change));
+        tracker.process(b"\x1b[?1005l", |change| changes.push(change));
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::Sgr,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::Urxvt,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::Utf8,
+                )),
+                TerminalModeChange::Mouse(MouseInputMode::new(
+                    MouseReportingMode::Normal,
+                    MouseProtocolMode::X10,
+                )),
             ]
         );
     }

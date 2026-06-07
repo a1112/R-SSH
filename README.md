@@ -140,7 +140,9 @@ session log file.
 `console` is the explicit console-hosted startup path; `local` remains a
 backward-compatible alias for the same local PTY runtime. Add `--mouse` when
 you want terminal applications to negotiate xterm mouse/focus reporting through
-PTY output modes.
+PTY output modes, including legacy X10, UTF-8 `1005`, SGR `1006`, and urxvt
+`1015` mouse encodings. SGR-pixels `1016` is not declared because the current
+input model tracks terminal cells rather than pixel coordinates.
 Bracketed paste mode is negotiated from PTY output automatically.
 Synchronized output mode (`ESC[?2026h/l`) is handled from PTY output: the native
 runtime delays render damage until reset, and the console path buffers visible

@@ -2005,6 +2005,8 @@ fn encode_window_mouse_event(event: WindowMouseEvent, mode: MouseInputMode) -> O
             };
             Some(format!("\x1b[<{code};{column};{row}{}", final_byte as char).into_bytes())
         }
+        MouseProtocolMode::Utf8 => encode_utf8_window_mouse_event(event.kind, code, column, row),
+        MouseProtocolMode::Urxvt => encode_urxvt_window_mouse_event(event.kind, code, column, row),
         MouseProtocolMode::X10 => encode_legacy_window_mouse_event(event.kind, code, column, row),
     }
 }
@@ -2036,7 +2038,7 @@ fn encode_legacy_window_mouse_event(
     row: u16,
 ) -> Option<Vec<u8>> {
     if matches!(kind, WindowMouseEventKind::Up(_)) {
-        code = 3 + (code & !0b11);
+        code = legacy_window_mouse_release_code(code);
     }
 
     Some(vec![
@@ -2049,8 +2051,50 @@ fn encode_legacy_window_mouse_event(
     ])
 }
 
+fn encode_utf8_window_mouse_event(
+    kind: WindowMouseEventKind,
+    mut code: u16,
+    column: u16,
+    row: u16,
+) -> Option<Vec<u8>> {
+    if matches!(kind, WindowMouseEventKind::Up(_)) {
+        code = legacy_window_mouse_release_code(code);
+    }
+
+    let mut bytes = b"\x1b[M".to_vec();
+    push_utf8_mouse_value(&mut bytes, code)?;
+    push_utf8_mouse_value(&mut bytes, column)?;
+    push_utf8_mouse_value(&mut bytes, row)?;
+    Some(bytes)
+}
+
+fn encode_urxvt_window_mouse_event(
+    kind: WindowMouseEventKind,
+    mut code: u16,
+    column: u16,
+    row: u16,
+) -> Option<Vec<u8>> {
+    if matches!(kind, WindowMouseEventKind::Up(_)) {
+        code = legacy_window_mouse_release_code(code);
+    }
+
+    let encoded_code = code.checked_add(32)?;
+    Some(format!("\x1b[{encoded_code};{column};{row}M").into_bytes())
+}
+
 fn legacy_mouse_byte(value: u16) -> Option<u8> {
     u8::try_from(value.checked_add(32)?).ok()
+}
+
+fn push_utf8_mouse_value(bytes: &mut Vec<u8>, value: u16) -> Option<()> {
+    let ch = char::from_u32(u32::from(value.checked_add(32)?))?;
+    let mut buffer = [0; 4];
+    bytes.extend_from_slice(ch.encode_utf8(&mut buffer).as_bytes());
+    Some(())
+}
+
+const fn legacy_window_mouse_release_code(code: u16) -> u16 {
+    3 + (code & !0b11)
 }
 
 const fn window_mouse_button_code(button: MouseButton) -> Option<u16> {
@@ -2746,6 +2790,70 @@ mod tests {
             )
             .unwrap(),
             b"\x1b[M#!!"
+        );
+    }
+
+    #[test]
+    fn encodes_window_mouse_events_as_utf8_sequences_when_enabled() {
+        let mode = MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Utf8);
+
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Down(MouseButton::Left),
+                    column: 95,
+                    row: 96,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[M \xc2\x80\xc2\x81"
+        );
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Up(MouseButton::Left),
+                    column: 95,
+                    row: 96,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[M#\xc2\x80\xc2\x81"
+        );
+    }
+
+    #[test]
+    fn encodes_window_mouse_events_as_urxvt_sequences_when_enabled() {
+        let mode = MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Urxvt);
+
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Down(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[32;1;1M"
+        );
+        assert_eq!(
+            encode_window_mouse_event(
+                WindowMouseEvent {
+                    kind: WindowMouseEventKind::Up(MouseButton::Left),
+                    column: 0,
+                    row: 0,
+                    modifiers: ModifiersState::empty(),
+                },
+                mode,
+            )
+            .unwrap(),
+            b"\x1b[35;1;1M"
         );
     }
 
