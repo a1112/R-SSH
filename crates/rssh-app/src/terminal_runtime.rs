@@ -1402,7 +1402,13 @@ impl TerminalColorState {
             OscColorChange::DefaultForeground(color) => self.foreground = color,
             OscColorChange::DefaultBackground(color) => self.background = color,
             OscColorChange::Cursor(color) => self.cursor = color,
+            OscColorChange::ResetDefaultForeground => self.foreground = DEFAULT_FOREGROUND,
+            OscColorChange::ResetDefaultBackground => self.background = DEFAULT_BACKGROUND,
             OscColorChange::ResetCursor => self.cursor = DEFAULT_CURSOR,
+            OscColorChange::ResetPalette(indices) => self
+                .palette_overrides
+                .retain(|(palette_index, _)| !indices.contains(palette_index)),
+            OscColorChange::ResetPaletteAll => self.palette_overrides.clear(),
             OscColorChange::Palette(index, color) => {
                 if let Some((_, existing)) = self
                     .palette_overrides
@@ -1440,12 +1446,16 @@ impl TerminalColorState {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum OscColorChange {
     DefaultForeground([u8; 3]),
     DefaultBackground([u8; 3]),
     Cursor([u8; 3]),
+    ResetDefaultForeground,
+    ResetDefaultBackground,
     ResetCursor,
+    ResetPalette(Vec<u8>),
+    ResetPaletteAll,
     Palette(u8, [u8; 3]),
 }
 
@@ -1486,10 +1496,31 @@ fn parse_osc_color_change(content: &[u8]) -> Option<OscColorChange> {
     if let Some(color) = content.strip_prefix(b"12;").and_then(parse_rgb_color_spec) {
         return Some(OscColorChange::Cursor(color));
     }
+    if matches!(content, b"110" | b"110;") {
+        return Some(OscColorChange::ResetDefaultForeground);
+    }
+    if matches!(content, b"111" | b"111;") {
+        return Some(OscColorChange::ResetDefaultBackground);
+    }
     if matches!(content, b"112" | b"112;") {
         return Some(OscColorChange::ResetCursor);
     }
+    if let Some(change) = parse_palette_reset_change(content) {
+        return Some(change);
+    }
     parse_palette_color_change(content)
+}
+
+fn parse_palette_reset_change(content: &[u8]) -> Option<OscColorChange> {
+    if matches!(content, b"104" | b"104;") {
+        return Some(OscColorChange::ResetPaletteAll);
+    }
+    let rest = content.strip_prefix(b"104;")?;
+    let mut indices = Vec::new();
+    for index in rest.split(|byte| *byte == b';') {
+        indices.push(parse_u8_decimal(index)?);
+    }
+    (!indices.is_empty()).then_some(OscColorChange::ResetPalette(indices))
 }
 
 fn parse_palette_color_change(content: &[u8]) -> Option<OscColorChange> {
@@ -2457,6 +2488,72 @@ mod tests {
             ]
         );
         assert_eq!(output.display, b"before middle after done");
+    }
+
+    #[test]
+    fn resets_dynamic_and_palette_colors() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"before\
+              \x1b]10;rgb:11/22/33\x07\x1b]11;rgb:44/55/66\x07\
+              \x1b]4;1;rgb:01/02/03\x07\
+              \x1b]10;?\x07\x1b]11;?\x07\x1b]4;1;?\x07\
+              \x1b]110\x07\x1b]111\x07\x1b]104;1\x07\
+              \x1b]10;?\x07\x1b]11;?\x07\x1b]4;1;?\x07after",
+        );
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1b]10;rgb:1111/2222/3333\x07".to_vec(),
+                b"\x1b]11;rgb:4444/5555/6666\x07".to_vec(),
+                b"\x1b]4;1;rgb:0101/0202/0303\x07".to_vec(),
+                b"\x1b]10;rgb:e5e5/e5e5/e5e5\x07".to_vec(),
+                b"\x1b]11;rgb:0c0c/0c0c/0c0c\x07".to_vec(),
+                b"\x1b]4;1;rgb:cdcd/3131/3131\x07".to_vec(),
+            ]
+        );
+        assert_eq!(output.display, b"beforeafter");
+    }
+
+    #[test]
+    fn resets_all_palette_colors() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"\x1b]4;1;rgb:01/02/03\x07\x1b]4;2;rgb:04/05/06\x07\
+              \x1b]104\x07\x1b]4;1;?\x07\x1b]4;2;?\x07",
+        );
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1b]4;1;rgb:cdcd/3131/3131\x07".to_vec(),
+                b"\x1b]4;2;rgb:0d0d/bcbc/7979\x07".to_vec(),
+            ]
+        );
+        assert!(output.display.is_empty());
+    }
+
+    #[test]
+    fn resets_multiple_palette_colors() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"\x1b]4;1;rgb:01/02/03\x07\x1b]4;2;rgb:04/05/06\x07\x1b]4;3;rgb:07/08/09\x07\
+              \x1b]104;1;2\x07\x1b]4;1;?\x07\x1b]4;2;?\x07\x1b]4;3;?\x07",
+        );
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1b]4;1;rgb:cdcd/3131/3131\x07".to_vec(),
+                b"\x1b]4;2;rgb:0d0d/bcbc/7979\x07".to_vec(),
+                b"\x1b]4;3;rgb:0707/0808/0909\x07".to_vec(),
+            ]
+        );
+        assert!(output.display.is_empty());
     }
 
     #[test]

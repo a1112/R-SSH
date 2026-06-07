@@ -219,9 +219,10 @@ MVP 4 tests cover:
   shared terminal runtime
 - OSC default foreground/background, cursor, and indexed palette color query
   responses in the shared terminal runtime, including tracked OSC color-setting
-  state, cursor-color reset with `OSC 112`, stream-ordered response state, and
-  ignored OSC color-setting bytes embedded inside ST-terminated control-string
-  payloads split across PTY chunks
+  state, dynamic foreground/background reset with `OSC 110`/`OSC 111`,
+  cursor-color reset with `OSC 112`, indexed-palette reset with `OSC 104`,
+  stream-ordered response state, and ignored OSC color-setting bytes embedded
+  inside ST-terminated control-string payloads split across PTY chunks
 - OSC 8 hyperlink metadata in the shared terminal runtime, including C1 OSC/ST
   forms, renderer snapshot propagation, native-window Ctrl-click activation,
   and visible-output filtering

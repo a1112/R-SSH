@@ -111,11 +111,13 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   default background (`OSC 11;?`), cursor color (`OSC 12;?`), and indexed
   palette colors (`OSC 4;<n>;?`) using the current tracked OSC color state,
   falling back to the built-in xterm-compatible palette. OSC `10`, `11`, `12`,
-  and `4` color-setting sequences update the tracked state, and `OSC 112`
-  resets cursor color to its default. BEL, ST, and C1 ST terminators are
-  preserved in responses. OSC color-setting bytes embedded inside unrelated OSC
-  or ST-terminated control-string payloads are ignored by the color tracker,
-  including when the payload is split across PTY chunks.
+  and `4` color-setting sequences update the tracked state. OSC `110`, `111`,
+  and `112` reset dynamic foreground, background, and cursor color, and
+  `OSC 104` resets one, multiple, or all indexed palette overrides. BEL, ST,
+  and C1 ST terminators are preserved in responses. OSC color-setting bytes
+  embedded inside unrelated OSC or ST-terminated control-string payloads are
+  ignored by the color tracker, including when the payload is split across PTY
+  chunks.
 - The console path handles OSC 52 clipboard writes and read queries, decoding
   PTY-side base64 clipboard payloads into the system clipboard and answering
   `?` queries with base64-encoded clipboard content. Both 7-bit OSC 52
@@ -277,9 +279,10 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - OSC query response: unit tests cover default foreground/background, cursor,
   and indexed palette color queries, including BEL, ST, and C1 OSC/ST forms.
   Unit tests also cover color-setting sequences followed by matching queries,
-  cursor-color reset with `OSC 112`, stream-ordered color response state, and
-  color-setting bytes embedded inside ST-terminated control-string payloads
-  split across PTY chunks.
+  dynamic foreground/background reset with `OSC 110`/`OSC 111`, cursor-color
+  reset with `OSC 112`, indexed-palette reset with `OSC 104`, stream-ordered
+  color response state, and color-setting bytes embedded inside ST-terminated
+  control-string payloads split across PTY chunks.
 - OSC 52 clipboard: unit tests cover console-path clipboard writes and
   clipboard query responses without writing OSC 52 control bytes to console
   output, including C1 OSC 52 write/query forms and split C1 OSC 52 payloads,

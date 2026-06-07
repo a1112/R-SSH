@@ -155,7 +155,9 @@ markers, OSC 52 clipboard support, italic/style underline/underline-color
 templates, tmux/xterm cursor style and cursor color templates, foundational
 cursor/screen/style/color capabilities, and current column/row counts.
 OSC color handling tracks and answers default foreground/background, cursor
-color, and indexed palette queries, including `OSC 112` cursor-color reset.
+color, and indexed palette queries, including `OSC 110`/`OSC 111`
+foreground/background reset, `OSC 112` cursor-color reset, and `OSC 104`
+indexed-palette reset.
 OSC 52 clipboard writes and read queries are handled in the console path so
 local and OpenSSH-backed terminal programs can use terminal clipboard
 integration. Use `--osc52 off|write|read-write` on `console`/`local`, `ssh`,
