@@ -3303,6 +3303,24 @@ mod tests {
     }
 
     #[test]
+    fn terminal_sixel_display_mode_reset_keeps_cursor_position() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 3));
+
+        terminal.feed(b"ab\x1b[?80l");
+        terminal.feed(b"\x1bP0;1q\"1;1;2;6#1;2;100;0;0#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 2);
+        assert_eq!(terminal.cursor(), (0, 2));
+
+        terminal.feed(b"cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd                    ");
+        assert_eq!(row_text(&terminal, 1), "                        ");
+    }
+
+    #[test]
     fn terminal_fills_default_sixel_background_opaque() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
@@ -3314,6 +3332,79 @@ mod tests {
         assert_eq!(image.pixel_height, Some(6));
         assert_eq!(&image.data[0..4], &[255, 0, 0, 255]);
         assert_eq!(&image.data[4..8], &[0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn terminal_uses_vt340_default_sixel_palette() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bP0;1q\"1;1;1;6#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        let image = &terminal.inline_images()[0];
+        assert_eq!(image.pixel_width, Some(1));
+        assert_eq!(image.pixel_height, Some(6));
+        let vt340_blue = [51, 51, 204, 255];
+        assert_eq!(&image.data[0..4], &vt340_blue);
+        assert!(image.data.chunks_exact(4).all(|pixel| pixel == vt340_blue));
+    }
+
+    #[test]
+    fn terminal_uses_dec_hls_primary_hues_for_sixel() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal
+            .feed(b"\x1bP0;1q\"1;1;3;6#1;1;0;50;100#1~#2;1;120;50;100#2~#3;1;240;50;100#3~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        let image = &terminal.inline_images()[0];
+        assert_eq!(image.pixel_width, Some(3));
+        assert_eq!(image.pixel_height, Some(6));
+        assert_eq!(&image.data[0..4], &[0, 0, 255, 255]);
+        assert_eq!(&image.data[4..8], &[255, 0, 0, 255]);
+        assert_eq!(&image.data[8..12], &[0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn terminal_applies_sixel_raster_pixel_aspect_ratio() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bP0;1q\"2;1;1;6#1;2;100;0;0#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        let image = &terminal.inline_images()[0];
+        assert_eq!(image.pixel_width, Some(1));
+        assert_eq!(image.pixel_height, Some(12));
+        assert_eq!(image.width.as_deref(), Some("1px"));
+        assert_eq!(image.height.as_deref(), Some("12px"));
+        assert_eq!(image.data.len(), 12 * 4);
+        assert!(
+            image
+                .data
+                .chunks_exact(4)
+                .all(|pixel| pixel == [255, 0, 0, 255])
+        );
+    }
+
+    #[test]
+    fn terminal_applies_sixel_dcs_macro_pixel_aspect_ratio() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bPq#1;2;100;0;0#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        let image = &terminal.inline_images()[0];
+        assert_eq!(image.pixel_width, Some(1));
+        assert_eq!(image.pixel_height, Some(12));
+        assert_eq!(image.width.as_deref(), Some("1px"));
+        assert_eq!(image.height.as_deref(), Some("12px"));
+        assert_eq!(image.data.len(), 12 * 4);
+        assert!(
+            image
+                .data
+                .chunks_exact(4)
+                .all(|pixel| pixel == [255, 0, 0, 255])
+        );
     }
 
     #[test]
@@ -3336,18 +3427,18 @@ mod tests {
     }
 
     #[test]
-    fn terminal_clips_sixel_pixels_to_raster_attribute_size() {
+    fn terminal_allows_sixel_pixels_beyond_raster_attribute_size() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
         terminal.feed(b"\x1bP0;1q\"1;1;1;6#1;2;100;0;0#1~~\x1b\\");
 
         assert_eq!(terminal.inline_images().len(), 1);
         let image = &terminal.inline_images()[0];
-        assert_eq!(image.pixel_width, Some(1));
+        assert_eq!(image.pixel_width, Some(2));
         assert_eq!(image.pixel_height, Some(6));
-        assert_eq!(image.width.as_deref(), Some("1px"));
+        assert_eq!(image.width.as_deref(), Some("2px"));
         assert_eq!(image.height.as_deref(), Some("6px"));
-        assert_eq!(image.data.len(), 6 * 4);
+        assert_eq!(image.data.len(), 2 * 6 * 4);
         assert!(
             image
                 .data

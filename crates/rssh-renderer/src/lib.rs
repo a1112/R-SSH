@@ -2218,7 +2218,7 @@ mod tests {
     fn pixel_renderer_draws_basic_sixel_image() {
         let mut terminal = Terminal::new(TerminalSize::new(1, 1));
         terminal.feed(b"\x1b[?25l");
-        terminal.feed(b"\x1bPq#1;2;100;0;0#1~\x1b\\");
+        terminal.feed(b"\x1bPq\"1;1;1;6#1;2;100;0;0#1~\x1b\\");
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
         let renderer = PixelRenderer::new();
         let mut target = vec![0; 8 * 8 * 4];
@@ -2235,7 +2235,7 @@ mod tests {
     fn pixel_renderer_draws_sixel_repeat_and_newline() {
         let mut terminal = Terminal::new(TerminalSize::new(1, 2));
         terminal.feed(b"\x1b[?25l");
-        terminal.feed(b"\x1bPq#1;2;100;0;0#1!2@-!2@\x1b\\");
+        terminal.feed(b"\x1bPq\"1;1;2;12#1;2;100;0;0#1!2@-!2@\x1b\\");
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
         let renderer = PixelRenderer::new();
         let mut target = vec![0; 8 * 16 * 4];
@@ -2253,7 +2253,7 @@ mod tests {
     fn pixel_renderer_draws_sixel_hls_color_definition() {
         let mut terminal = Terminal::new(TerminalSize::new(1, 1));
         terminal.feed(b"\x1b[?25l");
-        terminal.feed(b"\x1bPq#1;1;120;50;100#1~\x1b\\");
+        terminal.feed(b"\x1bPq#1;1;240;50;100#1~\x1b\\");
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
         let renderer = PixelRenderer::new();
         let mut target = vec![0; 8 * 8 * 4];

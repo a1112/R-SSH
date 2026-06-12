@@ -278,12 +278,15 @@ keyboard, mouse, paste, resize
   alternate buffers, restoring main placements on exit and discarding alternate
   placements. Scroll operations move inline-image placements with affected text
   rows and drop placements that leave the scrolled region. Basic Sixel DCS `q`
-  image payloads with RGB/HLS palette
-  definitions, raster-attribute `Ph`/`Pv` pixel dimensions with clipping to the
-  declared size, DCS `P2` transparent/opaque background mode, repeat
-  introducers, carriage returns, and sixel newlines are normalized into raw
-  RGBA inline images, advance the cursor to the next terminal line, and draw
-  through the same snapshot path. Automatic animated GIF
+  image payloads with VT340 default palette entries, RGB plus DEC HLS hue
+  palette definitions, DCS `P1` macro pixel aspect, DECGRA `Pan`/`Pad` aspect
+  override plus `Ph`/`Pv` minimum background dimensions, DCS `P2`
+  transparent/opaque background mode, repeat introducers, carriage returns,
+  and sixel newlines are normalized into raw RGBA inline images,
+  advance the cursor to the next terminal line while DECSDM `?80` sixel
+  scrolling is enabled, keep the cursor fixed when `?80l` disables it, and draw
+  through the same snapshot path.
+  Automatic animated GIF
   refresh/invalidation scheduling, Kitty shared-memory transfers, remaining
   richer placement controls, broader query responses beyond current direct
   payload and stored-image existence checks, full Sixel protocol coverage, and

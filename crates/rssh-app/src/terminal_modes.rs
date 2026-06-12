@@ -670,6 +670,10 @@ impl TerminalModeTracker {
                 self.tracked_modes
                     .set(TrackedTerminalModes::LEFT_RIGHT_MARGIN_MODE, enabled);
             }
+            80 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::SIXEL_SCROLLING, enabled);
+            }
             1034 => {
                 self.tracked_modes
                     .set(TrackedTerminalModes::META_KEY, enabled);
@@ -864,6 +868,10 @@ impl TerminalModeTracker {
                 self.tracked_modes
                     .enabled(TrackedTerminalModes::LEFT_RIGHT_MARGIN_MODE),
             ),
+            80 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::SIXEL_SCROLLING),
+            ),
             1000 | 1002 | 1003 | 1005 | 1006 | 1015 => {
                 self.mouse_modes.report_value(mode).unwrap_or(0)
             }
@@ -1054,27 +1062,28 @@ const fn mode_report_value(enabled: bool) -> u8 {
 }
 
 #[derive(Clone, Copy)]
-struct TrackedTerminalModes(u16);
+struct TrackedTerminalModes(u32);
 
 impl TrackedTerminalModes {
-    const APPLICATION_CURSOR_KEYS: u16 = 1;
-    const APPLICATION_KEYPAD: u16 = 1 << 1;
-    const BRACKETED_PASTE: u16 = 1 << 2;
-    const FOCUS: u16 = 1 << 3;
-    const SYNCHRONIZED_OUTPUT: u16 = 1 << 4;
-    const ORIGIN_MODE: u16 = 1 << 5;
-    const AUTO_WRAP: u16 = 1 << 6;
-    const CURSOR_VISIBLE: u16 = 1 << 7;
-    const CURSOR_BLINKING: u16 = 1 << 8;
-    const ALTERNATE_SCREEN_47: u16 = 1 << 9;
-    const ALTERNATE_SCREEN_1047: u16 = 1 << 10;
-    const ALTERNATE_SCREEN_1049: u16 = 1 << 11;
-    const PRIVATE_CURSOR_SAVE: u16 = 1 << 12;
-    const INSERT_MODE: u16 = 1 << 13;
-    const META_KEY: u16 = 1 << 14;
-    const LEFT_RIGHT_MARGIN_MODE: u16 = 1 << 15;
+    const APPLICATION_CURSOR_KEYS: u32 = 1;
+    const APPLICATION_KEYPAD: u32 = 1 << 1;
+    const BRACKETED_PASTE: u32 = 1 << 2;
+    const FOCUS: u32 = 1 << 3;
+    const SYNCHRONIZED_OUTPUT: u32 = 1 << 4;
+    const ORIGIN_MODE: u32 = 1 << 5;
+    const AUTO_WRAP: u32 = 1 << 6;
+    const CURSOR_VISIBLE: u32 = 1 << 7;
+    const CURSOR_BLINKING: u32 = 1 << 8;
+    const ALTERNATE_SCREEN_47: u32 = 1 << 9;
+    const ALTERNATE_SCREEN_1047: u32 = 1 << 10;
+    const ALTERNATE_SCREEN_1049: u32 = 1 << 11;
+    const PRIVATE_CURSOR_SAVE: u32 = 1 << 12;
+    const INSERT_MODE: u32 = 1 << 13;
+    const META_KEY: u32 = 1 << 14;
+    const LEFT_RIGHT_MARGIN_MODE: u32 = 1 << 15;
+    const SIXEL_SCROLLING: u32 = 1 << 16;
 
-    fn set(&mut self, mode: u16, enabled: bool) -> bool {
+    fn set(&mut self, mode: u32, enabled: bool) -> bool {
         let before = self.0;
         if enabled {
             self.0 |= mode;
@@ -1084,14 +1093,14 @@ impl TrackedTerminalModes {
         self.0 != before
     }
 
-    const fn enabled(self, mode: u16) -> bool {
+    const fn enabled(self, mode: u32) -> bool {
         self.0 & mode != 0
     }
 }
 
 impl Default for TrackedTerminalModes {
     fn default() -> Self {
-        Self(Self::AUTO_WRAP | Self::CURSOR_VISIBLE)
+        Self(Self::AUTO_WRAP | Self::CURSOR_VISIBLE | Self::SIXEL_SCROLLING)
     }
 }
 

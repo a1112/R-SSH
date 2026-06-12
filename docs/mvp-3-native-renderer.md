@@ -50,8 +50,11 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   visible-column, visible-row, z-index, and cell-plus-z-index deletes, because
   deletion updates the terminal snapshot before rendering.
 - `PixelRenderer` draws basic Sixel DCS `q` images because the terminal core
-  normalizes supported Sixel RGB/HLS color, raster-size, repeat, and newline
-  bitmap payloads into raw RGBA inline image snapshot items.
+  normalizes supported Sixel VT340 default palette entries, RGB plus DEC HLS
+  hue color definitions, DCS macro pixel aspect, DECGRA aspect override,
+  raster-size, repeat, and newline bitmap payloads into raw RGBA inline image
+  snapshot items, with DECSDM `?80` controlling whether Sixel output advances
+  the terminal cursor.
 - `PixelRenderer` maps the xterm 256-color indexed palette, including the
   6x6x6 color cube and grayscale ramp.
 - `PixelRenderer` draws bold text with an extra bitmap stroke, italic text with

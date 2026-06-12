@@ -3172,6 +3172,7 @@ mod tests {
               \x1b[?7$p \x1b[?7l\x1b[?7$p \
               \x1b[?25$p \x1b[?25l\x1b[?25$p \
               \x1b[?6$p \x1b[?6h\x1b[?6$p \
+              \x1b[?80$p \x1b[?80l\x1b[?80$p\x1b[?80h\x1b[?80$p \
               \x1b[?47$p \x1b[?47h\x1b[?47$p\x1b[?47l\x1b[?47$p \
               \x1b[?1048$p \x1b[?1048h\x1b[?1048$p\x1b[?1048l\x1b[?1048$p \
               \x1b[?1047$p \x1b[?1047h\x1b[?1047$p\x1b[?1047l\x1b[?1047$p \
@@ -3193,6 +3194,9 @@ mod tests {
                 b"\x1b[?25;2$y".to_vec(),
                 b"\x1b[?6;2$y".to_vec(),
                 b"\x1b[?6;1$y".to_vec(),
+                b"\x1b[?80;1$y".to_vec(),
+                b"\x1b[?80;2$y".to_vec(),
+                b"\x1b[?80;1$y".to_vec(),
                 b"\x1b[?47;2$y".to_vec(),
                 b"\x1b[?47;1$y".to_vec(),
                 b"\x1b[?47;2$y".to_vec(),

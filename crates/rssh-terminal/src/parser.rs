@@ -73,6 +73,7 @@ struct TerminalModes {
     cursor_blinking: bool,
     cursor_shape: CursorShape,
     auto_wrap: bool,
+    sixel_scrolling: bool,
     origin_mode: bool,
     left_right_margin_mode: bool,
     write_mode: CharacterWriteMode,
@@ -85,6 +86,7 @@ impl Default for TerminalModes {
             cursor_blinking: false,
             cursor_shape: CursorShape::Block,
             auto_wrap: true,
+            sixel_scrolling: true,
             origin_mode: false,
             left_right_margin_mode: false,
             write_mode: CharacterWriteMode::Replace,
@@ -1537,7 +1539,9 @@ impl Terminal {
             target_y: None,
             data: image.data,
         });
-        self.next_line();
+        if self.modes.sixel_scrolling {
+            self.next_line();
+        }
     }
 
     fn push_kitty_graphics_ok_response(&mut self, params: KittyGraphicsParams) {
@@ -3099,6 +3103,7 @@ impl Terminal {
                 12 => self.modes.cursor_blinking = enabled,
                 25 => self.modes.cursor_visible = enabled,
                 69 => self.set_left_right_margin_mode(enabled),
+                80 => self.modes.sixel_scrolling = enabled,
                 47 | 1047 | 1049 => self.set_alternate_screen(enabled),
                 1048 => {
                     if enabled {
@@ -4273,12 +4278,14 @@ enum SixelBackground {
 #[derive(Debug, Clone, Copy)]
 struct SixelOptions {
     background: SixelBackground,
+    pixel_height_scale: u32,
 }
 
 impl Default for SixelOptions {
     fn default() -> Self {
         Self {
             background: SixelBackground::Opaque,
+            pixel_height_scale: 2,
         }
     }
 }
@@ -4294,14 +4301,46 @@ struct SixelCanvas {
     max_y: u32,
     declared_width: Option<u32>,
     declared_height: Option<u32>,
+    pixel_height_scale: u32,
 }
+
+const VT340_DEFAULT_SIXEL_PALETTE: [[u8; 4]; 16] = [
+    [0, 0, 0, 255],
+    [51, 51, 204, 255],
+    [204, 33, 33, 255],
+    [51, 204, 51, 255],
+    [204, 51, 204, 255],
+    [51, 204, 204, 255],
+    [204, 204, 51, 255],
+    [135, 135, 135, 255],
+    [66, 66, 66, 255],
+    [84, 84, 153, 255],
+    [153, 66, 66, 255],
+    [84, 153, 84, 255],
+    [153, 84, 153, 255],
+    [84, 153, 153, 255],
+    [153, 153, 84, 255],
+    [204, 204, 204, 255],
+];
 
 impl SixelCanvas {
     fn new(options: SixelOptions) -> Self {
+        let palette = VT340_DEFAULT_SIXEL_PALETTE
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, color)| {
+                (
+                    u16::try_from(index).expect("default palette index fits u16"),
+                    color,
+                )
+            })
+            .collect();
+
         Self {
             pixels: HashMap::new(),
-            palette: HashMap::new(),
-            current_color: [255, 255, 255, 255],
+            palette,
+            current_color: VT340_DEFAULT_SIXEL_PALETTE[0],
             background: options.background,
             x: 0,
             y: 0,
@@ -4309,6 +4348,7 @@ impl SixelCanvas {
             max_y: 0,
             declared_width: None,
             declared_height: None,
+            pixel_height_scale: options.pixel_height_scale,
         }
     }
 
@@ -4358,7 +4398,14 @@ impl SixelCanvas {
         self.current_color = color;
     }
 
-    fn set_raster_attributes(&mut self, width: u32, height: u32) {
+    fn set_raster_attributes(
+        &mut self,
+        aspect_numerator: u32,
+        aspect_denominator: u32,
+        width: u32,
+        height: u32,
+    ) {
+        self.pixel_height_scale = sixel_pixel_height_scale(aspect_numerator, aspect_denominator);
         if width > 0 {
             self.declared_width = Some(width);
         }
@@ -4377,9 +4424,14 @@ impl SixelCanvas {
         } else {
             (self.max_x.checked_add(1)?, self.max_y.checked_add(1)?)
         };
-        let width = self.declared_width.unwrap_or(drawn_width);
-        let height = self.declared_height.unwrap_or(drawn_height);
-        if width == 0 || height == 0 {
+        let width = self
+            .declared_width
+            .map_or(drawn_width, |declared| declared.max(drawn_width));
+        let logical_height = self
+            .declared_height
+            .map_or(drawn_height, |declared| declared.max(drawn_height));
+        let height = logical_height.checked_mul(self.pixel_height_scale)?;
+        if width == 0 || logical_height == 0 || height == 0 {
             return None;
         }
         let len = usize::try_from(width)
@@ -4396,11 +4448,18 @@ impl SixelCanvas {
         }
 
         for ((x, y), color) in self.pixels {
-            if x >= width || y >= height {
+            if x >= width || y >= logical_height {
                 continue;
             }
-            let index = usize::try_from((y * width + x) * 4).ok()?;
-            data.get_mut(index..index + 4)?.copy_from_slice(&color);
+            let physical_y = y.checked_mul(self.pixel_height_scale)?;
+            for row_offset in 0..self.pixel_height_scale {
+                let row = physical_y.checked_add(row_offset)?;
+                if row >= height {
+                    continue;
+                }
+                let index = usize::try_from((row * width + x) * 4).ok()?;
+                data.get_mut(index..index + 4)?.copy_from_slice(&color);
+            }
         }
 
         Some(SixelImage {
@@ -4413,12 +4472,16 @@ impl SixelCanvas {
 
 fn parse_sixel_dcs_options(params: &str) -> SixelOptions {
     let params = parse_sixel_numeric_params(params);
+    let pixel_height_scale = sixel_dcs_macro_pixel_height_scale(params.first().copied());
     let background = match params.get(1).copied() {
         Some(1) => SixelBackground::Transparent,
         _ => SixelBackground::Opaque,
     };
 
-    SixelOptions { background }
+    SixelOptions {
+        background,
+        pixel_height_scale,
+    }
 }
 
 fn sixel_dcs_marker_index(content: &str) -> Option<usize> {
@@ -4482,7 +4545,12 @@ fn parse_sixel_raster_attributes(
 ) {
     let params = parse_sixel_parameter_list(chars);
     if params.len() >= 4 {
-        canvas.set_raster_attributes(u32::from(params[2]), u32::from(params[3]));
+        canvas.set_raster_attributes(
+            u32::from(params[0]),
+            u32::from(params[1]),
+            u32::from(params[2]),
+            u32::from(params[3]),
+        );
     }
 }
 
@@ -4539,8 +4607,28 @@ fn sixel_percent_to_u8(value: u16) -> u8 {
     u8::try_from((value * 255 + 50) / 100).unwrap_or(255)
 }
 
+fn sixel_pixel_height_scale(numerator: u32, denominator: u32) -> u32 {
+    if numerator == 0 || denominator == 0 {
+        return 1;
+    }
+
+    ((numerator + denominator / 2) / denominator).max(1)
+}
+
+fn sixel_dcs_macro_pixel_height_scale(value: Option<u16>) -> u32 {
+    match value.unwrap_or(0) {
+        2 => 5,
+        3 | 4 => 3,
+        7..=9 => 1,
+        _ => 2,
+    }
+}
+
 fn sixel_hls_to_rgba(hue: u16, lightness: u16, saturation: u16) -> [u8; 4] {
-    let hue = f32::from(hue % 360) / 360.0;
+    let hue = u16::try_from((u32::from(hue) + 240) % 360)
+        .map(f32::from)
+        .expect("normalized sixel HLS hue fits u16")
+        / 360.0;
     let lightness = f32::from(lightness.min(100)) / 100.0;
     let saturation = f32::from(saturation.min(100)) / 100.0;
 
