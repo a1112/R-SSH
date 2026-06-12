@@ -218,10 +218,16 @@ what remains before WezTerm-style parity in key UX/composition areas.
   placements before replacing stored bytes, and direct/stored placements
   advance the cursor by the placement cell rectangle unless `C=1` suppresses
   movement. Placement ids are tracked so repeated `(image id, placement id)`
-  pairs replace old placements. Relative-placement `P`/`Q` references to
-  missing parent placements return `ENOPARENT` instead of creating an ordinary
-  placement at the cursor; full relative-placement layout and parent/child
-  lifetime tracking remain open.
+  pairs replace old placements. Relative-placement `P`/`Q` references use
+  `H`/`V` offsets for initial positioning when the parent placement exists and
+  return `ENOPARENT` for missing parents instead of creating an ordinary
+  placement at the cursor; deleting a parent placement cascades to relative
+  child placements and drops child image data once unreferenced, scroll-region
+  clipping that removes a parent placement deletes orphan relative children,
+  and parent cycles are rejected with `ECYCLE`. Re-placing a parent placement
+  moves relative descendants by the same cell delta. Relative chains are
+  allowed up to eight parent levels and deeper chains return `ETOODEEP`, and
+  attempts to make a `U=1` virtual placement relative return `EINVAL`.
   Basic `a=d`
   deletion removes all visible Kitty placements,
   placements for a specific image id, placements for the latest image assigned

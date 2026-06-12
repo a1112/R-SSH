@@ -169,10 +169,17 @@ support the next PTY and SSH milestones.
   delete matching is supported for `d=z/Z,z=<index>` and
   `d=q/Q,x=<col>,y=<row>,z=<index>`. Uppercase forms drop
   stored image data once no visible placement still references that image id.
-  Relative-placement keys `P`/`Q` plus offsets `H`/`V` are parsed enough to
-  reject references to missing parent placements with `ENOPARENT` instead of
-  creating an incorrectly positioned ordinary placement; full relative
-  placement layout and parent/child lifetime tracking remain open.
+  Relative-placement keys `P`/`Q` plus offsets `H`/`V` support initial
+  placement relative to an existing parent placement and reject missing parents
+  with `ENOPARENT`. Deleting a parent placement also deletes its relative
+  child placements and drops child image data once it has no remaining
+  placements; scroll-region clipping that removes a parent placement also
+  deletes orphan relative children. Relative placement creation rejects parent
+  cycles with `ECYCLE`; re-placing a parent placement moves relative
+  descendants by the same cell delta. Relative chains are allowed up to eight
+  parent levels and deeper chains return `ETOODEEP`. Attempts to make a
+  `U=1` virtual placement relative are rejected with `EINVAL`; full Unicode
+  placeholder virtual placement rendering remains open.
   Terminal erase operations also maintain image placement state: `CSI 2J`
   removes visible inline-image placements without dropping stored Kitty image
   data, while `CSI 3J` removes scrollback inline images and rebases retained
@@ -316,8 +323,11 @@ cover:
   placement deletion
 - Kitty `a=d` z-index placement deletion and cell-plus-z-index placement
   deletion
-- Kitty relative-placement missing-parent `ENOPARENT` response for `P`/`Q`
-  references
+- Kitty relative-placement initial positioning for existing `P`/`Q` parents
+  with `H`/`V` offsets, missing-parent `ENOPARENT` responses, and parent-delete
+  or parent-scrollout cascading for relative children plus `ECYCLE` cycle
+  rejection, parent-move descendant propagation, `ETOODEEP` depth limiting, and
+  `U=1` virtual-relative `EINVAL`
 - Terminal erase display `CSI 2J`/`CSI 3J` inline-image deletion and retained
   visible image row rebasing
 - Basic Sixel DCS `q` bitmap capture with RGB and HLS palette color

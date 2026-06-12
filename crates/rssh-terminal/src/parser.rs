@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -15,6 +15,8 @@ use crate::{
 
 const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 const ANONYMOUS_KITTY_IMAGE_ID: u32 = 0;
+const MAX_KITTY_RELATIVE_CHAIN_DEPTH: usize = 8;
+type KittyPlacementKey = (u32, u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterSet {
@@ -106,6 +108,9 @@ struct KittyPlacementOptions {
     image_id: Option<u32>,
     placement_id: Option<u32>,
     z_index: Option<i32>,
+    parent_placement: Option<KittyPlacementKey>,
+    row: Option<usize>,
+    column: Option<u16>,
     move_cursor: bool,
     source_rect: KittySourceRect,
     target_x: Option<u32>,
@@ -149,6 +154,7 @@ struct KittyGraphicsParams {
     display_columns: Option<u16>,
     display_rows: Option<u16>,
     no_cursor_movement: bool,
+    virtual_placement: bool,
     source_x: Option<u32>,
     source_y: Option<u32>,
     source_width: Option<u32>,
@@ -247,6 +253,7 @@ pub struct Terminal {
     pending_kitty_graphics: Option<PendingKittyGraphics>,
     kitty_images: HashMap<u32, StoredKittyImage>,
     kitty_image_numbers: HashMap<u32, u32>,
+    kitty_relative_parents: HashMap<KittyPlacementKey, KittyPlacementKey>,
     next_kitty_image_id: u32,
     semantic_prompt_rows: Vec<usize>,
     semantic_command_exits: Vec<SemanticCommandExit>,
@@ -330,6 +337,7 @@ impl Terminal {
             pending_kitty_graphics: None,
             kitty_images: HashMap::new(),
             kitty_image_numbers: HashMap::new(),
+            kitty_relative_parents: HashMap::new(),
             next_kitty_image_id: 1,
             semantic_prompt_rows: Vec::new(),
             semantic_command_exits: Vec::new(),
@@ -953,6 +961,9 @@ impl Terminal {
                     image_id: Some(image_id.unwrap_or(ANONYMOUS_KITTY_IMAGE_ID)),
                     placement_id: kitty_placement_id(image_id, upload.placement_id),
                     z_index: Some(upload.z_index.unwrap_or(0)),
+                    parent_placement: None,
+                    row: None,
+                    column: None,
                     move_cursor: !upload.no_cursor_movement,
                     source_rect: upload.source_rect(),
                     target_x: upload.target_x,
@@ -973,33 +984,8 @@ impl Terminal {
             }
             return;
         };
-        if let Some(parent_image_id) = params.parent_image_id {
-            let Some(parent_placement_id) = params.parent_placement_id else {
-                self.push_kitty_graphics_error_response(
-                    Self::kitty_response_params_with_image_id(params, image_id),
-                    "ENOPARENT",
-                    &format!("No parent placement with id {parent_image_id}"),
-                );
-                return;
-            };
-            if !self.inline_images.iter().any(|image| {
-                image.kitty_image_id == Some(parent_image_id)
-                    && image.kitty_placement_id == Some(parent_placement_id)
-            }) {
-                self.push_kitty_graphics_error_response(
-                    Self::kitty_response_params_with_image_id(params, image_id),
-                    "ENOPARENT",
-                    &format!(
-                        "No parent placement with id {parent_image_id},p={parent_placement_id}"
-                    ),
-                );
-                return;
-            }
-            self.push_kitty_graphics_error_response(
-                Self::kitty_response_params_with_image_id(params, image_id),
-                "EINVAL",
-                "Relative placements are not supported",
-            );
+        if params.parent_image_id.is_some() {
+            self.apply_relative_kitty_graphics_placement(params, image_id);
             return;
         }
         let Some(image) = self.kitty_images.get(&image_id).cloned() else {
@@ -1023,6 +1009,9 @@ impl Terminal {
                 image_id: Some(image_id),
                 placement_id: params.placement_id,
                 z_index: Some(params.z_index.unwrap_or(0)),
+                parent_placement: None,
+                row: None,
+                column: None,
                 move_cursor: !params.no_cursor_movement,
                 source_rect: params.source_rect(),
                 target_x: params.target_x,
@@ -1032,6 +1021,136 @@ impl Terminal {
         self.push_kitty_graphics_ok_response(Self::kitty_response_params_with_image_id(
             params, image_id,
         ));
+    }
+
+    fn apply_relative_kitty_graphics_placement(
+        &mut self,
+        params: KittyGraphicsParams,
+        image_id: u32,
+    ) {
+        if params.virtual_placement {
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "EINVAL",
+                "Virtual placements cannot be relative",
+            );
+            return;
+        }
+        let Some(parent_image_id) = params.parent_image_id else {
+            return;
+        };
+        let Some(parent_placement_id) = params.parent_placement_id else {
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "ENOPARENT",
+                &format!("No parent placement with id {parent_image_id}"),
+            );
+            return;
+        };
+        let Some(parent) = self.inline_images.iter().find(|image| {
+            image.kitty_image_id == Some(parent_image_id)
+                && image.kitty_placement_id == Some(parent_placement_id)
+        }) else {
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "ENOPARENT",
+                &format!("No parent placement with id {parent_image_id},p={parent_placement_id}"),
+            );
+            return;
+        };
+        let row = offset_kitty_history_row(parent.row, params.parent_offset_rows.unwrap_or(0));
+        let column = offset_kitty_column(parent.column, params.parent_offset_columns.unwrap_or(0));
+        let child_placement = kitty_placement_key(Some(image_id), params.placement_id);
+        if child_placement.is_some_and(|child_placement| {
+            self.kitty_relative_placement_would_cycle(
+                child_placement,
+                (parent_image_id, parent_placement_id),
+            )
+        }) {
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "ECYCLE",
+                "Relative placement cycle",
+            );
+            return;
+        }
+        if self.kitty_relative_parent_depth((parent_image_id, parent_placement_id))
+            >= MAX_KITTY_RELATIVE_CHAIN_DEPTH
+        {
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "ETOODEEP",
+                "Relative placement chain too deep",
+            );
+            return;
+        }
+        let Some(image) = self.kitty_images.get(&image_id).cloned() else {
+            let subject = params.image_number.map_or_else(
+                || format!("id {image_id}"),
+                |image_number| format!("number {image_number}"),
+            );
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "ENOENT",
+                &format!("No image with {subject}"),
+            );
+            return;
+        };
+        self.place_kitty_image(
+            &image,
+            KittyPlacementOptions {
+                display_columns: params.display_columns,
+                display_rows: params.display_rows,
+                image_id: Some(image_id),
+                placement_id: params.placement_id,
+                z_index: Some(params.z_index.unwrap_or(0)),
+                parent_placement: Some((parent_image_id, parent_placement_id)),
+                row: Some(row),
+                column: Some(column),
+                move_cursor: false,
+                source_rect: params.source_rect(),
+                target_x: params.target_x,
+                target_y: params.target_y,
+            },
+        );
+        self.push_kitty_graphics_ok_response(Self::kitty_response_params_with_image_id(
+            params, image_id,
+        ));
+    }
+
+    fn kitty_relative_parent_depth(&self, parent: KittyPlacementKey) -> usize {
+        let mut depth = 0;
+        let mut seen = HashSet::new();
+        let mut current = Some(parent);
+        while let Some(placement) = current {
+            if !seen.insert(placement) {
+                return depth;
+            }
+            current = self.kitty_relative_parents.get(&placement).copied();
+            if current.is_some() {
+                depth += 1;
+            }
+        }
+        depth
+    }
+
+    fn kitty_relative_placement_would_cycle(
+        &self,
+        child: KittyPlacementKey,
+        parent: KittyPlacementKey,
+    ) -> bool {
+        let mut seen = HashSet::new();
+        let mut current = Some(parent);
+        while let Some(placement) = current {
+            if placement == child {
+                return true;
+            }
+            if !seen.insert(placement) {
+                return false;
+            }
+            current = self.kitty_relative_parents.get(&placement).copied();
+        }
+        false
     }
 
     fn apply_kitty_graphics_delete(&mut self, params: KittyGraphicsParams) {
@@ -1257,21 +1376,106 @@ impl Terminal {
     ) {
         let before = self.inline_images.len();
         let mut removed_image_ids = Vec::new();
+        let mut relative_removed_image_ids = Vec::new();
+        let mut removed_placement_keys = HashSet::new();
         self.inline_images.retain(|image| {
             let remove = matches(image);
             if remove {
                 if let Some(image_id) = image.kitty_image_id {
                     removed_image_ids.push(image_id);
                 }
+                if let Some(placement_key) = kitty_image_placement_key(image) {
+                    removed_placement_keys.insert(placement_key);
+                }
             }
             !remove
         });
+        self.delete_relative_kitty_children(
+            &mut removed_image_ids,
+            &mut relative_removed_image_ids,
+            &mut removed_placement_keys,
+        );
         if self.inline_images.len() != before {
             if remove_unreferenced_data {
                 self.remove_unreferenced_kitty_images(removed_image_ids);
             }
+            self.remove_unreferenced_kitty_images(relative_removed_image_ids);
             let size = self.grid.size();
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        }
+        self.delete_orphan_kitty_relative_children();
+    }
+
+    fn delete_relative_kitty_children(
+        &mut self,
+        removed_image_ids: &mut Vec<u32>,
+        relative_removed_image_ids: &mut Vec<u32>,
+        removed_placement_keys: &mut HashSet<KittyPlacementKey>,
+    ) {
+        loop {
+            let relative_parents = &self.kitty_relative_parents;
+            let parent_keys = removed_placement_keys.clone();
+            let mut removed_this_pass = Vec::new();
+            self.inline_images.retain(|image| {
+                let Some(placement_key) = kitty_image_placement_key(image) else {
+                    return true;
+                };
+                let remove = relative_parents
+                    .get(&placement_key)
+                    .is_some_and(|parent_key| parent_keys.contains(parent_key));
+                if remove {
+                    removed_this_pass.push(placement_key);
+                    if let Some(image_id) = image.kitty_image_id {
+                        removed_image_ids.push(image_id);
+                        relative_removed_image_ids.push(image_id);
+                    }
+                }
+                !remove
+            });
+            if removed_this_pass.is_empty() {
+                return;
+            }
+            removed_placement_keys.extend(removed_this_pass);
+        }
+    }
+
+    fn delete_orphan_kitty_relative_children(&mut self) {
+        loop {
+            let live_placements = self
+                .inline_images
+                .iter()
+                .filter_map(kitty_image_placement_key)
+                .collect::<HashSet<_>>();
+            let orphan_keys = self
+                .kitty_relative_parents
+                .iter()
+                .filter_map(|(child, parent)| {
+                    (!live_placements.contains(parent) || !live_placements.contains(child))
+                        .then_some(*child)
+                })
+                .collect::<HashSet<_>>();
+            if orphan_keys.is_empty() {
+                self.kitty_relative_parents.retain(|child, parent| {
+                    live_placements.contains(child) && live_placements.contains(parent)
+                });
+                return;
+            }
+
+            let mut removed_image_ids = Vec::new();
+            for orphan_key in &orphan_keys {
+                self.kitty_relative_parents.remove(orphan_key);
+            }
+            self.inline_images.retain(|image| {
+                let remove = kitty_image_placement_key(image)
+                    .is_some_and(|placement_key| orphan_keys.contains(&placement_key));
+                if remove {
+                    if let Some(image_id) = image.kitty_image_id {
+                        removed_image_ids.push(image_id);
+                    }
+                }
+                !remove
+            });
+            self.remove_unreferenced_kitty_images(removed_image_ids);
         }
     }
 
@@ -1416,10 +1620,17 @@ impl Terminal {
             .or_else(|| image.pixel_height.map(|height| format!("{height}px")));
         let placement_columns = iterm_inline_image_cell_extent(width.as_deref()).max(1);
         let placement_rows = iterm_inline_image_cell_extent(height.as_deref()).max(1);
-        let row = self.current_history_row();
-        let column = self.cursor_column;
+        let row = options.row.unwrap_or_else(|| self.current_history_row());
+        let column = options.column.unwrap_or(self.cursor_column);
 
-        if let (Some(image_id), Some(placement_id)) = (options.image_id, options.placement_id) {
+        let placement_key = kitty_placement_key(options.image_id, options.placement_id);
+        let previous_origin = placement_key.and_then(|placement_key| {
+            self.inline_images
+                .iter()
+                .find(|image| kitty_image_placement_key(image) == Some(placement_key))
+                .map(|image| (image.row, image.column))
+        });
+        if let Some((image_id, placement_id)) = placement_key {
             let before = self.inline_images.len();
             self.inline_images.retain(|image| {
                 image.kitty_image_id != Some(image_id)
@@ -1429,9 +1640,11 @@ impl Terminal {
                 let size = self.grid.size();
                 self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
             }
+            self.kitty_relative_parents
+                .remove(&(image_id, placement_id));
         }
 
-        self.record_inline_image_damage(width.as_deref(), height.as_deref());
+        self.record_inline_image_damage_at(row, column, width.as_deref(), height.as_deref());
         self.inline_images.push(ItermInlineImage {
             row,
             column,
@@ -1454,9 +1667,62 @@ impl Terminal {
             target_y: options.target_y,
             data: image.data.clone(),
         });
+        if let Some(placement_key) = placement_key {
+            if let Some(parent_placement) = options.parent_placement {
+                self.kitty_relative_parents
+                    .insert(placement_key, parent_placement);
+            }
+            if let Some((old_row, old_column)) = previous_origin {
+                self.move_relative_kitty_descendants(
+                    placement_key,
+                    old_row,
+                    old_column,
+                    row,
+                    column,
+                );
+            }
+        }
 
         if options.move_cursor {
             self.move_kitty_cursor_after_placement(placement_columns, placement_rows);
+        }
+    }
+
+    fn move_relative_kitty_descendants(
+        &mut self,
+        parent_key: KittyPlacementKey,
+        old_row: usize,
+        old_column: u16,
+        new_row: usize,
+        new_column: u16,
+    ) {
+        if old_row == new_row && old_column == new_column {
+            return;
+        }
+
+        let mut stack = vec![parent_key];
+        let mut seen = HashSet::new();
+        while let Some(parent_key) = stack.pop() {
+            if !seen.insert(parent_key) {
+                continue;
+            }
+            let child_keys = self
+                .kitty_relative_parents
+                .iter()
+                .filter_map(|(child_key, mapped_parent)| {
+                    (*mapped_parent == parent_key).then_some(*child_key)
+                })
+                .collect::<Vec<_>>();
+            for child_key in child_keys {
+                if let Some(image) = self.inline_images.iter_mut().find(|image| {
+                    image.kitty_image_id == Some(child_key.0)
+                        && image.kitty_placement_id == Some(child_key.1)
+                }) {
+                    image.row = move_kitty_history_row(image.row, old_row, new_row);
+                    image.column = move_kitty_column(image.column, old_column, new_column);
+                }
+                stack.push(child_key);
+            }
         }
     }
 
@@ -1466,23 +1732,39 @@ impl Terminal {
     }
 
     fn record_inline_image_damage(&mut self, width: Option<&str>, height: Option<&str>) {
+        self.record_inline_image_damage_at(
+            self.current_history_row(),
+            self.cursor_column,
+            width,
+            height,
+        );
+    }
+
+    fn record_inline_image_damage_at(
+        &mut self,
+        row: usize,
+        column: u16,
+        width: Option<&str>,
+        height: Option<&str>,
+    ) {
         let size = self.grid.size();
-        if self.cursor_row >= size.rows || self.cursor_column >= size.columns {
+        let Some(visible_row) = row
+            .checked_sub(self.scrollback.len())
+            .and_then(|row| u16::try_from(row).ok())
+        else {
+            return;
+        };
+        if visible_row >= size.rows || column >= size.columns {
             return;
         }
 
         let width = iterm_inline_image_cell_extent(width)
-            .min(size.columns.saturating_sub(self.cursor_column))
+            .min(size.columns.saturating_sub(column))
             .max(1);
         let height = iterm_inline_image_cell_extent(height)
-            .min(size.rows.saturating_sub(self.cursor_row))
+            .min(size.rows.saturating_sub(visible_row))
             .max(1);
-        self.record_damage(DamageRegion::new(
-            self.cursor_column,
-            self.cursor_row,
-            width,
-            height,
-        ));
+        self.record_damage(DamageRegion::new(column, visible_row, width, height));
     }
 
     fn apply_osc133_semantic_prompt(&mut self, content: &[char]) {
@@ -1827,6 +2109,7 @@ impl Terminal {
         self.pending_kitty_graphics = None;
         self.kitty_images.clear();
         self.kitty_image_numbers.clear();
+        self.kitty_relative_parents.clear();
         self.next_kitty_image_id = 1;
         self.semantic_prompt_rows.clear();
         self.semantic_command_exits.clear();
@@ -1896,6 +2179,7 @@ impl Terminal {
         self.pending_kitty_graphics = None;
         self.kitty_images.clear();
         self.kitty_image_numbers.clear();
+        self.kitty_relative_parents.clear();
         self.next_kitty_image_id = 1;
         self.semantic_prompt_rows.clear();
         self.semantic_command_exits.clear();
@@ -2388,6 +2672,7 @@ impl Terminal {
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         } else if let Some(screen) = self.main_screen.take() {
             self.restore_screen_state(screen);
+            self.delete_orphan_kitty_relative_children();
             let size = self.grid.size();
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         }
@@ -2743,6 +3028,7 @@ impl Terminal {
                 Some(image)
             })
             .collect();
+        self.delete_orphan_kitty_relative_children();
     }
 
     fn delete_visible_inline_images(&mut self) {
@@ -2752,6 +3038,7 @@ impl Terminal {
         self.inline_images.retain(|image| {
             !inline_image_intersects_region(image, first_row, last_row, 0, columns)
         });
+        self.delete_orphan_kitty_relative_children();
     }
 
     fn erase_line(&mut self, mode: u16) {
@@ -2907,6 +3194,7 @@ impl Terminal {
         }
 
         self.inline_images = shifted_images;
+        self.delete_orphan_kitty_relative_children();
     }
 
     fn scroll_inline_images_up_region(&mut self, top: u16, bottom: u16, count: u16) {
@@ -2947,6 +3235,7 @@ impl Terminal {
         }
 
         self.inline_images = shifted_images;
+        self.delete_orphan_kitty_relative_children();
     }
 
     fn scroll_up_region_by(&mut self, top: u16, bottom: u16, count: u16) {
@@ -3850,6 +4139,47 @@ fn kitty_placement_id(image_id: Option<u32>, placement_id: Option<u32>) -> Optio
     image_id.and(placement_id)
 }
 
+fn kitty_placement_key(
+    image_id: Option<u32>,
+    placement_id: Option<u32>,
+) -> Option<KittyPlacementKey> {
+    Some((image_id?, placement_id?))
+}
+
+fn kitty_image_placement_key(image: &ItermInlineImage) -> Option<KittyPlacementKey> {
+    kitty_placement_key(image.kitty_image_id, image.kitty_placement_id)
+}
+
+fn offset_kitty_history_row(row: usize, offset: i32) -> usize {
+    let magnitude = usize::try_from(offset.unsigned_abs()).unwrap_or(usize::MAX);
+    if offset >= 0 {
+        row.saturating_add(magnitude)
+    } else {
+        row.saturating_sub(magnitude)
+    }
+}
+
+fn offset_kitty_column(column: u16, offset: i32) -> u16 {
+    let column = offset_kitty_history_row(usize::from(column), offset);
+    u16::try_from(column).unwrap_or(u16::MAX)
+}
+
+fn move_kitty_history_row(row: usize, old_origin: usize, new_origin: usize) -> usize {
+    if new_origin >= old_origin {
+        row.saturating_add(new_origin - old_origin)
+    } else {
+        row.saturating_sub(old_origin - new_origin)
+    }
+}
+
+fn move_kitty_column(column: u16, old_origin: u16, new_origin: u16) -> u16 {
+    if new_origin >= old_origin {
+        column.saturating_add(new_origin - old_origin)
+    } else {
+        column.saturating_sub(old_origin - new_origin)
+    }
+}
+
 fn kitty_image_intersects_cell(image: &ItermInlineImage, row: usize, column: u16) -> bool {
     if image.kitty_image_id.is_none() {
         return false;
@@ -3950,6 +4280,7 @@ fn parse_kitty_graphics_params(control: &str) -> KittyGraphicsParams {
             "c" => params.display_columns = parse_positive_u16(value),
             "r" => params.display_rows = parse_positive_u16(value),
             "C" => params.no_cursor_movement = value == "1",
+            "U" => params.virtual_placement = value == "1",
             "w" => params.source_width = parse_positive_u32(value),
             "h" => params.source_height = parse_positive_u32(value),
             "X" => params.target_x = value.parse::<u32>().ok(),

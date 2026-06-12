@@ -2602,6 +2602,204 @@ mod tests {
     }
 
     #[test]
+    fn terminal_places_kitty_image_relative_to_existing_parent_placement() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[2;4H");
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.take_damage();
+
+        terminal.feed(b"\x1b[1;1H");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=2,V=1,c=1,r=1\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 2);
+        let child = &terminal.inline_images()[1];
+        assert_eq!(child.kitty_image_id, Some(7));
+        assert_eq!(child.kitty_placement_id, Some(2));
+        assert_eq!(child.row, 2);
+        assert_eq!(child.column, 5);
+        assert_eq!(terminal.take_damage(), vec![DamageRegion::new(5, 2, 1, 1)]);
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
+        assert_eq!(terminal.cursor(), (0, 0));
+
+        terminal.feed(b"X");
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'X');
+    }
+
+    #[test]
+    fn terminal_rejects_virtual_kitty_relative_placement() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        terminal.feed(b"\x1b_Ga=p,U=1,i=7,p=2,P=30,Q=4,H=1,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(30));
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;EINVAL:Virtual placements cannot be relative\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_deletes_kitty_relative_child_when_parent_placement_is_deleted() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=1,V=0,c=1,r=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        assert_eq!(terminal.inline_images().len(), 2);
+
+        terminal.feed(b"\x1b_Ga=d,d=i,i=30,p=4\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b_Ga=p,i=7,p=3\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=3;ENOENT:No image with id 7\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_deletes_kitty_relative_child_when_parent_scrolls_out() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 3));
+
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;1H");
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=0,V=1,c=1,r=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        assert_eq!(terminal.inline_images().len(), 2);
+
+        terminal.feed(b"\x1b[1;2r\x1b[2;1H\n");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b_Ga=p,i=7,p=3\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=3;ENOENT:No image with id 7\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_rejects_kitty_relative_placement_cycle() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=1,V=0,c=1,r=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,P=7,Q=2,H=1,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 2);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(30));
+        assert_eq!(terminal.inline_images()[0].kitty_placement_id, Some(4));
+        assert_eq!(terminal.inline_images()[0].column, 0);
+        assert_eq!(terminal.inline_images()[1].kitty_image_id, Some(7));
+        assert_eq!(terminal.inline_images()[1].kitty_placement_id, Some(2));
+        assert_eq!(terminal.inline_images()[1].column, 1);
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=30,p=4;ECYCLE:Relative placement cycle\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_moves_kitty_relative_child_when_parent_placement_moves() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=t,i=30,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=2,V=1,c=1,r=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        terminal.feed(b"\x1b[2;5H");
+        terminal.feed(b"\x1b_Ga=p,i=30,p=4,c=1,r=1\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 2);
+        let parent = terminal
+            .inline_images()
+            .iter()
+            .find(|image| image.kitty_image_id == Some(30))
+            .unwrap();
+        let child = terminal
+            .inline_images()
+            .iter()
+            .find(|image| image.kitty_image_id == Some(7))
+            .unwrap();
+        assert_eq!(parent.kitty_placement_id, Some(4));
+        assert_eq!(parent.row, 1);
+        assert_eq!(parent.column, 4);
+        assert_eq!(child.kitty_placement_id, Some(2));
+        assert_eq!(child.row, 2);
+        assert_eq!(child.column, 6);
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=30,p=4;OK\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_rejects_kitty_relative_chain_deeper_than_eight() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b_Ga=p,i=7,p=1,c=1,r=1\x1b\\");
+        for placement_id in 2..=9 {
+            let parent_id = placement_id - 1;
+            let command =
+                format!("\x1b_Ga=p,i=7,p={placement_id},P=7,Q={parent_id},H=1,V=0,c=1,r=1\x1b\\");
+            terminal.feed(command.as_bytes());
+        }
+        terminal.take_kitty_graphics_responses();
+
+        terminal.feed(b"\x1b_Ga=p,i=7,p=10,P=7,Q=9,H=1,V=0,c=1,r=1\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 9);
+        assert!(terminal.inline_images().iter().all(|image| {
+            image
+                .kitty_placement_id
+                .is_some_and(|placement_id| (1..=9).contains(&placement_id))
+        }));
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=10;ETOODEEP:Relative placement chain too deep\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
     fn terminal_queries_stored_kitty_image_by_number() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
