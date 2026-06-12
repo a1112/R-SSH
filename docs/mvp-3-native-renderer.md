@@ -41,9 +41,10 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   target pixel offsets relative to the placement cell.
 - `PixelRenderer` applies Kitty z-index layer ordering for supported inline
   images: negative z-index images render between cell backgrounds and text,
-  while zero and positive z-index images render above text in ascending z-index
-  order, using Kitty image id as the tie-breaker when overlapping Kitty images
-  have the same z-index.
+  negative z-index values below `i32::MIN / 2` render below non-default cell
+  backgrounds, while zero and positive z-index images render above text in
+  ascending z-index order, using Kitty image id as the tie-breaker when
+  overlapping Kitty images have the same z-index.
 - `PixelRenderer` omits Kitty placements removed by supported `a=d` delete
   actions, including image-id, placement-id, cursor-cell, explicit-cell,
   visible-column, visible-row, z-index, and cell-plus-z-index deletes, because

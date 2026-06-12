@@ -268,7 +268,8 @@ keyboard, mouse, paste, resize
   the derived render is removed when the underlying placeholder cell is
   overwritten or erased. The
   renderer applies Kitty z-index layer ordering, drawing negative z-index images
-  below text and non-negative z-index images above text in ascending z order,
+  below text, z-index values below `i32::MIN / 2` below non-default cell
+  backgrounds, and non-negative z-index images above text in ascending z order,
   with Kitty image id breaking ties for overlapping same-z images.
   Terminal erase display paths remove affected inline-image
   placements for `CSI 2J`, drop scrollback inline images for `CSI 3J`, and

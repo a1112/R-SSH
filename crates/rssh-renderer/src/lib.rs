@@ -63,6 +63,8 @@ pub struct RenderInlineImage {
     pub data: Vec<u8>,
 }
 
+const KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF: i32 = i32::MIN / 2;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalRenderSnapshot {
     cells: Vec<RenderCell>,
@@ -214,16 +216,27 @@ impl PixelRenderer {
 
         surface.fill(default_background());
 
+        render_inline_images_in_z_order(
+            &mut surface,
+            snapshot
+                .inline_images()
+                .iter()
+                .filter(|image| image_below_non_default_background(image)),
+            cell_width,
+            cell_height,
+            self.animation_frame,
+            self.animation_elapsed_ms,
+        );
+
         for cell in snapshot.cells() {
             render_cell_background(&mut surface, cell, cell_width, cell_height);
         }
 
         render_inline_images_in_z_order(
             &mut surface,
-            snapshot
-                .inline_images()
-                .iter()
-                .filter(|image| image_below_text(image)),
+            snapshot.inline_images().iter().filter(|image| {
+                image_below_text(image) && !image_below_non_default_background(image)
+            }),
             cell_width,
             cell_height,
             self.animation_frame,
@@ -321,6 +334,18 @@ impl PixelRenderer {
             .filter(|cell| damage_contains_cell(damage, cell.row, cell.column))
             .collect::<Vec<_>>();
 
+        render_damaged_inline_images_in_z_order(
+            &mut surface,
+            snapshot
+                .inline_images()
+                .iter()
+                .filter(|image| image_below_non_default_background(image)),
+            damage,
+            geometry,
+            self.animation_frame,
+            self.animation_elapsed_ms,
+        );
+
         for cell in &damaged_cells {
             render_cell_background(
                 &mut surface,
@@ -330,19 +355,13 @@ impl PixelRenderer {
             );
         }
 
-        render_inline_images_in_z_order(
+        render_damaged_inline_images_in_z_order(
             &mut surface,
             snapshot.inline_images().iter().filter(|image| {
-                image_below_text(image)
-                    && damage_intersects_inline_image(
-                        damage,
-                        image,
-                        geometry.cell_width,
-                        geometry.cell_height,
-                    )
+                image_below_text(image) && !image_below_non_default_background(image)
             }),
-            geometry.cell_width,
-            geometry.cell_height,
+            damage,
+            geometry,
             self.animation_frame,
             self.animation_elapsed_ms,
         );
@@ -357,19 +376,14 @@ impl PixelRenderer {
             );
         }
 
-        render_inline_images_in_z_order(
+        render_damaged_inline_images_in_z_order(
             &mut surface,
-            snapshot.inline_images().iter().filter(|image| {
-                !image_below_text(image)
-                    && damage_intersects_inline_image(
-                        damage,
-                        image,
-                        geometry.cell_width,
-                        geometry.cell_height,
-                    )
-            }),
-            geometry.cell_width,
-            geometry.cell_height,
+            snapshot
+                .inline_images()
+                .iter()
+                .filter(|image| !image_below_text(image)),
+            damage,
+            geometry,
             self.animation_frame,
             self.animation_elapsed_ms,
         );
@@ -512,8 +526,34 @@ fn render_inline_images_in_z_order<'a>(
     }
 }
 
+fn render_damaged_inline_images_in_z_order<'a>(
+    surface: &mut Surface<'_>,
+    images: impl Iterator<Item = &'a RenderInlineImage>,
+    damage: &[DamageRegion],
+    geometry: RenderGeometry,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+) {
+    render_inline_images_in_z_order(
+        surface,
+        images.filter(|image| {
+            damage_intersects_inline_image(damage, image, geometry.cell_width, geometry.cell_height)
+        }),
+        geometry.cell_width,
+        geometry.cell_height,
+        animation_frame,
+        animation_elapsed_ms,
+    );
+}
+
 fn image_below_text(image: &RenderInlineImage) -> bool {
     image.kitty_z_index.is_some_and(|z_index| z_index < 0)
+}
+
+fn image_below_non_default_background(image: &RenderInlineImage) -> bool {
+    image
+        .kitty_z_index
+        .is_some_and(|z_index| z_index < KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF)
 }
 
 fn image_z_index(image: &RenderInlineImage) -> i32 {
@@ -740,6 +780,9 @@ fn render_cell_background(
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
     let (_, background) = effective_cell_colors(cell);
+    if background == default_background() {
+        return;
+    }
 
     surface.fill_rect(
         Rect {
@@ -1231,7 +1274,7 @@ impl TerminalRenderSnapshot {
                     continue;
                 };
 
-                if cell.ch == ' ' {
+                if !cell_has_renderable_content(cell) {
                     continue;
                 }
 
@@ -1536,7 +1579,7 @@ fn append_render_cells(
 }
 
 fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: &Cell) {
-    if cell.ch == ' ' {
+    if !cell_has_renderable_content(cell) {
         return;
     }
 
@@ -1561,6 +1604,16 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         inverse: cell.inverse,
         hyperlink: cell.hyperlink.clone(),
     });
+}
+
+fn cell_has_renderable_content(cell: &Cell) -> bool {
+    cell.ch != ' '
+        || cell.background != Color::Default
+        || cell.inverse
+        || cell.underline
+        || cell.double_underline
+        || cell.strikethrough
+        || cell.overline
 }
 
 #[cfg(test)]
@@ -2357,6 +2410,40 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 8, 0, 0), [255, 0, 0, 255]);
         assert_eq!(pixel_at(&target, 8, 3, 0), [229, 229, 229, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_places_extreme_negative_z_kitty_images_below_non_default_backgrounds() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[?25l\x1b[48;2;0;0;255mA\x1b[0m\x1b[1;1H");
+        terminal.take_damage();
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,z=-1073741825\x1b\\");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [0, 0, 255, 255]);
+        assert_eq!(pixel_at(&target, 8, 3, 0), [229, 229, 229, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_places_extreme_negative_z_kitty_images_below_non_default_space_backgrounds() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[?25l\x1b[48;2;0;0;255m \x1b[0m\x1b[1;1H");
+        terminal.take_damage();
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,z=-1073741825\x1b\\");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [0, 0, 255, 255]);
+        assert_eq!(pixel_at(&target, 8, 7, 7), [0, 0, 255, 255]);
     }
 
     #[test]

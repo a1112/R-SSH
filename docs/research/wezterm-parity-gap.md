@@ -255,7 +255,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   placements, or cell-plus-z-index placements. Position-oriented deletes leave
   Unicode-placeholder-derived renders intact until the underlying placeholder
   cell is overwritten or erased. The renderer applies Kitty
-  z-index layer ordering, drawing negative z-index images below text and
+  z-index layer ordering, drawing negative z-index images below text,
+  z-index values below `i32::MIN / 2` below non-default cell backgrounds, and
   non-negative z-index images above text in ascending z order with Kitty image
   id breaking ties for overlapping same-z images. Terminal erase
   display cleanup removes visible inline-image placements for `CSI 2J`, drops
