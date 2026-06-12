@@ -180,12 +180,21 @@ support the next PTY and SSH milestones.
   parent levels and deeper chains return `ETOODEEP`. Basic `U=1` virtual
   placements are recorded for stored images or combined `a=T,U=1` uploads and
   can be rendered when a `U+10EEEE` Unicode placeholder cell uses foreground
-  color to reference the image id plus explicit row/column diacritics from
-  Kitty's 0..255 placeholder table. Deleting visible placements does not drop
-  stored image data while a virtual placement still references the image.
-  Attempts to make a `U=1` virtual placement relative are rejected with
-  `EINVAL`; placeholder diacritic inheritance and full virtual-placement
-  lifecycle parity remain open.
+  color to reference the image id plus row/column diacritics from Kitty's
+  0..255 placeholder table. Placeholder image ids also accept the optional
+  high-byte diacritic, non-origin placeholder cells can still render by
+  deriving the image origin from the placeholder row/column, first-column
+  placeholders can omit the column diacritic when only the row diacritic is
+  present, and adjacent placeholder cells inherit omitted row/column/high-byte
+  diacritics from stored metadata for the screen cell to the left when
+  foreground and underline colors match. Erase and reset paths clear stale
+  placeholder metadata, and scroll-region movement plus scrollback pruning
+  rebase stored placeholder metadata with the text cells; alternate-screen
+  switching snapshots and isolates placeholder metadata with the main screen.
+  Deleting visible placements does not drop stored image data while a virtual
+  placement still references the image. Attempts to make a `U=1` virtual
+  placement relative are rejected with `EINVAL`; full virtual-placement
+  lifecycle parity remains open.
   Terminal erase operations also maintain image placement state: `CSI 2J`
   removes visible inline-image placements without dropping stored Kitty image
   data, while `CSI 3J` removes scrollback inline images and rebases retained
@@ -335,9 +344,15 @@ cover:
   rejection, parent-move descendant propagation, `ETOODEEP` depth limiting, and
   `U=1` virtual-relative `EINVAL`
 - Kitty basic `U=1` virtual placement display from a `U+10EEEE` placeholder
-  cell with foreground image-id encoding and explicit row/column diacritics,
-  including combined `a=T,U=1` upload plus virtual placement and retained image
-  data when visible placement deletion leaves a virtual reference
+  cell with foreground image-id encoding, row/column placeholder diacritics,
+  optional image-id high-byte diacritic, non-origin placeholder origin
+  derivation, first-column row-only placeholders, stored left-cell inheritance
+  for omitted placeholder diacritics, combined `a=T,U=1` upload plus virtual
+  placement, stale placeholder cleanup across control sequences, erase/reset
+  cleanup for placeholder metadata, scroll-region movement and scrollback
+  rebase for placeholder metadata, alternate-screen metadata isolation and
+  restore, and retained image data when visible placement deletion leaves a
+  virtual reference
 - Terminal erase display `CSI 2J`/`CSI 3J` inline-image deletion and retained
   visible image row rebasing
 - Basic Sixel DCS `q` bitmap capture with RGB and HLS palette color

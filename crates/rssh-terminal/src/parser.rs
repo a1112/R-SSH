@@ -145,9 +145,34 @@ struct KittyVirtualPlacement {
 struct PendingKittyPlaceholder {
     row: usize,
     column: u16,
+    foreground: Color,
+    underline_color: Color,
     image_id: Option<u32>,
     placement_id: Option<u32>,
     diacritics: Vec<u32>,
+    rendered_row: Option<usize>,
+    rendered_column: Option<u16>,
+    rendered_image_id: Option<u32>,
+    rendered_placement_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LastKittyPlaceholder {
+    row: usize,
+    column: u16,
+    foreground: Color,
+    underline_color: Color,
+    image_id_high_byte: u32,
+    placeholder_row: u32,
+    placeholder_column: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ResolvedKittyPlaceholder {
+    image_id: u32,
+    image_id_high_byte: u32,
+    placeholder_row: u32,
+    placeholder_column: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -313,6 +338,8 @@ pub struct Terminal {
     kitty_relative_parents: HashMap<KittyPlacementKey, KittyPlacementKey>,
     kitty_virtual_placements: HashMap<KittyPlacementKey, KittyVirtualPlacement>,
     pending_kitty_placeholder: Option<PendingKittyPlaceholder>,
+    last_kitty_placeholder: Option<LastKittyPlaceholder>,
+    kitty_placeholder_cells: HashMap<(usize, u16), LastKittyPlaceholder>,
     next_kitty_image_id: u32,
     semantic_prompt_rows: Vec<usize>,
     semantic_command_exits: Vec<SemanticCommandExit>,
@@ -341,6 +368,8 @@ pub struct Terminal {
 struct ScreenState {
     grid: TerminalGrid,
     inline_images: Vec<ItermInlineImage>,
+    last_kitty_placeholder: Option<LastKittyPlaceholder>,
+    kitty_placeholder_cells: HashMap<(usize, u16), LastKittyPlaceholder>,
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
@@ -399,6 +428,8 @@ impl Terminal {
             kitty_relative_parents: HashMap::new(),
             kitty_virtual_placements: HashMap::new(),
             pending_kitty_placeholder: None,
+            last_kitty_placeholder: None,
+            kitty_placeholder_cells: HashMap::new(),
             next_kitty_image_id: 1,
             semantic_prompt_rows: Vec::new(),
             semantic_command_exits: Vec::new(),
@@ -452,6 +483,9 @@ impl Terminal {
         chars: &[char],
         index: usize,
     ) -> Option<FeedAdvance> {
+        if is_escape_or_c1_sequence_start(chars[index]) {
+            self.finish_pending_kitty_placeholder();
+        }
         match chars[index] {
             '\u{1b}' => self.consume_escape_sequence(chars, index),
             '\u{9b}' => Some(next_or_pending(self.apply_csi_sequence(chars, index, 1))),
@@ -554,24 +588,32 @@ impl Terminal {
 
     fn consume_text_or_ascii_control(&mut self, ch: char, index: usize) -> usize {
         match ch {
-            ch if is_ignored_c0_control(ch) => index + 1,
+            ch if is_ignored_c0_control(ch) => {
+                self.finish_pending_kitty_placeholder();
+                index + 1
+            }
             '\u{7}' => {
+                self.finish_pending_kitty_placeholder();
                 self.bell_count = self.bell_count.saturating_add(1);
                 index + 1
             }
             '\u{8}' => {
+                self.finish_pending_kitty_placeholder();
                 self.backspace();
                 index + 1
             }
             '\t' => {
+                self.finish_pending_kitty_placeholder();
                 self.horizontal_tab();
                 index + 1
             }
             '\n' | '\u{b}' | '\u{c}' => {
+                self.finish_pending_kitty_placeholder();
                 self.newline();
                 index + 1
             }
             '\r' => {
+                self.finish_pending_kitty_placeholder();
                 self.carriage_return();
                 index + 1
             }
@@ -2265,6 +2307,10 @@ impl Terminal {
         self.kitty_images.clear();
         self.kitty_image_numbers.clear();
         self.kitty_relative_parents.clear();
+        self.kitty_virtual_placements.clear();
+        self.pending_kitty_placeholder = None;
+        self.last_kitty_placeholder = None;
+        self.kitty_placeholder_cells.clear();
         self.next_kitty_image_id = 1;
         self.semantic_prompt_rows.clear();
         self.semantic_command_exits.clear();
@@ -2335,6 +2381,10 @@ impl Terminal {
         self.kitty_images.clear();
         self.kitty_image_numbers.clear();
         self.kitty_relative_parents.clear();
+        self.kitty_virtual_placements.clear();
+        self.pending_kitty_placeholder = None;
+        self.last_kitty_placeholder = None;
+        self.kitty_placeholder_cells.clear();
         self.next_kitty_image_id = 1;
         self.semantic_prompt_rows.clear();
         self.semantic_command_exits.clear();
@@ -2540,6 +2590,7 @@ impl Terminal {
             self.record_scrollback_line(top);
         } else {
             self.scroll_inline_images_up_region(top, bottom, 1);
+            self.scroll_kitty_placeholder_cells_up_region(top, bottom, 1);
         }
 
         for row in top.saturating_add(1)..=bottom {
@@ -2606,12 +2657,11 @@ impl Terminal {
         if self.apply_kitty_placeholder_diacritic(ch) {
             return;
         }
+        self.finish_pending_kitty_placeholder();
         let width = display_width(ch);
         if width == 0 {
-            self.pending_kitty_placeholder = None;
             return;
         }
-        self.pending_kitty_placeholder = None;
 
         if self.pending_wrap && self.modes.auto_wrap {
             self.wrapped_newline();
@@ -2640,10 +2690,12 @@ impl Terminal {
 
         let column = self.cursor_column;
         let row = self.cursor_row;
+        let history_row = self.scrollback.len().saturating_add(usize::from(row));
         let mut cell = self.style.clone();
         cell.ch = ch;
 
         if self.grid.set(row, column, cell) {
+            self.clear_kitty_placeholder_cells(history_row, column, write_width);
             if write_width > 1 {
                 let mut continuation = self.style.clone();
                 continuation.ch = ' ';
@@ -2657,13 +2709,35 @@ impl Terminal {
             self.last_printable = Some(ch);
             if ch == KITTY_UNICODE_PLACEHOLDER {
                 self.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
-                    row: self.scrollback.len().saturating_add(usize::from(row)),
+                    row: history_row,
                     column,
+                    foreground: self.style.foreground,
+                    underline_color: self.style.underline_color,
                     image_id: kitty_placeholder_image_id(self.style.foreground),
                     placement_id: kitty_placeholder_placement_id(self.style.underline_color),
                     diacritics: Vec::new(),
+                    rendered_row: None,
+                    rendered_column: None,
+                    rendered_image_id: None,
+                    rendered_placement_id: None,
                 });
+            } else {
+                self.last_kitty_placeholder = None;
             }
+        }
+    }
+
+    fn clear_kitty_placeholder_cells(&mut self, row: usize, column: u16, width: u16) {
+        for offset in 0..width {
+            self.kitty_placeholder_cells
+                .remove(&(row, column.saturating_add(offset)));
+        }
+        if self.last_kitty_placeholder.is_some_and(|placeholder| {
+            placeholder.row == row
+                && placeholder.column >= column
+                && placeholder.column < column.saturating_add(width)
+        }) {
+            self.last_kitty_placeholder = None;
         }
     }
 
@@ -2671,41 +2745,64 @@ impl Terminal {
         let Some(value) = kitty_placeholder_diacritic_value(ch) else {
             return false;
         };
-        let Some(pending) = self.pending_kitty_placeholder.as_mut() else {
+        let Some(mut pending) = self.pending_kitty_placeholder.take() else {
             return false;
         };
 
         pending.diacritics.push(value);
-        let pending = pending.clone();
-        self.place_kitty_virtual_placeholder(&pending);
+        self.place_kitty_virtual_placeholder(&mut pending);
+        self.pending_kitty_placeholder = Some(pending);
         true
     }
 
-    fn place_kitty_virtual_placeholder(&mut self, pending: &PendingKittyPlaceholder) {
-        if pending.diacritics.len() != 2 {
-            return;
+    fn finish_pending_kitty_placeholder(&mut self) {
+        if let Some(mut pending) = self.pending_kitty_placeholder.take() {
+            self.place_kitty_virtual_placeholder(&mut pending);
         }
-        let Some(image_id) = pending.image_id else {
+    }
+
+    fn place_kitty_virtual_placeholder(&mut self, pending: &mut PendingKittyPlaceholder) {
+        let Some(resolved) = self.resolve_kitty_placeholder(pending) else {
             return;
         };
-        let Some(placeholder_row) = pending.diacritics.first().copied() else {
+        let Some((origin_row, origin_column)) = kitty_placeholder_origin(
+            pending,
+            resolved.placeholder_row,
+            resolved.placeholder_column,
+        ) else {
+            self.last_kitty_placeholder = None;
             return;
         };
-        let Some(placeholder_column) = pending.diacritics.get(1).copied() else {
-            return;
-        };
-        if placeholder_row != 0 || placeholder_column != 0 {
-            return;
-        }
         let Some(placement) = self
-            .kitty_virtual_placement_for_placeholder(image_id, pending.placement_id)
+            .kitty_virtual_placement_for_placeholder(resolved.image_id, pending.placement_id)
             .cloned()
         else {
+            self.last_kitty_placeholder = None;
             return;
         };
         let Some(image) = self.kitty_images.get(&placement.image_id).cloned() else {
+            self.last_kitty_placeholder = None;
             return;
         };
+
+        if let (Some(rendered_row), Some(rendered_column), Some(rendered_image_id)) = (
+            pending.rendered_row,
+            pending.rendered_column,
+            pending.rendered_image_id,
+        ) {
+            self.remove_kitty_placeholder_render(
+                rendered_row,
+                rendered_column,
+                rendered_image_id,
+                pending.rendered_placement_id,
+            );
+        }
+        self.remove_kitty_placeholder_render(
+            origin_row,
+            origin_column,
+            placement.image_id,
+            placement.placement_id,
+        );
 
         self.place_kitty_image(
             &image,
@@ -2716,14 +2813,122 @@ impl Terminal {
                 placement_id: placement.placement_id,
                 z_index: placement.z_index,
                 parent_placement: None,
-                row: Some(pending.row),
-                column: Some(pending.column),
+                row: Some(origin_row),
+                column: Some(origin_column),
                 move_cursor: false,
                 source_rect: placement.source_rect,
                 target_x: placement.target_x,
                 target_y: placement.target_y,
             },
         );
+        pending.rendered_row = Some(origin_row);
+        pending.rendered_column = Some(origin_column);
+        pending.rendered_image_id = Some(placement.image_id);
+        pending.rendered_placement_id = placement.placement_id;
+        let placeholder = LastKittyPlaceholder {
+            row: pending.row,
+            column: pending.column,
+            foreground: pending.foreground,
+            underline_color: pending.underline_color,
+            image_id_high_byte: resolved.image_id_high_byte,
+            placeholder_row: resolved.placeholder_row,
+            placeholder_column: resolved.placeholder_column,
+        };
+        self.kitty_placeholder_cells
+            .insert((pending.row, pending.column), placeholder);
+        self.last_kitty_placeholder = Some(placeholder);
+    }
+
+    fn resolve_kitty_placeholder(
+        &self,
+        pending: &PendingKittyPlaceholder,
+    ) -> Option<ResolvedKittyPlaceholder> {
+        let low_bytes = pending.image_id? & 0x00ff_ffff;
+        let left = self.left_kitty_placeholder_for(pending);
+        let (placeholder_row, placeholder_column, image_id_high_byte) =
+            match pending.diacritics.as_slice() {
+                [] => {
+                    let left = left?;
+                    (
+                        left.placeholder_row,
+                        left.placeholder_column.checked_add(1)?,
+                        left.image_id_high_byte,
+                    )
+                }
+                [value] => {
+                    if let Some(left) = left {
+                        if left
+                            .placeholder_column
+                            .checked_add(1)
+                            .is_some_and(|column| column == *value)
+                        {
+                            (left.placeholder_row, *value, left.image_id_high_byte)
+                        } else {
+                            (*value, 0, 0)
+                        }
+                    } else {
+                        (*value, 0, 0)
+                    }
+                }
+                [row, column] => {
+                    let image_id_high_byte = left
+                        .filter(|left| {
+                            left.placeholder_row == *row
+                                && left
+                                    .placeholder_column
+                                    .checked_add(1)
+                                    .is_some_and(|left_column| left_column == *column)
+                        })
+                        .map_or(0, |left| left.image_id_high_byte);
+                    (*row, *column, image_id_high_byte)
+                }
+                [row, column, image_id_high_byte, ..] => (*row, *column, *image_id_high_byte),
+            };
+        Some(ResolvedKittyPlaceholder {
+            image_id: low_bytes | (image_id_high_byte << 24),
+            image_id_high_byte,
+            placeholder_row,
+            placeholder_column,
+        })
+    }
+
+    fn left_kitty_placeholder_for(
+        &self,
+        pending: &PendingKittyPlaceholder,
+    ) -> Option<LastKittyPlaceholder> {
+        let left_column = pending.column.checked_sub(1)?;
+        let left = self
+            .kitty_placeholder_cells
+            .get(&(pending.row, left_column))
+            .copied()
+            .or(self.last_kitty_placeholder)?;
+        if left.foreground == pending.foreground
+            && left.underline_color == pending.underline_color
+            && left.row == pending.row
+            && left
+                .column
+                .checked_add(1)
+                .is_some_and(|column| column == pending.column)
+        {
+            Some(left)
+        } else {
+            None
+        }
+    }
+
+    fn remove_kitty_placeholder_render(
+        &mut self,
+        row: usize,
+        column: u16,
+        image_id: u32,
+        placement_id: Option<u32>,
+    ) {
+        self.inline_images.retain(|image| {
+            image.row != row
+                || image.column != column
+                || image.kitty_image_id != Some(image_id)
+                || image.kitty_placement_id != placement_id
+        });
     }
 
     fn kitty_virtual_placement_for_placeholder(
@@ -2903,6 +3108,8 @@ impl Terminal {
             self.main_screen = Some(self.screen_state());
             self.grid = TerminalGrid::new(size);
             self.inline_images.clear();
+            self.last_kitty_placeholder = None;
+            self.kitty_placeholder_cells.clear();
             self.cursor_row = 0;
             self.cursor_column = 0;
             self.pending_wrap = false;
@@ -2928,6 +3135,8 @@ impl Terminal {
         ScreenState {
             grid: self.grid.clone(),
             inline_images: self.inline_images.clone(),
+            last_kitty_placeholder: self.last_kitty_placeholder,
+            kitty_placeholder_cells: self.kitty_placeholder_cells.clone(),
             cursor_row: self.cursor_row,
             cursor_column: self.cursor_column,
             pending_wrap: self.pending_wrap,
@@ -2947,6 +3156,8 @@ impl Terminal {
     fn restore_screen_state(&mut self, screen: ScreenState) {
         self.grid = screen.grid;
         self.inline_images = screen.inline_images;
+        self.last_kitty_placeholder = screen.last_kitty_placeholder;
+        self.kitty_placeholder_cells = screen.kitty_placeholder_cells;
         self.cursor_row = screen.cursor_row;
         self.cursor_column = screen.cursor_column;
         self.pending_wrap = screen.pending_wrap;
@@ -3274,7 +3485,24 @@ impl Terminal {
                 Some(image)
             })
             .collect();
+        self.rebase_kitty_placeholder_cells_after_history_prune(removed_rows);
         self.delete_orphan_kitty_relative_children();
+    }
+
+    fn rebase_kitty_placeholder_cells_after_history_prune(&mut self, removed_rows: usize) {
+        self.kitty_placeholder_cells = self
+            .kitty_placeholder_cells
+            .drain()
+            .filter_map(|((row, column), mut placeholder)| {
+                let row = row.checked_sub(removed_rows)?;
+                placeholder.row = row;
+                Some(((row, column), placeholder))
+            })
+            .collect();
+        self.last_kitty_placeholder = self.last_kitty_placeholder.and_then(|mut placeholder| {
+            placeholder.row = placeholder.row.checked_sub(removed_rows)?;
+            Some(placeholder)
+        });
     }
 
     fn delete_visible_inline_images(&mut self) {
@@ -3380,6 +3608,7 @@ impl Terminal {
         let height = bottom - top + 1;
         let count = count.min(height);
         self.scroll_inline_images_down_region(top, bottom, count);
+        self.scroll_kitty_placeholder_cells_down_region(top, bottom, count);
 
         if count < height {
             let shift_bottom = bottom - count;
@@ -3443,6 +3672,39 @@ impl Terminal {
         self.delete_orphan_kitty_relative_children();
     }
 
+    fn scroll_kitty_placeholder_cells_down_region(&mut self, top: u16, bottom: u16, count: u16) {
+        if count == 0 || top > bottom {
+            return;
+        }
+
+        let first_row = self.scrollback.len().saturating_add(usize::from(top));
+        let last_row = self
+            .scrollback
+            .len()
+            .saturating_add(usize::from(bottom))
+            .saturating_add(1);
+        let count = usize::from(count);
+        let mut shifted = HashMap::new();
+
+        for ((row, column), mut placeholder) in self.kitty_placeholder_cells.drain() {
+            if row < first_row || row >= last_row {
+                shifted.insert((row, column), placeholder);
+                continue;
+            }
+            let Some(new_row) = row.checked_add(count) else {
+                continue;
+            };
+            if new_row >= last_row {
+                continue;
+            }
+            placeholder.row = new_row;
+            shifted.insert((new_row, column), placeholder);
+        }
+
+        self.kitty_placeholder_cells = shifted;
+        self.last_kitty_placeholder = None;
+    }
+
     fn scroll_inline_images_up_region(&mut self, top: u16, bottom: u16, count: u16) {
         if count == 0 || top > bottom {
             return;
@@ -3484,6 +3746,39 @@ impl Terminal {
         self.delete_orphan_kitty_relative_children();
     }
 
+    fn scroll_kitty_placeholder_cells_up_region(&mut self, top: u16, bottom: u16, count: u16) {
+        if count == 0 || top > bottom {
+            return;
+        }
+
+        let first_row = self.scrollback.len().saturating_add(usize::from(top));
+        let last_row = self
+            .scrollback
+            .len()
+            .saturating_add(usize::from(bottom))
+            .saturating_add(1);
+        let count = usize::from(count);
+        let mut shifted = HashMap::new();
+
+        for ((row, column), mut placeholder) in self.kitty_placeholder_cells.drain() {
+            if row < first_row || row >= last_row {
+                shifted.insert((row, column), placeholder);
+                continue;
+            }
+            let Some(new_row) = row.checked_sub(count) else {
+                continue;
+            };
+            if new_row < first_row {
+                continue;
+            }
+            placeholder.row = new_row;
+            shifted.insert((new_row, column), placeholder);
+        }
+
+        self.kitty_placeholder_cells = shifted;
+        self.last_kitty_placeholder = None;
+    }
+
     fn scroll_up_region_by(&mut self, top: u16, bottom: u16, count: u16) {
         let size = self.grid.size();
         if size.rows == 0 || size.columns == 0 || top > bottom || count == 0 {
@@ -3493,6 +3788,7 @@ impl Terminal {
         let height = bottom - top + 1;
         let count = count.min(height);
         self.scroll_inline_images_up_region(top, bottom, count);
+        self.scroll_kitty_placeholder_cells_up_region(top, bottom, count);
 
         if count < height {
             let shift_bottom = bottom - count;
@@ -3625,6 +3921,11 @@ impl Terminal {
             return;
         }
 
+        self.clear_kitty_placeholder_cells(
+            self.scrollback.len().saturating_add(usize::from(row)),
+            start_column,
+            end_column - start_column,
+        );
         for column in start_column..end_column {
             self.grid.set(row, column, self.blank_cell());
         }
@@ -3882,6 +4183,13 @@ fn parse_st_terminated_control_string(chars: &[char], mut index: usize) -> Seque
 
 fn is_c1_st_control_string(ch: char) -> bool {
     matches!(ch, '\u{90}' | '\u{98}' | '\u{9e}' | '\u{9f}')
+}
+
+fn is_escape_or_c1_sequence_start(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{1b}' | '\u{84}' | '\u{85}' | '\u{88}' | '\u{8d}' | '\u{90}' | '\u{9b}' | '\u{9d}'
+    ) || is_c1_st_control_string(ch)
 }
 
 fn is_cancel_control(ch: char) -> bool {
@@ -4407,6 +4715,19 @@ fn kitty_placeholder_image_id(color: Color) -> Option<u32> {
 
 fn kitty_placeholder_placement_id(color: Color) -> Option<u32> {
     kitty_placeholder_color_value(color).filter(|placement_id| *placement_id != 0)
+}
+
+fn kitty_placeholder_origin(
+    pending: &PendingKittyPlaceholder,
+    placeholder_row: u32,
+    placeholder_column: u32,
+) -> Option<(usize, u16)> {
+    let row_offset = usize::try_from(placeholder_row).ok()?;
+    let column_offset = u16::try_from(placeholder_column).ok()?;
+    Some((
+        pending.row.checked_sub(row_offset)?,
+        pending.column.checked_sub(column_offset)?,
+    ))
 }
 
 fn kitty_placeholder_color_value(color: Color) -> Option<u32> {

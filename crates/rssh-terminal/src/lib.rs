@@ -2447,6 +2447,232 @@ mod tests {
     }
 
     #[test]
+    fn terminal_displays_kitty_virtual_placement_with_placeholder_image_id_msb() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+        let image_id = (2_u32 << 24) | 0x2c;
+
+        terminal.feed(
+            format!("\x1b_Ga=T,U=1,q=1,i={image_id},f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\")
+                .as_bytes(),
+        );
+
+        terminal.feed(b"\x1b[2;3H\x1b[38;5;44m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}\u{030e}".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(image_id));
+        assert_eq!(terminal.inline_images()[0].row, 1);
+        assert_eq!(terminal.inline_images()[0].column, 2);
+    }
+
+    #[test]
+    fn terminal_displays_kitty_virtual_placement_from_row_only_first_column_placeholder() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=46,f=24,s=2,v=2,c=3,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;1H\x1b[38;5;46m");
+        terminal.feed("\u{10eeee}\u{0305}\u{10eeee}\u{10eeee}".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(46));
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+        assert_eq!(terminal.inline_images()[0].width, Some("3".to_owned()));
+        assert_eq!(terminal.inline_images()[0].height, Some("2".to_owned()));
+    }
+
+    #[test]
+    fn terminal_renders_kitty_virtual_placement_from_non_origin_placeholder_cell() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=47,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;2H\x1b[38;5;47m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}\u{10eeee}x".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(47));
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+    }
+
+    #[test]
+    fn terminal_inherits_kitty_placeholder_coordinates_from_left_cell() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=48,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;2H\x1b[38;5;48m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(48));
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+    }
+
+    #[test]
+    fn terminal_inherits_kitty_placeholder_coordinates_from_stored_left_cell() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=50,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;2H\x1b[38;5;50m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b[2;1Hx\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;50m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(50));
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+    }
+
+    #[test]
+    fn terminal_does_not_replay_pending_kitty_placeholder_after_graphics_delete() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=49,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;1H\x1b[38;5;49m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        terminal.feed(b"\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"x");
+
+        assert!(terminal.inline_images().is_empty());
+    }
+
+    #[test]
+    fn terminal_clears_kitty_placeholder_metadata_when_cell_is_erased() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=53,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;2H\x1b[38;5;53m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b[1;2H\x1b[K\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;53m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert!(terminal.inline_images().is_empty());
+    }
+
+    #[test]
+    fn terminal_clears_kitty_placeholder_metadata_on_reset() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=54,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;2H\x1b[38;5;54m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1bc");
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=54,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;54m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert!(terminal.inline_images().is_empty());
+    }
+
+    #[test]
+    fn terminal_scrolls_kitty_placeholder_metadata_with_region_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=55,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[3;2H\x1b[38;5;55m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b[2;4r\x1b[4;1H\n\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[2;3H\x1b[38;5;55m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(55));
+        assert_eq!(terminal.inline_images()[0].row, 1);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+    }
+
+    #[test]
+    fn terminal_scrolls_kitty_placeholder_metadata_down_with_inserted_lines() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=56,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[2;2H\x1b[38;5;56m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b[1;1H\x1b[L\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[3;3H\x1b[38;5;56m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(56));
+        assert_eq!(terminal.inline_images()[0].row, 2);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+    }
+
+    #[test]
+    fn terminal_rebases_kitty_placeholder_metadata_when_scrollback_is_erased() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"one\ntwo\nthree\nfour\nfive\n");
+        assert!(!terminal.scrollback().is_empty());
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=57,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[3;2H\x1b[38;5;57m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b[3J\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.scrollback().is_empty());
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[3;3H\x1b[38;5;57m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(57));
+        assert_eq!(terminal.inline_images()[0].row, 2);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+    }
+
+    #[test]
+    fn terminal_restores_kitty_placeholder_metadata_after_alternate_screen() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=58,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b[1;2H\x1b[38;5;58m");
+        terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
+        terminal.feed(b"\x1b[?1049h\x1b[1;3H\x1b[38;5;58m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[?1049l\x1b_Ga=d,d=a\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;58m");
+        terminal.feed("\u{10eeee}x".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(58));
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 0);
+    }
+
+    #[test]
     fn terminal_deletes_kitty_virtual_placement_by_image_id() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 4));
 
