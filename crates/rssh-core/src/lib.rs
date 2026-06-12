@@ -1,9 +1,70 @@
+pub mod app_shell;
 pub mod session;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SessionId(u64);
 
 impl SessionId {
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WindowId(u64);
+
+impl WindowId {
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WorkspaceId(u64);
+
+impl WorkspaceId {
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TabId(u64);
+
+impl TabId {
+    #[must_use]
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PaneId(u64);
+
+impl PaneId {
     #[must_use]
     pub const fn new(value: u64) -> Self {
         Self(value)
@@ -65,11 +126,30 @@ impl DamageRegion {
 
 #[cfg(test)]
 mod tests {
-    use super::{DamageRegion, SessionId, TerminalSize};
+    use super::{DamageRegion, PaneId, SessionId, TabId, TerminalSize, WindowId, WorkspaceId};
 
     #[test]
     fn exposes_session_id_value() {
         assert_eq!(SessionId::new(42).get(), 42);
+    }
+
+    #[test]
+    fn app_shell_ids_expose_values() {
+        assert_eq!(WindowId::new(1).get(), 1);
+        assert_eq!(WorkspaceId::new(2).get(), 2);
+        assert_eq!(TabId::new(3).get(), 3);
+        assert_eq!(PaneId::new(4).get(), 4);
+    }
+
+    #[test]
+    fn app_shell_ids_are_hashable_and_comparable() {
+        use std::collections::HashSet;
+
+        let mut ids = HashSet::new();
+        ids.insert(PaneId::new(7));
+
+        assert!(ids.contains(&PaneId::new(7)));
+        assert!(!ids.contains(&PaneId::new(8)));
     }
 
     #[test]

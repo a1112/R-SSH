@@ -36,7 +36,7 @@ The parts relevant to parity are:
 
 | Area | R-SSH status | Gap to close |
 | --- | --- | --- |
-| Local terminal | Working console and native-window PTY paths | Native window owns only one PTY session |
+| Local terminal | Working console and native-window PTY paths | Native window starts with one PTY session and can materialize process-local pane/window runtimes |
 | Tabs | Not present | Need tab identifiers, active tab selection, tab actions |
 | Panes | Not present | Need pane tree/splits, active pane focus, per-pane runtime state |
 | Workspaces | Not present | Need named workspace grouping and switching |
@@ -45,6 +45,166 @@ The parts relevant to parity are:
 | Rendering | CPU pixel renderer and damage tracking | Later GPU/font/shaping work required |
 | Terminal protocols | Strong xterm/query/mouse baseline | Later image, keyboard, and Unicode parity work required |
 | Config | TOML profiles | Later action bindings and possible Lua/plugin layer required |
+
+## Task 11 Status (2026-06-09)
+
+- Completed:
+  - `rssh-core` now contains `AppShell`, `Workspace`, `Tab`, `Pane`,
+    `PaneLaunch`, `AppAction`, and `AppShellError`.
+  - `rssh-app` initializes app-shell state from startup command and keeps one
+    default workspace/tab/pane at startup.
+  - Action dispatch is available for new tab/close tab/close pane/focus navigation,
+    split pane, and workspace creation/switch/rename operations.
+  - Keyboard shortcuts are routed to app-shell actions (`Ctrl+Shift+T/W/[/{]/]/D/E`).
+  - `Ctrl+Shift+1..9` tab number activation is routed through app-shell
+    `ActivateTabIndex` (`1`..`8` map to `0`..`7`, `9` maps to `-1`).
+  - App-shell state tracks the last active tab, with `ActivateLastTab` no-oping
+    when no previous active tab exists and the command palette exposing
+    Activate Last Tab.
+  - App-shell state exposes WezTerm-style indexed tab activation through
+    `ActivateTabIndex`, including negative indices for right-to-left selection.
+  - App-shell state exposes WezTerm-style `ActivateTabRelative` wrapping and
+    `ActivateTabRelativeNoWrap` clamping, and the command palette includes both
+    wrapping and no-wrap Next/Previous Tab entries.
+  - `MoveTabRelative` reorders the active tab within the current workspace while
+    preserving that tab as active.
+  - `MoveTab` reorders the active tab to an absolute zero-based index with typed
+    out-of-range errors, and the command palette exposes Move Tab To 1..4.
+  - CloseTab state handling can select the default left-neighbor tab or the
+    previous active tab, matching WezTerm's
+    `switch_to_last_active_tab_when_closing_tab` behavior surface.
+  - The native window now reserves and renders a one-row tab bar with
+    workspace/tab/pane-count state, explicit tab title priority, active-pane
+    terminal title fallback, click-to-activate tab behavior, and clickable tab
+    close markers plus a new-tab button.
+  - Basic right/down split layouts now render pane snapshots into split regions
+    with separator cells.
+  - Split pane mouse hit testing now supports click-to-focus and pane-local
+    wheel scrolling.
+  - Split pane resize actions are routed from `Ctrl+Shift+Alt+Arrow` and the
+    command palette into app-shell split size deltas.
+  - App-shell state exposes WezTerm-style `ActivatePaneByIndex`, and the command
+    palette includes Activate Pane 1..4 entries.
+  - App-shell state exposes WezTerm-style `RotatePanes`, and the command palette
+    includes clockwise/counter-clockwise pane rotation while preserving split
+    positions and size deltas.
+  - Rendered split separators can be drag-resized with the mouse, reusing the
+    existing app-shell resize actions and split size deltas.
+  - Toggle pane zoom is routed from `Ctrl+Shift+Z` and the command palette into
+    app-shell zoomed-pane state, and WezTerm-style `SetPaneZoomState` is exposed
+    for explicit command-palette zoom/unzoom. Zoom rendering fills the tab with
+    the active pane and unzooms before pane-switch actions activate another pane.
+  - Pane select Activate mode is available from the command palette, rendering
+    WezTerm-style selection labels over pane regions and activating the labelled
+    pane on key input.
+  - Pane select swap modes cover `SwapWithActive` and
+    `SwapWithActiveKeepFocus`, exchanging pane layout positions while applying
+    the corresponding focus rule.
+  - Pane select `MoveToNewTab` moves the selected pane into a newly created tab
+    in the same workspace and activates that tab.
+  - Pane select `MoveToNewWindow` removes the selected pane from the current
+    split layout and records a pending native-window request with its own tab
+    and active pane.
+  - Pending `MoveToNewWindow` requests can be consumed into detached app-shell
+    and native-window app state while preserving the selected pane runtime
+    snapshot.
+  - `rssh-app window` now runs through a multi-window event-loop manager that
+    materializes detached MoveToNewWindow app states as additional native OS
+    windows.
+  - PTY reader events carry app-shell `WindowId` plus `PaneId`, so event routing
+    is scoped to the owning native-window app instead of relying on globally
+    unique pane IDs.
+  - ClosePane/CloseTab lifecycle handling now matches WezTerm's cascade model:
+    a final pane can close its tab, and the final tab/pane requests native-window
+    shutdown from the window manager.
+  - `SetTabTitle` stores explicit tab titles in app-shell state, and the native
+    tab bar prefers those titles before falling back to active-pane terminal
+    titles.
+  - The command palette includes `Rename Tab` with `rename tab <title>` query
+    input, writing explicit titles for the active tab.
+  - The command palette includes WezTerm-style `ClearSelection`, clearing
+    active-window selection state and rendered selection highlights.
+  - The command palette includes WezTerm-style
+    `ClearScrollback('ScrollbackOnly')`, clearing active-pane history on the
+    output side while preserving the viewport.
+  - The command palette includes WezTerm-style
+    `ClearScrollback('ScrollbackAndViewport')`, clearing active-pane history
+    plus the viewport while preserving the prompt/cursor row as the new first
+    visible line.
+  - The command palette includes WezTerm-style `CopyTo('Clipboard')`, copying
+    the active selection into the system clipboard writer.
+  - The command palette includes WezTerm-style `CopyTo('PrimarySelection')` and
+    `CopyTo('ClipboardAndPrimarySelection')` routing. Native OS
+    PrimarySelection storage remains a platform-adapter follow-up.
+  - The command palette includes WezTerm-style `PasteFrom('Clipboard')`, pasting
+    the configured clipboard reader into the active pane.
+  - The command palette includes WezTerm-style `PasteFrom('PrimarySelection')`
+    routing, and `Ctrl+Insert`/`Shift+Insert` shortcut classification matches
+    WezTerm's PrimarySelection defaults.
+  - The command palette includes WezTerm-style `ResetTerminal`, injecting RIS
+    (`ESC c`) into the active pane output side.
+  - The command palette includes WezTerm-style scrollback navigation for
+    top/bottom, page up/down, line up/down, and OSC 133 previous/next prompt
+    movement.
+  - The terminal core records OSC 133 Prompt/Input/Output semantic zones across
+    retained rows, including line-scoped `I` input markers.
+  - The terminal core can extract text from semantic zones and retained
+    row/column regions.
+  - Copy mode can move between semantic zones across retained scrollback with
+    WezTerm-style `z`/`Shift+Z` bindings and typed Prompt/Input/Output filters.
+  - Copy mode can copy source-row selections that span the live viewport and
+    retained scrollback.
+  - Copy mode `y` follows WezTerm's default CopyTo
+    ClipboardAndPrimarySelection, then ScrollToBottom and Close behavior.
+  - Copy mode supports WezTerm-style Cell selection with Space/`v`, Line
+    selection with uppercase no-modifier or shifted `V`, and rectangular block
+    selection with `Ctrl+V`.
+  - Copy mode vertical/page movement can traverse retained scrollback with
+    source-row cursor coordinates.
+  - Copy mode supports WezTerm-style `MoveToStartOfNextLine` through Enter and
+    character CR (`\r`) events.
+  - Copy mode can move to scrollback top/bottom with WezTerm-style
+    `g`/`Shift+G` bindings.
+  - Copy mode can move to viewport top/middle/bottom with WezTerm-style
+    `H`/`M`/`L` bindings, including uppercase no-modifier key-table events.
+  - Copy mode can move to first/last non-space cell with WezTerm-style
+    content-aware `^`/`Alt+m` and `$`/End line start/end bindings.
+  - Copy mode supports WezTerm-style word movement (`w`/`b`/`e`,
+    Tab/Shift+Tab, Alt+Left/Right, Alt+F/B) across retained source rows.
+  - Copy mode supports WezTerm-style jump-to-char movement (`f`/`t`/`F`/`T`,
+    `;`, `,`) on the current source row.
+  - Copy mode supports WezTerm-style selection-end movement (`o`/`O`).
+  - Ordinary copy-mode close follows WezTerm's `ScrollToBottom` then `Close`
+    default behavior before exiting the overlay.
+  - Copy mode and copy-mode search close on both Escape key events and
+    character ESC (`\u{1b}`) events, clearing copy-mode search status from the
+    window title.
+  - Copy mode and copy-mode search allow global command-palette and app-shell
+    shortcuts such as `Ctrl+Shift+P` and `Ctrl+Shift+T` to fall through from
+    the overlay, matching WezTerm key-table fallback behavior.
+  - Copy-mode search keeps copy mode active while entering `/`/`?` queries and
+    supports next/prior match navigation, including character CR as PriorMatch.
+  - Copy-mode search supports page-wise match navigation with PageDown/PageUp.
+  - Copy-mode search supports `Ctrl+R` match-type cycling across
+    case-sensitive, case-insensitive, and regex search.
+  - Ordinary `Ctrl+F` search supports WezTerm-style search table navigation
+    with Down/Up, `Ctrl+N`/`Ctrl+P`, PageDown/PageUp, `Ctrl+R` match-type
+    cycling, `Ctrl+U` clear-pattern, character ESC close, and initial query
+    prefill from the current selection's first line.
+  - Retained row/column and semantic-zone text extraction unwraps soft-wrapped
+    physical rows into logical-line text.
+  - Native window title now includes shell-state suffix.
+- Open gaps after v1:
+  - multi-window focus/lifecycle polish, pane-local scrollbar UI, richer
+    Lua/custom tab formatting, external CLI/mux tab-title control, new-tab
+    launcher behavior, split-drag affordances, and richer pane focus visuals
+  - true multiplexing server/client and domain attachments
+  - GPU text shaping/fallback and remaining protocol extensions (broader kitty
+    alternate-key variants, graphics/sixel)
+  - full command palette UX (discovery, fuzzy filtering, richer actions)
+  - configurable action bindings and Lua/plugin extension layer
+  - WezTerm-style Lua pane semantic-zone APIs and configurable key-table bindings
+- Full gap matrix: `docs/research/wezterm-parity-gap.md`
 
 ## Chosen Approach
 
@@ -66,7 +226,10 @@ App Shell v1 adds:
 - A tab model containing a pane tree.
 - A pane model with local PTY launch intent and terminal size.
 - Typed actions for new tab, close tab, switch tab, split pane, close pane,
-  focus next/previous pane, switch workspace, and rename workspace.
+  indexed tab activation, wrapping and no-wrap relative tab activation, absolute
+  and relative tab movement, indexed pane activation, pane rotation, directional
+  pane activation, focus next/previous pane aliases, switch workspace, and
+  rename workspace.
 - A command dispatch boundary that validates whether an action can be applied
   before mutating state.
 - Native-window integration that starts with one workspace, one tab, and one
@@ -146,8 +309,9 @@ Rendering:
 
 ## Error Handling
 
-- Closing the last pane in the last tab should be rejected by the state model
-  unless the caller explicitly requests window shutdown.
+- Closing the last pane in a tab cascades to closing that tab when another tab
+  exists; closing the last tab/pane returns a typed guard that the native-window
+  layer converts into a window shutdown request.
 - Closing a tab removes its pane tree and selects a neighboring tab.
 - Invalid IDs return typed errors and do not mutate state.
 - Split actions inherit the active pane's launch intent unless a command is
@@ -167,12 +331,12 @@ Rendering:
 ## Parity Roadmap After App Shell v1
 
 1. `App Shell v2`: visual tab bar, split rendering, pane focus UI, command
-   palette, quick select, copy mode, and configurable key bindings.
+   palette, quick select, and configurable key bindings.
 2. `Mux/Domain v1`: local, SSH, and future WSL/serial domains behind a common
    pane runtime model.
 3. `Renderer v2`: GPU text renderer, font shaping/fallback, glyph atlas, and
    Unicode correctness expansion.
-4. `Protocol v2`: kitty keyboard, graphics protocols, sixel/iTerm2 image paths,
-   and additional compatibility responses.
+4. `Protocol v2`: remaining kitty keyboard variants, graphics protocols,
+   sixel/iTerm2 image paths, and additional compatibility responses.
 5. `Config v2`: action bindings in config first, Lua/plugin layer only after
    the action and event surface is stable.

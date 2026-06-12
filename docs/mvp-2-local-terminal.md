@@ -48,17 +48,22 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   including the 8-bit C1 CSI form.
 - The console path answers DECRQM private-mode status queries
   (`CSI ? <mode> $ p`) for tracked terminal modes, including application cursor
-  keys (`1`), origin mode (`6`), auto-wrap (`7`), cursor visibility (`25`),
-  alternate-screen modes (`47`/`1047`/`1049`), private cursor save/restore
-  (`1048`), mouse reporting (`1000`/`1002`/`1003`), extended mouse protocols
-  (`1005`/`1006`/`1015`), focus reporting (`1004`), bracketed paste (`2004`),
-  and synchronized output (`2026`). `1016` SGR-pixels remains unknown because
+  keys (`1`), origin mode (`6`), auto-wrap (`7`), cursor blinking (`12`),
+  cursor visibility (`25`), left-right margin mode (`69`),
+  alternate-screen modes (`47`/`1047`/`1049`),
+  private cursor save/restore (`1048`), Meta-key mode (`1034`), mouse reporting
+  (`1000`/`1002`/`1003`), extended mouse protocols (`1005`/`1006`/`1015`),
+  focus reporting (`1004`), bracketed paste (`2004`), and synchronized output
+  (`2026`). `1016` SGR-pixels remains unknown because
   the local input model carries cell coordinates, not pixel coordinates. `RIS`
   (`ESC c`) resets tracked mode state to defaults. Unknown modes return an
   xterm-style unknown status.
 - The console path also answers ANSI DECRQM mode status queries
   (`CSI <mode> $ p`) for insert/replace mode (`4`), including the C1 CSI form;
   unknown ANSI modes return an xterm-style unknown status.
+- `DECSTR` (`CSI ! p`, including the C1 CSI form) soft-resets the shared mode
+  tracker for origin, left-right margin, and insert/replace mode status without
+  emitting full `RIS` mode-change side effects.
 - The console output filter handles xterm synchronized output
   (`ESC[?2026h/l`) by consuming the mode markers, buffering visible host-console
   writes while the mode is enabled, continuing to update its mirror terminal and
@@ -113,54 +118,80 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - The app answers xterm OSC color queries for default foreground (`OSC 10;?`),
   default background (`OSC 11;?`), cursor color (`OSC 12;?`), and indexed
   palette colors (`OSC 4;<n>;?`) using the current tracked OSC color state,
-  falling back to the built-in xterm-compatible palette. OSC `10`, `11`, `12`,
-  and `4` color-setting sequences update the tracked state. OSC `110`, `111`,
-  and `112` reset dynamic foreground, background, and cursor color, and
-  `OSC 104` resets one, multiple, or all indexed palette overrides. BEL, ST,
-  and C1 ST terminators are preserved in responses. OSC color-setting bytes
-  embedded inside unrelated OSC or ST-terminated control-string payloads are
-  ignored by the color tracker, including when the payload is split across PTY
-  chunks.
+  falling back to the built-in xterm-compatible palette. A single `OSC 4`
+  query sequence can request multiple palette indices. OSC `10`, `11`, `12`,
+  and `4` color-setting sequences update the tracked state from `rgb:`
+  component specs and WezTerm-documented `#RGB`/`#RRGGBB` hex colors.
+  Dynamic `OSC 10`/`11`/`12` colors also accept `rgba(r,g,b,a)` and
+  `rgba:rrrr/gggg/bbbb/aaaa` specs and preserve alpha in query responses. OSC
+  `110`, `111`, and `112` reset dynamic foreground, background, and cursor
+  color, and `OSC 104` resets one, multiple, or all indexed palette overrides.
+  BEL, ST, and C1 ST terminators are preserved in responses. OSC color-setting
+  bytes embedded inside unrelated OSC or ST-terminated control-string payloads
+  are ignored by the color tracker, including when the payload is split across
+  PTY chunks.
 - The console path handles OSC 52 clipboard writes and read queries, decoding
   PTY-side base64 clipboard payloads into the system clipboard and answering
-  `?` queries with base64-encoded clipboard content. Both 7-bit OSC 52
-  (`ESC]52;...`) and C1 OSC 52 (`0x9d52;...`) forms are recognized, including
-  BEL, ST, and C1 ST terminators. OSC 52 control sequences are removed from
-  console display output. If PTY output ends in an incomplete OSC 52 sequence
-  or partial OSC 52 prefix, the pending control bytes are dropped during flush
-  instead of leaking to the host console. OSC 52-like bytes embedded inside
+  `?` queries with base64-encoded clipboard content. 7-bit OSC 52
+  (`ESC]52;...`), UTF-8 C1 OSC/ST (`U+009D`/`U+009C`, bytes `C2 9D`/`C2 9C`),
+  and legacy raw C1 OSC 52 (`0x9d52;...`) forms are recognized, including BEL
+  and ST terminators. OSC 52 control sequences are removed from console display
+  output. If PTY output ends in an incomplete OSC 52 sequence or partial OSC 52
+  prefix, the pending control bytes are dropped during flush instead of leaking
+  to the host console. OSC 52-like bytes embedded inside
   split ST-terminated control-string payloads are not treated as clipboard
   operations.
 - OSC 8 hyperlink sequences are consumed by the console output filter and fed
   into the mirrored terminal state, so hyperlink metadata is preserved without
-  writing OSC 8 control bytes to the host console. Both 7-bit OSC 8 and C1 OSC
-  8 forms are recognized, including split C1 OSC 8 payloads. If PTY output ends
-  in an incomplete OSC 8 sequence or partial OSC 8 prefix, the pending control
-  bytes are dropped during flush instead of leaking to the host console.
+  writing OSC 8 control bytes to the host console. 7-bit OSC 8, UTF-8 C1
+  OSC/ST, and legacy raw C1 OSC 8 forms are recognized, including split C1 OSC
+  8 payloads. If PTY output ends in an incomplete OSC 8 sequence or partial OSC
+  8 prefix, the pending control bytes are dropped during flush instead of
+  leaking to the host console.
 - `rssh-app local --osc52 off|write|read-write` controls whether PTY-side OSC
   52 clipboard writes and read queries are allowed. SSH sessions that use the
   OpenSSH-backed console runtime inherit the same policy through
   `rssh-app ssh --osc52 ...`.
 - The app answers xterm XTGETTCAP terminal-capability queries
   (`DCS + q <hex-cap> ST`) for common compatibility probes, including
-  `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, `Tc = 1`, `Ms` OSC
+  `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, `Tc = 1`,
+  official WezTerm booleans (`am`, `bce`, `ccc`, `hs`, `km`, `mc5i`, `mir`,
+  `msgr`, `npc`, `Su`, `xenl`), `smm`/`rmm` Meta-key mode templates, `Ms` OSC
   52 clipboard template support, `sitm`/`ritm` italic style templates, `Smulx`
-  styled underline, `Setulc` underline color, tmux/xterm cursor templates
-  (`Cr`/`Cs`/`Se`/`Ss`), foundational cursor/screen/style capabilities
-  (`clear`, `cup`, `home`, `civis`/`cnorm`, `smcup`/`rmcup`, `sgr0`, common
-  SGR styles, `smul`/`rmul`, `setaf`/`setab`), common line/display editing and
-  cursor movement templates (`el`, `ed`, `el1`, `dch1`, `ich1`, `il1`, `dl1`,
-  `cuu`/`cud`/`cub`/`cuf`, `hpa`, `vpa`), insert/autowrap controls
-  (`smir`/`rmir`, `smam`/`rmam`), application cursor and function-key
-  capabilities, ACS metadata (`enacs`, `smacs`, `rmacs`, `acsc`), and dynamic
-  `co`/`li` column and row counts from the current PTY size. Unsupported
+  styled underline, `Setulc` underline color, `Smol` overline, `flash`,
+  `smxx`/`rmxx` strikethrough, `op` default-color reset, `oc` palette reset,
+  tmux/xterm cursor templates (`Cr`/`Cs`/`Se`/`Ss`), WezTerm `Sync`
+  synchronized-output template, foundational cursor/screen/style capabilities
+  (`clear`, `cup`, `home`, `civis`/`cnorm`/`cvvis`, WezTerm `smcup`/`rmcup` with
+  alternate-screen and title-stack save/restore, WezTerm `sgr0`, `sgr`, common
+  SGR styles, `smso`/`rmso`, `smul`/`rmul`, conditional `setaf`/`setab`),
+  common line/display editing and
+  cursor movement templates (`el`, `ed`, `el1`, `dch`, `dch1`, `ich`, `ich1`,
+  `il`, `il1`, `dl`, `dl1`, `cuu`/`cuu1`, `cud`/`cud1`, `cub`/`cub1`,
+  `cuf`/`cuf1`, `hpa`, `vpa`), WezTerm control/save-restore capabilities
+  (`bel`, `cr`, `ind`, `ri`, `sc`, `rc`), cursor-position/device-attribute
+  query templates (`u6`, `u7`, `u8`, `u9`), title/status-line and
+  palette-initialization templates (`tsl`, `fsl`, `dsl`, `initc`),
+  WezTerm reset/init templates (`rs1`, `is2`, `rs2`), printer templates
+  (`mc0`, `mc4`, `mc5`), memory-lock templates (`meml`, `memu`),
+  tab-stop/backtab, erase-character, repeat-character, scroll-region, and
+  indexed scroll templates (`cbt`, `ht`, `hts`, `tbc`, `ech`, `rep`, `csr`,
+  `indn`, `rin`), SGR mouse templates (`kmous`/`XM`/`xm`),
+  insert/autowrap controls (`smir`/`rmir`, `smam`/`rmam`),
+  WezTerm keypad transmit templates (`smkx`, `rmkx`), application cursor plus
+  base and modified function-key capabilities, Backspace/BackTab/keypad-center
+  (`kb2`)/keypad-enter, and shifted navigation/editing key capabilities,
+  WezTerm ACS metadata (`enacs`, `smacs`, `rmacs`, `acsc`), dynamic `co`/`li`
+  plus official `cols`/`lines` column and row counts from the current PTY size,
+  `it=8` tab interval, and `pairs=32767`. Unsupported
   capabilities return `DCS 0+r ST`, and C1 DCS/ST forms are handled too.
 - The app answers DEC request status string queries (`DECRQSS`,
   `DCS $ q <selector> ST`) for current SGR style (`m`), including bold, faint,
   italic, blink, underline, double underline, colon-separated underline styles,
   conceal, strikethrough, overline, inverse video, foreground/background colors,
-  and underline color; cursor shape (`SP q`); and scrolling region (`r`),
-  preserving ST versus C1 ST
+  and underline color; cursor shape (`SP q`); scrolling region (`r`);
+  conformance level (`"` `p`); and left/right margins (`s`) from the modeled
+  DECSLRM state, preserving ST versus C1 ST
   response terminators and returning an invalid status for unsupported
   selectors.
 - The app answers xterm version queries (`CSI > q` and `CSI > 0 q`) with a
@@ -288,34 +319,43 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   cover query-like CSI bytes inside OSC control-string payloads so those bytes
   are not mistaken for standalone terminal probes.
 - OSC query response: unit tests cover default foreground/background, cursor,
-  and indexed palette color queries, including BEL, ST, and C1 OSC/ST forms.
-  Unit tests also cover color-setting sequences followed by matching queries,
-  dynamic foreground/background reset with `OSC 110`/`OSC 111`, cursor-color
-  reset with `OSC 112`, indexed-palette reset with `OSC 104`, stream-ordered
-  color response state, and color-setting bytes embedded inside ST-terminated
-  control-string payloads split across PTY chunks.
+  and indexed palette color queries, including BEL, ST, UTF-8 C1 OSC/ST, and
+  legacy raw C1 forms.
+  Unit tests also cover multi-index `OSC 4` queries, RGB/hex/RGBA color-setting
+  sequences followed by matching queries, dynamic foreground/background reset
+  with `OSC 110`/`OSC 111`, cursor-color reset with `OSC 112`, indexed-palette
+  reset with `OSC 104`, stream-ordered color response state, and color-setting
+  bytes embedded inside ST-terminated control-string payloads split across PTY
+  chunks.
 - OSC 52 clipboard: unit tests cover console-path clipboard writes and
   clipboard query responses without writing OSC 52 control bytes to console
-  output, including C1 OSC 52 write/query forms and split C1 OSC 52 payloads,
-  plus `off` and `write` policy enforcement. Unit tests also cover OSC 52-like
-  bytes embedded inside unrelated control-string payloads. EOF flushing is
-  covered for incomplete OSC 52 sequences and partial prefixes.
+  output, including UTF-8 C1 OSC/ST forms, legacy raw C1 OSC 52 write/query
+  forms, and split C1 OSC 52 payloads, plus `off` and `write` policy
+  enforcement. Unit tests also cover OSC 52-like bytes embedded inside unrelated
+  control-string payloads. EOF flushing is covered for incomplete OSC 52
+  sequences and partial prefixes.
 - OSC 8 hyperlinks: unit tests cover full and split OSC 8 sequences, including
-  C1 OSC 8 forms, verifying that console output omits the control bytes while
-  the mirrored terminal keeps hyperlink metadata on linked cells. EOF flushing
-  is covered for incomplete OSC 8 sequences and partial prefixes so half-written
-  control bytes do not reach the host console.
+  UTF-8 C1 and legacy raw C1 OSC 8 forms, verifying that console output omits
+  the control bytes while the mirrored terminal keeps hyperlink metadata on
+  linked cells. EOF flushing is covered for incomplete OSC 8 sequences and
+  partial prefixes so half-written control bytes do not reach the host console.
 - XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
   queries for colors, terminal name, true-color markers, OSC 52 clipboard
   template, italic style templates, styled/colored underline templates,
-  tmux/xterm cursor style and cursor color templates, current columns/rows,
-  foundational cursor/screen/style/color capabilities, line/display editing
-  controls, application cursor/function-key capabilities, ACS metadata, and
-  unknown capability fallback.
+  tmux/xterm cursor style and cursor color templates, current columns/rows
+  through `co`/`li` and official `cols`/`lines` plus `it=8` and
+  `pairs=32767`,
+  foundational cursor/screen/style/color capabilities including WezTerm
+  `sgr`/`sgr0`, standout, and conditional select-color templates,
+  line/display editing and WezTerm control/save-restore capabilities,
+  cursor-position/device-attribute query templates, title/status-line and
+  palette-initialization templates, SGR mouse templates, application
+  cursor plus base and modified function-key capabilities, Meta-key
+  boolean/templates, WezTerm ACS metadata, and unknown capability fallback.
 - DECRQSS response: unit tests cover current SGR, including faint, italic,
   blink, double underline, colon-separated underline style, underline color, and
-  concealed text plus overline, cursor-shape, and scroll-region status queries
-  in both DCS and C1 DCS forms.
+  concealed text plus overline, cursor-shape, scroll-region, conformance-level,
+  and left/right-margin status queries in both DCS and C1 DCS forms.
 - XTVERSION response: unit tests cover 7-bit and C1 CSI version queries and
   verify the query bytes are not written to visible output.
 - Session logging: unit tests cover teeing visible terminal output to a log

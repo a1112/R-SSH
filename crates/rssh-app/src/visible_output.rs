@@ -7,6 +7,7 @@ pub(crate) struct TerminalVisibleOutputFilter {
 enum VisibleOutputState {
     #[default]
     Ground,
+    Utf8C1Lead,
     Escape,
     Csi,
     Osc,
@@ -29,6 +30,7 @@ impl TerminalVisibleOutputFilter {
     fn process_byte(&mut self, byte: u8, visible: &mut Vec<u8>) {
         match self.state {
             VisibleOutputState::Ground => self.process_ground_byte(byte, visible),
+            VisibleOutputState::Utf8C1Lead => self.process_utf8_c1_byte(byte, visible),
             VisibleOutputState::Escape => self.process_escape_byte(byte),
             VisibleOutputState::Csi => self.process_csi_byte(byte),
             VisibleOutputState::Osc => self.process_osc_byte(byte),
@@ -42,11 +44,31 @@ impl TerminalVisibleOutputFilter {
         match byte {
             b'\x07' | b'\x00' | b'\x18' | b'\x1a' => {}
             b'\x1b' => self.state = VisibleOutputState::Escape,
+            0xc2 => self.state = VisibleOutputState::Utf8C1Lead,
             0x90 | 0x98 | 0x9e | 0x9f => self.state = VisibleOutputState::StString,
             0x9b => self.state = VisibleOutputState::Csi,
             0x9d => self.state = VisibleOutputState::Osc,
             _ => visible.push(byte),
         }
+    }
+
+    fn process_utf8_c1_byte(&mut self, byte: u8, visible: &mut Vec<u8>) {
+        if (0x80..=0x9f).contains(&byte) {
+            self.process_c1_control(byte);
+        } else {
+            visible.push(0xc2);
+            self.state = VisibleOutputState::Ground;
+            self.process_ground_byte(byte, visible);
+        }
+    }
+
+    fn process_c1_control(&mut self, byte: u8) {
+        self.state = match byte {
+            0x90 | 0x98 | 0x9e | 0x9f => VisibleOutputState::StString,
+            0x9b => VisibleOutputState::Csi,
+            0x9d => VisibleOutputState::Osc,
+            _ => VisibleOutputState::Ground,
+        };
     }
 
     fn process_escape_byte(&mut self, byte: u8) {

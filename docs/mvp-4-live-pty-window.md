@@ -15,11 +15,15 @@ in the native `winit` window.
   queries, plus xterm XTGETTCAP terminal-capability and DECRQSS state queries,
   plus XTVERSION queries, then returns responses that are written back to the
   PTY. XTGETTCAP responses include modern style/color templates, dynamic
-  `co`/`li` column and row counts from the current runtime size,
+  `co`/`li` plus official `cols`/`lines` column and row counts from the current
+  runtime size, `it=8` tab interval, and `pairs=32767`,
   tmux/xterm cursor style and cursor color templates, and
   foundational cursor/screen/style/color capabilities such as `clear`, `cup`,
-  `home`, `civis`/`cnorm`, `smcup`/`rmcup`, `sgr0`, common SGR styles, and
-  `setaf`/`setab`. Standard and DEC private cursor-position responses use the
+  `home`, `civis`/`cnorm`/`cvvis`, WezTerm `smcup`/`rmcup` with
+  alternate-screen and title-stack save/restore, WezTerm `sgr`/`sgr0`, common
+  SGR and standout styles, conditional `setaf`/`setab`, and the WezTerm SGR
+  mouse templates (`kmous`/`XM`/`xm`). Standard and DEC private
+  cursor-position responses use the
   current terminal grid cursor.
   Equivalent 8-bit C1 CSI query forms are handled through the same runtime path.
   Runtime query matching does not inspect
@@ -33,9 +37,9 @@ in the native `winit` window.
   console and native-window runtimes, including 7-bit CSI and 8-bit C1 CSI
   private mode toggles, ANSI insert/replace mode (`CSI 4 h/l`), DECRQM
   private-mode status query reporting for tracked input, cursor visibility,
-  auto-wrap, origin, alternate-screen, and private cursor save modes, plus ANSI
-  mode status query reporting for insert/replace mode (`CSI 4 $ p`). `RIS`
-  resets tracked mode state to defaults.
+  cursor blinking, Meta-key, auto-wrap, origin, alternate-screen, and private
+  cursor save modes, plus ANSI mode status query reporting for insert/replace
+  mode (`CSI 4 $ p`). `RIS` resets tracked mode state to defaults.
   Mode-like bytes embedded inside unrelated OSC or ST-terminated control-string
   payloads are ignored, including split payloads.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
@@ -50,8 +54,8 @@ in the native `winit` window.
 - PTY output updates the terminal runtime and rebuilds
   `TerminalRenderSnapshot` from the live terminal, including visible cursor
   state, cursor shape, xterm 256-color indexed cell colors, and OSC 8
-  hyperlink metadata. C1 OSC 8 hyperlinks are tracked without exposing their
-  control bytes as visible output.
+  hyperlink metadata. UTF-8 C1 OSC/ST and legacy raw C1 OSC 8 hyperlinks are
+  tracked without exposing their control bytes as visible output.
 - The native window can activate OSC 8 hyperlink cells with `Ctrl` + left
   click when PTY mouse reporting is inactive, opening the URL through the
   platform default handler.
@@ -64,11 +68,11 @@ in the native `winit` window.
   paste markers while the PTY has enabled `ESC[?2004h`.
 - The native window handles PTY-side OSC 52 clipboard writes and queries,
   decoding base64 payloads into the system clipboard and answering `?` queries
-  with base64-encoded clipboard content. The shared runtime recognizes both
-  7-bit OSC 52 (`ESC]52;...`) and C1 OSC 52 (`0x9d52;...`) forms, including
-  BEL, ST, and C1 ST terminators. OSC 52-like bytes embedded inside unrelated
-  OSC or ST-terminated control-string payloads are ignored by the clipboard
-  tracker, including split payloads.
+  with base64-encoded clipboard content. The shared runtime recognizes 7-bit OSC
+  52 (`ESC]52;...`), UTF-8 C1 OSC/ST (`U+009D`/`U+009C`), and legacy raw C1 OSC
+  52 (`0x9d52;...`) forms. OSC 52-like bytes embedded inside unrelated OSC or
+  ST-terminated control-string payloads are ignored by the clipboard tracker,
+  including split payloads.
 - `rssh-app window --osc52 off|write|read-write` controls whether PTY-side
   OSC 52 clipboard writes and read queries are allowed.
 - The native window supports basic local text selection when PTY mouse
@@ -214,35 +218,54 @@ MVP 4 tests cover:
 - window text, control, navigation, Alt-text, and modified key encoding
 - native window clipboard paste encoding and paste shortcut detection
 - OSC 52 clipboard extraction from PTY output, native window clipboard writes,
-  and clipboard query responses, including C1 OSC 52 write/query forms and
-  split C1 OSC 52 payloads; tests also cover OSC 52-like bytes inside unrelated
-  OSC and ST-terminated control-string payloads
+  and clipboard query responses, including UTF-8 C1 OSC/ST forms, legacy raw C1
+  OSC 52 write/query forms, and split C1 OSC 52 payloads; tests also cover OSC
+  52-like bytes inside unrelated OSC and ST-terminated control-string payloads
 - C1 CSI cursor, device/status, window state/position, window/screen pixel-size,
   character-cell size, text-area/screen size, and title query responses in the
   shared terminal runtime
 - OSC default foreground/background, cursor, and indexed palette color query
   responses in the shared terminal runtime, including tracked OSC color-setting
-  state, dynamic foreground/background reset with `OSC 110`/`OSC 111`,
-  cursor-color reset with `OSC 112`, indexed-palette reset with `OSC 104`,
-  stream-ordered response state, and ignored OSC color-setting bytes embedded
-  inside ST-terminated control-string payloads split across PTY chunks
-- OSC 8 hyperlink metadata in the shared terminal runtime, including C1 OSC/ST
-  forms, renderer snapshot propagation, native-window Ctrl-click activation,
-  and visible-output filtering
+  state, multi-index `OSC 4` queries, `rgb:`, `#RGB`/`#RRGGBB`, and
+  WezTerm-style RGBA dynamic color specs, dynamic foreground/background reset
+  with `OSC 110`/`OSC 111`, cursor-color reset with `OSC 112`, indexed-palette
+  reset with `OSC 104`, stream-ordered response state, and ignored OSC
+  color-setting bytes embedded inside ST-terminated control-string payloads
+  split across PTY chunks
+- OSC 8 hyperlink metadata in the shared terminal runtime, including UTF-8 C1
+  OSC/ST and legacy raw C1 forms, renderer snapshot propagation, native-window
+  Ctrl-click activation, and visible-output filtering
+- OSC 9 notification text and OSC 777 `notify` title/body events from ESC plus
+  UTF-8 C1 OSC/ST active/inactive pane output, with legacy raw C1 compatibility,
+  dispatched through the native-window notification handler; native OS toast
+  integration remains future work
 - XTGETTCAP terminal-capability query responses for colors, terminal name,
-  true-color markers, OSC 52 template support, italic style templates,
+  true-color markers, official WezTerm booleans, Meta-key boolean/templates
+  (`km`/`smm`/`rmm`), OSC 52 template support, italic style templates,
   styled/colored underline templates, tmux/xterm cursor style and cursor color
-  templates, foundational cursor/screen/style/color capabilities,
-  line/display editing controls, application cursor/function-key capabilities,
-  ACS metadata, current columns/rows, and unknown capability fallback
+  templates, WezTerm `Sync` synchronized-output template, overline,
+  strikethrough, default-color, and palette-reset templates, foundational
+  cursor/screen/style/color capabilities including WezTerm `sgr`/`sgr0`,
+  standout, and conditional select-color templates, line/display editing
+  controls, WezTerm control/save-restore capabilities,
+  cursor-position/device-attribute query templates, title/status-line,
+  title-stack, palette-initialization, printer, and memory-lock templates,
+  reset/init templates (`rs1`, `is2`, `rs2`),
+  tab-stop/erase/repeat/scroll-region templates, SGR mouse templates, application cursor plus base
+  and modified function-key capabilities, WezTerm keypad transmit templates,
+  Backspace/BackTab/keypad-center/keypad-enter plus shifted navigation/editing
+  key capabilities, WezTerm ACS metadata, current columns/rows through `co`/`li`
+  and official `cols`/`lines` plus `it=8` and `pairs=32767`, and unknown
+  capability fallback
 - DECRQSS state query responses for current SGR style, including faint, italic,
   blink, double underline, colon-separated underline style, underline color,
-  concealed text, and overline, cursor shape, and scroll-region state
+  concealed text, and overline, cursor shape, scroll-region state,
+  conformance-level state, and modeled DECSLRM left/right-margin state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
 - DECRQM private-mode status query responses for application cursor keys,
-  origin, auto-wrap, cursor visibility, alternate-screen modes, mouse
-  reporting, extended mouse protocols, focus, bracketed paste, synchronized
-  output, private cursor save,
+  origin, auto-wrap, cursor blinking, Meta-key, cursor visibility, DECLRMM
+  left-right margin mode, alternate-screen modes, mouse reporting, extended
+  mouse protocols, focus, bracketed paste, synchronized output, private cursor save,
   `RIS` defaults, and unknown modes, including mode-like bytes embedded inside
   OSC or ST-terminated control-string payloads
 - DECRQM ANSI-mode status query responses for insert/replace mode (`CSI 4 $ p`)
@@ -278,8 +301,8 @@ MVP 4 tests cover:
 - application keypad mode tracking for native window numpad input
 - bracketed paste mode tracking for native window paste
 - synchronized output plus display/private/ANSI insert mode tracking,
-  private-mode and ANSI-mode status reporting, reset-on-`RIS`, and delayed
-  render-damage exposure until reset
+  private-mode and ANSI-mode status reporting, reset-on-`RIS`, `DECSTR`
+  origin/insert soft reset, and delayed render-damage exposure until reset
 - focus reporting mode tracking and native window focus event encoding
 - C1 CSI private input mode and ANSI insert mode tracking in the shared
   local/window mode tracker

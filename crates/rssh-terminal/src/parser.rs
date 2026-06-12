@@ -1,9 +1,20 @@
+use std::collections::HashMap;
+use std::fs;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
+
+use base64::{Engine, engine::general_purpose::STANDARD};
+use flate2::read::ZlibDecoder;
 use rssh_core::{DamageRegion, TerminalSize};
 use unicode_width::UnicodeWidthChar;
 
-use crate::{Cell, Color, CursorShape, ScrollbackLine, TerminalGrid, UnderlineStyle};
+use crate::{
+    Cell, Color, CursorShape, InlineImageFormat, ItermInlineImage, ScrollbackLine,
+    SemanticCommandExit, SemanticType, SemanticZone, TerminalGrid, UnderlineStyle,
+};
 
 const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
+const ANONYMOUS_KITTY_IMAGE_ID: u32 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterSet {
@@ -18,11 +29,14 @@ enum CharacterWriteMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 struct TerminalModes {
     cursor_visible: bool,
+    cursor_blinking: bool,
     cursor_shape: CursorShape,
     auto_wrap: bool,
     origin_mode: bool,
+    left_right_margin_mode: bool,
     write_mode: CharacterWriteMode,
 }
 
@@ -30,10 +44,129 @@ impl Default for TerminalModes {
     fn default() -> Self {
         Self {
             cursor_visible: true,
+            cursor_blinking: false,
             cursor_shape: CursorShape::Block,
             auto_wrap: true,
             origin_mode: false,
+            left_right_margin_mode: false,
             write_mode: CharacterWriteMode::Replace,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct PendingKittyGraphics {
+    image_format: InlineImageFormat,
+    medium: KittyTransmissionMedium,
+    compression: Option<char>,
+    image_id: Option<u32>,
+    image_number: Option<u32>,
+    placement_id: Option<u32>,
+    z_index: Option<i32>,
+    display_on_finish: bool,
+    pixel_width: Option<u32>,
+    pixel_height: Option<u32>,
+    display_columns: Option<u16>,
+    display_rows: Option<u16>,
+    no_cursor_movement: bool,
+    source_x: Option<u32>,
+    source_y: Option<u32>,
+    source_width: Option<u32>,
+    source_height: Option<u32>,
+    target_x: Option<u32>,
+    target_y: Option<u32>,
+    file_offset: Option<u64>,
+    file_size: Option<u64>,
+    quiet: Option<u8>,
+    encoded_data: String,
+}
+
+#[derive(Debug, Clone)]
+struct StoredKittyImage {
+    image_format: InlineImageFormat,
+    pixel_width: Option<u32>,
+    pixel_height: Option<u32>,
+    display_columns: Option<u16>,
+    display_rows: Option<u16>,
+    data: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct KittySourceRect {
+    x: Option<u32>,
+    y: Option<u32>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct KittyPlacementOptions {
+    display_columns: Option<u16>,
+    display_rows: Option<u16>,
+    image_id: Option<u32>,
+    placement_id: Option<u32>,
+    z_index: Option<i32>,
+    move_cursor: bool,
+    source_rect: KittySourceRect,
+    target_x: Option<u32>,
+    target_y: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KittyTransmissionMedium {
+    Direct,
+    File,
+    TempFile,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct KittyGraphicsParams {
+    action: Option<char>,
+    format: Option<u32>,
+    medium: Option<char>,
+    compression: Option<char>,
+    image_id: Option<u32>,
+    image_number: Option<u32>,
+    placement_id: Option<u32>,
+    z_index: Option<i32>,
+    delete_target: Option<char>,
+    cell_x: Option<u16>,
+    cell_y: Option<u16>,
+    more_chunks: Option<u8>,
+    pixel_width: Option<u32>,
+    pixel_height: Option<u32>,
+    display_columns: Option<u16>,
+    display_rows: Option<u16>,
+    no_cursor_movement: bool,
+    source_x: Option<u32>,
+    source_y: Option<u32>,
+    source_width: Option<u32>,
+    source_height: Option<u32>,
+    target_x: Option<u32>,
+    target_y: Option<u32>,
+    file_offset: Option<u64>,
+    file_size: Option<u64>,
+    quiet: Option<u8>,
+}
+
+impl PendingKittyGraphics {
+    const fn source_rect(&self) -> KittySourceRect {
+        KittySourceRect {
+            x: self.source_x,
+            y: self.source_y,
+            width: self.source_width,
+            height: self.source_height,
+        }
+    }
+}
+
+impl KittyGraphicsParams {
+    const fn source_rect(self) -> KittySourceRect {
+        KittySourceRect {
+            x: self.source_x,
+            y: self.source_y,
+            width: self.source_width,
+            height: self.source_height,
         }
     }
 }
@@ -94,9 +227,22 @@ pub struct Terminal {
     grid: TerminalGrid,
     scrollback: Vec<ScrollbackLine>,
     title: Option<String>,
+    title_stack: Vec<Option<String>>,
+    current_working_dir: Option<String>,
+    badge_format: Option<String>,
+    user_vars: HashMap<String, String>,
+    inline_images: Vec<ItermInlineImage>,
+    kitty_graphics_responses: Vec<Vec<u8>>,
+    pending_kitty_graphics: Option<PendingKittyGraphics>,
+    kitty_images: HashMap<u32, StoredKittyImage>,
+    kitty_image_numbers: HashMap<u32, u32>,
+    next_kitty_image_id: u32,
+    semantic_prompt_rows: Vec<usize>,
+    semantic_command_exits: Vec<SemanticCommandExit>,
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
+    clear_semantic_type_on_movement: bool,
     pending_utf8: Vec<u8>,
     pending_control: Vec<char>,
     last_printable: Option<char>,
@@ -105,6 +251,8 @@ pub struct Terminal {
     modes: TerminalModes,
     scroll_top: u16,
     scroll_bottom: u16,
+    left_margin: u16,
+    right_margin: u16,
     character_set: CharacterSet,
     tab_stops: TabStops,
     style: Cell,
@@ -115,14 +263,18 @@ pub struct Terminal {
 #[derive(Debug, Clone)]
 struct ScreenState {
     grid: TerminalGrid,
+    inline_images: Vec<ItermInlineImage>,
     cursor_row: u16,
     cursor_column: u16,
     pending_wrap: bool,
+    clear_semantic_type_on_movement: bool,
     last_printable: Option<char>,
     saved_cursor: Option<SavedCursor>,
     modes: TerminalModes,
     scroll_top: u16,
     scroll_bottom: u16,
+    left_margin: u16,
+    right_margin: u16,
     character_set: CharacterSet,
     style: Cell,
 }
@@ -132,6 +284,7 @@ struct SavedCursor {
     row: u16,
     column: u16,
     pending_wrap: bool,
+    clear_semantic_type_on_movement: bool,
     origin_mode: bool,
     character_set: CharacterSet,
     style: Cell,
@@ -157,9 +310,22 @@ impl Terminal {
             grid: TerminalGrid::new(size),
             scrollback: Vec::new(),
             title: None,
+            title_stack: Vec::new(),
+            current_working_dir: None,
+            badge_format: None,
+            user_vars: HashMap::new(),
+            inline_images: Vec::new(),
+            kitty_graphics_responses: Vec::new(),
+            pending_kitty_graphics: None,
+            kitty_images: HashMap::new(),
+            kitty_image_numbers: HashMap::new(),
+            next_kitty_image_id: 1,
+            semantic_prompt_rows: Vec::new(),
+            semantic_command_exits: Vec::new(),
             cursor_row: 0,
             cursor_column: 0,
             pending_wrap: false,
+            clear_semantic_type_on_movement: false,
             pending_utf8: Vec::new(),
             pending_control: Vec::new(),
             last_printable: None,
@@ -168,6 +334,8 @@ impl Terminal {
             modes: TerminalModes::default(),
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
+            left_margin: 0,
+            right_margin: size.columns.saturating_sub(1),
             character_set: CharacterSet::Ascii,
             tab_stops: TabStops::new(size),
             style: Cell::default(),
@@ -207,12 +375,13 @@ impl Terminal {
         match chars[index] {
             '\u{1b}' => self.consume_escape_sequence(chars, index),
             '\u{9b}' => Some(next_or_pending(self.apply_csi_sequence(chars, index, 1))),
+            '\u{90}' => Some(next_or_pending(self.apply_dcs_sequence(chars, index, 1))),
             '\u{9d}' => Some(next_or_pending(self.skip_c1_osc(chars, index))),
             ch if is_c1_st_control_string(ch) => Some(next_or_pending(
                 self.skip_c1_st_control_string(chars, index),
             )),
             '\u{84}' => {
-                self.index_down();
+                self.index_down(false);
                 Some(FeedAdvance::Next(index + 1))
             }
             '\u{85}' => {
@@ -235,10 +404,11 @@ impl Terminal {
         match chars.get(index + 1).copied() {
             Some('[') => Some(next_or_pending(self.apply_csi_sequence(chars, index, 2))),
             Some(']') => Some(next_or_pending(self.skip_osc(chars, index))),
-            Some('P' | 'X' | '^' | '_') => {
-                Some(next_or_pending(self.skip_st_control_string(chars, index)))
-            }
+            Some('_') => Some(next_or_pending(self.apply_apc_sequence(chars, index, 2))),
+            Some('P') => Some(next_or_pending(self.apply_dcs_sequence(chars, index, 2))),
+            Some('X' | '^') => Some(next_or_pending(self.skip_st_control_string(chars, index))),
             Some('(') => Some(self.consume_g0_character_set_selection(chars, index)),
+            Some('#') => Some(self.consume_hash_escape_sequence(chars, index)),
             Some('7') => {
                 self.save_cursor();
                 Some(FeedAdvance::Next(index + 2))
@@ -256,7 +426,7 @@ impl Terminal {
                 Some(FeedAdvance::Next(index + 2))
             }
             Some('D') => {
-                self.index_down();
+                self.index_down(false);
                 Some(FeedAdvance::Next(index + 2))
             }
             Some('E') => {
@@ -275,6 +445,20 @@ impl Terminal {
         }
     }
 
+    fn consume_hash_escape_sequence(&mut self, chars: &[char], index: usize) -> FeedAdvance {
+        match chars.get(index + 2).copied() {
+            Some('8') => {
+                self.screen_alignment_test();
+                FeedAdvance::Next(index + 3)
+            }
+            Some(_) => FeedAdvance::Next(index + 3),
+            None => {
+                self.pending_control.extend_from_slice(&chars[index..]);
+                FeedAdvance::Pending
+            }
+        }
+    }
+
     fn consume_g0_character_set_selection(&mut self, chars: &[char], index: usize) -> FeedAdvance {
         if let Some(selector) = chars.get(index + 2).copied() {
             if let Some(character_set) = parse_g0_character_set(selector) {
@@ -290,7 +474,7 @@ impl Terminal {
 
     fn consume_text_or_ascii_control(&mut self, ch: char, index: usize) -> usize {
         match ch {
-            '\0' | '\u{18}' | '\u{1a}' => index + 1,
+            ch if is_ignored_c0_control(ch) => index + 1,
             '\u{7}' => {
                 self.bell_count = self.bell_count.saturating_add(1);
                 index + 1
@@ -308,8 +492,7 @@ impl Terminal {
                 index + 1
             }
             '\r' => {
-                self.cursor_column = 0;
-                self.pending_wrap = false;
+                self.carriage_return();
                 index + 1
             }
             ch => {
@@ -355,6 +538,48 @@ impl Terminal {
         self.skip_control_string(chars, index, 1, parse_st_terminated_control_string)
     }
 
+    fn apply_apc_sequence(
+        &mut self,
+        chars: &[char],
+        index: usize,
+        content_offset: usize,
+    ) -> Option<usize> {
+        let content_start = index + content_offset;
+        match parse_st_terminated_control_string(chars, content_start) {
+            SequenceParse::Complete(sequence_end) => {
+                let content_end = st_content_end(chars, content_start, sequence_end);
+                self.apply_apc_content(&chars[content_start..content_end]);
+                Some(sequence_end + 1)
+            }
+            SequenceParse::Cancelled(cancel_index) => Some(cancel_index + 1),
+            SequenceParse::Pending => {
+                self.pending_control.extend_from_slice(&chars[index..]);
+                None
+            }
+        }
+    }
+
+    fn apply_dcs_sequence(
+        &mut self,
+        chars: &[char],
+        index: usize,
+        content_offset: usize,
+    ) -> Option<usize> {
+        let content_start = index + content_offset;
+        match parse_st_terminated_control_string(chars, content_start) {
+            SequenceParse::Complete(sequence_end) => {
+                let content_end = st_content_end(chars, content_start, sequence_end);
+                self.apply_dcs_content(&chars[content_start..content_end]);
+                Some(sequence_end + 1)
+            }
+            SequenceParse::Cancelled(cancel_index) => Some(cancel_index + 1),
+            SequenceParse::Pending => {
+                self.pending_control.extend_from_slice(&chars[index..]);
+                None
+            }
+        }
+    }
+
     fn apply_osc_sequence(
         &mut self,
         chars: &[char],
@@ -377,16 +602,853 @@ impl Terminal {
     }
 
     fn apply_osc_content(&mut self, content: &[char]) {
+        if let Some((&('L' | 'l'), title)) = content.split_first() {
+            self.title = Some(title.iter().collect());
+            return;
+        }
+
         let Some(separator) = content.iter().position(|ch| *ch == ';') else {
             return;
         };
 
         let command = content[..separator].iter().collect::<String>();
         match command.as_str() {
-            "0" | "2" => self.title = Some(content[separator + 1..].iter().collect()),
+            "0" | "1" | "2" => self.title = Some(content[separator + 1..].iter().collect()),
+            "7" => self.current_working_dir = Some(content[separator + 1..].iter().collect()),
             "8" => self.apply_osc8_hyperlink(&content[separator + 1..]),
+            "133" => self.apply_osc133_semantic_prompt(&content[separator + 1..]),
+            "1337" => self.apply_osc1337_iterm_metadata(&content[separator + 1..]),
             _ => {}
         }
+    }
+
+    fn apply_apc_content(&mut self, content: &[char]) {
+        let content = content.iter().collect::<String>();
+        if let Some(graphics) = content.strip_prefix('G') {
+            self.apply_kitty_graphics(graphics);
+        }
+    }
+
+    fn apply_dcs_content(&mut self, content: &[char]) {
+        let content = content.iter().collect::<String>();
+        if let Some(sixel_start) = content.find('q') {
+            self.apply_sixel_content(&content[sixel_start + 1..]);
+        }
+    }
+
+    fn apply_osc1337_iterm_metadata(&mut self, content: &[char]) {
+        let content = content.iter().collect::<String>();
+        if let Some(current_dir) = content.strip_prefix("CurrentDir=") {
+            self.current_working_dir = Some(current_dir.to_owned());
+            return;
+        }
+
+        if let Some(user_var) = content.strip_prefix("SetUserVar=") {
+            self.apply_osc1337_set_user_var(user_var);
+            return;
+        }
+
+        if let Some(encoded_badge_format) = content.strip_prefix("SetBadgeFormat=") {
+            self.apply_osc1337_set_badge_format(encoded_badge_format);
+            return;
+        }
+
+        if let Some(file) = content.strip_prefix("File=") {
+            self.apply_osc1337_file(file);
+        }
+    }
+
+    fn apply_osc1337_set_user_var(&mut self, user_var: &str) {
+        let Some((name, encoded_value)) = user_var.split_once('=') else {
+            return;
+        };
+        let Ok(decoded_value) = STANDARD.decode(encoded_value) else {
+            return;
+        };
+        let Ok(value) = String::from_utf8(decoded_value) else {
+            return;
+        };
+
+        self.user_vars.insert(name.to_owned(), value);
+    }
+
+    fn apply_osc1337_set_badge_format(&mut self, encoded_badge_format: &str) {
+        let Ok(decoded_value) = STANDARD.decode(encoded_badge_format) else {
+            return;
+        };
+        let Ok(value) = String::from_utf8(decoded_value) else {
+            return;
+        };
+
+        self.badge_format = Some(value);
+    }
+
+    fn apply_osc1337_file(&mut self, file: &str) {
+        let Some((params, encoded_data)) = file.split_once(':') else {
+            return;
+        };
+
+        let mut inline = false;
+        let mut name = None;
+        let mut size = None;
+        let mut width = None;
+        let mut height = None;
+        let mut preserve_aspect_ratio = None;
+
+        for param in params.split(';').filter(|param| !param.is_empty()) {
+            let Some((key, value)) = param.split_once('=') else {
+                continue;
+            };
+
+            match key {
+                "inline" => inline = value == "1",
+                "name" => name = decode_base64_utf8(value),
+                "size" => size = value.parse().ok(),
+                "width" => width = Some(value.to_owned()),
+                "height" => height = Some(value.to_owned()),
+                "preserveAspectRatio" => {
+                    preserve_aspect_ratio = match value {
+                        "0" => Some(false),
+                        "1" => Some(true),
+                        _ => None,
+                    };
+                }
+                _ => {}
+            }
+        }
+
+        if !inline {
+            return;
+        }
+
+        let Ok(data) = STANDARD.decode(encoded_data) else {
+            return;
+        };
+
+        let row = self.current_history_row();
+        let column = self.cursor_column;
+        self.record_inline_image_damage(width.as_deref(), height.as_deref());
+        self.inline_images.push(ItermInlineImage {
+            row,
+            column,
+            name,
+            kitty_image_id: None,
+            kitty_placement_id: None,
+            kitty_z_index: None,
+            size,
+            width,
+            height,
+            preserve_aspect_ratio,
+            image_format: InlineImageFormat::Encoded,
+            pixel_width: None,
+            pixel_height: None,
+            source_x: None,
+            source_y: None,
+            source_width: None,
+            source_height: None,
+            target_x: None,
+            target_y: None,
+            data,
+        });
+    }
+
+    fn apply_kitty_graphics(&mut self, graphics: &str) {
+        let (control, encoded_data) = graphics.split_once(';').unwrap_or((graphics, ""));
+        let params = parse_kitty_graphics_params(control);
+        if params.image_id.is_some() && params.image_number.is_some() {
+            self.push_kitty_graphics_error_response(
+                params,
+                "EINVAL",
+                "Image id and image number are mutually exclusive",
+            );
+            return;
+        }
+
+        if params.action == Some('q') {
+            self.apply_kitty_graphics_query(params, encoded_data);
+            return;
+        }
+        if params.action == Some('p') {
+            self.apply_kitty_graphics_placement(params);
+            return;
+        }
+        if params.action == Some('d') {
+            self.apply_kitty_graphics_delete(params);
+            return;
+        }
+
+        match (self.pending_kitty_graphics.take(), params.more_chunks) {
+            (Some(mut pending), Some(0)) => {
+                pending.encoded_data.push_str(encoded_data);
+                self.finish_kitty_graphics_upload(&pending);
+            }
+            (Some(mut pending), Some(1)) => {
+                pending.encoded_data.push_str(encoded_data);
+                self.pending_kitty_graphics = Some(pending);
+            }
+            (None, Some(1)) => {
+                self.pending_kitty_graphics = start_kitty_graphics_upload(params, encoded_data);
+            }
+            (None, Some(0) | None) => {
+                if let Some(pending) = start_kitty_graphics_upload(params, encoded_data) {
+                    self.finish_kitty_graphics_upload(&pending);
+                }
+            }
+            (Some(_), _) | (None, Some(_)) => {}
+        }
+    }
+
+    fn apply_kitty_graphics_query(&mut self, params: KittyGraphicsParams, encoded_data: &str) {
+        if encoded_data.is_empty() && self.apply_kitty_graphics_stored_image_query(params) {
+            return;
+        }
+
+        let Some(upload) = start_kitty_graphics_upload(params, encoded_data) else {
+            self.push_kitty_graphics_error_response(params, "EINVAL", "Unsupported query");
+            return;
+        };
+
+        let data = match load_kitty_graphics_payload(&upload) {
+            Ok(data) => data,
+            Err(KittyGraphicsDataError::InvalidBase64) => {
+                self.push_kitty_graphics_error_response(params, "EINVAL", "Invalid base64 payload");
+                return;
+            }
+            Err(KittyGraphicsDataError::InvalidFile) => {
+                self.push_kitty_graphics_error_response(params, "EINVAL", "Invalid file payload");
+                return;
+            }
+            Err(KittyGraphicsDataError::UnsupportedCompression) => {
+                self.push_kitty_graphics_error_response(
+                    params,
+                    "EINVAL",
+                    "Unsupported compression",
+                );
+                return;
+            }
+        };
+        if !kitty_graphics_payload_is_supported(
+            upload.image_format,
+            upload.pixel_width,
+            upload.pixel_height,
+            data.len(),
+        ) {
+            self.push_kitty_graphics_error_response(params, "EINVAL", "Unsupported image data");
+            return;
+        }
+
+        self.push_kitty_graphics_ok_response(params);
+    }
+
+    fn apply_kitty_graphics_stored_image_query(&mut self, params: KittyGraphicsParams) -> bool {
+        if params.image_id.is_none() && params.image_number.is_none() {
+            return false;
+        }
+
+        let Some(image_id) = self.kitty_image_id_from_params(params) else {
+            if let Some(image_number) = params.image_number {
+                self.push_kitty_graphics_error_response(
+                    params,
+                    "ENOENT",
+                    &format!("No image with number {image_number}"),
+                );
+            }
+            return true;
+        };
+
+        let params = Self::kitty_response_params_with_image_id(params, image_id);
+        if self.kitty_images.contains_key(&image_id) {
+            self.push_kitty_graphics_ok_response(params);
+        } else {
+            let subject = params.image_number.map_or_else(
+                || format!("id {image_id}"),
+                |image_number| format!("number {image_number}"),
+            );
+            self.push_kitty_graphics_error_response(
+                params,
+                "ENOENT",
+                &format!("No image with {subject}"),
+            );
+        }
+        true
+    }
+
+    fn finish_kitty_graphics_upload(&mut self, upload: &PendingKittyGraphics) {
+        let Ok(data) = load_kitty_graphics_payload(upload) else {
+            return;
+        };
+
+        if !kitty_graphics_payload_is_supported(
+            upload.image_format,
+            upload.pixel_width,
+            upload.pixel_height,
+            data.len(),
+        ) {
+            return;
+        }
+
+        let image = StoredKittyImage {
+            image_format: upload.image_format,
+            pixel_width: upload.pixel_width,
+            pixel_height: upload.pixel_height,
+            display_columns: upload.display_columns,
+            display_rows: upload.display_rows,
+            data,
+        };
+
+        let image_id = upload
+            .image_id
+            .or_else(|| upload.image_number.map(|_| self.next_kitty_image_id()));
+        if let Some(image_id) = image_id {
+            self.kitty_images.insert(image_id, image.clone());
+        }
+        if let (Some(image_number), Some(image_id)) = (upload.image_number, image_id) {
+            self.kitty_image_numbers.insert(image_number, image_id);
+            self.push_kitty_graphics_upload_ok_response(upload, image_id);
+        }
+
+        if upload.display_on_finish {
+            self.place_kitty_image(
+                &image,
+                KittyPlacementOptions {
+                    display_columns: upload.display_columns,
+                    display_rows: upload.display_rows,
+                    image_id: Some(image_id.unwrap_or(ANONYMOUS_KITTY_IMAGE_ID)),
+                    placement_id: kitty_placement_id(image_id, upload.placement_id),
+                    z_index: Some(upload.z_index.unwrap_or(0)),
+                    move_cursor: !upload.no_cursor_movement,
+                    source_rect: upload.source_rect(),
+                    target_x: upload.target_x,
+                    target_y: upload.target_y,
+                },
+            );
+        }
+    }
+
+    fn apply_kitty_graphics_placement(&mut self, params: KittyGraphicsParams) {
+        let Some(image_id) = self.kitty_image_id_from_params(params) else {
+            if let Some(image_number) = params.image_number {
+                self.push_kitty_graphics_error_response(
+                    params,
+                    "ENOENT",
+                    &format!("No image with number {image_number}"),
+                );
+            }
+            return;
+        };
+        let Some(image) = self.kitty_images.get(&image_id).cloned() else {
+            let subject = params.image_number.map_or_else(
+                || format!("id {image_id}"),
+                |image_number| format!("number {image_number}"),
+            );
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "ENOENT",
+                &format!("No image with {subject}"),
+            );
+            return;
+        };
+
+        self.place_kitty_image(
+            &image,
+            KittyPlacementOptions {
+                display_columns: params.display_columns,
+                display_rows: params.display_rows,
+                image_id: Some(image_id),
+                placement_id: params.placement_id,
+                z_index: Some(params.z_index.unwrap_or(0)),
+                move_cursor: !params.no_cursor_movement,
+                source_rect: params.source_rect(),
+                target_x: params.target_x,
+                target_y: params.target_y,
+            },
+        );
+        self.push_kitty_graphics_ok_response(Self::kitty_response_params_with_image_id(
+            params, image_id,
+        ));
+    }
+
+    fn apply_kitty_graphics_delete(&mut self, params: KittyGraphicsParams) {
+        self.pending_kitty_graphics = None;
+
+        match params.delete_target.unwrap_or('a') {
+            'a' => self.delete_kitty_placements(false, |image| image.kitty_image_id.is_some()),
+            'A' => {
+                self.delete_kitty_placements(false, |image| image.kitty_image_id.is_some());
+                self.kitty_images.clear();
+                self.kitty_image_numbers.clear();
+            }
+            'i' | 'I' => {
+                let Some(image_id) = params.image_id else {
+                    return;
+                };
+                self.delete_kitty_placements_by_image_id(
+                    image_id,
+                    params.placement_id,
+                    params.delete_target == Some('I'),
+                );
+            }
+            'n' | 'N' => {
+                let Some(image_id) = params
+                    .image_number
+                    .and_then(|image_number| self.kitty_image_numbers.get(&image_number).copied())
+                else {
+                    return;
+                };
+                self.delete_kitty_placements_by_image_id(
+                    image_id,
+                    params.placement_id,
+                    params.delete_target == Some('N'),
+                );
+            }
+            'r' | 'R' => {
+                let (Some(first_image_id), Some(last_image_id)) =
+                    (params.cell_x.map(u32::from), params.cell_y.map(u32::from))
+                else {
+                    return;
+                };
+                self.delete_kitty_placements_by_image_id_range(
+                    first_image_id,
+                    last_image_id,
+                    params.delete_target == Some('R'),
+                );
+            }
+            'c' | 'C' => {
+                let row = self.current_history_row();
+                let column = self.cursor_column;
+                self.delete_kitty_placements(params.delete_target == Some('C'), |image| {
+                    kitty_image_intersects_cell(image, row, column)
+                });
+            }
+            'p' | 'P' => {
+                let Some((row, column)) = self.kitty_delete_cell(params) else {
+                    return;
+                };
+                self.delete_kitty_placements(params.delete_target == Some('P'), |image| {
+                    kitty_image_intersects_cell(image, row, column)
+                });
+            }
+            'x' | 'X' => {
+                let Some(column) = params.cell_x.and_then(zero_based_axis) else {
+                    return;
+                };
+                let (first_row, last_row) = self.visible_history_rows();
+                self.delete_kitty_placements(params.delete_target == Some('X'), |image| {
+                    kitty_image_intersects_column(image, first_row, last_row, column)
+                });
+            }
+            'y' | 'Y' => {
+                let Some(row) = params.cell_y.and_then(|row| self.visible_history_row(row)) else {
+                    return;
+                };
+                self.delete_kitty_placements(params.delete_target == Some('Y'), |image| {
+                    kitty_image_intersects_row(image, row)
+                });
+            }
+            'z' | 'Z' => {
+                let Some(z_index) = params.z_index else {
+                    return;
+                };
+                self.delete_kitty_placements(params.delete_target == Some('Z'), |image| {
+                    image.kitty_image_id.is_some() && image.kitty_z_index == Some(z_index)
+                });
+            }
+            'q' | 'Q' => {
+                let Some(z_index) = params.z_index else {
+                    return;
+                };
+                let Some((row, column)) = self.kitty_delete_cell(params) else {
+                    return;
+                };
+                self.delete_kitty_placements(params.delete_target == Some('Q'), |image| {
+                    image.kitty_z_index == Some(z_index)
+                        && kitty_image_intersects_cell(image, row, column)
+                });
+            }
+            _ => (),
+        }
+    }
+
+    fn delete_kitty_placements_by_image_id(
+        &mut self,
+        image_id: u32,
+        placement_id: Option<u32>,
+        remove_unreferenced_data: bool,
+    ) {
+        if let Some(placement_id) = placement_id {
+            self.delete_kitty_placements(false, |image| {
+                image.kitty_image_id == Some(image_id)
+                    && image.kitty_placement_id == Some(placement_id)
+            });
+        } else {
+            self.delete_kitty_placements(false, |image| image.kitty_image_id == Some(image_id));
+        }
+        if remove_unreferenced_data {
+            self.remove_unreferenced_kitty_images(vec![image_id]);
+        }
+    }
+
+    fn delete_kitty_placements_by_image_id_range(
+        &mut self,
+        first_image_id: u32,
+        last_image_id: u32,
+        remove_unreferenced_data: bool,
+    ) {
+        if first_image_id > last_image_id {
+            return;
+        }
+        let removed_image_ids = self
+            .kitty_images
+            .keys()
+            .copied()
+            .filter(|image_id| *image_id >= first_image_id && *image_id <= last_image_id)
+            .collect::<Vec<_>>();
+        self.delete_kitty_placements(false, |image| {
+            image
+                .kitty_image_id
+                .is_some_and(|image_id| image_id >= first_image_id && image_id <= last_image_id)
+        });
+        if remove_unreferenced_data {
+            self.remove_unreferenced_kitty_images(removed_image_ids);
+        }
+    }
+
+    fn apply_sixel_content(&mut self, content: &str) {
+        let Some(image) = parse_sixel_image(content) else {
+            return;
+        };
+
+        let width = format!("{}px", image.width);
+        let height = format!("{}px", image.height);
+        self.record_inline_image_damage(Some(&width), Some(&height));
+        self.inline_images.push(ItermInlineImage {
+            row: self.current_history_row(),
+            column: self.cursor_column,
+            name: None,
+            kitty_image_id: None,
+            kitty_placement_id: None,
+            kitty_z_index: None,
+            size: Some(image.data.len()),
+            width: Some(width),
+            height: Some(height),
+            preserve_aspect_ratio: None,
+            image_format: InlineImageFormat::Rgba,
+            pixel_width: Some(image.width),
+            pixel_height: Some(image.height),
+            source_x: None,
+            source_y: None,
+            source_width: None,
+            source_height: None,
+            target_x: None,
+            target_y: None,
+            data: image.data,
+        });
+    }
+
+    fn push_kitty_graphics_ok_response(&mut self, params: KittyGraphicsParams) {
+        self.push_kitty_graphics_response(params, "OK");
+    }
+
+    fn push_kitty_graphics_error_response(
+        &mut self,
+        params: KittyGraphicsParams,
+        code: &str,
+        message: &str,
+    ) {
+        self.push_kitty_graphics_response(params, &format!("{code}:{message}"));
+    }
+
+    fn push_kitty_graphics_response(&mut self, params: KittyGraphicsParams, status: &str) {
+        if kitty_graphics_response_is_suppressed(params, status) {
+            return;
+        }
+
+        let mut response = b"\x1b_G".to_vec();
+        let mut has_param = false;
+        if let Some(image_id) = params.image_id {
+            append_kitty_graphics_response_param(&mut response, &mut has_param, b'i', image_id);
+        }
+        if let Some(image_number) = params.image_number {
+            append_kitty_graphics_response_param(&mut response, &mut has_param, b'I', image_number);
+        }
+        if let Some(placement_id) = params.placement_id {
+            append_kitty_graphics_response_param(&mut response, &mut has_param, b'p', placement_id);
+        }
+        response.push(b';');
+        response.extend(
+            status
+                .bytes()
+                .filter(|byte| !matches!(byte, 0x00..=0x1f | 0x7f)),
+        );
+        response.extend_from_slice(b"\x1b\\");
+        self.kitty_graphics_responses.push(response);
+    }
+
+    fn delete_kitty_placements(
+        &mut self,
+        remove_unreferenced_data: bool,
+        mut matches: impl FnMut(&ItermInlineImage) -> bool,
+    ) {
+        let before = self.inline_images.len();
+        let mut removed_image_ids = Vec::new();
+        self.inline_images.retain(|image| {
+            let remove = matches(image);
+            if remove {
+                if let Some(image_id) = image.kitty_image_id {
+                    removed_image_ids.push(image_id);
+                }
+            }
+            !remove
+        });
+        if self.inline_images.len() != before {
+            if remove_unreferenced_data {
+                self.remove_unreferenced_kitty_images(removed_image_ids);
+            }
+            let size = self.grid.size();
+            self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+        }
+    }
+
+    fn remove_unreferenced_kitty_images(&mut self, image_ids: Vec<u32>) {
+        for image_id in image_ids {
+            if !self
+                .inline_images
+                .iter()
+                .any(|image| image.kitty_image_id == Some(image_id))
+            {
+                self.kitty_images.remove(&image_id);
+                self.kitty_image_numbers
+                    .retain(|_, mapped_image_id| *mapped_image_id != image_id);
+            }
+        }
+    }
+
+    fn kitty_image_id_from_params(&self, params: KittyGraphicsParams) -> Option<u32> {
+        params.image_id.or_else(|| {
+            params
+                .image_number
+                .and_then(|image_number| self.kitty_image_numbers.get(&image_number).copied())
+        })
+    }
+
+    fn kitty_response_params_with_image_id(
+        params: KittyGraphicsParams,
+        image_id: u32,
+    ) -> KittyGraphicsParams {
+        KittyGraphicsParams {
+            image_id: Some(image_id),
+            ..params
+        }
+    }
+
+    fn push_kitty_graphics_upload_ok_response(
+        &mut self,
+        upload: &PendingKittyGraphics,
+        image_id: u32,
+    ) {
+        self.push_kitty_graphics_ok_response(KittyGraphicsParams {
+            image_id: Some(image_id),
+            image_number: upload.image_number,
+            placement_id: upload.placement_id,
+            quiet: upload.quiet,
+            ..KittyGraphicsParams::default()
+        });
+    }
+
+    fn next_kitty_image_id(&mut self) -> u32 {
+        let mut image_id = self.next_kitty_image_id.max(1);
+        while image_id == ANONYMOUS_KITTY_IMAGE_ID || self.kitty_images.contains_key(&image_id) {
+            image_id = image_id.saturating_add(1).max(1);
+        }
+        self.next_kitty_image_id = image_id.saturating_add(1).max(1);
+        image_id
+    }
+
+    fn kitty_delete_cell(&self, params: KittyGraphicsParams) -> Option<(usize, u16)> {
+        let row = self.visible_history_row(params.cell_y?)?;
+        let column = zero_based_axis(params.cell_x?)?;
+        Some((row, column))
+    }
+
+    fn visible_history_row(&self, one_based_row: u16) -> Option<usize> {
+        let row = zero_based_axis(one_based_row)?;
+        (row < self.grid.size().rows)
+            .then(|| self.scrollback.len().saturating_add(usize::from(row)))
+    }
+
+    fn visible_history_rows(&self) -> (usize, usize) {
+        let first = self.scrollback.len();
+        let last = first.saturating_add(usize::from(self.grid.size().rows));
+        (first, last)
+    }
+
+    fn place_kitty_image(&mut self, image: &StoredKittyImage, options: KittyPlacementOptions) {
+        let width = options
+            .display_columns
+            .or(image.display_columns)
+            .map(|columns| columns.to_string())
+            .or_else(|| image.pixel_width.map(|width| format!("{width}px")));
+        let height = options
+            .display_rows
+            .or(image.display_rows)
+            .map(|rows| rows.to_string())
+            .or_else(|| image.pixel_height.map(|height| format!("{height}px")));
+        let placement_columns = iterm_inline_image_cell_extent(width.as_deref()).max(1);
+        let placement_rows = iterm_inline_image_cell_extent(height.as_deref()).max(1);
+        let row = self.current_history_row();
+        let column = self.cursor_column;
+
+        if let (Some(image_id), Some(placement_id)) = (options.image_id, options.placement_id) {
+            let before = self.inline_images.len();
+            self.inline_images.retain(|image| {
+                image.kitty_image_id != Some(image_id)
+                    || image.kitty_placement_id != Some(placement_id)
+            });
+            if self.inline_images.len() != before {
+                let size = self.grid.size();
+                self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+            }
+        }
+
+        self.record_inline_image_damage(width.as_deref(), height.as_deref());
+        self.inline_images.push(ItermInlineImage {
+            row,
+            column,
+            name: None,
+            kitty_image_id: options.image_id,
+            kitty_placement_id: options.placement_id,
+            kitty_z_index: options.z_index,
+            size: Some(image.data.len()),
+            width,
+            height,
+            preserve_aspect_ratio: None,
+            image_format: image.image_format,
+            pixel_width: image.pixel_width,
+            pixel_height: image.pixel_height,
+            source_x: options.source_rect.x,
+            source_y: options.source_rect.y,
+            source_width: options.source_rect.width,
+            source_height: options.source_rect.height,
+            target_x: options.target_x,
+            target_y: options.target_y,
+            data: image.data.clone(),
+        });
+
+        if options.move_cursor {
+            self.move_kitty_cursor_after_placement(placement_columns, placement_rows);
+        }
+    }
+
+    fn move_kitty_cursor_after_placement(&mut self, columns: u16, rows: u16) {
+        self.move_cursor_forward(columns);
+        self.move_cursor_down(rows);
+    }
+
+    fn record_inline_image_damage(&mut self, width: Option<&str>, height: Option<&str>) {
+        let size = self.grid.size();
+        if self.cursor_row >= size.rows || self.cursor_column >= size.columns {
+            return;
+        }
+
+        let width = iterm_inline_image_cell_extent(width)
+            .min(size.columns.saturating_sub(self.cursor_column))
+            .max(1);
+        let height = iterm_inline_image_cell_extent(height)
+            .min(size.rows.saturating_sub(self.cursor_row))
+            .max(1);
+        self.record_damage(DamageRegion::new(
+            self.cursor_column,
+            self.cursor_row,
+            width,
+            height,
+        ));
+    }
+
+    fn apply_osc133_semantic_prompt(&mut self, content: &[char]) {
+        let content = content.iter().collect::<String>();
+        let (marker, params) = content.split_once(';').unwrap_or((&content, ""));
+
+        match marker {
+            "A" | "N" => {
+                self.fresh_line();
+                self.style.semantic_type = SemanticType::Prompt;
+                self.clear_semantic_type_on_movement = false;
+                self.record_semantic_prompt_row();
+            }
+            "P" => {
+                self.style.semantic_type = SemanticType::Prompt;
+                self.clear_semantic_type_on_movement = false;
+                self.record_semantic_prompt_row();
+            }
+            "B" => {
+                self.style.semantic_type = SemanticType::Input;
+                self.clear_semantic_type_on_movement = false;
+            }
+            "I" => {
+                self.style.semantic_type = SemanticType::Input;
+                self.clear_semantic_type_on_movement = true;
+            }
+            "C" => {
+                self.style.semantic_type = SemanticType::Output;
+                self.clear_semantic_type_on_movement = false;
+            }
+            "D" => self.record_semantic_command_exit(params),
+            _ => {}
+        }
+    }
+
+    fn fresh_line(&mut self) {
+        if self.cursor_column != 0 {
+            self.newline();
+        }
+    }
+
+    fn clear_semantic_type_due_to_movement(&mut self) {
+        if self.clear_semantic_type_on_movement {
+            self.clear_semantic_type_on_movement = false;
+            self.style.semantic_type = SemanticType::default();
+        }
+    }
+
+    fn record_semantic_prompt_row(&mut self) {
+        let row = self.current_history_row();
+        if self.semantic_prompt_rows.last().copied() == Some(row) {
+            return;
+        }
+
+        match self.semantic_prompt_rows.binary_search(&row) {
+            Ok(_) => {}
+            Err(index) => self.semantic_prompt_rows.insert(index, row),
+        }
+    }
+
+    fn record_semantic_command_exit(&mut self, params: &str) {
+        let mut exit_code = None;
+        let mut aid = None;
+
+        for (index, part) in params
+            .split(';')
+            .filter(|part| !part.is_empty())
+            .enumerate()
+        {
+            if let Some(value) = part.strip_prefix("aid=") {
+                aid = Some(value.to_owned());
+            } else if index == 0 {
+                exit_code = part.parse::<i32>().ok();
+            }
+        }
+
+        self.semantic_command_exits.push(SemanticCommandExit {
+            row: self.current_history_row(),
+            exit_code,
+            aid,
+        });
+    }
+
+    fn current_history_row(&self) -> usize {
+        self.scrollback
+            .len()
+            .saturating_add(usize::from(self.cursor_row))
     }
 
     fn apply_osc8_hyperlink(&mut self, content: &[char]) {
@@ -430,8 +1492,139 @@ impl Terminal {
     }
 
     #[must_use]
+    pub fn semantic_prompt_rows(&self) -> &[usize] {
+        &self.semantic_prompt_rows
+    }
+
+    #[must_use]
+    pub fn semantic_command_exits(&self) -> &[SemanticCommandExit] {
+        &self.semantic_command_exits
+    }
+
+    #[must_use]
+    pub fn semantic_zones(&self) -> Vec<SemanticZone> {
+        let mut zones = Vec::new();
+        let mut current_zone = None;
+
+        for (row, line) in self.scrollback.iter().enumerate() {
+            append_semantic_zones_for_row(row, line.cells(), &mut current_zone, &mut zones);
+        }
+
+        let history_len = self.scrollback.len();
+        for row in 0..self.grid.size().rows {
+            let cells = (0..self.grid.size().columns)
+                .map(|column| self.grid.get(row, column).cloned().unwrap_or_default())
+                .collect::<Vec<_>>();
+            append_semantic_zones_for_row(
+                history_len + usize::from(row),
+                &cells,
+                &mut current_zone,
+                &mut zones,
+            );
+        }
+
+        if let Some(zone) = current_zone {
+            zones.push(zone);
+        }
+
+        zones
+    }
+
+    #[must_use]
+    pub fn semantic_zone_at(&self, x: usize, y: usize) -> Option<SemanticZone> {
+        self.semantic_zones()
+            .into_iter()
+            .find(|zone| zone.contains(x, y))
+    }
+
+    #[must_use]
+    pub fn text_from_semantic_zone(&self, zone: SemanticZone) -> Option<String> {
+        self.text_from_region(zone.start_x, zone.start_y, zone.end_x, zone.end_y)
+    }
+
+    #[must_use]
+    pub fn text_from_region(
+        &self,
+        start_x: usize,
+        start_y: usize,
+        end_x: usize,
+        end_y: usize,
+    ) -> Option<String> {
+        if start_y > end_y || (start_y == end_y && start_x > end_x) {
+            return None;
+        }
+
+        let mut lines = Vec::new();
+        let mut logical_line = String::new();
+        for row in start_y..=end_y {
+            let cells = self.cells_for_history_row(row)?;
+            if cells.is_empty() {
+                if row != start_y && !self.history_row_is_wrapped(row)? {
+                    trim_trailing_spaces(&mut logical_line);
+                    lines.push(std::mem::take(&mut logical_line));
+                }
+                continue;
+            }
+
+            let first_column = if row == start_y { start_x } else { 0 };
+            let last_column = if row == end_y {
+                end_x.min(cells.len().saturating_sub(1))
+            } else {
+                cells.len().saturating_sub(1)
+            };
+
+            if first_column > last_column || first_column >= cells.len() {
+                if row != start_y && !self.history_row_is_wrapped(row)? {
+                    trim_trailing_spaces(&mut logical_line);
+                    lines.push(std::mem::take(&mut logical_line));
+                }
+                continue;
+            }
+
+            if row != start_y && !self.history_row_is_wrapped(row)? {
+                trim_trailing_spaces(&mut logical_line);
+                lines.push(std::mem::take(&mut logical_line));
+            }
+
+            let line = cells[first_column..=last_column]
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>();
+            logical_line.push_str(&line);
+        }
+
+        trim_trailing_spaces(&mut logical_line);
+        lines.push(logical_line);
+        Some(lines.join("\n"))
+    }
+
+    #[must_use]
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
+    }
+
+    #[must_use]
+    pub fn current_working_dir(&self) -> Option<&str> {
+        self.current_working_dir.as_deref()
+    }
+
+    #[must_use]
+    pub fn badge_format(&self) -> Option<&str> {
+        self.badge_format.as_deref()
+    }
+
+    #[must_use]
+    pub fn user_vars(&self) -> &HashMap<String, String> {
+        &self.user_vars
+    }
+
+    #[must_use]
+    pub fn inline_images(&self) -> &[ItermInlineImage] {
+        &self.inline_images
+    }
+
+    pub fn take_kitty_graphics_responses(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.kitty_graphics_responses)
     }
 
     #[must_use]
@@ -439,9 +1632,46 @@ impl Terminal {
         (self.cursor_row, self.cursor_column)
     }
 
+    fn cells_for_history_row(&self, row: usize) -> Option<Vec<Cell>> {
+        if let Some(line) = self.scrollback.get(row) {
+            return Some(line.cells().to_vec());
+        }
+
+        let grid_row = row.checked_sub(self.scrollback.len())?;
+        let grid_row = u16::try_from(grid_row).ok()?;
+        if grid_row >= self.grid.size().rows {
+            return None;
+        }
+
+        Some(
+            (0..self.grid.size().columns)
+                .map(|column| self.grid.get(grid_row, column).cloned().unwrap_or_default())
+                .collect(),
+        )
+    }
+
+    fn history_row_is_wrapped(&self, row: usize) -> Option<bool> {
+        if let Some(line) = self.scrollback.get(row) {
+            return Some(line.is_wrapped());
+        }
+
+        let grid_row = row.checked_sub(self.scrollback.len())?;
+        let grid_row = u16::try_from(grid_row).ok()?;
+        if grid_row >= self.grid.size().rows {
+            return None;
+        }
+
+        Some(self.grid.row_wrapped(grid_row))
+    }
+
     #[must_use]
     pub const fn cursor_visible(&self) -> bool {
         self.modes.cursor_visible
+    }
+
+    #[must_use]
+    pub const fn cursor_blinking(&self) -> bool {
+        self.modes.cursor_blinking
     }
 
     #[must_use]
@@ -459,8 +1689,61 @@ impl Terminal {
         (self.scroll_top, self.scroll_bottom)
     }
 
+    #[must_use]
+    pub const fn left_right_margins(&self) -> (u16, u16) {
+        (self.left_margin, self.right_margin)
+    }
+
     pub fn take_bell_count(&mut self) -> u64 {
         std::mem::take(&mut self.bell_count)
+    }
+
+    pub fn erase_scrollback_and_viewport(&mut self) {
+        let size = self.grid.size();
+        self.scrollback.clear();
+        self.title_stack.clear();
+        self.inline_images.clear();
+        self.pending_kitty_graphics = None;
+        self.kitty_images.clear();
+        self.kitty_image_numbers.clear();
+        self.next_kitty_image_id = 1;
+        self.semantic_prompt_rows.clear();
+        self.semantic_command_exits.clear();
+        if size.rows == 0 || size.columns == 0 {
+            self.cursor_row = 0;
+            self.cursor_column = 0;
+            self.pending_wrap = false;
+            self.clear_semantic_type_on_movement = false;
+            return;
+        }
+
+        let cursor_row = self.cursor_row.min(size.rows.saturating_sub(1));
+        let cursor_line = (0..size.columns)
+            .map(|column| {
+                self.grid
+                    .get(cursor_row, column)
+                    .cloned()
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>();
+        let blank = self.blank_cell();
+
+        for row in 0..size.rows {
+            for column in 0..size.columns {
+                self.grid.set(row, column, blank.clone());
+            }
+            self.grid.set_row_wrapped(row, false);
+        }
+
+        for (column, cell) in cursor_line.into_iter().enumerate() {
+            let column = u16::try_from(column).unwrap_or(u16::MAX);
+            self.grid.set(0, column, cell);
+        }
+
+        self.cursor_row = 0;
+        self.pending_wrap = false;
+        self.clear_semantic_type_on_movement = false;
+        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
     pub fn resize(&mut self, size: TerminalSize) {
@@ -475,6 +1758,8 @@ impl Terminal {
         self.clamp_to_size();
         self.scroll_top = 0;
         self.scroll_bottom = size.rows.saturating_sub(1);
+        self.left_margin = 0;
+        self.right_margin = size.columns.saturating_sub(1);
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
@@ -486,32 +1771,94 @@ impl Terminal {
         let size = self.grid.size();
         self.grid = TerminalGrid::new(size);
         self.scrollback.clear();
+        self.inline_images.clear();
+        self.pending_kitty_graphics = None;
+        self.kitty_images.clear();
+        self.kitty_image_numbers.clear();
+        self.next_kitty_image_id = 1;
+        self.semantic_prompt_rows.clear();
+        self.semantic_command_exits.clear();
         self.cursor_row = 0;
         self.cursor_column = 0;
         self.pending_wrap = false;
+        self.clear_semantic_type_on_movement = false;
         self.last_printable = None;
         self.saved_cursor = None;
         self.main_screen = None;
         self.modes = TerminalModes::default();
         self.scroll_top = 0;
         self.scroll_bottom = size.rows.saturating_sub(1);
+        self.left_margin = 0;
+        self.right_margin = size.columns.saturating_sub(1);
         self.character_set = CharacterSet::Ascii;
         self.tab_stops = TabStops::new(size);
         self.style = Cell::default();
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
-    fn newline(&mut self) {
+    fn soft_reset_terminal(&mut self) {
+        let size = self.grid.size();
+        self.modes.write_mode = CharacterWriteMode::Replace;
+        self.modes.origin_mode = false;
+        self.modes.left_right_margin_mode = false;
+        self.scroll_top = 0;
+        self.scroll_bottom = size.rows.saturating_sub(1);
+        self.left_margin = 0;
+        self.right_margin = self.grid.size().columns.saturating_sub(1);
+        self.character_set = CharacterSet::Ascii;
+        self.saved_cursor = None;
+        self.pending_wrap = false;
+        self.clear_semantic_type_on_movement = false;
+        self.last_printable = None;
+        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+    }
+
+    fn screen_alignment_test(&mut self) {
+        let size = self.grid.size();
+        self.modes.origin_mode = false;
+        self.scroll_top = 0;
+        self.scroll_bottom = size.rows.saturating_sub(1);
+        self.left_margin = 0;
+        self.right_margin = size.columns.saturating_sub(1);
+        self.cursor_row = 0;
         self.cursor_column = 0;
-        self.index_down();
+        self.pending_wrap = false;
+        self.clear_semantic_type_on_movement = false;
+
+        if size.rows == 0 || size.columns == 0 {
+            return;
+        }
+
+        let cell = Cell {
+            ch: 'E',
+            ..Cell::default()
+        };
+        for row in 0..size.rows {
+            for column in 0..size.columns {
+                self.grid.set(row, column, cell.clone());
+            }
+            self.grid.set_row_wrapped(row, false);
+        }
+
+        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+    }
+
+    fn newline(&mut self) {
+        self.carriage_return();
+        self.index_down(false);
+    }
+
+    fn wrapped_newline(&mut self) {
+        self.carriage_return();
+        self.index_down(true);
     }
 
     fn next_line(&mut self) {
-        self.cursor_column = 0;
-        self.index_down();
+        self.carriage_return();
+        self.index_down(false);
     }
 
-    fn index_down(&mut self) {
+    fn index_down(&mut self, wrapped: bool) {
         self.pending_wrap = false;
         let rows = self.grid.size().rows;
         if rows == 0 {
@@ -525,6 +1872,8 @@ impl Terminal {
         } else if self.cursor_row + 1 < rows {
             self.cursor_row += 1;
         }
+        self.grid.set_row_wrapped(self.cursor_row, wrapped);
+        self.clear_semantic_type_due_to_movement();
     }
 
     fn reverse_index(&mut self) {
@@ -542,11 +1891,28 @@ impl Terminal {
         } else {
             self.cursor_row = self.cursor_row.saturating_sub(1);
         }
+        self.clear_semantic_type_due_to_movement();
     }
 
     fn backspace(&mut self) {
         self.pending_wrap = false;
-        self.cursor_column = self.cursor_column.saturating_sub(1);
+        let left_boundary =
+            if self.modes.left_right_margin_mode && self.cursor_column >= self.left_margin {
+                self.left_margin
+            } else {
+                0
+            };
+        self.cursor_column = self.cursor_column.saturating_sub(1).max(left_boundary);
+    }
+
+    fn carriage_return(&mut self) {
+        self.cursor_column =
+            if self.modes.left_right_margin_mode && self.cursor_column >= self.left_margin {
+                self.left_margin
+            } else {
+                0
+            };
+        self.pending_wrap = false;
     }
 
     fn horizontal_tab(&mut self) {
@@ -609,8 +1975,11 @@ impl Terminal {
             return;
         }
 
-        if self.should_record_scrollback_for_scroll(top, bottom) {
+        let records_scrollback = self.should_record_scrollback_for_scroll(top, bottom);
+        if records_scrollback {
             self.record_scrollback_line(top);
+        } else {
+            self.scroll_inline_images_up_region(top, bottom, 1);
         }
 
         for row in top.saturating_add(1)..=bottom {
@@ -618,11 +1987,13 @@ impl Terminal {
                 let cell = self.grid.get(row, column).cloned().unwrap_or_default();
                 self.grid.set(row - 1, column, cell);
             }
+            self.grid.copy_row_wrapped(row, row - 1);
         }
 
         for column in 0..size.columns {
             self.grid.set(bottom, column, self.blank_cell());
         }
+        self.grid.set_row_wrapped(bottom, false);
 
         self.record_damage(DamageRegion::new(0, top, size.columns, bottom - top + 1));
     }
@@ -640,11 +2011,33 @@ impl Terminal {
         let cells = (0..size.columns)
             .map(|column| self.grid.get(row, column).cloned().unwrap_or_default())
             .collect();
+        let wrapped = self.grid.row_wrapped(row);
 
-        self.scrollback.push(ScrollbackLine::from_cells(cells));
+        self.scrollback
+            .push(ScrollbackLine::from_cells_wrapped(cells, wrapped));
         if self.scrollback.len() > DEFAULT_SCROLLBACK_LIMIT {
             let overflow = self.scrollback.len() - DEFAULT_SCROLLBACK_LIMIT;
             self.scrollback.drain(..overflow);
+            self.semantic_prompt_rows = self
+                .semantic_prompt_rows
+                .iter()
+                .filter_map(|row| row.checked_sub(overflow))
+                .collect();
+            self.semantic_command_exits = self
+                .semantic_command_exits
+                .iter()
+                .filter_map(|command| {
+                    command
+                        .row
+                        .checked_sub(overflow)
+                        .map(|row| SemanticCommandExit {
+                            row,
+                            exit_code: command.exit_code,
+                            aid: command.aid.clone(),
+                        })
+                })
+                .collect();
+            self.rebase_inline_images_after_history_prune(overflow);
         }
     }
 
@@ -656,7 +2049,7 @@ impl Terminal {
         }
 
         if self.pending_wrap && self.modes.auto_wrap {
-            self.newline();
+            self.wrapped_newline();
         } else if self.pending_wrap {
             self.pending_wrap = false;
         }
@@ -664,7 +2057,7 @@ impl Terminal {
         if self.cursor_column.saturating_add(width) > self.grid.size().columns
             && self.modes.auto_wrap
         {
-            self.newline();
+            self.wrapped_newline();
         }
 
         if self.cursor_row >= self.grid.size().rows
@@ -737,11 +2130,35 @@ impl Terminal {
             'g' => self.clear_tab_stop(csi_mode(params)),
             'm' => self.apply_sgr(params),
             'q' => self.set_cursor_shape(params),
+            'p' if params == ['!'] => self.soft_reset_terminal(),
             'r' => self.set_scroll_region(params),
+            't' => self.apply_window_manipulation(params),
             'h' => self.set_mode(params, true),
             'l' => self.set_mode(params, false),
+            's' if self.modes.left_right_margin_mode => self.set_left_right_margins(params),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
+            _ => {}
+        }
+    }
+
+    fn apply_window_manipulation(&mut self, params: &[char]) {
+        let values = parse_csi_params(params);
+        let Some(action) = values.first().copied() else {
+            return;
+        };
+        let target = values.get(1).copied().unwrap_or(0);
+        if target > 2 {
+            return;
+        }
+
+        match action {
+            22 => self.title_stack.push(self.title.clone()),
+            23 => {
+                if let Some(title) = self.title_stack.pop() {
+                    self.title = title;
+                }
+            }
             _ => {}
         }
     }
@@ -771,7 +2188,9 @@ impl Terminal {
             match value {
                 6 => self.set_origin_mode(enabled),
                 7 => self.set_auto_wrap(enabled),
+                12 => self.modes.cursor_blinking = enabled,
                 25 => self.modes.cursor_visible = enabled,
+                69 => self.set_left_right_margin_mode(enabled),
                 47 | 1047 | 1049 => self.set_alternate_screen(enabled),
                 1048 => {
                     if enabled {
@@ -804,6 +2223,11 @@ impl Terminal {
             5 | 6 => CursorShape::Bar,
             _ => self.modes.cursor_shape,
         };
+        self.modes.cursor_blinking = match value {
+            1 | 3 | 5 => true,
+            0 | 2 | 4 | 6 => false,
+            _ => self.modes.cursor_blinking,
+        };
     }
 
     fn set_origin_mode(&mut self, enabled: bool) {
@@ -827,6 +2251,7 @@ impl Terminal {
             let size = self.grid.size();
             self.main_screen = Some(self.screen_state());
             self.grid = TerminalGrid::new(size);
+            self.inline_images.clear();
             self.cursor_row = 0;
             self.cursor_column = 0;
             self.pending_wrap = false;
@@ -834,8 +2259,11 @@ impl Terminal {
             self.saved_cursor = None;
             self.modes.cursor_visible = true;
             self.modes.origin_mode = false;
+            self.modes.left_right_margin_mode = false;
             self.scroll_top = 0;
             self.scroll_bottom = size.rows.saturating_sub(1);
+            self.left_margin = 0;
+            self.right_margin = size.columns.saturating_sub(1);
             self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
         } else if let Some(screen) = self.main_screen.take() {
             self.restore_screen_state(screen);
@@ -847,14 +2275,18 @@ impl Terminal {
     fn screen_state(&self) -> ScreenState {
         ScreenState {
             grid: self.grid.clone(),
+            inline_images: self.inline_images.clone(),
             cursor_row: self.cursor_row,
             cursor_column: self.cursor_column,
             pending_wrap: self.pending_wrap,
+            clear_semantic_type_on_movement: self.clear_semantic_type_on_movement,
             last_printable: self.last_printable,
             saved_cursor: self.saved_cursor.clone(),
             modes: self.modes,
             scroll_top: self.scroll_top,
             scroll_bottom: self.scroll_bottom,
+            left_margin: self.left_margin,
+            right_margin: self.right_margin,
             character_set: self.character_set,
             style: self.style.clone(),
         }
@@ -862,14 +2294,18 @@ impl Terminal {
 
     fn restore_screen_state(&mut self, screen: ScreenState) {
         self.grid = screen.grid;
+        self.inline_images = screen.inline_images;
         self.cursor_row = screen.cursor_row;
         self.cursor_column = screen.cursor_column;
         self.pending_wrap = screen.pending_wrap;
+        self.clear_semantic_type_on_movement = screen.clear_semantic_type_on_movement;
         self.last_printable = screen.last_printable;
         self.saved_cursor = screen.saved_cursor;
         self.modes = screen.modes;
         self.scroll_top = screen.scroll_top;
         self.scroll_bottom = screen.scroll_bottom;
+        self.left_margin = screen.left_margin;
+        self.right_margin = screen.right_margin;
         self.character_set = screen.character_set;
         self.style = screen.style;
         self.clamp_to_size();
@@ -881,9 +2317,15 @@ impl Terminal {
         self.cursor_column = clamp_axis(self.cursor_column, size.columns);
         self.scroll_top = clamp_axis(self.scroll_top, size.rows);
         self.scroll_bottom = clamp_axis(self.scroll_bottom, size.rows);
+        self.left_margin = clamp_axis(self.left_margin, size.columns);
+        self.right_margin = clamp_axis(self.right_margin, size.columns);
         if self.scroll_top >= self.scroll_bottom {
             self.scroll_top = 0;
             self.scroll_bottom = size.rows.saturating_sub(1);
+        }
+        if self.left_margin >= self.right_margin {
+            self.left_margin = 0;
+            self.right_margin = size.columns.saturating_sub(1);
         }
         if size.columns == 0 || size.rows == 0 {
             self.pending_wrap = false;
@@ -892,12 +2334,25 @@ impl Terminal {
 
     fn cursor_home(&mut self) {
         self.pending_wrap = false;
-        self.cursor_column = 0;
+        self.cursor_column = if self.modes.origin_mode && self.modes.left_right_margin_mode {
+            self.left_margin
+        } else {
+            0
+        };
         self.cursor_row = if self.modes.origin_mode {
             self.scroll_top.min(self.grid.size().rows.saturating_sub(1))
         } else {
             0
         };
+        self.clear_semantic_type_due_to_movement();
+    }
+
+    fn set_left_right_margin_mode(&mut self, enabled: bool) {
+        self.modes.left_right_margin_mode = enabled;
+        if !enabled {
+            self.left_margin = 0;
+            self.right_margin = self.grid.size().columns.saturating_sub(1);
+        }
     }
 
     fn set_scroll_region(&mut self, params: &[char]) {
@@ -925,11 +2380,37 @@ impl Terminal {
         self.cursor_home();
     }
 
+    fn set_left_right_margins(&mut self, params: &[char]) {
+        let columns = self.grid.size().columns;
+        if columns == 0 {
+            return;
+        }
+
+        let values = parse_csi_params(params);
+        let left = param_or_one(values.first().copied()).saturating_sub(1);
+        let right = values
+            .get(1)
+            .copied()
+            .filter(|value| *value != 0)
+            .unwrap_or(columns)
+            .saturating_sub(1)
+            .min(columns - 1);
+
+        if left >= right {
+            return;
+        }
+
+        self.left_margin = left;
+        self.right_margin = right;
+        self.cursor_home();
+    }
+
     fn save_cursor(&mut self) {
         self.saved_cursor = Some(SavedCursor {
             row: self.cursor_row,
             column: self.cursor_column,
             pending_wrap: self.pending_wrap,
+            clear_semantic_type_on_movement: self.clear_semantic_type_on_movement,
             origin_mode: self.modes.origin_mode,
             character_set: self.character_set,
             style: self.style.clone(),
@@ -956,11 +2437,16 @@ impl Terminal {
         self.cursor_row = saved.row.min(size.rows - 1);
         self.cursor_column = saved.column.min(size.columns - 1);
         self.pending_wrap = saved.pending_wrap;
+        self.clear_semantic_type_on_movement = saved.clear_semantic_type_on_movement;
     }
 
     fn move_cursor_up(&mut self, count: u16) {
         self.pending_wrap = false;
+        let previous_row = self.cursor_row;
         self.cursor_row = self.cursor_row.saturating_sub(count);
+        if self.cursor_row != previous_row {
+            self.clear_semantic_type_due_to_movement();
+        }
     }
 
     fn move_cursor_down(&mut self, count: u16) {
@@ -970,7 +2456,11 @@ impl Terminal {
             return;
         }
 
+        let previous_row = self.cursor_row;
         self.cursor_row = self.cursor_row.saturating_add(count).min(rows - 1);
+        if self.cursor_row != previous_row {
+            self.clear_semantic_type_due_to_movement();
+        }
     }
 
     fn move_cursor_forward(&mut self, count: u16) {
@@ -1009,10 +2499,14 @@ impl Terminal {
         }
 
         let row = self.cursor_row_from_position_param(param_or_one(values.first().copied()));
-        let column = param_or_one(values.get(1).copied()).saturating_sub(1);
+        let column = self.cursor_column_from_position_param(param_or_one(values.get(1).copied()));
 
+        let previous_row = self.cursor_row;
         self.cursor_row = row;
-        self.cursor_column = column.min(columns - 1);
+        self.cursor_column = column;
+        if self.cursor_row != previous_row {
+            self.clear_semantic_type_due_to_movement();
+        }
     }
 
     fn cursor_row_from_position_param(&self, param: u16) -> u16 {
@@ -1028,6 +2522,22 @@ impl Terminal {
             top.saturating_add(row).min(bottom)
         } else {
             row.min(rows - 1)
+        }
+    }
+
+    fn cursor_column_from_position_param(&self, param: u16) -> u16 {
+        let column = param.saturating_sub(1);
+        let columns = self.grid.size().columns;
+        if columns == 0 {
+            return 0;
+        }
+
+        if self.modes.origin_mode && self.modes.left_right_margin_mode {
+            self.left_margin
+                .saturating_add(column)
+                .min(self.right_margin)
+        } else {
+            column.min(columns - 1)
         }
     }
 
@@ -1050,12 +2560,20 @@ impl Terminal {
         }
 
         let row = csi_count(params).saturating_sub(1);
+        let previous_row = self.cursor_row;
         self.cursor_row = row.min(rows - 1);
+        if self.cursor_row != previous_row {
+            self.clear_semantic_type_due_to_movement();
+        }
     }
 
     fn erase_display(&mut self, mode: u16) {
         if mode == 3 {
+            let removed_rows = self.scrollback.len();
             self.scrollback.clear();
+            self.semantic_prompt_rows.clear();
+            self.semantic_command_exits.clear();
+            self.rebase_inline_images_after_history_prune(removed_rows);
             return;
         }
 
@@ -1085,9 +2603,34 @@ impl Terminal {
                 for row in 0..size.rows {
                     self.clear_cells(row, 0, size.columns);
                 }
+                self.delete_visible_inline_images();
             }
             _ => {}
         }
+    }
+
+    fn rebase_inline_images_after_history_prune(&mut self, removed_rows: usize) {
+        if removed_rows == 0 {
+            return;
+        }
+        self.inline_images = self
+            .inline_images
+            .iter()
+            .filter_map(|image| {
+                let mut image = image.clone();
+                image.row = image.row.checked_sub(removed_rows)?;
+                Some(image)
+            })
+            .collect();
+    }
+
+    fn delete_visible_inline_images(&mut self) {
+        let first_row = self.scrollback.len();
+        let last_row = first_row.saturating_add(usize::from(self.grid.size().rows));
+        let columns = self.grid.size().columns;
+        self.inline_images.retain(|image| {
+            !inline_image_intersects_region(image, first_row, last_row, 0, columns)
+        });
     }
 
     fn erase_line(&mut self, mode: u16) {
@@ -1182,6 +2725,7 @@ impl Terminal {
 
         let height = bottom - top + 1;
         let count = count.min(height);
+        self.scroll_inline_images_down_region(top, bottom, count);
 
         if count < height {
             let shift_bottom = bottom - count;
@@ -1190,6 +2734,7 @@ impl Terminal {
                     let cell = self.grid.get(row, column).cloned().unwrap_or_default();
                     self.grid.set(row + count, column, cell);
                 }
+                self.grid.copy_row_wrapped(row, row + count);
             }
         }
 
@@ -1197,9 +2742,90 @@ impl Terminal {
             for column in 0..size.columns {
                 self.grid.set(row, column, self.blank_cell());
             }
+            self.grid.set_row_wrapped(row, false);
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
+    }
+
+    fn scroll_inline_images_down_region(&mut self, top: u16, bottom: u16, count: u16) {
+        if count == 0 || top > bottom {
+            return;
+        }
+
+        let first_row = self.scrollback.len().saturating_add(usize::from(top));
+        let last_row = self
+            .scrollback
+            .len()
+            .saturating_add(usize::from(bottom))
+            .saturating_add(1);
+        let count = usize::from(count);
+        let mut shifted_images = Vec::with_capacity(self.inline_images.len());
+
+        for mut image in self.inline_images.drain(..) {
+            let (image_top, image_bottom) = kitty_image_row_range(&image);
+            if image_bottom <= first_row || image_top >= last_row {
+                shifted_images.push(image);
+                continue;
+            }
+
+            if image_top < first_row || image_bottom > last_row {
+                continue;
+            }
+
+            let Some(new_row) = image.row.checked_add(count) else {
+                continue;
+            };
+            let image_height = image_bottom.saturating_sub(image_top);
+            if new_row < first_row || new_row.saturating_add(image_height) > last_row {
+                continue;
+            }
+
+            image.row = new_row;
+            shifted_images.push(image);
+        }
+
+        self.inline_images = shifted_images;
+    }
+
+    fn scroll_inline_images_up_region(&mut self, top: u16, bottom: u16, count: u16) {
+        if count == 0 || top > bottom {
+            return;
+        }
+
+        let first_row = self.scrollback.len().saturating_add(usize::from(top));
+        let last_row = self
+            .scrollback
+            .len()
+            .saturating_add(usize::from(bottom))
+            .saturating_add(1);
+        let count = usize::from(count);
+        let mut shifted_images = Vec::with_capacity(self.inline_images.len());
+
+        for mut image in self.inline_images.drain(..) {
+            let (image_top, image_bottom) = kitty_image_row_range(&image);
+            if image_bottom <= first_row || image_top >= last_row {
+                shifted_images.push(image);
+                continue;
+            }
+
+            if image_top < first_row || image_bottom > last_row {
+                continue;
+            }
+
+            let Some(new_row) = image.row.checked_sub(count) else {
+                continue;
+            };
+            let image_height = image_bottom.saturating_sub(image_top);
+            if new_row < first_row || new_row.saturating_add(image_height) > last_row {
+                continue;
+            }
+
+            image.row = new_row;
+            shifted_images.push(image);
+        }
+
+        self.inline_images = shifted_images;
     }
 
     fn scroll_up_region_by(&mut self, top: u16, bottom: u16, count: u16) {
@@ -1210,6 +2836,7 @@ impl Terminal {
 
         let height = bottom - top + 1;
         let count = count.min(height);
+        self.scroll_inline_images_up_region(top, bottom, count);
 
         if count < height {
             let shift_bottom = bottom - count;
@@ -1222,6 +2849,7 @@ impl Terminal {
                         .unwrap_or_default();
                     self.grid.set(row, column, cell);
                 }
+                self.grid.copy_row_wrapped(row + count, row);
             }
         }
 
@@ -1234,6 +2862,7 @@ impl Terminal {
             for column in 0..size.columns {
                 self.grid.set(row, column, self.blank_cell());
             }
+            self.grid.set_row_wrapped(row, false);
         }
 
         self.record_damage(DamageRegion::new(0, top, size.columns, height));
@@ -1343,6 +2972,9 @@ impl Terminal {
         for column in start_column..end_column {
             self.grid.set(row, column, self.blank_cell());
         }
+        if start_column == 0 && end_column >= columns {
+            self.grid.set_row_wrapped(row, false);
+        }
 
         self.record_damage(DamageRegion::new(
             start_column,
@@ -1396,6 +3028,9 @@ impl Terminal {
                     49 => self.style.background = Color::Default,
                     53 => self.style.overline = true,
                     55 => self.style.overline = false,
+                    73 => self.style.vertical_align = crate::VerticalAlign::Superscript,
+                    74 => self.style.vertical_align = crate::VerticalAlign::Subscript,
+                    75 => self.style.vertical_align = crate::VerticalAlign::Baseline,
                     59 => self.style.underline_color = Color::Default,
                     90..=97 => {
                         self.style.foreground = Color::Indexed(saturating_u8(code - 90 + 8));
@@ -1437,8 +3072,10 @@ impl Terminal {
 
     fn reset_style_preserving_hyperlink(&mut self) {
         let hyperlink = self.style.hyperlink.take();
+        let semantic_type = self.style.semantic_type;
         self.style = Cell::default();
         self.style.hyperlink = hyperlink;
+        self.style.semantic_type = semantic_type;
     }
 
     fn record_damage(&mut self, region: DamageRegion) {
@@ -1558,6 +3195,10 @@ fn parse_osc(chars: &[char], mut index: usize) -> SequenceParse<usize> {
 }
 
 fn osc_content_end(chars: &[char], content_start: usize, sequence_end: usize) -> usize {
+    st_content_end(chars, content_start, sequence_end)
+}
+
+fn st_content_end(chars: &[char], content_start: usize, sequence_end: usize) -> usize {
     if sequence_end > content_start
         && chars.get(sequence_end) == Some(&'\\')
         && chars.get(sequence_end - 1) == Some(&'\u{1b}')
@@ -1591,6 +3232,670 @@ fn is_cancel_control(ch: char) -> bool {
     matches!(ch, '\u{18}' | '\u{1a}')
 }
 
+fn is_ignored_c0_control(ch: char) -> bool {
+    matches!(ch, '\0'..='\u{6}' | '\u{e}'..='\u{1a}' | '\u{1c}'..='\u{1f}')
+}
+
+fn decode_base64_utf8(value: &str) -> Option<String> {
+    let decoded = STANDARD.decode(value).ok()?;
+    String::from_utf8(decoded).ok()
+}
+
+#[derive(Debug, Clone)]
+struct SixelImage {
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+}
+
+struct SixelCanvas {
+    pixels: HashMap<(u32, u32), [u8; 4]>,
+    palette: HashMap<u16, [u8; 4]>,
+    current_color: [u8; 4],
+    x: u32,
+    y: u32,
+    max_x: u32,
+    max_y: u32,
+    declared_width: Option<u32>,
+    declared_height: Option<u32>,
+}
+
+impl Default for SixelCanvas {
+    fn default() -> Self {
+        Self {
+            pixels: HashMap::new(),
+            palette: HashMap::new(),
+            current_color: [255, 255, 255, 255],
+            x: 0,
+            y: 0,
+            max_x: 0,
+            max_y: 0,
+            declared_width: None,
+            declared_height: None,
+        }
+    }
+}
+
+impl SixelCanvas {
+    fn write_bits(&mut self, bits: u8, repeat: u32) {
+        for _ in 0..repeat.max(1) {
+            for bit in 0..6 {
+                if bits & (1 << bit) != 0 {
+                    let y = self.y.saturating_add(bit);
+                    self.pixels.insert((self.x, y), self.current_color);
+                    self.max_x = self.max_x.max(self.x);
+                    self.max_y = self.max_y.max(y);
+                }
+            }
+            self.x = self.x.saturating_add(1);
+        }
+    }
+
+    fn carriage_return(&mut self) {
+        self.x = 0;
+    }
+
+    fn newline(&mut self) {
+        self.x = 0;
+        self.y = self.y.saturating_add(6);
+    }
+
+    fn select_color(&mut self, index: u16) {
+        if let Some(color) = self.palette.get(&index).copied() {
+            self.current_color = color;
+        }
+    }
+
+    fn define_rgb_color(&mut self, index: u16, red: u16, green: u16, blue: u16) {
+        let color = [
+            sixel_percent_to_u8(red),
+            sixel_percent_to_u8(green),
+            sixel_percent_to_u8(blue),
+            255,
+        ];
+        self.palette.insert(index, color);
+        self.current_color = color;
+    }
+
+    fn define_hls_color(&mut self, index: u16, hue: u16, lightness: u16, saturation: u16) {
+        let color = sixel_hls_to_rgba(hue, lightness, saturation);
+        self.palette.insert(index, color);
+        self.current_color = color;
+    }
+
+    fn set_raster_attributes(&mut self, width: u32, height: u32) {
+        if width > 0 {
+            self.declared_width = Some(width);
+        }
+        if height > 0 {
+            self.declared_height = Some(height);
+        }
+    }
+
+    fn into_image(self) -> Option<SixelImage> {
+        if self.pixels.is_empty() {
+            return None;
+        }
+
+        let drawn_width = self.max_x.checked_add(1)?;
+        let drawn_height = self.max_y.checked_add(1)?;
+        let width = self.declared_width.unwrap_or(drawn_width).max(drawn_width);
+        let height = self
+            .declared_height
+            .unwrap_or(drawn_height)
+            .max(drawn_height);
+        let len = usize::try_from(width)
+            .ok()?
+            .checked_mul(usize::try_from(height).ok()?)?
+            .checked_mul(4)?;
+        let mut data = vec![0; len];
+
+        for ((x, y), color) in self.pixels {
+            let index = usize::try_from((y * width + x) * 4).ok()?;
+            data.get_mut(index..index + 4)?.copy_from_slice(&color);
+        }
+
+        Some(SixelImage {
+            width,
+            height,
+            data,
+        })
+    }
+}
+
+fn parse_sixel_image(content: &str) -> Option<SixelImage> {
+    let mut canvas = SixelCanvas::default();
+    let mut chars = content.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '$' => canvas.carriage_return(),
+            '-' => canvas.newline(),
+            '!' => {
+                let repeat = parse_sixel_number(&mut chars).unwrap_or(1);
+                if let Some(bits) = chars.next().and_then(sixel_bits) {
+                    canvas.write_bits(bits, repeat);
+                }
+            }
+            '#' => parse_sixel_color_introducer(&mut chars, &mut canvas),
+            '"' => parse_sixel_raster_attributes(&mut chars, &mut canvas),
+            ch => {
+                if let Some(bits) = sixel_bits(ch) {
+                    canvas.write_bits(bits, 1);
+                }
+            }
+        }
+    }
+
+    canvas.into_image()
+}
+
+fn parse_sixel_color_introducer(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    canvas: &mut SixelCanvas,
+) {
+    let params = parse_sixel_parameter_list(chars);
+    let Some(index) = params.first().copied() else {
+        return;
+    };
+
+    match params.get(1).copied() {
+        Some(1) if params.len() >= 5 => {
+            canvas.define_hls_color(index, params[2], params[3], params[4]);
+        }
+        Some(2) if params.len() >= 5 => {
+            canvas.define_rgb_color(index, params[2], params[3], params[4]);
+        }
+        _ => canvas.select_color(index),
+    }
+}
+
+fn parse_sixel_raster_attributes(
+    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+    canvas: &mut SixelCanvas,
+) {
+    let params = parse_sixel_parameter_list(chars);
+    if params.len() >= 4 {
+        canvas.set_raster_attributes(u32::from(params[2]), u32::from(params[3]));
+    }
+}
+
+fn parse_sixel_parameter_list(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Vec<u16> {
+    let mut raw = String::new();
+    while let Some(ch) = chars.peek().copied() {
+        if ch.is_ascii_digit() || ch == ';' {
+            raw.push(ch);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+
+    raw.split(';')
+        .filter_map(|value| value.parse::<u16>().ok())
+        .collect()
+}
+
+fn parse_sixel_number(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<u32> {
+    let mut raw = String::new();
+    while let Some(ch) = chars.peek().copied() {
+        if ch.is_ascii_digit() {
+            raw.push(ch);
+            chars.next();
+        } else {
+            break;
+        }
+    }
+
+    raw.parse::<u32>().ok()
+}
+
+fn sixel_bits(ch: char) -> Option<u8> {
+    let code = u32::from(ch);
+    (0x3f..=0x7e)
+        .contains(&code)
+        .then(|| u8::try_from(code - 0x3f).ok())
+        .flatten()
+}
+
+fn sixel_percent_to_u8(value: u16) -> u8 {
+    let value = u32::from(value.min(100));
+    u8::try_from((value * 255 + 50) / 100).unwrap_or(255)
+}
+
+fn sixel_hls_to_rgba(hue: u16, lightness: u16, saturation: u16) -> [u8; 4] {
+    let hue = f32::from(hue % 360) / 360.0;
+    let lightness = f32::from(lightness.min(100)) / 100.0;
+    let saturation = f32::from(saturation.min(100)) / 100.0;
+
+    let (red, green, blue) = if saturation == 0.0 {
+        (lightness, lightness, lightness)
+    } else {
+        let q = if lightness < 0.5 {
+            lightness * (1.0 + saturation)
+        } else {
+            lightness + saturation - lightness * saturation
+        };
+        let p = 2.0 * lightness - q;
+        (
+            hue_to_rgb(p, q, hue + 1.0 / 3.0),
+            hue_to_rgb(p, q, hue),
+            hue_to_rgb(p, q, hue - 1.0 / 3.0),
+        )
+    };
+
+    [
+        unit_float_to_u8(red),
+        unit_float_to_u8(green),
+        unit_float_to_u8(blue),
+        255,
+    ]
+}
+
+fn hue_to_rgb(p: f32, q: f32, mut hue: f32) -> f32 {
+    if hue < 0.0 {
+        hue += 1.0;
+    }
+    if hue > 1.0 {
+        hue -= 1.0;
+    }
+
+    if hue < 1.0 / 6.0 {
+        p + (q - p) * 6.0 * hue
+    } else if hue < 1.0 / 2.0 {
+        q
+    } else if hue < 2.0 / 3.0 {
+        p + (q - p) * (2.0 / 3.0 - hue) * 6.0
+    } else {
+        p
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn unit_float_to_u8(value: f32) -> u8 {
+    (value.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+fn start_kitty_graphics_upload(
+    params: KittyGraphicsParams,
+    encoded_data: &str,
+) -> Option<PendingKittyGraphics> {
+    let display_on_finish = match params.action {
+        Some('T') => true,
+        Some('t' | 'q') => false,
+        _ => return None,
+    };
+
+    let medium = match params.medium.unwrap_or('d') {
+        'd' => KittyTransmissionMedium::Direct,
+        'f' => KittyTransmissionMedium::File,
+        't' => KittyTransmissionMedium::TempFile,
+        _ => return None,
+    };
+    if params
+        .compression
+        .is_some_and(|compression| compression != 'z')
+    {
+        return None;
+    }
+
+    let image_format = match params.format.unwrap_or(32) {
+        24 => InlineImageFormat::Rgb,
+        32 => InlineImageFormat::Rgba,
+        100 => InlineImageFormat::Encoded,
+        _ => return None,
+    };
+
+    Some(PendingKittyGraphics {
+        image_format,
+        medium,
+        compression: params.compression,
+        image_id: params.image_id,
+        image_number: params.image_number,
+        placement_id: params.placement_id,
+        z_index: params.z_index,
+        display_on_finish,
+        pixel_width: params.pixel_width,
+        pixel_height: params.pixel_height,
+        display_columns: params.display_columns,
+        display_rows: params.display_rows,
+        no_cursor_movement: params.no_cursor_movement,
+        source_x: params.source_x,
+        source_y: params.source_y,
+        source_width: params.source_width,
+        source_height: params.source_height,
+        target_x: params.target_x,
+        target_y: params.target_y,
+        file_offset: params.file_offset,
+        file_size: params.file_size,
+        quiet: params.quiet,
+        encoded_data: encoded_data.to_owned(),
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KittyGraphicsDataError {
+    InvalidBase64,
+    InvalidFile,
+    UnsupportedCompression,
+}
+
+fn load_kitty_graphics_payload(
+    upload: &PendingKittyGraphics,
+) -> Result<Vec<u8>, KittyGraphicsDataError> {
+    let data = match upload.medium {
+        KittyTransmissionMedium::Direct => STANDARD
+            .decode(&upload.encoded_data)
+            .map_err(|_| KittyGraphicsDataError::InvalidBase64)?,
+        KittyTransmissionMedium::File => read_kitty_graphics_file_payload(
+            &upload.encoded_data,
+            upload.file_offset,
+            upload.file_size,
+            false,
+        )?,
+        KittyTransmissionMedium::TempFile => read_kitty_graphics_file_payload(
+            &upload.encoded_data,
+            upload.file_offset,
+            upload.file_size,
+            true,
+        )?,
+    };
+
+    decode_kitty_graphics_payload(upload.compression, data)
+        .ok_or(KittyGraphicsDataError::UnsupportedCompression)
+}
+
+fn read_kitty_graphics_file_payload(
+    encoded_path: &str,
+    offset: Option<u64>,
+    size: Option<u64>,
+    delete_after_read: bool,
+) -> Result<Vec<u8>, KittyGraphicsDataError> {
+    let path = STANDARD
+        .decode(encoded_path)
+        .map_err(|_| KittyGraphicsDataError::InvalidBase64)?;
+    let path = String::from_utf8(path).map_err(|_| KittyGraphicsDataError::InvalidFile)?;
+    let path = PathBuf::from(path);
+
+    let metadata = fs::metadata(&path).map_err(|_| KittyGraphicsDataError::InvalidFile)?;
+    if !metadata.is_file() {
+        return Err(KittyGraphicsDataError::InvalidFile);
+    }
+
+    let data = {
+        let mut file = fs::File::open(&path).map_err(|_| KittyGraphicsDataError::InvalidFile)?;
+        if let Some(offset) = offset {
+            file.seek(SeekFrom::Start(offset))
+                .map_err(|_| KittyGraphicsDataError::InvalidFile)?;
+        }
+
+        let mut data = Vec::new();
+        if let Some(size) = size {
+            let mut limited = file.take(size);
+            limited
+                .read_to_end(&mut data)
+                .map_err(|_| KittyGraphicsDataError::InvalidFile)?;
+        } else {
+            file.read_to_end(&mut data)
+                .map_err(|_| KittyGraphicsDataError::InvalidFile)?;
+        }
+        data
+    };
+
+    if delete_after_read && kitty_temp_file_can_be_deleted(&path) {
+        let _ = fs::remove_file(&path);
+    }
+
+    Ok(data)
+}
+
+fn kitty_temp_file_can_be_deleted(path: &Path) -> bool {
+    let Ok(path) = fs::canonicalize(path) else {
+        return false;
+    };
+    if !path
+        .as_os_str()
+        .to_string_lossy()
+        .contains("tty-graphics-protocol")
+    {
+        return false;
+    }
+
+    kitty_temp_directories()
+        .into_iter()
+        .any(|temp_dir| fs::canonicalize(temp_dir).is_ok_and(|temp_dir| path.starts_with(temp_dir)))
+}
+
+fn kitty_temp_directories() -> Vec<PathBuf> {
+    #[cfg(unix)]
+    {
+        let mut dirs = vec![std::env::temp_dir()];
+        dirs.push(PathBuf::from("/tmp"));
+        dirs.push(PathBuf::from("/var/tmp"));
+        dirs.push(PathBuf::from("/dev/shm"));
+        dirs
+    }
+
+    #[cfg(not(unix))]
+    {
+        vec![std::env::temp_dir()]
+    }
+}
+
+fn append_kitty_graphics_response_param(
+    response: &mut Vec<u8>,
+    has_param: &mut bool,
+    name: u8,
+    value: u32,
+) {
+    if *has_param {
+        response.push(b',');
+    }
+    response.push(name);
+    response.push(b'=');
+    response.extend_from_slice(value.to_string().as_bytes());
+    *has_param = true;
+}
+
+fn kitty_graphics_response_is_suppressed(params: KittyGraphicsParams, status: &str) -> bool {
+    match params.quiet {
+        Some(1) => status == "OK",
+        Some(2) => status != "OK",
+        _ => false,
+    }
+}
+
+fn kitty_placement_id(image_id: Option<u32>, placement_id: Option<u32>) -> Option<u32> {
+    image_id.and(placement_id)
+}
+
+fn kitty_image_intersects_cell(image: &ItermInlineImage, row: usize, column: u16) -> bool {
+    if image.kitty_image_id.is_none() {
+        return false;
+    }
+
+    let (left, right) = kitty_image_column_range(image);
+    let (top, bottom) = kitty_image_row_range(image);
+
+    row >= top && row < bottom && column >= left && column < right
+}
+
+fn kitty_image_intersects_column(
+    image: &ItermInlineImage,
+    first_row: usize,
+    last_row: usize,
+    column: u16,
+) -> bool {
+    if image.kitty_image_id.is_none() {
+        return false;
+    }
+
+    let (left, right) = kitty_image_column_range(image);
+    let (top, bottom) = kitty_image_row_range(image);
+
+    column >= left && column < right && top < last_row && bottom > first_row
+}
+
+fn kitty_image_intersects_row(image: &ItermInlineImage, row: usize) -> bool {
+    if image.kitty_image_id.is_none() {
+        return false;
+    }
+
+    let (top, bottom) = kitty_image_row_range(image);
+    row >= top && row < bottom
+}
+
+fn inline_image_intersects_region(
+    image: &ItermInlineImage,
+    first_row: usize,
+    last_row: usize,
+    first_column: u16,
+    last_column: u16,
+) -> bool {
+    let (left, right) = kitty_image_column_range(image);
+    let (top, bottom) = kitty_image_row_range(image);
+
+    top < last_row && bottom > first_row && left < last_column && right > first_column
+}
+
+fn kitty_image_column_range(image: &ItermInlineImage) -> (u16, u16) {
+    let width = iterm_inline_image_cell_extent(image.width.as_deref()).max(1);
+    (
+        image.column,
+        image
+            .column
+            .saturating_add(width)
+            .max(image.column.saturating_add(1)),
+    )
+}
+
+fn kitty_image_row_range(image: &ItermInlineImage) -> (usize, usize) {
+    let height = usize::from(iterm_inline_image_cell_extent(image.height.as_deref()).max(1));
+    (
+        image.row,
+        image
+            .row
+            .saturating_add(height)
+            .max(image.row.saturating_add(1)),
+    )
+}
+
+fn zero_based_axis(value: u16) -> Option<u16> {
+    value.checked_sub(1)
+}
+
+fn parse_kitty_graphics_params(control: &str) -> KittyGraphicsParams {
+    let mut params = KittyGraphicsParams::default();
+
+    for param in control.split(',').filter(|param| !param.is_empty()) {
+        let Some((key, value)) = param.split_once('=') else {
+            continue;
+        };
+
+        match key {
+            "a" => params.action = parse_single_char(value),
+            "d" => params.delete_target = parse_single_char(value),
+            "f" => params.format = value.parse::<u32>().ok(),
+            "i" => params.image_id = parse_positive_u32(value),
+            "I" => params.image_number = parse_positive_u32(value),
+            "p" => params.placement_id = parse_positive_u32(value),
+            "t" => params.medium = parse_single_char(value),
+            "o" => params.compression = parse_single_char(value),
+            "m" => params.more_chunks = value.parse::<u8>().ok(),
+            "s" => params.pixel_width = parse_positive_u32(value),
+            "v" => params.pixel_height = parse_positive_u32(value),
+            "c" => params.display_columns = parse_positive_u16(value),
+            "r" => params.display_rows = parse_positive_u16(value),
+            "C" => params.no_cursor_movement = value == "1",
+            "w" => params.source_width = parse_positive_u32(value),
+            "h" => params.source_height = parse_positive_u32(value),
+            "X" => params.target_x = value.parse::<u32>().ok(),
+            "Y" => params.target_y = value.parse::<u32>().ok(),
+            "x" => {
+                params.cell_x = parse_positive_u16(value);
+                params.source_x = value.parse::<u32>().ok();
+            }
+            "y" => {
+                params.cell_y = parse_positive_u16(value);
+                params.source_y = value.parse::<u32>().ok();
+            }
+            "z" => params.z_index = value.parse::<i32>().ok(),
+            "O" => params.file_offset = value.parse::<u64>().ok(),
+            "S" => params.file_size = value.parse::<u64>().ok(),
+            "q" => params.quiet = value.parse::<u8>().ok(),
+            _ => {}
+        }
+    }
+
+    params
+}
+
+fn parse_single_char(value: &str) -> Option<char> {
+    let mut chars = value.chars();
+    let ch = chars.next()?;
+    chars.next().is_none().then_some(ch)
+}
+
+fn decode_kitty_graphics_payload(compression: Option<char>, data: Vec<u8>) -> Option<Vec<u8>> {
+    match compression {
+        None => Some(data),
+        Some('z') => {
+            let mut decoder = ZlibDecoder::new(data.as_slice());
+            let mut decompressed = Vec::new();
+            decoder.read_to_end(&mut decompressed).ok()?;
+            Some(decompressed)
+        }
+        Some(_) => None,
+    }
+}
+
+fn kitty_graphics_payload_is_supported(
+    image_format: InlineImageFormat,
+    pixel_width: Option<u32>,
+    pixel_height: Option<u32>,
+    payload_len: usize,
+) -> bool {
+    let bytes_per_pixel = match image_format {
+        InlineImageFormat::Encoded => return true,
+        InlineImageFormat::Rgb => 3,
+        InlineImageFormat::Rgba => 4,
+    };
+    let Some(pixel_width) = pixel_width else {
+        return false;
+    };
+    let Some(pixel_height) = pixel_height else {
+        return false;
+    };
+    let Some(expected_len) = usize::try_from(pixel_width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(pixel_height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(bytes_per_pixel))
+    else {
+        return false;
+    };
+
+    payload_len == expected_len
+}
+
+fn parse_positive_u32(value: &str) -> Option<u32> {
+    value.parse::<u32>().ok().filter(|value| *value > 0)
+}
+
+fn parse_positive_u16(value: &str) -> Option<u16> {
+    value.parse::<u16>().ok().filter(|value| *value > 0)
+}
+
+fn iterm_inline_image_cell_extent(value: Option<&str>) -> u16 {
+    value
+        .and_then(|value| value.parse::<u16>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(1)
+}
+
 fn next_or_pending(next_index: Option<usize>) -> FeedAdvance {
     match next_index {
         Some(next_index) => FeedAdvance::Next(next_index),
@@ -1610,6 +3915,63 @@ fn param_or_one(value: Option<u16>) -> u16 {
     match value {
         Some(0) | None => 1,
         Some(value) => value,
+    }
+}
+
+fn append_semantic_zones_for_row(
+    row: usize,
+    cells: &[Cell],
+    current_zone: &mut Option<SemanticZone>,
+    zones: &mut Vec<SemanticZone>,
+) {
+    let Some(first_non_blank) = cells.iter().position(|cell| cell.ch != ' ') else {
+        return;
+    };
+    let Some(last_non_blank) = cells.iter().rposition(|cell| cell.ch != ' ') else {
+        return;
+    };
+
+    let mut start = first_non_blank;
+    while start <= last_non_blank {
+        let semantic_type = cells[start].semantic_type;
+        let mut end = start;
+        while end < last_non_blank && cells[end + 1].semantic_type == semantic_type {
+            end += 1;
+        }
+
+        if cells[start..=end].iter().any(|cell| cell.ch != ' ') {
+            append_semantic_zone(
+                SemanticZone::new(row, start, row, end, semantic_type),
+                current_zone,
+                zones,
+            );
+        }
+
+        start = end + 1;
+    }
+}
+
+fn append_semantic_zone(
+    zone: SemanticZone,
+    current_zone: &mut Option<SemanticZone>,
+    zones: &mut Vec<SemanticZone>,
+) {
+    if let Some(current) = current_zone.as_mut() {
+        if current.semantic_type == zone.semantic_type {
+            current.end_y = zone.end_y;
+            current.end_x = zone.end_x;
+            return;
+        }
+    }
+
+    if let Some(current) = current_zone.replace(zone) {
+        zones.push(current);
+    }
+}
+
+fn trim_trailing_spaces(text: &mut String) {
+    while text.ends_with(' ') {
+        text.pop();
     }
 }
 
@@ -1711,6 +4073,32 @@ fn parse_extended_color(values: &[SgrParameter]) -> Option<(Color, usize)> {
                 saturating_u8(*blue),
             ),
             4,
+        )),
+        [
+            Code(6),
+            Code(0),
+            Code(red),
+            Code(green),
+            Code(blue),
+            Code(alpha),
+            ..,
+        ] => Some((
+            Color::Rgba(
+                saturating_u8(*red),
+                saturating_u8(*green),
+                saturating_u8(*blue),
+                saturating_u8(*alpha),
+            ),
+            6,
+        )),
+        [Code(6), Code(red), Code(green), Code(blue), Code(alpha), ..] => Some((
+            Color::Rgba(
+                saturating_u8(*red),
+                saturating_u8(*green),
+                saturating_u8(*blue),
+                saturating_u8(*alpha),
+            ),
+            5,
         )),
         _ => None,
     }

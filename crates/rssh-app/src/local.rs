@@ -16,7 +16,8 @@ use crossterm::{
     event::{
         self, DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
         EnableFocusChange, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind,
-        KeyEventState, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        KeyEventState, KeyModifiers, MediaKeyCode, ModifierKeyCode, MouseButton, MouseEvent,
+        MouseEventKind,
     },
     execute, terminal,
 };
@@ -25,7 +26,7 @@ use rssh_core::{
     session::{SessionLifecycle, SessionState},
 };
 use rssh_pty::{PtyBackend, PtyExitStatus, PtySession, PtySize};
-use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle};
+use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle, VerticalAlign};
 use serde::Serialize;
 
 use crate::{
@@ -33,8 +34,15 @@ use crate::{
     diagnostics,
     terminal_input::{TerminalKey, encode_terminal_key},
     terminal_modes::{
+        KITTY_KEYBOARD_ALTERNATE_KEYS, KITTY_KEYBOARD_ASSOCIATED_TEXT, KITTY_KEYBOARD_DISAMBIGUATE,
+        KITTY_KEYBOARD_REPORT_ALL, KITTY_KEYBOARD_REPORT_EVENTS, KeyModifierOptionsQuery,
+        KeyModifierOptionsSequence, KittyKeyboardFlagsQuery, KittyKeyboardModeSequence,
         MouseInputMode, MouseProtocolMode, MouseReportingMode, SynchronizedOutputModeSequence,
-        TerminalModeChange, TerminalModeTracker, find_synchronized_output_mode_sequence,
+        TerminalModeChange, TerminalModeTracker, find_key_modifier_options_query,
+        find_key_modifier_options_sequence, find_kitty_keyboard_flags_query,
+        find_kitty_keyboard_mode_sequence, find_synchronized_output_mode_sequence,
+        key_modifier_options_query_suffix_len, key_modifier_options_sequence_suffix_len,
+        kitty_keyboard_flags_query_suffix_len, kitty_keyboard_mode_sequence_suffix_len,
         synchronized_output_mode_sequence_suffix_len,
     },
     visible_output::TerminalVisibleOutputFilter,
@@ -191,6 +199,8 @@ enum LocalControlEvent {
     SetBracketedPaste(bool),
     SetMouseReporting(MouseInputMode),
     SetFocusReporting(bool),
+    SetKittyKeyboardFlags(u16),
+    SetModifyOtherKeys(u8),
 }
 
 #[derive(Clone, Default)]
@@ -200,6 +210,8 @@ struct InputReporting {
     bracketed_paste: Arc<AtomicBool>,
     mouse: Arc<AtomicU8>,
     focus: Arc<AtomicBool>,
+    kitty_keyboard_flags: Arc<AtomicU16>,
+    modify_other_keys: Arc<AtomicU8>,
 }
 
 impl InputReporting {
@@ -210,6 +222,8 @@ impl InputReporting {
             .with_bracketed_paste(self.bracketed_paste_enabled())
             .with_mouse_input_mode(self.mouse_input_mode())
             .with_focus_reporting(self.focus_enabled())
+            .with_kitty_keyboard_flags(self.kitty_keyboard_flags())
+            .with_modify_other_keys(self.modify_other_keys())
     }
 
     fn application_cursor_keys_enabled(&self) -> bool {
@@ -232,6 +246,14 @@ impl InputReporting {
         self.focus.load(Ordering::Relaxed)
     }
 
+    fn kitty_keyboard_flags(&self) -> u16 {
+        self.kitty_keyboard_flags.load(Ordering::Relaxed)
+    }
+
+    fn modify_other_keys(&self) -> u8 {
+        self.modify_other_keys.load(Ordering::Relaxed)
+    }
+
     fn set_mouse(&self, mode: MouseInputMode) {
         self.mouse.store(mode.bits(), Ordering::Relaxed);
     }
@@ -251,6 +273,14 @@ impl InputReporting {
 
     fn set_application_keypad(&self, enabled: bool) {
         self.application_keypad.store(enabled, Ordering::Relaxed);
+    }
+
+    fn set_kitty_keyboard_flags(&self, flags: u16) {
+        self.kitty_keyboard_flags.store(flags, Ordering::Relaxed);
+    }
+
+    fn set_modify_other_keys(&self, mode: u8) {
+        self.modify_other_keys.store(mode, Ordering::Relaxed);
     }
 }
 
@@ -659,6 +689,12 @@ fn copy_pty_output(
                         TerminalModeChange::Focus(enabled) => {
                             Some(LocalControlEvent::SetFocusReporting(enabled))
                         }
+                        TerminalModeChange::KittyKeyboardFlags(flags) => {
+                            Some(LocalControlEvent::SetKittyKeyboardFlags(flags))
+                        }
+                        TerminalModeChange::ModifyOtherKeys(mode) => {
+                            Some(LocalControlEvent::SetModifyOtherKeys(mode))
+                        }
                         TerminalModeChange::SynchronizedOutput(_) => None,
                     }) else {
                         return;
@@ -804,6 +840,14 @@ fn run_input_loop(
                         false
                     };
                     runtime_state.input_reporting.set_focus(enabled);
+                }
+                LocalControlEvent::SetKittyKeyboardFlags(flags) => {
+                    runtime_state
+                        .input_reporting
+                        .set_kitty_keyboard_flags(flags);
+                }
+                LocalControlEvent::SetModifyOtherKeys(mode) => {
+                    runtime_state.input_reporting.set_modify_other_keys(mode);
                 }
             }
         }
@@ -1039,6 +1083,10 @@ impl TerminalOutputFilter {
                         self.flush_synchronized_output_buffer(output)?;
                     }
                 }
+                MatchedTerminalEventKind::KittyKeyboardMode
+                | MatchedTerminalEventKind::KeyModifierOptions => {
+                    self.mode_tracker.process_without_emitting(&sequence);
+                }
             }
             self.pending.drain(..consumed_end);
         }
@@ -1108,13 +1156,38 @@ impl TerminalOutputFilter {
                 )
             },
         );
+        let kitty_keyboard_mode = find_kitty_keyboard_mode_sequence(&self.pending).map(
+            |KittyKeyboardModeSequence { index, consumed }| {
+                (
+                    index,
+                    MatchedTerminalEvent {
+                        consumed,
+                        event: MatchedTerminalEventKind::KittyKeyboardMode,
+                    },
+                )
+            },
+        );
+        let key_modifier_options = find_key_modifier_options_sequence(&self.pending).map(
+            |KeyModifierOptionsSequence { index, consumed }| {
+                (
+                    index,
+                    MatchedTerminalEvent {
+                        consumed,
+                        event: MatchedTerminalEventKind::KeyModifierOptions,
+                    },
+                )
+            },
+        );
 
         response
             .into_iter()
             .chain(synchronized_output)
+            .chain(kitty_keyboard_mode)
+            .chain(key_modifier_options)
             .min_by_key(|(index, _)| *index)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn find_next_response(&self) -> Option<(usize, MatchedTerminalResponse)> {
         let static_response = Self::RESPONSES
             .iter()
@@ -1189,6 +1262,32 @@ impl TerminalOutputFilter {
                 )
             },
         );
+        let kitty_keyboard_flags_response = find_kitty_keyboard_flags_query(&self.pending).map(
+            |KittyKeyboardFlagsQuery { index, consumed }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::KittyKeyboardFlags,
+                    },
+                )
+            },
+        );
+        let key_modifier_options_response = find_key_modifier_options_query(&self.pending).map(
+            |KeyModifierOptionsQuery {
+                 index,
+                 consumed,
+                 resource,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::KeyModifierOptions(resource),
+                    },
+                )
+            },
+        );
 
         static_response
             .into_iter()
@@ -1199,6 +1298,8 @@ impl TerminalOutputFilter {
             .chain(xtgettcap_response)
             .chain(osc52_response)
             .chain(osc8_response)
+            .chain(kitty_keyboard_flags_response)
+            .chain(key_modifier_options_response)
             .filter(|(index, _)| !is_inside_osc_or_st_control_string(&self.pending, *index))
             .min_by_key(|(index, _)| *index)
     }
@@ -1277,6 +1378,10 @@ impl TerminalOutputFilter {
             .max(xtgettcap_query_suffix_len(pending))
             .max(osc52_clipboard_sequence_suffix_len(pending))
             .max(osc8_hyperlink_sequence_suffix_len(pending))
+            .max(kitty_keyboard_flags_query_suffix_len(pending))
+            .max(kitty_keyboard_mode_sequence_suffix_len(pending))
+            .max(key_modifier_options_query_suffix_len(pending))
+            .max(key_modifier_options_sequence_suffix_len(pending))
             .max(incomplete_osc_control_sequence_suffix_len(pending))
             .max(incomplete_st_control_sequence_suffix_len(pending))
             .max(incomplete_csi_control_sequence_suffix_len(pending))
@@ -1377,6 +1482,17 @@ impl TerminalOutputFilter {
             TerminalResponse::Decrqss(query) => query.response(&self.mirror),
             TerminalResponse::XtGetTcap(query) => query.response(),
             TerminalResponse::XtVersion => xtversion_response(),
+            TerminalResponse::KittyKeyboardFlags => {
+                format!("\x1b[?{}u", self.mode_tracker.kitty_keyboard_flags()).into_bytes()
+            }
+            TerminalResponse::KeyModifierOptions(resource) => {
+                let value = if resource == 4 {
+                    self.mode_tracker.modify_other_keys()
+                } else {
+                    0
+                };
+                format!("\x1b[>{resource};{value}m").into_bytes()
+            }
             TerminalResponse::Osc8Hyperlink
             | TerminalResponse::Osc52Write(_)
             | TerminalResponse::Osc52Query(_) => Vec::new(),
@@ -1410,6 +1526,8 @@ struct MatchedTerminalEvent {
 enum MatchedTerminalEventKind {
     Response(TerminalResponse),
     SynchronizedOutputMode { enabled: bool },
+    KittyKeyboardMode,
+    KeyModifierOptions,
 }
 
 impl From<MatchedTerminalResponse> for MatchedTerminalEvent {
@@ -1440,6 +1558,8 @@ enum TerminalResponse {
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
     XtVersion,
+    KittyKeyboardFlags,
+    KeyModifierOptions(u16),
     Osc8Hyperlink,
     Osc52Write(String),
     Osc52Query(String),
@@ -1500,6 +1620,24 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         .position(|window| window == needle)
 }
 
+const UTF8_C1_OSC: &[u8] = b"\xc2\x9d";
+const UTF8_C1_ST: &[u8] = b"\xc2\x9c";
+const OSC_START_PREFIXES: &[(&[u8], usize)] = &[
+    (b"\x1b]".as_slice(), 2),
+    (b"\x9d".as_slice(), 1),
+    (UTF8_C1_OSC, UTF8_C1_OSC.len()),
+];
+const OSC8_HYPERLINK_PREFIXES: &[&[u8]] = &[
+    b"\x1b]8;".as_slice(),
+    b"\x9d8;".as_slice(),
+    b"\xc2\x9d8;".as_slice(),
+];
+const OSC52_CLIPBOARD_PREFIXES: &[&[u8]] = &[
+    b"\x1b]52;".as_slice(),
+    b"\x9d52;".as_slice(),
+    b"\xc2\x9d52;".as_slice(),
+];
+
 struct Osc8HyperlinkSequence {
     index: usize,
     consumed: usize,
@@ -1507,14 +1645,14 @@ struct Osc8HyperlinkSequence {
 
 fn find_osc8_hyperlink_sequence(bytes: &[u8]) -> Option<Osc8HyperlinkSequence> {
     let mut match_sequence = None;
-    for (prefix, prefix_len) in [(b"\x1b]8;".as_slice(), 4), (b"\x9d8;".as_slice(), 3)] {
+    for prefix in OSC8_HYPERLINK_PREFIXES {
         let mut offset = 0;
         while offset < bytes.len() {
             let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(sequence) = parse_osc8_hyperlink_sequence(bytes, index, prefix_len)
+            if let Some(sequence) = parse_osc8_hyperlink_sequence(bytes, index, prefix.len())
                 && match_sequence
                     .as_ref()
                     .is_none_or(|current: &Osc8HyperlinkSequence| sequence.index < current.index)
@@ -1549,27 +1687,25 @@ fn osc8_hyperlink_sequence_suffix_len(bytes: &[u8]) -> usize {
 }
 
 fn is_osc8_hyperlink_sequence_prefix(bytes: &[u8]) -> bool {
-    [b"\x1b]8;".as_slice(), b"\x9d8;".as_slice()]
-        .into_iter()
-        .any(|prefix| {
-            if prefix.starts_with(bytes) {
-                return true;
-            }
-            bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
-        })
+    OSC8_HYPERLINK_PREFIXES.iter().any(|prefix| {
+        if prefix.starts_with(bytes) {
+            return true;
+        }
+        bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
+    })
 }
 
 fn find_incomplete_osc8_hyperlink_start(bytes: &[u8]) -> Option<usize> {
-    find_incomplete_prefixed_osc_start(bytes, [b"\x1b]8;".as_slice(), b"\x9d8;".as_slice()])
+    find_incomplete_prefixed_osc_start(bytes, OSC8_HYPERLINK_PREFIXES)
 }
 
 fn find_incomplete_osc52_clipboard_start(bytes: &[u8]) -> Option<usize> {
-    find_incomplete_prefixed_osc_start(bytes, [b"\x1b]52;".as_slice(), b"\x9d52;".as_slice()])
+    find_incomplete_prefixed_osc_start(bytes, OSC52_CLIPBOARD_PREFIXES)
 }
 
-fn find_incomplete_prefixed_osc_start(bytes: &[u8], prefixes: [&[u8]; 2]) -> Option<usize> {
+fn find_incomplete_prefixed_osc_start(bytes: &[u8], prefixes: &[&[u8]]) -> Option<usize> {
     prefixes
-        .into_iter()
+        .iter()
         .filter_map(|prefix| find_incomplete_prefixed_sequence_start(bytes, prefix))
         .min()
 }
@@ -1642,6 +1778,7 @@ fn incomplete_osc_control_sequence_suffix_len(bytes: &[u8]) -> usize {
     find_incomplete_osc_control_sequence_start(bytes)
         .map_or(0, |start| bytes.len() - start)
         .max(suffix_len_matching_prefix(bytes, b"\x1b]"))
+        .max(suffix_len_matching_prefix(bytes, UTF8_C1_OSC))
 }
 
 fn find_incomplete_osc_control_sequence_start(bytes: &[u8]) -> Option<usize> {
@@ -1763,14 +1900,14 @@ enum ClipboardSequence {
 
 fn find_osc52_clipboard_sequence(bytes: &[u8]) -> Option<Osc52ClipboardSequence> {
     let mut match_sequence = None;
-    for (prefix, prefix_len) in [(b"\x1b]52;".as_slice(), 5), (b"\x9d52;".as_slice(), 4)] {
+    for prefix in OSC52_CLIPBOARD_PREFIXES {
         let mut offset = 0;
         while offset < bytes.len() {
             let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(sequence) = parse_osc52_clipboard_sequence(bytes, index, prefix_len) {
+            if let Some(sequence) = parse_osc52_clipboard_sequence(bytes, index, prefix.len()) {
                 if match_sequence
                     .as_ref()
                     .is_none_or(|current: &Osc52ClipboardSequence| sequence.index < current.index)
@@ -1822,14 +1959,12 @@ fn osc52_clipboard_sequence_suffix_len(bytes: &[u8]) -> usize {
 }
 
 fn is_osc52_clipboard_sequence_prefix(bytes: &[u8]) -> bool {
-    [b"\x1b]52;".as_slice(), b"\x9d52;".as_slice()]
-        .into_iter()
-        .any(|prefix| {
-            if prefix.starts_with(bytes) {
-                return true;
-            }
-            bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
-        })
+    OSC52_CLIPBOARD_PREFIXES.iter().any(|prefix| {
+        if prefix.starts_with(bytes) {
+            return true;
+        }
+        bytes.starts_with(prefix) && find_osc_color_terminator(&bytes[prefix.len()..]).is_none()
+    })
 }
 
 struct DecrqssQuery {
@@ -1849,6 +1984,8 @@ enum DecrqssKind {
     Sgr,
     CursorShape,
     ScrollRegion,
+    ConformanceLevel,
+    LeftRightMargins,
 }
 
 impl DecrqssResponse {
@@ -1862,6 +1999,10 @@ impl DecrqssResponse {
                 }
                 DecrqssKind::ScrollRegion => {
                     append_scroll_region_state(terminal.scroll_region(), &mut bytes);
+                }
+                DecrqssKind::ConformanceLevel => bytes.extend_from_slice(b"61;1\"p"),
+                DecrqssKind::LeftRightMargins => {
+                    append_left_right_margin_state(terminal.left_right_margins(), &mut bytes);
                 }
             }
             bytes
@@ -1918,6 +2059,8 @@ fn parse_decrqss_kind(content: &[u8]) -> Option<DecrqssKind> {
         b"m" => Some(DecrqssKind::Sgr),
         b" q" => Some(DecrqssKind::CursorShape),
         b"r" => Some(DecrqssKind::ScrollRegion),
+        b"\"p" => Some(DecrqssKind::ConformanceLevel),
+        b"s" => Some(DecrqssKind::LeftRightMargins),
         _ => None,
     }
 }
@@ -1951,6 +2094,11 @@ fn append_sgr_state(style: &Cell, bytes: &mut Vec<u8>) {
     }
     if style.overline {
         params.push("53".to_owned());
+    }
+    match style.vertical_align {
+        VerticalAlign::Baseline => {}
+        VerticalAlign::Superscript => params.push("73".to_owned()),
+        VerticalAlign::Subscript => params.push("74".to_owned()),
     }
     append_color_sgr(58, style.underline_color, &mut params);
     append_color_sgr(38, style.foreground, &mut params);
@@ -1992,6 +2140,14 @@ fn append_color_sgr(prefix: u8, color: Color, params: &mut Vec<String>) {
             params.push(green.to_string());
             params.push(blue.to_string());
         }
+        Color::Rgba(red, green, blue, alpha) => {
+            params.push(prefix.to_string());
+            params.push("6".to_owned());
+            params.push(red.to_string());
+            params.push(green.to_string());
+            params.push(blue.to_string());
+            params.push(alpha.to_string());
+        }
     }
 }
 
@@ -2010,6 +2166,13 @@ fn append_scroll_region_state((top, bottom): (u16, u16), bytes: &mut Vec<u8>) {
     bytes.push(b';');
     bytes.extend_from_slice(bottom.saturating_add(1).to_string().as_bytes());
     bytes.push(b'r');
+}
+
+fn append_left_right_margin_state((left, right): (u16, u16), bytes: &mut Vec<u8>) {
+    bytes.extend_from_slice(left.saturating_add(1).to_string().as_bytes());
+    bytes.push(b';');
+    bytes.extend_from_slice(right.saturating_add(1).to_string().as_bytes());
+    bytes.push(b's');
 }
 
 fn decrqss_query_suffix_len(bytes: &[u8]) -> usize {
@@ -2139,8 +2302,13 @@ fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
             length: 1,
             response_terminator: OscResponseTerminator::C1St,
         });
+    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
+        index,
+        length: UTF8_C1_ST.len(),
+        response_terminator: OscResponseTerminator::C1St,
+    });
 
-    [st, c1_st]
+    [st, c1_st, utf8_c1_st]
         .into_iter()
         .flatten()
         .min_by_key(|terminator| terminator.index)
@@ -2155,13 +2323,31 @@ fn parse_xtgettcap_entry(name_hex: &[u8], size: PtySize) -> Option<XtGetTcapEntr
     })
 }
 
+#[allow(clippy::match_same_arms, clippy::too_many_lines)]
 fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
     match name {
         b"Co" | b"colors" => Some(b"323536".to_vec()),
         b"TN" => Some(b"787465726d2d323536636f6c6f72".to_vec()),
         b"RGB" => Some(b"524742".to_vec()),
         b"Tc" => Some(b"31".to_vec()),
+        b"am" => Some(b"31".to_vec()),
+        b"bce" => Some(b"31".to_vec()),
+        b"ccc" => Some(b"31".to_vec()),
+        b"hs" => Some(b"31".to_vec()),
+        b"km" => Some(b"31".to_vec()),
+        b"mc5i" => Some(b"31".to_vec()),
+        b"mir" => Some(b"31".to_vec()),
+        b"msgr" => Some(b"31".to_vec()),
+        b"npc" => Some(b"31".to_vec()),
+        b"Su" => Some(b"31".to_vec()),
+        b"xenl" => Some(b"31".to_vec()),
         b"Ms" => Some(b"1b5d35323b25703125733b257032257307".to_vec()),
+        b"dsl" => Some(encode_ascii_hex(b"\x1b]2;\x1b\\")),
+        b"fsl" => Some(encode_ascii_hex(b"\x1b\\")),
+        b"tsl" => Some(encode_ascii_hex(b"\x1b]0;")),
+        b"initc" => Some(encode_ascii_hex(
+            b"\x1b]4;%p1%d;rgb:%p2%{255}%*%{1000}%/%2.2X/%p3%{255}%*%{1000}%/%2.2X/%p4%{255}%*%{1000}%/%2.2X\x1b\\",
+        )),
         b"Smulx" => Some(b"1b5b343a25703125646d".to_vec()),
         b"Setulc" => Some(
             b"1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d"
@@ -2171,52 +2357,128 @@ fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
         b"Cs" => Some(encode_ascii_hex(b"\x1b]12;%p1%s\x1b\\")),
         b"Se" => Some(encode_ascii_hex(b"\x1b[2 q")),
         b"Ss" => Some(encode_ascii_hex(b"\x1b[%p1%d q")),
+        b"Sync" => Some(encode_ascii_hex(b"\x1b[?2026%?%p1%{1}%-%tl%eh%;")),
         b"sitm" => Some(b"1b5b336d".to_vec()),
         b"ritm" => Some(b"1b5b32336d".to_vec()),
+        b"Smol" => Some(encode_ascii_hex(b"\x1b[53m")),
+        b"smxx" => Some(encode_ascii_hex(b"\x1b[9m")),
+        b"rmxx" => Some(encode_ascii_hex(b"\x1b[29m")),
+        b"flash" => Some(encode_ascii_hex(b"\x1b[?5h$<100/>\x1b[?5l")),
+        b"op" => Some(encode_ascii_hex(b"\x1b[39;49m")),
+        b"oc" => Some(encode_ascii_hex(b"\x1b]104\x07")),
+        b"bel" => Some(encode_ascii_hex(b"\x07")),
+        b"cr" => Some(encode_ascii_hex(b"\r")),
+        b"ind" => Some(encode_ascii_hex(b"\n")),
+        b"ri" => Some(encode_ascii_hex(b"\x1bM")),
+        b"sc" => Some(encode_ascii_hex(b"\x1b7")),
+        b"rc" => Some(encode_ascii_hex(b"\x1b8")),
+        b"u6" => Some(encode_ascii_hex(b"\x1b[%i%d;%dR")),
+        b"u7" => Some(encode_ascii_hex(b"\x1b[6n")),
+        b"u8" => Some(encode_ascii_hex(b"\x1b[?%[;0123456789]c")),
+        b"u9" => Some(encode_ascii_hex(b"\x1b[c")),
         b"clear" => Some(encode_ascii_hex(b"\x1b[H\x1b[2J")),
         b"cup" => Some(encode_ascii_hex(b"\x1b[%i%p1%d;%p2%dH")),
         b"home" => Some(encode_ascii_hex(b"\x1b[H")),
         b"el" => Some(encode_ascii_hex(b"\x1b[K")),
         b"ed" => Some(encode_ascii_hex(b"\x1b[J")),
         b"el1" => Some(encode_ascii_hex(b"\x1b[1K")),
+        b"dch" => Some(encode_ascii_hex(b"\x1b[%p1%dP")),
         b"dch1" => Some(encode_ascii_hex(b"\x1b[P")),
+        b"ich" => Some(encode_ascii_hex(b"\x1b[%p1%d@")),
         b"ich1" => Some(encode_ascii_hex(b"\x1b[@")),
+        b"il" => Some(encode_ascii_hex(b"\x1b[%p1%dL")),
         b"il1" => Some(encode_ascii_hex(b"\x1b[L")),
+        b"dl" => Some(encode_ascii_hex(b"\x1b[%p1%dM")),
         b"dl1" => Some(encode_ascii_hex(b"\x1b[M")),
         b"cuu" => Some(encode_ascii_hex(b"\x1b[%p1%dA")),
+        b"cuu1" => Some(encode_ascii_hex(b"\x1b[A")),
         b"cud" => Some(encode_ascii_hex(b"\x1b[%p1%dB")),
+        b"cud1" => Some(encode_ascii_hex(b"\n")),
         b"cub" => Some(encode_ascii_hex(b"\x1b[%p1%dD")),
+        b"cub1" => Some(encode_ascii_hex(b"\x08")),
         b"cuf" => Some(encode_ascii_hex(b"\x1b[%p1%dC")),
+        b"cuf1" => Some(encode_ascii_hex(b"\x1b[C")),
         b"hpa" => Some(encode_ascii_hex(b"\x1b[%i%p1%dG")),
         b"vpa" => Some(encode_ascii_hex(b"\x1b[%i%p1%dd")),
+        b"cbt" => Some(encode_ascii_hex(b"\x1b[Z")),
+        b"ht" => Some(encode_ascii_hex(b"\t")),
+        b"hts" => Some(encode_ascii_hex(b"\x1bH")),
+        b"tbc" => Some(encode_ascii_hex(b"\x1b[3g")),
+        b"ech" => Some(encode_ascii_hex(b"\x1b[%p1%dX")),
+        b"rep" => Some(encode_ascii_hex(b"%p1%c\x1b[%p2%{1}%-%db")),
+        b"csr" => Some(encode_ascii_hex(b"\x1b[%i%p1%d;%p2%dr")),
+        b"indn" => Some(encode_ascii_hex(b"\x1b[%p1%dS")),
+        b"rin" => Some(encode_ascii_hex(b"\x1b[%p1%dT")),
+        b"kmous" => Some(encode_ascii_hex(b"\x1b[<")),
+        b"XM" => Some(encode_ascii_hex(
+            b"\x1b[?1006;1000%?%p1%{1}%=%th%el%;",
+        )),
+        b"xm" => Some(encode_ascii_hex(
+            b"\x1b[<%i%p3%d;%p1%d;%p2%d;%?%p4%tM%em%;",
+        )),
         b"civis" => Some(encode_ascii_hex(b"\x1b[?25l")),
-        b"cnorm" => Some(encode_ascii_hex(b"\x1b[?25h")),
-        b"smcup" => Some(encode_ascii_hex(b"\x1b[?1049h")),
-        b"rmcup" => Some(encode_ascii_hex(b"\x1b[?1049l")),
+        b"cnorm" => Some(encode_ascii_hex(b"\x1b[?12l\x1b[?25h")),
+        b"cvvis" => Some(encode_ascii_hex(b"\x1b[?12;25h")),
+        b"smcup" => Some(encode_ascii_hex(b"\x1b[?1049h\x1b[22;0;0t")),
+        b"rmcup" => Some(encode_ascii_hex(b"\x1b[?1049l\x1b[23;0;0t")),
+        b"is2" | b"rs2" => Some(encode_ascii_hex(b"\x1b[!p\x1b[?3;4l\x1b[4l\x1b>")),
+        b"rs1" => Some(encode_ascii_hex(b"\x1bc\x1b]104\x07")),
         b"smir" => Some(encode_ascii_hex(b"\x1b[4h")),
         b"rmir" => Some(encode_ascii_hex(b"\x1b[4l")),
         b"smam" => Some(encode_ascii_hex(b"\x1b[?7h")),
         b"rmam" => Some(encode_ascii_hex(b"\x1b[?7l")),
-        b"sgr0" => Some(encode_ascii_hex(b"\x1b[0m")),
+        b"smm" => Some(encode_ascii_hex(b"\x1b[?1034h")),
+        b"rmm" => Some(encode_ascii_hex(b"\x1b[?1034l")),
+        b"mc0" => Some(encode_ascii_hex(b"\x1b[i")),
+        b"mc4" => Some(encode_ascii_hex(b"\x1b[4i")),
+        b"mc5" => Some(encode_ascii_hex(b"\x1b[5i")),
+        b"meml" => Some(encode_ascii_hex(b"\x1bl")),
+        b"memu" => Some(encode_ascii_hex(b"\x1bm")),
+        b"smkx" => Some(encode_ascii_hex(b"\x1b[?1h\x1b=")),
+        b"rmkx" => Some(encode_ascii_hex(b"\x1b[?1l\x1b>")),
+        b"sgr0" => Some(encode_ascii_hex(b"\x1b(B\x1b[m")),
+        b"sgr" => Some(encode_ascii_hex(
+            b"%?%p9%t\x1b(0%e\x1b(B%;\x1b[0%?%p6%t;1%;%?%p5%t;2%;%?%p2%t;4%;%?%p1%p3%|%t;7%;%?%p4%t;5%;%?%p7%t;8%;m",
+        )),
         b"bold" => Some(encode_ascii_hex(b"\x1b[1m")),
         b"dim" => Some(encode_ascii_hex(b"\x1b[2m")),
         b"blink" => Some(encode_ascii_hex(b"\x1b[5m")),
         b"rev" => Some(encode_ascii_hex(b"\x1b[7m")),
+        b"smso" => Some(encode_ascii_hex(b"\x1b[7m")),
+        b"rmso" => Some(encode_ascii_hex(b"\x1b[27m")),
         b"invis" => Some(encode_ascii_hex(b"\x1b[8m")),
         b"smul" => Some(encode_ascii_hex(b"\x1b[4m")),
         b"rmul" => Some(encode_ascii_hex(b"\x1b[24m")),
-        b"setaf" => Some(encode_ascii_hex(b"\x1b[38;5;%p1%dm")),
-        b"setab" => Some(encode_ascii_hex(b"\x1b[48;5;%p1%dm")),
+        b"setaf" => Some(encode_ascii_hex(
+            b"\x1b[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5;%p1%d%;m",
+        )),
+        b"setab" => Some(encode_ascii_hex(
+            b"\x1b[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48;5;%p1%d%;m",
+        )),
         b"kcuu1" => Some(encode_ascii_hex(b"\x1bOA")),
         b"kcud1" => Some(encode_ascii_hex(b"\x1bOB")),
         b"kcuf1" => Some(encode_ascii_hex(b"\x1bOC")),
         b"kcub1" => Some(encode_ascii_hex(b"\x1bOD")),
+        b"kb2" => Some(encode_ascii_hex(b"\x1bOE")),
+        b"kbs" => Some(encode_ascii_hex(b"\x7f")),
+        b"kcbt" => Some(encode_ascii_hex(b"\x1b[Z")),
         b"khome" => Some(encode_ascii_hex(b"\x1bOH")),
         b"kend" => Some(encode_ascii_hex(b"\x1bOF")),
         b"kich1" => Some(encode_ascii_hex(b"\x1b[2~")),
         b"kdch1" => Some(encode_ascii_hex(b"\x1b[3~")),
         b"kpp" => Some(encode_ascii_hex(b"\x1b[5~")),
         b"knp" => Some(encode_ascii_hex(b"\x1b[6~")),
+        b"kHOM" => Some(encode_ascii_hex(b"\x1b[1;2H")),
+        b"kEND" => Some(encode_ascii_hex(b"\x1b[1;2F")),
+        b"kIC" => Some(encode_ascii_hex(b"\x1b[2;2~")),
+        b"kDC" => Some(encode_ascii_hex(b"\x1b[3;2~")),
+        b"kPRV" => Some(encode_ascii_hex(b"\x1b[5;2~")),
+        b"kNXT" => Some(encode_ascii_hex(b"\x1b[6;2~")),
+        b"kLFT" => Some(encode_ascii_hex(b"\x1b[1;2D")),
+        b"kRIT" => Some(encode_ascii_hex(b"\x1b[1;2C")),
+        b"kri" => Some(encode_ascii_hex(b"\x1b[1;2A")),
+        b"kind" => Some(encode_ascii_hex(b"\x1b[1;2B")),
+        b"kent" => Some(encode_ascii_hex(b"\x1bOM")),
         b"kf1" => Some(encode_ascii_hex(b"\x1bOP")),
         b"kf2" => Some(encode_ascii_hex(b"\x1bOQ")),
         b"kf3" => Some(encode_ascii_hex(b"\x1bOR")),
@@ -2229,16 +2491,64 @@ fn xtgettcap_value_hex(name: &[u8], size: PtySize) -> Option<Vec<u8>> {
         b"kf10" => Some(encode_ascii_hex(b"\x1b[21~")),
         b"kf11" => Some(encode_ascii_hex(b"\x1b[23~")),
         b"kf12" => Some(encode_ascii_hex(b"\x1b[24~")),
+        name if name.starts_with(b"kf") => xtgettcap_modified_function_key_hex(name),
         b"enacs" => Some(encode_ascii_hex(b"\x1b)0")),
-        b"smacs" => Some(encode_ascii_hex(b"\x0e")),
-        b"rmacs" => Some(encode_ascii_hex(b"\x0f")),
+        b"smacs" => Some(encode_ascii_hex(b"\x1b(0")),
+        b"rmacs" => Some(encode_ascii_hex(b"\x1b(B")),
         b"acsc" => Some(encode_ascii_hex(
             b"``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~",
         )),
-        b"co" => Some(decimal_value_hex(size.columns())),
-        b"li" => Some(decimal_value_hex(size.rows())),
+        b"co" | b"cols" => Some(decimal_value_hex(size.columns())),
+        b"li" | b"lines" => Some(decimal_value_hex(size.rows())),
+        b"it" => Some(decimal_value_hex(8)),
+        b"pairs" => Some(decimal_value_hex(0x7fff)),
         _ => None,
     }
+}
+
+fn xtgettcap_modified_function_key_hex(name: &[u8]) -> Option<Vec<u8>> {
+    let number = parse_ascii_decimal_u8(name.strip_prefix(b"kf")?)?;
+    let (function_key, modifier) = match number {
+        13..=24 => (number - 12, 2),
+        25..=36 => (number - 24, 5),
+        37..=48 => (number - 36, 6),
+        49..=60 => (number - 48, 3),
+        61..=63 => (number - 60, 4),
+        _ => return None,
+    };
+
+    let sequence = match function_key {
+        1 => format!("\x1b[1;{modifier}P"),
+        2 => format!("\x1b[1;{modifier}Q"),
+        3 => format!("\x1b[1;{modifier}R"),
+        4 => format!("\x1b[1;{modifier}S"),
+        5 => format!("\x1b[15;{modifier}~"),
+        6 => format!("\x1b[17;{modifier}~"),
+        7 => format!("\x1b[18;{modifier}~"),
+        8 => format!("\x1b[19;{modifier}~"),
+        9 => format!("\x1b[20;{modifier}~"),
+        10 => format!("\x1b[21;{modifier}~"),
+        11 => format!("\x1b[23;{modifier}~"),
+        12 => format!("\x1b[24;{modifier}~"),
+        _ => return None,
+    };
+
+    Some(encode_ascii_hex(sequence.as_bytes()))
+}
+
+fn parse_ascii_decimal_u8(bytes: &[u8]) -> Option<u8> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut value = 0u8;
+    for &byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(byte - b'0')?;
+    }
+    Some(value)
 }
 
 fn decimal_value_hex(value: u16) -> Vec<u8> {
@@ -2296,9 +2606,9 @@ struct OscColorQuery {
     query: OscColorResponse,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct OscColorResponse {
-    kind: OscColorKind,
+    kinds: Vec<OscColorKind>,
     terminator: OscResponseTerminator,
 }
 
@@ -2325,14 +2635,14 @@ struct OscColorTerminator {
 
 fn find_osc_color_query(bytes: &[u8]) -> Option<OscColorQuery> {
     let mut match_query = None;
-    for (prefix, prefix_len) in [(b"\x1b]".as_slice(), 2), (b"\x9d".as_slice(), 1)] {
+    for (prefix, prefix_len) in OSC_START_PREFIXES {
         let mut offset = 0;
         while offset < bytes.len() {
             let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_osc_color_query(bytes, index, prefix_len) {
+            if let Some(query) = parse_osc_color_query(bytes, index, *prefix_len) {
                 if match_query
                     .as_ref()
                     .is_none_or(|current: &OscColorQuery| query.index < current.index)
@@ -2350,13 +2660,13 @@ fn parse_osc_color_query(bytes: &[u8], index: usize, prefix_len: usize) -> Optio
     let content_start = index + prefix_len;
     let terminator = find_osc_color_terminator(&bytes[content_start..])?;
     let content_end = content_start + terminator.index;
-    let kind = parse_osc_color_query_content(&bytes[content_start..content_end])?;
+    let kinds = parse_osc_color_query_content(&bytes[content_start..content_end])?;
 
     Some(OscColorQuery {
         index,
         consumed: content_end + terminator.length - index,
         query: OscColorResponse {
-            kind,
+            kinds,
             terminator: terminator.response_terminator,
         },
     })
@@ -2384,30 +2694,41 @@ fn find_osc_color_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
             length: 1,
             response_terminator: OscResponseTerminator::C1St,
         });
+    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
+        index,
+        length: UTF8_C1_ST.len(),
+        response_terminator: OscResponseTerminator::C1St,
+    });
 
-    [bel, st, c1_st]
+    [bel, st, c1_st, utf8_c1_st]
         .into_iter()
         .flatten()
         .min_by_key(|terminator| terminator.index)
 }
 
-fn parse_osc_color_query_content(content: &[u8]) -> Option<OscColorKind> {
+fn parse_osc_color_query_content(content: &[u8]) -> Option<Vec<OscColorKind>> {
     match content {
-        b"10;?" => Some(OscColorKind::DefaultForeground),
-        b"11;?" => Some(OscColorKind::DefaultBackground),
-        b"12;?" => Some(OscColorKind::Cursor),
+        b"10;?" => Some(vec![OscColorKind::DefaultForeground]),
+        b"11;?" => Some(vec![OscColorKind::DefaultBackground]),
+        b"12;?" => Some(vec![OscColorKind::Cursor]),
         _ => parse_palette_color_query(content),
     }
 }
 
-fn parse_palette_color_query(content: &[u8]) -> Option<OscColorKind> {
+fn parse_palette_color_query(content: &[u8]) -> Option<Vec<OscColorKind>> {
     let rest = content.strip_prefix(b"4;")?;
-    let separator = rest.iter().position(|byte| *byte == b';')?;
-    if &rest[separator + 1..] != b"?" {
-        return None;
+    let mut parts = rest.split(|byte| *byte == b';');
+    let mut kinds = Vec::new();
+
+    while let Some(index) = parts.next() {
+        let marker = parts.next()?;
+        if marker != b"?" {
+            return None;
+        }
+        kinds.push(OscColorKind::Palette(parse_u8_decimal(index)?));
     }
-    let index = parse_u8_decimal(&rest[..separator])?;
-    Some(OscColorKind::Palette(index))
+
+    (!kinds.is_empty()).then_some(kinds)
 }
 
 fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
@@ -2437,8 +2758,11 @@ fn is_osc_color_query_prefix(bytes: &[u8]) -> bool {
     let Some(rest) = bytes
         .strip_prefix(b"\x1b]")
         .or_else(|| bytes.strip_prefix(b"\x9d"))
+        .or_else(|| bytes.strip_prefix(UTF8_C1_OSC))
     else {
-        return b"\x1b]".starts_with(bytes) || b"\x9d".starts_with(bytes);
+        return b"\x1b]".starts_with(bytes)
+            || b"\x9d".starts_with(bytes)
+            || UTF8_C1_OSC.starts_with(bytes);
     };
 
     b"10;?".starts_with(rest)
@@ -2451,21 +2775,43 @@ fn is_palette_color_query_prefix(bytes: &[u8]) -> bool {
     let Some(rest) = bytes.strip_prefix(b"4") else {
         return bytes.is_empty();
     };
-    let Some(rest) = rest.strip_prefix(b";") else {
+    let Some(mut rest) = rest.strip_prefix(b";") else {
         return rest.is_empty();
     };
-    let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
-    if digits == 0 {
-        return rest.is_empty();
+
+    loop {
+        let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+        if digits == 0 {
+            return rest.is_empty();
+        }
+        rest = &rest[digits..];
+        if rest.is_empty() {
+            return true;
+        }
+        let Some(after_separator) = rest.strip_prefix(b";") else {
+            return false;
+        };
+        if after_separator.is_empty() {
+            return true;
+        }
+        let Some(after_query_marker) = after_separator.strip_prefix(b"?") else {
+            return false;
+        };
+        rest = after_query_marker;
+        if rest.is_empty() {
+            return true;
+        }
+        let Some(after_next_separator) = rest.strip_prefix(b";") else {
+            return false;
+        };
+        rest = after_next_separator;
     }
-    let tail = &rest[digits..];
-    tail.is_empty() || tail == b";" || tail == b";?"
 }
 
 struct TerminalColorState {
-    foreground: [u8; 3],
-    background: [u8; 3],
-    cursor: [u8; 3],
+    foreground: DynamicColor,
+    background: DynamicColor,
+    cursor: DynamicColor,
     palette_overrides: Vec<(u8, [u8; 3])>,
     pending: Vec<u8>,
 }
@@ -2473,9 +2819,9 @@ struct TerminalColorState {
 impl Default for TerminalColorState {
     fn default() -> Self {
         Self {
-            foreground: DEFAULT_FOREGROUND,
-            background: DEFAULT_BACKGROUND,
-            cursor: DEFAULT_CURSOR,
+            foreground: DynamicColor::rgb8(DEFAULT_FOREGROUND),
+            background: DynamicColor::rgb8(DEFAULT_BACKGROUND),
+            cursor: DynamicColor::rgb8(DEFAULT_CURSOR),
             palette_overrides: Vec::new(),
             pending: Vec::new(),
         }
@@ -2519,22 +2865,28 @@ impl TerminalColorState {
     }
 
     fn response(&self, query: OscColorResponse) -> Vec<u8> {
-        let mut response = match query.kind {
-            OscColorKind::DefaultForeground => {
-                format!("\x1b]10;{}", rgb_response(self.foreground)).into_bytes()
-            }
-            OscColorKind::DefaultBackground => {
-                format!("\x1b]11;{}", rgb_response(self.background)).into_bytes()
-            }
-            OscColorKind::Cursor => format!("\x1b]12;{}", rgb_response(self.cursor)).into_bytes(),
-            OscColorKind::Palette(index) => format!(
-                "\x1b]4;{};{}",
-                index,
-                rgb_response(self.palette_color(index))
-            )
-            .into_bytes(),
-        };
-        response.extend_from_slice(query.terminator.bytes());
+        let mut response = Vec::new();
+        for kind in query.kinds {
+            let mut item = match kind {
+                OscColorKind::DefaultForeground => {
+                    format!("\x1b]10;{}", color_response(self.foreground)).into_bytes()
+                }
+                OscColorKind::DefaultBackground => {
+                    format!("\x1b]11;{}", color_response(self.background)).into_bytes()
+                }
+                OscColorKind::Cursor => {
+                    format!("\x1b]12;{}", color_response(self.cursor)).into_bytes()
+                }
+                OscColorKind::Palette(index) => format!(
+                    "\x1b]4;{};{}",
+                    index,
+                    palette_color_response(self.palette_color(index))
+                )
+                .into_bytes(),
+            };
+            item.extend_from_slice(query.terminator.bytes());
+            response.extend(item);
+        }
         response
     }
 
@@ -2543,22 +2895,28 @@ impl TerminalColorState {
             OscColorChange::DefaultForeground(color) => self.foreground = color,
             OscColorChange::DefaultBackground(color) => self.background = color,
             OscColorChange::Cursor(color) => self.cursor = color,
-            OscColorChange::ResetDefaultForeground => self.foreground = DEFAULT_FOREGROUND,
-            OscColorChange::ResetDefaultBackground => self.background = DEFAULT_BACKGROUND,
-            OscColorChange::ResetCursor => self.cursor = DEFAULT_CURSOR,
+            OscColorChange::ResetDefaultForeground => {
+                self.foreground = DynamicColor::rgb8(DEFAULT_FOREGROUND);
+            }
+            OscColorChange::ResetDefaultBackground => {
+                self.background = DynamicColor::rgb8(DEFAULT_BACKGROUND);
+            }
+            OscColorChange::ResetCursor => self.cursor = DynamicColor::rgb8(DEFAULT_CURSOR),
             OscColorChange::ResetPalette(indices) => self
                 .palette_overrides
                 .retain(|(palette_index, _)| !indices.contains(palette_index)),
             OscColorChange::ResetPaletteAll => self.palette_overrides.clear(),
-            OscColorChange::Palette(index, color) => {
-                if let Some((_, existing)) = self
-                    .palette_overrides
-                    .iter_mut()
-                    .find(|(palette_index, _)| *palette_index == index)
-                {
-                    *existing = color;
-                } else {
-                    self.palette_overrides.push((index, color));
+            OscColorChange::Palette(changes) => {
+                for (index, color) in changes {
+                    if let Some((_, existing)) = self
+                        .palette_overrides
+                        .iter_mut()
+                        .find(|(palette_index, _)| *palette_index == index)
+                    {
+                        *existing = color;
+                    } else {
+                        self.palette_overrides.push((index, color));
+                    }
                 }
             }
         }
@@ -2572,9 +2930,9 @@ impl TerminalColorState {
     }
 
     fn retain_possible_prefix(&mut self) {
-        let retained = [b"\x1b]".as_slice(), b"\x9d".as_slice()]
-            .into_iter()
-            .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
+        let retained = OSC_START_PREFIXES
+            .iter()
+            .map(|(prefix, _)| suffix_len_matching_prefix(&self.pending, prefix))
             .max()
             .unwrap_or(0);
         let retained = retained
@@ -2589,34 +2947,34 @@ impl TerminalColorState {
 
 #[derive(Clone)]
 enum OscColorChange {
-    DefaultForeground([u8; 3]),
-    DefaultBackground([u8; 3]),
-    Cursor([u8; 3]),
+    DefaultForeground(DynamicColor),
+    DefaultBackground(DynamicColor),
+    Cursor(DynamicColor),
     ResetDefaultForeground,
     ResetDefaultBackground,
     ResetCursor,
     ResetPalette(Vec<u8>),
     ResetPaletteAll,
-    Palette(u8, [u8; 3]),
+    Palette(Vec<(u8, [u8; 3])>),
 }
 
 fn find_next_osc_start(bytes: &[u8]) -> Option<(usize, usize)> {
-    [(b"\x1b]".as_slice(), 2), (b"\x9d".as_slice(), 1)]
-        .into_iter()
+    OSC_START_PREFIXES
+        .iter()
         .filter_map(|(prefix, prefix_len)| {
-            find_subslice(bytes, prefix).map(|index| (index, prefix_len))
+            find_subslice(bytes, prefix).map(|index| (index, *prefix_len))
         })
         .min_by_key(|(index, _)| *index)
 }
 
 fn parse_osc_color_change(content: &[u8]) -> Option<OscColorChange> {
-    if let Some(color) = content.strip_prefix(b"10;").and_then(parse_rgb_color_spec) {
+    if let Some(color) = content.strip_prefix(b"10;").and_then(parse_color_spec) {
         return Some(OscColorChange::DefaultForeground(color));
     }
-    if let Some(color) = content.strip_prefix(b"11;").and_then(parse_rgb_color_spec) {
+    if let Some(color) = content.strip_prefix(b"11;").and_then(parse_color_spec) {
         return Some(OscColorChange::DefaultBackground(color));
     }
-    if let Some(color) = content.strip_prefix(b"12;").and_then(parse_rgb_color_spec) {
+    if let Some(color) = content.strip_prefix(b"12;").and_then(parse_color_spec) {
         return Some(OscColorChange::Cursor(color));
     }
     if matches!(content, b"110" | b"110;") {
@@ -2648,27 +3006,116 @@ fn parse_palette_reset_change(content: &[u8]) -> Option<OscColorChange> {
 
 fn parse_palette_color_change(content: &[u8]) -> Option<OscColorChange> {
     let rest = content.strip_prefix(b"4;")?;
-    let separator = rest.iter().position(|byte| *byte == b';')?;
-    let index = parse_u8_decimal(&rest[..separator])?;
-    let color = parse_rgb_color_spec(&rest[separator + 1..])?;
-    Some(OscColorChange::Palette(index, color))
+    let mut changes = Vec::new();
+    let mut parts = rest.split(|byte| *byte == b';');
+
+    while let Some(index) = parts.next() {
+        let color = parts.next()?;
+        changes.push((parse_u8_decimal(index)?, parse_color_spec(color)?.to_rgb8()));
+    }
+
+    (!changes.is_empty()).then_some(OscColorChange::Palette(changes))
 }
 
-fn parse_rgb_color_spec(value: &[u8]) -> Option<[u8; 3]> {
+fn parse_color_spec(value: &[u8]) -> Option<DynamicColor> {
+    if let Some(hex) = value.strip_prefix(b"#") {
+        return parse_hex_color_spec(hex);
+    }
+    if let Some(rest) = value.strip_prefix(b"rgba:") {
+        return parse_slash_rgba_color_spec(rest);
+    }
+    if value.starts_with(b"rgba(") {
+        return parse_function_rgba_color_spec(value);
+    }
+
     let rest = value.strip_prefix(b"rgb:")?;
     let mut components = rest.split(|byte| *byte == b'/');
     let red = parse_rgb_component(components.next()?)?;
     let green = parse_rgb_component(components.next()?)?;
     let blue = parse_rgb_component(components.next()?)?;
-    components.next().is_none().then_some([red, green, blue])
+    components
+        .next()
+        .is_none()
+        .then_some(DynamicColor::rgb(red, green, blue))
 }
 
-fn parse_rgb_component(component: &[u8]) -> Option<u8> {
-    match component.len() {
-        1 => parse_hex_digit(component[0]).map(|value| value * 17),
-        2..=4 => parse_hex_byte(&component[..2]),
+fn parse_hex_color_spec(hex: &[u8]) -> Option<DynamicColor> {
+    match hex.len() {
+        3 => Some(DynamicColor::rgb8([
+            parse_hex_digit(hex[0])? * 17,
+            parse_hex_digit(hex[1])? * 17,
+            parse_hex_digit(hex[2])? * 17,
+        ])),
+        6 => Some(DynamicColor::rgb8([
+            parse_hex_byte(&hex[0..2])?,
+            parse_hex_byte(&hex[2..4])?,
+            parse_hex_byte(&hex[4..6])?,
+        ])),
         _ => None,
     }
+}
+
+fn parse_slash_rgba_color_spec(value: &[u8]) -> Option<DynamicColor> {
+    let mut components = value.split(|byte| *byte == b'/');
+    let red = parse_hex_component16(components.next()?)?;
+    let green = parse_hex_component16(components.next()?)?;
+    let blue = parse_hex_component16(components.next()?)?;
+    let alpha = parse_hex_component16(components.next()?)?;
+    components
+        .next()
+        .is_none()
+        .then_some(DynamicColor::rgba(red, green, blue, alpha))
+}
+
+fn parse_function_rgba_color_spec(value: &[u8]) -> Option<DynamicColor> {
+    let inner = value.strip_prefix(b"rgba(")?.strip_suffix(b")")?;
+    let mut components = inner.split(|byte| *byte == b',');
+    let red = parse_u8_decimal(components.next()?.trim_ascii())?;
+    let green = parse_u8_decimal(components.next()?.trim_ascii())?;
+    let blue = parse_u8_decimal(components.next()?.trim_ascii())?;
+    let alpha = parse_alpha_float_component(components.next()?.trim_ascii())?;
+    components
+        .next()
+        .is_none()
+        .then_some(DynamicColor::rgba8(red, green, blue, alpha))
+}
+
+fn parse_rgb_component(component: &[u8]) -> Option<u16> {
+    match component.len() {
+        1 => parse_hex_digit(component[0]).map(|value| u16::from(value) * 0x1111),
+        2 => parse_hex_byte(component).map(DynamicColor::expand_byte),
+        3 | 4 => parse_hex_component16(component),
+        _ => None,
+    }
+}
+
+fn parse_hex_component16(component: &[u8]) -> Option<u16> {
+    match component.len() {
+        1 => parse_hex_digit(component[0]).map(|value| u16::from(value) * 0x1111),
+        2 => parse_hex_byte(component).map(DynamicColor::expand_byte),
+        3 => Some(
+            parse_hex_digit(component[0]).map(u16::from)? * 0x1000
+                + parse_hex_digit(component[1]).map(u16::from)? * 0x100
+                + parse_hex_digit(component[2]).map(u16::from)? * 0x10,
+        ),
+        4 => Some(
+            parse_hex_digit(component[0]).map(u16::from)? * 0x1000
+                + parse_hex_digit(component[1]).map(u16::from)? * 0x100
+                + parse_hex_digit(component[2]).map(u16::from)? * 0x10
+                + parse_hex_digit(component[3]).map(u16::from)?,
+        ),
+        _ => None,
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn parse_alpha_float_component(component: &[u8]) -> Option<u16> {
+    let text = std::str::from_utf8(component).ok()?;
+    let value = text.parse::<f32>().ok()?;
+    if !(0.0..=1.0).contains(&value) {
+        return None;
+    }
+    Some((value * f32::from(u16::MAX)).round() as u16)
 }
 
 fn parse_hex_byte(bytes: &[u8]) -> Option<u8> {
@@ -2698,11 +3145,78 @@ const DEFAULT_FOREGROUND: [u8; 3] = [229, 229, 229];
 const DEFAULT_BACKGROUND: [u8; 3] = [12, 12, 12];
 const DEFAULT_CURSOR: [u8; 3] = DEFAULT_FOREGROUND;
 
-fn rgb_response(color: [u8; 3]) -> String {
-    format!(
-        "rgb:{0:02x}{0:02x}/{1:02x}{1:02x}/{2:02x}{2:02x}",
-        color[0], color[1], color[2]
-    )
+#[derive(Clone, Copy)]
+struct DynamicColor {
+    red: u16,
+    green: u16,
+    blue: u16,
+    alpha: Option<u16>,
+}
+
+impl DynamicColor {
+    const fn rgb8(color: [u8; 3]) -> Self {
+        Self::rgb(
+            color[0] as u16 * 0x101,
+            color[1] as u16 * 0x101,
+            color[2] as u16 * 0x101,
+        )
+    }
+
+    const fn rgb(red: u16, green: u16, blue: u16) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+            alpha: None,
+        }
+    }
+
+    const fn rgba(red: u16, green: u16, blue: u16, alpha: u16) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+            alpha: Some(alpha),
+        }
+    }
+
+    const fn rgba8(red: u8, green: u8, blue: u8, alpha: u16) -> Self {
+        Self::rgba(
+            Self::expand_byte(red),
+            Self::expand_byte(green),
+            Self::expand_byte(blue),
+            alpha,
+        )
+    }
+
+    const fn expand_byte(value: u8) -> u16 {
+        value as u16 * 0x101
+    }
+
+    const fn to_rgb8(self) -> [u8; 3] {
+        [
+            (self.red >> 8) as u8,
+            (self.green >> 8) as u8,
+            (self.blue >> 8) as u8,
+        ]
+    }
+}
+
+fn color_response(color: DynamicColor) -> String {
+    match color.alpha {
+        Some(alpha) => format!(
+            "rgba:{:04x}/{:04x}/{:04x}/{:04x}",
+            color.red, color.green, color.blue, alpha
+        ),
+        None => format!(
+            "rgb:{:04x}/{:04x}/{:04x}",
+            color.red, color.green, color.blue
+        ),
+    }
+}
+
+fn palette_color_response(color: [u8; 3]) -> String {
+    color_response(DynamicColor::rgb8(color))
 }
 
 fn indexed_color(index: u8) -> [u8; 3] {
@@ -2915,7 +3429,11 @@ fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
 }
 
 #[derive(Clone, Copy, Default)]
-struct InputModes(u8);
+struct InputModes {
+    bits: u8,
+    kitty_keyboard_flags: u16,
+    modify_other_keys: u8,
+}
 
 impl InputModes {
     const APPLICATION_CURSOR_KEYS: u8 = 1;
@@ -2942,11 +3460,21 @@ impl InputModes {
     }
 
     fn mouse_input_mode(self) -> MouseInputMode {
-        MouseInputMode::from_bits((self.0 & Self::MOUSE_INPUT_MASK) >> Self::MOUSE_REPORTING_SHIFT)
+        MouseInputMode::from_bits(
+            (self.bits & Self::MOUSE_INPUT_MASK) >> Self::MOUSE_REPORTING_SHIFT,
+        )
     }
 
     fn focus_reporting(self) -> bool {
         self.enabled(Self::FOCUS_REPORTING)
+    }
+
+    fn kitty_keyboard_flags(self) -> u16 {
+        self.kitty_keyboard_flags
+    }
+
+    fn modify_other_keys(self) -> u8 {
+        self.modify_other_keys
     }
 
     fn with_application_cursor_keys(self, enabled: bool) -> Self {
@@ -2962,8 +3490,8 @@ impl InputModes {
     }
 
     fn with_mouse_input_mode(mut self, mode: MouseInputMode) -> Self {
-        self.0 &= !Self::MOUSE_INPUT_MASK;
-        self.0 |= mode.bits() << Self::MOUSE_REPORTING_SHIFT;
+        self.bits &= !Self::MOUSE_INPUT_MASK;
+        self.bits |= mode.bits() << Self::MOUSE_REPORTING_SHIFT;
         self
     }
 
@@ -2971,15 +3499,25 @@ impl InputModes {
         self.with_flag(Self::FOCUS_REPORTING, enabled)
     }
 
+    fn with_kitty_keyboard_flags(mut self, flags: u16) -> Self {
+        self.kitty_keyboard_flags = flags;
+        self
+    }
+
+    fn with_modify_other_keys(mut self, mode: u8) -> Self {
+        self.modify_other_keys = mode;
+        self
+    }
+
     fn enabled(self, flag: u8) -> bool {
-        self.0 & flag != 0
+        self.bits & flag != 0
     }
 
     fn with_flag(mut self, flag: u8, enabled: bool) -> Self {
         if enabled {
-            self.0 |= flag;
+            self.bits |= flag;
         } else {
-            self.0 &= !flag;
+            self.bits &= !flag;
         }
         self
     }
@@ -2987,11 +3525,10 @@ impl InputModes {
 
 fn encode_input_event(event: Event, modes: InputModes) -> Option<Vec<u8>> {
     match event {
-        Event::Key(key) if key.kind == KeyEventKind::Press => encode_key_with_mode(
-            key,
-            modes.application_cursor_keys(),
-            modes.application_keypad(),
-        ),
+        Event::Key(key) if key.kind == KeyEventKind::Press => encode_key_with_mode(key, modes),
+        Event::Key(key) if reports_kitty_key_event_type(key.kind, modes.kitty_keyboard_flags()) => {
+            encode_key_with_mode(key, modes)
+        }
         Event::Paste(text) if modes.bracketed_paste() => Some(encode_bracketed_paste(&text)),
         Event::Paste(text) => Some(text.into_bytes()),
         Event::Mouse(event) if modes.mouse_reporting() => {
@@ -3130,24 +3667,42 @@ const fn mouse_button_code(button: MouseButton) -> u16 {
 
 #[cfg(test)]
 fn encode_key(key: KeyEvent) -> Option<Vec<u8>> {
-    encode_key_with_mode(key, false, false)
+    encode_key_with_mode(key, InputModes::default())
 }
 
-fn encode_key_with_mode(
-    key: KeyEvent,
-    application_cursor_keys: bool,
-    application_keypad: bool,
-) -> Option<Vec<u8>> {
+fn encode_key_with_mode(key: KeyEvent, modes: InputModes) -> Option<Vec<u8>> {
     let alt = key.modifiers.contains(KeyModifiers::ALT);
+    if key.kind != KeyEventKind::Press {
+        return encode_kitty_event_key(key, modes.kitty_keyboard_flags());
+    }
+
+    if let Some(bytes) = encode_kitty_modifier_key(key, modes.kitty_keyboard_flags()) {
+        return Some(bytes);
+    }
     if let Some(bytes) = encode_modified_key(key) {
         return Some(bytes);
     }
-    if application_keypad {
+    if let Some(bytes) = encode_kitty_keypad_key(key, modes.kitty_keyboard_flags()) {
+        return Some(bytes);
+    }
+    if let Some(bytes) = encode_kitty_functional_key(key, modes.kitty_keyboard_flags()) {
+        return Some(bytes);
+    }
+    if let Some(bytes) = encode_kitty_report_all_key(key, modes.kitty_keyboard_flags()) {
+        return Some(bytes);
+    }
+    if let Some(bytes) = encode_kitty_disambiguated_key(key, modes.kitty_keyboard_flags()) {
+        return Some(bytes);
+    }
+    if let Some(bytes) = encode_xterm_modify_other_key(key, modes.modify_other_keys()) {
+        return Some(bytes);
+    }
+    if modes.application_keypad() {
         if let Some(bytes) = encode_application_keypad_key(key) {
             return Some(bytes);
         }
     }
-    if application_cursor_keys {
+    if modes.application_cursor_keys() {
         if let Some(bytes) = encode_application_cursor_key(key) {
             return Some(bytes);
         }
@@ -3185,6 +3740,436 @@ fn encode_key_with_mode(
     Some(bytes)
 }
 
+fn encode_kitty_event_key(key: KeyEvent, kitty_keyboard_flags: u16) -> Option<Vec<u8>> {
+    encode_kitty_modifier_key(key, kitty_keyboard_flags)
+        .or_else(|| encode_kitty_keypad_key(key, kitty_keyboard_flags))
+        .or_else(|| encode_kitty_functional_key(key, kitty_keyboard_flags))
+        .or_else(|| encode_kitty_report_all_key(key, kitty_keyboard_flags))
+        .or_else(|| encode_kitty_disambiguated_key(key, kitty_keyboard_flags))
+}
+
+fn encode_kitty_modifier_key(key: KeyEvent, kitty_keyboard_flags: u16) -> Option<Vec<u8>> {
+    let event_type = kitty_event_type(key.kind, kitty_keyboard_flags);
+    if kitty_keyboard_flags
+        & (KITTY_KEYBOARD_DISAMBIGUATE | KITTY_KEYBOARD_REPORT_ALL | KITTY_KEYBOARD_REPORT_EVENTS)
+        == 0
+    {
+        return None;
+    }
+    if key.kind == KeyEventKind::Press
+        && kitty_keyboard_flags & (KITTY_KEYBOARD_DISAMBIGUATE | KITTY_KEYBOARD_REPORT_ALL) == 0
+    {
+        return None;
+    }
+
+    let key_code = kitty_local_modifier_key_code(key.code)?;
+    Some(kitty_csi_u_key_with_event(
+        key_code,
+        kitty_modifier(key),
+        event_type,
+        None,
+    ))
+}
+
+fn encode_kitty_keypad_key(key: KeyEvent, kitty_keyboard_flags: u16) -> Option<Vec<u8>> {
+    let event_type = kitty_event_type(key.kind, kitty_keyboard_flags);
+    if kitty_keyboard_flags
+        & (KITTY_KEYBOARD_DISAMBIGUATE | KITTY_KEYBOARD_REPORT_ALL | KITTY_KEYBOARD_REPORT_EVENTS)
+        == 0
+    {
+        return None;
+    }
+    if key.kind == KeyEventKind::Press
+        && kitty_keyboard_flags & (KITTY_KEYBOARD_DISAMBIGUATE | KITTY_KEYBOARD_REPORT_ALL) == 0
+    {
+        return None;
+    }
+
+    let key_code = kitty_local_keypad_code(key)?;
+    Some(kitty_csi_u_key_with_event(
+        key_code,
+        kitty_modifier(key),
+        event_type,
+        None,
+    ))
+}
+
+fn encode_kitty_functional_key(key: KeyEvent, kitty_keyboard_flags: u16) -> Option<Vec<u8>> {
+    let event_type = kitty_event_type(key.kind, kitty_keyboard_flags);
+    if kitty_keyboard_flags
+        & (KITTY_KEYBOARD_DISAMBIGUATE | KITTY_KEYBOARD_REPORT_ALL | KITTY_KEYBOARD_REPORT_EVENTS)
+        == 0
+    {
+        return None;
+    }
+    if key.kind == KeyEventKind::Press
+        && kitty_keyboard_flags & (KITTY_KEYBOARD_DISAMBIGUATE | KITTY_KEYBOARD_REPORT_ALL) == 0
+    {
+        return None;
+    }
+
+    let modifier = kitty_modifier(key);
+    match key.code {
+        KeyCode::Esc => Some(kitty_csi_u_key_with_event(27, modifier, event_type, None)),
+        KeyCode::Enter if kitty_keyboard_flags & KITTY_KEYBOARD_REPORT_ALL != 0 => {
+            Some(kitty_csi_u_key_with_event(13, modifier, event_type, None))
+        }
+        KeyCode::Tab if kitty_keyboard_flags & KITTY_KEYBOARD_REPORT_ALL != 0 => {
+            Some(kitty_csi_u_key_with_event(9, modifier, event_type, None))
+        }
+        KeyCode::Backspace if kitty_keyboard_flags & KITTY_KEYBOARD_REPORT_ALL != 0 => {
+            Some(kitty_csi_u_key_with_event(127, modifier, event_type, None))
+        }
+        KeyCode::Up => Some(kitty_csi_final_key_with_event(b'A', modifier, event_type)),
+        KeyCode::Down => Some(kitty_csi_final_key_with_event(b'B', modifier, event_type)),
+        KeyCode::Right => Some(kitty_csi_final_key_with_event(b'C', modifier, event_type)),
+        KeyCode::Left => Some(kitty_csi_final_key_with_event(b'D', modifier, event_type)),
+        KeyCode::End => Some(kitty_csi_final_key_with_event(b'F', modifier, event_type)),
+        KeyCode::Home => Some(kitty_csi_final_key_with_event(b'H', modifier, event_type)),
+        KeyCode::Insert => Some(kitty_csi_tilde_key_with_event(2, modifier, event_type)),
+        KeyCode::Delete => Some(kitty_csi_tilde_key_with_event(3, modifier, event_type)),
+        KeyCode::PageUp => Some(kitty_csi_tilde_key_with_event(5, modifier, event_type)),
+        KeyCode::PageDown => Some(kitty_csi_tilde_key_with_event(6, modifier, event_type)),
+        KeyCode::F(1) => Some(kitty_csi_final_key_with_event(b'P', modifier, event_type)),
+        KeyCode::F(2) => Some(kitty_csi_final_key_with_event(b'Q', modifier, event_type)),
+        KeyCode::F(3) => Some(kitty_csi_final_key_with_event(b'R', modifier, event_type)),
+        KeyCode::F(4) => Some(kitty_csi_final_key_with_event(b'S', modifier, event_type)),
+        KeyCode::F(key @ 5..=12) => {
+            let number = match key {
+                5 => 15,
+                6 => 17,
+                7 => 18,
+                8 => 19,
+                9 => 20,
+                10 => 21,
+                11 => 23,
+                12 => 24,
+                _ => unreachable!(),
+            };
+            Some(kitty_csi_tilde_key_with_event(number, modifier, event_type))
+        }
+        KeyCode::F(key @ 13..=35) => Some(kitty_csi_u_key_with_event(
+            57376 + u32::from(key - 13),
+            modifier,
+            event_type,
+            None,
+        )),
+        _ => kitty_local_pua_function_key_code(key.code)
+            .map(|key_code| kitty_csi_u_key_with_event(key_code, modifier, event_type, None)),
+    }
+}
+
+fn kitty_local_pua_function_key_code(code: KeyCode) -> Option<u32> {
+    match code {
+        KeyCode::CapsLock => Some(57358),
+        KeyCode::ScrollLock => Some(57359),
+        KeyCode::NumLock => Some(57360),
+        KeyCode::PrintScreen => Some(57361),
+        KeyCode::Pause => Some(57362),
+        KeyCode::Menu => Some(57363),
+        KeyCode::Media(media) => Some(kitty_local_media_key_code(media)),
+        _ => None,
+    }
+}
+
+fn kitty_local_media_key_code(media: MediaKeyCode) -> u32 {
+    match media {
+        MediaKeyCode::Play => 57428,
+        MediaKeyCode::Pause => 57429,
+        MediaKeyCode::PlayPause => 57430,
+        MediaKeyCode::Reverse => 57431,
+        MediaKeyCode::Stop => 57432,
+        MediaKeyCode::FastForward => 57433,
+        MediaKeyCode::Rewind => 57434,
+        MediaKeyCode::TrackNext => 57435,
+        MediaKeyCode::TrackPrevious => 57436,
+        MediaKeyCode::Record => 57437,
+        MediaKeyCode::LowerVolume => 57438,
+        MediaKeyCode::RaiseVolume => 57439,
+        MediaKeyCode::MuteVolume => 57440,
+    }
+}
+
+fn kitty_local_modifier_key_code(code: KeyCode) -> Option<u32> {
+    let KeyCode::Modifier(modifier) = code else {
+        return None;
+    };
+
+    match modifier {
+        ModifierKeyCode::LeftShift => Some(57441),
+        ModifierKeyCode::LeftControl => Some(57442),
+        ModifierKeyCode::LeftAlt => Some(57443),
+        ModifierKeyCode::LeftSuper => Some(57444),
+        ModifierKeyCode::LeftHyper => Some(57445),
+        ModifierKeyCode::LeftMeta => Some(57446),
+        ModifierKeyCode::RightShift => Some(57447),
+        ModifierKeyCode::RightControl => Some(57448),
+        ModifierKeyCode::RightAlt => Some(57449),
+        ModifierKeyCode::RightSuper => Some(57450),
+        ModifierKeyCode::RightHyper => Some(57451),
+        ModifierKeyCode::RightMeta => Some(57452),
+        ModifierKeyCode::IsoLevel3Shift => Some(57453),
+        ModifierKeyCode::IsoLevel5Shift => Some(57454),
+    }
+}
+
+fn encode_kitty_report_all_key(key: KeyEvent, kitty_keyboard_flags: u16) -> Option<Vec<u8>> {
+    if kitty_keyboard_flags & KITTY_KEYBOARD_REPORT_ALL == 0 {
+        return None;
+    }
+
+    let key_code = match key.code {
+        KeyCode::Char(character) => {
+            kitty_local_key_code(character, key.modifiers, kitty_keyboard_flags)
+        }
+        KeyCode::Enter => 13.to_string(),
+        KeyCode::Tab => 9.to_string(),
+        KeyCode::Backspace => 127.to_string(),
+        KeyCode::Esc => 27.to_string(),
+        _ => return None,
+    };
+    Some(kitty_csi_u_key_with_event(
+        key_code,
+        kitty_modifier(key),
+        kitty_event_type(key.kind, kitty_keyboard_flags),
+        associated_text_from_local_key(key, kitty_keyboard_flags).as_deref(),
+    ))
+}
+
+fn encode_kitty_disambiguated_key(key: KeyEvent, kitty_keyboard_flags: u16) -> Option<Vec<u8>> {
+    if kitty_keyboard_flags & (KITTY_KEYBOARD_DISAMBIGUATE | KITTY_KEYBOARD_REPORT_ALL) == 0 {
+        return None;
+    }
+    if !(key.modifiers.contains(KeyModifiers::CONTROL)
+        || key.modifiers.contains(KeyModifiers::ALT)
+        || key.modifiers.contains(KeyModifiers::SUPER)
+        || key.modifiers.contains(KeyModifiers::HYPER)
+        || key.modifiers.contains(KeyModifiers::META))
+    {
+        return None;
+    }
+
+    let KeyCode::Char(character) = key.code else {
+        return None;
+    };
+    let key_code = if kitty_keyboard_flags & KITTY_KEYBOARD_ALTERNATE_KEYS != 0 {
+        kitty_local_key_code(character, key.modifiers, kitty_keyboard_flags)
+    } else {
+        kitty_ascii_key_code(character)?.to_string()
+    };
+    let modifier = kitty_modifier(key)?;
+    Some(kitty_csi_u_key_with_event(
+        key_code,
+        Some(modifier),
+        kitty_event_type(key.kind, kitty_keyboard_flags),
+        None,
+    ))
+}
+
+fn kitty_ascii_key_code(character: char) -> Option<u32> {
+    if character.is_ascii_alphabetic() {
+        Some(u32::from(character.to_ascii_lowercase()))
+    } else if character.is_ascii_graphic() || character == ' ' {
+        Some(u32::from(character))
+    } else {
+        None
+    }
+}
+
+fn kitty_key_code(character: char) -> u32 {
+    if character.is_ascii_alphabetic() {
+        u32::from(character.to_ascii_lowercase())
+    } else {
+        u32::from(character)
+    }
+}
+
+fn kitty_local_keypad_code(key: KeyEvent) -> Option<u32> {
+    if !key.state.contains(KeyEventState::KEYPAD) && !matches!(key.code, KeyCode::KeypadBegin) {
+        return None;
+    }
+
+    match key.code {
+        KeyCode::Char('0') => Some(57399),
+        KeyCode::Char('1') => Some(57400),
+        KeyCode::Char('2') => Some(57401),
+        KeyCode::Char('3') => Some(57402),
+        KeyCode::Char('4') => Some(57403),
+        KeyCode::Char('5') => Some(57404),
+        KeyCode::Char('6') => Some(57405),
+        KeyCode::Char('7') => Some(57406),
+        KeyCode::Char('8') => Some(57407),
+        KeyCode::Char('9') => Some(57408),
+        KeyCode::Char('.') => Some(57409),
+        KeyCode::Char('/') => Some(57410),
+        KeyCode::Char('*') => Some(57411),
+        KeyCode::Char('-') => Some(57412),
+        KeyCode::Char('+') => Some(57413),
+        KeyCode::Enter => Some(57414),
+        KeyCode::Char('=') => Some(57415),
+        KeyCode::Char(',') => Some(57416),
+        KeyCode::Left => Some(57417),
+        KeyCode::Right => Some(57418),
+        KeyCode::Up => Some(57419),
+        KeyCode::Down => Some(57420),
+        KeyCode::PageUp => Some(57421),
+        KeyCode::PageDown => Some(57422),
+        KeyCode::Home => Some(57423),
+        KeyCode::End => Some(57424),
+        KeyCode::Insert => Some(57425),
+        KeyCode::Delete => Some(57426),
+        KeyCode::KeypadBegin => Some(57427),
+        _ => None,
+    }
+}
+
+fn kitty_local_key_code(
+    character: char,
+    modifiers: KeyModifiers,
+    kitty_keyboard_flags: u16,
+) -> String {
+    let primary = kitty_key_code(character);
+    if kitty_keyboard_flags & KITTY_KEYBOARD_ALTERNATE_KEYS == 0
+        || !modifiers.contains(KeyModifiers::SHIFT)
+    {
+        return primary.to_string();
+    }
+
+    let shifted = u32::from(character);
+    if shifted == primary {
+        primary.to_string()
+    } else {
+        format!("{primary}:{shifted}")
+    }
+}
+
+fn associated_text_from_local_key(key: KeyEvent, kitty_keyboard_flags: u16) -> Option<String> {
+    if kitty_keyboard_flags & (KITTY_KEYBOARD_REPORT_ALL | KITTY_KEYBOARD_ASSOCIATED_TEXT)
+        != (KITTY_KEYBOARD_REPORT_ALL | KITTY_KEYBOARD_ASSOCIATED_TEXT)
+    {
+        return None;
+    }
+    if key.kind == KeyEventKind::Release {
+        return None;
+    }
+
+    let KeyCode::Char(character) = key.code else {
+        return None;
+    };
+    associated_text_codepoints(std::iter::once(character))
+}
+
+fn associated_text_codepoints(characters: impl IntoIterator<Item = char>) -> Option<String> {
+    let mut encoded = String::new();
+    for character in characters {
+        if character.is_control() {
+            return None;
+        }
+        if !encoded.is_empty() {
+            encoded.push(':');
+        }
+        encoded.push_str(&u32::from(character).to_string());
+    }
+
+    if encoded.is_empty() {
+        None
+    } else {
+        Some(encoded)
+    }
+}
+
+fn kitty_csi_u_key_with_event(
+    key_code: impl std::fmt::Display,
+    modifier: Option<u16>,
+    event_type: Option<u8>,
+    associated_text: Option<&str>,
+) -> Vec<u8> {
+    let modifier = match (modifier, event_type) {
+        (Some(modifier), Some(event_type)) => Some(format!("{modifier}:{event_type}")),
+        (Some(modifier), None) => Some(modifier.to_string()),
+        (None, Some(event_type)) => Some(format!("1:{event_type}")),
+        (None, None) => None,
+    };
+
+    match (modifier, associated_text) {
+        (Some(modifier), Some(text)) => format!("\x1b[{key_code};{modifier};{text}u").into_bytes(),
+        (Some(modifier), None) => format!("\x1b[{key_code};{modifier}u").into_bytes(),
+        (None, Some(text)) => format!("\x1b[{key_code};;{text}u").into_bytes(),
+        (None, None) => format!("\x1b[{key_code}u").into_bytes(),
+    }
+}
+
+fn kitty_csi_final_key_with_event(
+    final_byte: u8,
+    modifier: Option<u16>,
+    event_type: Option<u8>,
+) -> Vec<u8> {
+    match modifier {
+        Some(modifier) => match event_type {
+            Some(event_type) => {
+                format!("\x1b[1;{}:{}{}", modifier, event_type, final_byte as char).into_bytes()
+            }
+            None => format!("\x1b[1;{}{}", modifier, final_byte as char).into_bytes(),
+        },
+        None => match event_type {
+            Some(event_type) => {
+                format!("\x1b[1;1:{}{}", event_type, final_byte as char).into_bytes()
+            }
+            None => vec![0x1b, b'[', final_byte],
+        },
+    }
+}
+
+fn kitty_csi_tilde_key_with_event(
+    number: u8,
+    modifier: Option<u16>,
+    event_type: Option<u8>,
+) -> Vec<u8> {
+    match modifier {
+        Some(modifier) => match event_type {
+            Some(event_type) => format!("\x1b[{number};{modifier}:{event_type}~").into_bytes(),
+            None => format!("\x1b[{number};{modifier}~").into_bytes(),
+        },
+        None => match event_type {
+            Some(event_type) => format!("\x1b[{number};1:{event_type}~").into_bytes(),
+            None => format!("\x1b[{number}~").into_bytes(),
+        },
+    }
+}
+
+fn reports_kitty_key_event_type(kind: KeyEventKind, kitty_keyboard_flags: u16) -> bool {
+    kind != KeyEventKind::Press && kitty_event_type(kind, kitty_keyboard_flags).is_some()
+}
+
+fn kitty_event_type(kind: KeyEventKind, kitty_keyboard_flags: u16) -> Option<u8> {
+    if kitty_keyboard_flags & KITTY_KEYBOARD_REPORT_EVENTS == 0 {
+        return None;
+    }
+
+    match kind {
+        KeyEventKind::Press => None,
+        KeyEventKind::Repeat => Some(2),
+        KeyEventKind::Release => Some(3),
+    }
+}
+
+fn encode_xterm_modify_other_key(key: KeyEvent, modify_other_keys: u8) -> Option<Vec<u8>> {
+    if modify_other_keys == 0 {
+        return None;
+    }
+    let modifier = xterm_modifier(key.modifiers)?;
+    let key_code = match key.code {
+        KeyCode::Char(character) => u32::from(character),
+        KeyCode::Enter => 13,
+        KeyCode::Tab | KeyCode::BackTab => 9,
+        KeyCode::Backspace => 127,
+        KeyCode::Esc => 27,
+        _ => return None,
+    };
+
+    Some(format!("\x1b[27;{modifier};{key_code}~").into_bytes())
+}
+
 fn encode_application_keypad_key(key: KeyEvent) -> Option<Vec<u8>> {
     if !key.modifiers.is_empty() {
         return None;
@@ -3208,7 +4193,8 @@ fn encode_application_keypad_key(key: KeyEvent) -> Option<Vec<u8>> {
         KeyCode::Char('2') => b'r',
         KeyCode::Char('3') => b's',
         KeyCode::Char('4') => b't',
-        KeyCode::Char('5') | KeyCode::KeypadBegin => b'u',
+        KeyCode::Char('5') => b'u',
+        KeyCode::KeypadBegin => b'E',
         KeyCode::Char('6') => b'v',
         KeyCode::Char('7') => b'w',
         KeyCode::Char('8') => b'x',
@@ -3280,13 +4266,38 @@ fn xterm_modifier(modifiers: KeyModifiers) -> Option<u8> {
     Some(1 + u8::from(shift) + u8::from(alt) * 2 + u8::from(control) * 4)
 }
 
+fn kitty_modifier(key: KeyEvent) -> Option<u16> {
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let super_key = key.modifiers.contains(KeyModifiers::SUPER);
+    let hyper = key.modifiers.contains(KeyModifiers::HYPER);
+    let meta = key.modifiers.contains(KeyModifiers::META);
+    let caps_lock = key.state.contains(KeyEventState::CAPS_LOCK);
+    let num_lock = key.state.contains(KeyEventState::NUM_LOCK);
+    if !(shift || alt || control || super_key || hyper || meta || caps_lock || num_lock) {
+        return None;
+    }
+
+    Some(
+        1 + u16::from(shift)
+            + u16::from(alt) * 2
+            + u16::from(control) * 4
+            + u16::from(super_key) * 8
+            + u16::from(hyper) * 16
+            + u16::from(meta) * 32
+            + u16::from(caps_lock) * 64
+            + u16::from(num_lock) * 128,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::Write;
 
     use crossterm::event::{
-        Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MouseButton,
-        MouseEvent, MouseEventKind,
+        Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers, MediaKeyCode,
+        ModifierKeyCode, MouseButton, MouseEvent, MouseEventKind,
     };
 
     use crate::terminal_modes::{
@@ -3295,8 +4306,8 @@ mod tests {
     };
 
     use super::{
-        InputModes, Osc52Policy, TerminalOutputFilter, encode_input_event, encode_key,
-        resolve_local_size,
+        InputModes, InputReporting, Osc52Policy, TerminalOutputFilter, encode_input_event,
+        encode_key, resolve_local_size,
     };
 
     #[test]
@@ -3366,6 +4377,14 @@ mod tests {
             .unwrap(),
             b"\x1bOu"
         );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::KeypadBegin, KeyModifiers::NONE)),
+                InputModes::default().with_application_keypad(true),
+            )
+            .unwrap(),
+            b"\x1bOE"
+        );
     }
 
     #[test]
@@ -3410,6 +4429,598 @@ mod tests {
             encode_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT)).unwrap(),
             b"\x1bx"
         );
+    }
+
+    #[test]
+    fn encodes_kitty_disambiguated_ascii_keys_when_enabled() {
+        let modes = InputModes::default().with_kitty_keyboard_flags(1);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[105;5u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Char('i'),
+                    KeyModifiers::CONTROL | KeyModifiers::SHIFT
+                )),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[105;6u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::ALT)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[105;3u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE)),
+                modes
+            )
+            .unwrap(),
+            b"i"
+        );
+    }
+
+    #[test]
+    fn encodes_kitty_extended_modifier_bits_when_enabled() {
+        let disambiguate = InputModes::default().with_kitty_keyboard_flags(1);
+        let report_all = InputModes::default().with_kitty_keyboard_flags(8);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('i'),
+                    KeyModifiers::SUPER,
+                    KeyEventKind::Press,
+                    KeyEventState::empty()
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[105;9u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('i'),
+                    KeyModifiers::HYPER | KeyModifiers::META,
+                    KeyEventKind::Press,
+                    KeyEventState::empty()
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[105;49u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Up,
+                    KeyModifiers::NONE,
+                    KeyEventKind::Press,
+                    KeyEventState::NUM_LOCK
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[1;129A"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('a'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Press,
+                    KeyEventState::CAPS_LOCK | KeyEventState::NUM_LOCK
+                )),
+                report_all
+            )
+            .unwrap(),
+            b"\x1b[97;193u"
+        );
+    }
+
+    #[test]
+    fn encodes_kitty_modifier_keys_when_enabled() {
+        let disambiguate = InputModes::default().with_kitty_keyboard_flags(1);
+        let events = InputModes::default().with_kitty_keyboard_flags(2);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Modifier(ModifierKeyCode::LeftShift),
+                    KeyModifiers::SHIFT,
+                    KeyEventKind::Press,
+                    KeyEventState::empty()
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57441;2u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Modifier(ModifierKeyCode::RightSuper),
+                    KeyModifiers::SUPER,
+                    KeyEventKind::Press,
+                    KeyEventState::empty()
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57450;9u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Modifier(ModifierKeyCode::LeftHyper),
+                    KeyModifiers::HYPER,
+                    KeyEventKind::Press,
+                    KeyEventState::empty()
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57445;17u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Modifier(ModifierKeyCode::IsoLevel3Shift),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Press,
+                    KeyEventState::empty()
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57453u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Modifier(ModifierKeyCode::RightMeta),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Release,
+                    KeyEventState::empty()
+                )),
+                events
+            )
+            .unwrap(),
+            b"\x1b[57452;1:3u"
+        );
+    }
+
+    #[test]
+    fn encodes_kitty_report_all_ascii_and_basic_functional_keys_when_enabled() {
+        let modes = InputModes::default().with_kitty_keyboard_flags(8);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[97u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[97;2u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[105;5u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[13u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[9u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[127u"
+        );
+    }
+
+    #[test]
+    fn encodes_kitty_associated_text_when_enabled() {
+        let modes = InputModes::default().with_kitty_keyboard_flags(24);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[97;2;65u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[97;;97u"
+        );
+
+        let event_modes = InputModes::default().with_kitty_keyboard_flags(26);
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('a'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Repeat,
+                    KeyEventState::empty()
+                )),
+                event_modes
+            )
+            .unwrap(),
+            b"\x1b[97;1:2;97u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('a'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Release,
+                    KeyEventState::empty()
+                )),
+                event_modes
+            )
+            .unwrap(),
+            b"\x1b[97;1:3u"
+        );
+    }
+
+    #[test]
+    fn encodes_kitty_shifted_alternate_key_when_enabled() {
+        let report_all_alternate = InputModes::default().with_kitty_keyboard_flags(12);
+        let disambiguate_alternate = InputModes::default().with_kitty_keyboard_flags(5);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT)),
+                report_all_alternate
+            )
+            .unwrap(),
+            b"\x1b[97:65;2u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Char('A'),
+                    KeyModifiers::CONTROL | KeyModifiers::SHIFT
+                )),
+                disambiguate_alternate
+            )
+            .unwrap(),
+            b"\x1b[97:65;6u"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn encodes_kitty_canonical_functional_keys_when_enabled() {
+        let disambiguate = InputModes::default().with_kitty_keyboard_flags(1);
+        let report_all = InputModes::default().with_kitty_keyboard_flags(8);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[P"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[27u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)),
+                disambiguate.with_application_cursor_keys(true)
+            )
+            .unwrap(),
+            b"\x1b[A"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::F(13), KeyModifiers::NONE)),
+                report_all
+            )
+            .unwrap(),
+            b"\x1b[57376u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::CapsLock, KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57358u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::ScrollLock, KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57359u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::NumLock, KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57360u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::PrintScreen, KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57361u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Pause, KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57362u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Menu, KeyModifiers::NONE)),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57363u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Media(MediaKeyCode::Play),
+                    KeyModifiers::NONE
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57428u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Media(MediaKeyCode::Pause),
+                    KeyModifiers::NONE
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57429u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Media(MediaKeyCode::FastForward),
+                    KeyModifiers::NONE
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57433u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Media(MediaKeyCode::TrackNext),
+                    KeyModifiers::NONE
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57435u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Media(MediaKeyCode::MuteVolume),
+                    KeyModifiers::NONE
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57440u"
+        );
+    }
+
+    #[test]
+    fn encodes_kitty_keypad_keys_when_enabled() {
+        let disambiguate = InputModes::default().with_kitty_keyboard_flags(1);
+        let report_all = InputModes::default().with_kitty_keyboard_flags(8);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                    KeyEventKind::Press,
+                    KeyEventState::KEYPAD
+                )),
+                disambiguate
+            )
+            .unwrap(),
+            b"\x1b[57414u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('5'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Press,
+                    KeyEventState::KEYPAD
+                )),
+                report_all
+            )
+            .unwrap(),
+            b"\x1b[57404u"
+        );
+    }
+
+    #[test]
+    fn encodes_kitty_event_types_when_enabled() {
+        let event_types = InputModes::default().with_kitty_keyboard_flags(2);
+        let disambiguate_events = InputModes::default().with_kitty_keyboard_flags(3);
+        let report_all_events = InputModes::default().with_kitty_keyboard_flags(10);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Up,
+                    KeyModifiers::NONE,
+                    KeyEventKind::Repeat,
+                    KeyEventState::empty()
+                )),
+                event_types
+            )
+            .unwrap(),
+            b"\x1b[1;1:2A"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('i'),
+                    KeyModifiers::CONTROL,
+                    KeyEventKind::Release,
+                    KeyEventState::empty()
+                )),
+                disambiguate_events
+            )
+            .unwrap(),
+            b"\x1b[105;5:3u"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Char('a'),
+                    KeyModifiers::NONE,
+                    KeyEventKind::Release,
+                    KeyEventState::empty()
+                )),
+                report_all_events
+            )
+            .unwrap(),
+            b"\x1b[97;1:3u"
+        );
+        assert!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                    KeyEventKind::Release,
+                    KeyEventState::empty()
+                )),
+                disambiguate_events
+            )
+            .is_none()
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new_with_kind_and_state(
+                    KeyCode::Enter,
+                    KeyModifiers::NONE,
+                    KeyEventKind::Release,
+                    KeyEventState::empty()
+                )),
+                report_all_events
+            )
+            .unwrap(),
+            b"\x1b[13;1:3u"
+        );
+    }
+
+    #[test]
+    fn encodes_xterm_modify_other_keys_when_enabled() {
+        let modes = InputModes::default().with_modify_other_keys(2);
+
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[27;5;13~"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(
+                    KeyCode::Char('I'),
+                    KeyModifiers::CONTROL | KeyModifiers::SHIFT
+                )),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[27;6;73~"
+        );
+        assert_eq!(
+            encode_input_event(
+                Event::Key(KeyEvent::new(KeyCode::Char('.'), KeyModifiers::ALT)),
+                modes
+            )
+            .unwrap(),
+            b"\x1b[27;3;46~"
+        );
+    }
+
+    #[test]
+    fn input_reporting_snapshot_includes_kitty_keyboard_flags() {
+        let reporting = InputReporting::default();
+
+        reporting.set_kitty_keyboard_flags(1);
+
+        assert_eq!(reporting.snapshot().kitty_keyboard_flags(), 1);
     }
 
     #[test]
@@ -3941,7 +5552,10 @@ mod tests {
         let mut tracker = TerminalModeTracker::default();
         let mut changes = Vec::new();
 
-        tracker.process(b"\x1b[?1;1004;2004;2026h\x1b[?1002;1006h\x1b=", |_| {});
+        tracker.process(
+            b"\x1b[?1;1004;2004;2026h\x1b[?1002;1006h\x1b=\x1b[>1u",
+            |_| {},
+        );
         tracker.process(b"\x1bc", |change| changes.push(change));
 
         assert_eq!(
@@ -3956,6 +5570,7 @@ mod tests {
                 )),
                 TerminalModeChange::Focus(false),
                 TerminalModeChange::SynchronizedOutput(false),
+                TerminalModeChange::KittyKeyboardFlags(0),
             ]
         );
         assert!(!tracker.application_cursor_keys());
@@ -3964,6 +5579,41 @@ mod tests {
         assert!(!tracker.focus_reporting());
         assert!(!tracker.synchronized_output());
         assert_eq!(tracker.mouse_input_mode(), MouseInputMode::default());
+        assert_eq!(tracker.kitty_keyboard_flags(), 0);
+    }
+
+    #[test]
+    fn soft_reset_restores_insert_and_origin_modes_from_pty_output() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        tracker.process(b"\x1b[?6h\x1b[4h", |_| {});
+        assert_eq!(tracker.private_mode_report_value(6), 1);
+        assert_eq!(tracker.ansi_mode_report_value(4), 1);
+
+        tracker.process(b"\x1b[!p", |change| changes.push(change));
+
+        assert!(changes.is_empty());
+        assert_eq!(tracker.private_mode_report_value(6), 2);
+        assert_eq!(tracker.ansi_mode_report_value(4), 2);
+    }
+
+    #[test]
+    fn tracks_meta_key_mode_from_pty_output() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        assert_eq!(tracker.private_mode_report_value(1034), 2);
+
+        tracker.process(b"\x1b[?1034h", |change| changes.push(change));
+
+        assert!(changes.is_empty());
+        assert_eq!(tracker.private_mode_report_value(1034), 1);
+
+        tracker.process(b"\x1b[?1034l", |change| changes.push(change));
+
+        assert!(changes.is_empty());
+        assert_eq!(tracker.private_mode_report_value(1034), 2);
     }
 
     fn left_mouse_down() -> Event {
@@ -4185,6 +5835,38 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_omits_utf8_c1_osc8_hyperlink_sequences() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                "a\u{9d}8;;https://example.com\u{9c}bc\u{9d}8;;\u{9c}d".as_bytes(),
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"abcd");
+        assert!(responses.is_empty());
+        assert_eq!(
+            filter.mirror.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            filter.mirror.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(filter.mirror.grid().get(0, 0).unwrap().hyperlink, None);
+        assert_eq!(filter.mirror.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
     fn terminal_output_filter_omits_split_osc8_hyperlink_sequences() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -4243,6 +5925,51 @@ mod tests {
             .unwrap();
         filter
             .write(b"\x9cd", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"abcd");
+        assert!(responses.is_empty());
+        assert_eq!(
+            filter.mirror.grid().get(0, 1).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(
+            filter.mirror.grid().get(0, 2).unwrap().hyperlink.as_deref(),
+            Some("https://example.com")
+        );
+        assert_eq!(filter.mirror.grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn terminal_output_filter_omits_split_utf8_c1_osc8_hyperlink_sequences() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"a\xc2", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x9d8;;https://example.com", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\xc2", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x9cbc\xc2\x9d8;;\xc2\x9cd", &mut output, |response| {
                 responses.extend_from_slice(response);
                 Ok(())
             })
@@ -4803,6 +6530,95 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_kitty_keyboard_protocol_flags_queries_and_tracks_push_pop() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[?u", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(output, b"before");
+        assert_eq!(responses, b"\x1b[?0u");
+
+        filter
+            .write(b"\x1b[>1u\x1b[?u", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(output, b"before");
+        assert_eq!(responses, b"\x1b[?0u\x1b[?1u");
+
+        filter
+            .write(
+                b"\x1b[>9u\x1b[?u\x1b[<u\x1b[?u\x1b[<1u\x1b[?uafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[?0u\x1b[?1u\x1b[?9u\x1b[?1u\x1b[?0u");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_kitty_keyboard_protocol_flags_queries_and_tracks_set_reset() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b[=1u\x1b[?u\x1b[=8;2u\x1b[?u\x1b[=1;3u\x1b[?uafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[?1u\x1b[?9u\x1b[?8u");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_modify_other_keys_queries_and_tracks_set_reset() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1b[?4m", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(output, b"before");
+        assert_eq!(responses, b"\x1b[>4;0m");
+
+        filter
+            .write(b"\x1b[>4;2m\x1b[?4mafter", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b[>4;0m\x1b[>4;2m");
+    }
+
+    #[test]
     fn terminal_output_filter_answers_c1_terminal_size_queries() {
         let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
         let mut output = Vec::new();
@@ -4920,7 +6736,8 @@ mod tests {
 
         filter
             .write(
-                b"\x1b[?7$p \x1b[?7l\x1b[?7$p \
+                b"\x1b[?1034$p \x1b[?1034h\x1b[?1034$p\x1b[?1034l\x1b[?1034$p \
+                  \x1b[?7$p \x1b[?7l\x1b[?7$p \
                   \x1b[?25$p \x1b[?25l\x1b[?25$p \
                   \x1b[?6$p \x1b[?6h\x1b[?6$p \
                   \x1b[?47$p \x1b[?47h\x1b[?47$p\x1b[?47l\x1b[?47$p \
@@ -4938,11 +6755,12 @@ mod tests {
 
         assert_eq!(
             output,
-            b" \x1b[?7l  \x1b[?25l  \x1b[?6h  \x1b[?47h\x1b[?47l  \x1b[?1048h\x1b[?1048l  \x1b[?1047h\x1b[?1047l  \x1b[?1049h\x1b[?1049l"
+            b" \x1b[?1034h\x1b[?1034l  \x1b[?7l  \x1b[?25l  \x1b[?6h  \x1b[?47h\x1b[?47l  \x1b[?1048h\x1b[?1048l  \x1b[?1047h\x1b[?1047l  \x1b[?1049h\x1b[?1049l"
         );
         assert_eq!(
             responses,
-            b"\x1b[?7;1$y\x1b[?7;2$y\
+            b"\x1b[?1034;2$y\x1b[?1034;1$y\x1b[?1034;2$y\
+              \x1b[?7;1$y\x1b[?7;2$y\
               \x1b[?25;1$y\x1b[?25;2$y\
               \x1b[?6;2$y\x1b[?6;1$y\
               \x1b[?47;2$y\x1b[?47;1$y\x1b[?47;2$y\
@@ -4950,6 +6768,28 @@ mod tests {
               \x1b[?1047;2$y\x1b[?1047;1$y\x1b[?1047;2$y\
               \x1b[?1049;2$y\x1b[?1049;1$y\x1b[?1049;2$y"
         );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_declrmm_mode_status_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b[?69$p\x1b[?69h\x1b[?69$p\x1b[?69l\x1b[?69$p",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1b[?69h\x1b[?69l");
+        assert_eq!(responses, b"\x1b[?69;2$y\x1b[?69;1$y\x1b[?69;2$y");
     }
 
     #[test]
@@ -5086,6 +6926,54 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_utf8_c1_osc_color_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write("\u{9d}4;196;?\u{9c}".as_bytes(), &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert!(output.is_empty());
+        assert_eq!(responses, b"\x1b]4;196;rgb:ffff/0000/0000\x9c");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_split_utf8_c1_osc_color_queries() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"\xc2", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x9d4;196;?\xc2", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"\x9c", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert!(output.is_empty());
+        assert_eq!(responses, b"\x1b]4;196;rgb:ffff/0000/0000\x9c");
+    }
+
+    #[test]
     fn terminal_output_filter_answers_cursor_color_queries_after_changes_and_reset() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -5161,6 +7049,114 @@ mod tests {
             responses,
             b"\x1b]10;rgb:1111/2222/3333\x07\x1b]4;1;rgb:0101/0202/0303\x1b\\"
         );
+    }
+
+    #[test]
+    fn terminal_output_filter_applies_hex_osc_color_changes() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b]10;#112233\x07\x1b]4;2;#445566\x07\x1b]10;?\x07\x1b]4;2;?\x07",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            responses,
+            b"\x1b]10;rgb:1111/2222/3333\x07\x1b]4;2;rgb:4444/5555/6666\x07"
+        );
+        assert_eq!(output, b"\x1b]10;#112233\x07\x1b]4;2;#445566\x07");
+    }
+
+    #[test]
+    fn terminal_output_filter_applies_rgba_osc_dynamic_color_changes() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b]10;rgba(127,127,127,0.4)\x07\
+                  \x1b]11;rgba:efff/ecff/f4ff/d000\x1b\\\
+                  \x1b]12;rgba(1,2,3,1)\x07\
+                  \x1b]10;?\x07\x1b]11;?\x1b\\\x1b]12;?\x07",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            responses,
+            b"\x1b]10;rgba:7f7f/7f7f/7f7f/6666\x07\x1b]11;rgba:efff/ecff/f4ff/d000\x1b\\\x1b]12;rgba:0101/0202/0303/ffff\x07"
+        );
+        assert_eq!(
+            output,
+            b"\x1b]10;rgba(127,127,127,0.4)\x07\x1b]11;rgba:efff/ecff/f4ff/d000\x1b\\\x1b]12;rgba(1,2,3,1)\x07"
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_applies_multiple_palette_color_changes_from_one_osc4_sequence() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b]4;1;rgb:01/02/03;2;rgb:04/05/06\x07\
+                  \x1b]4;1;?\x07\x1b]4;2;?\x07",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            responses,
+            b"\x1b]4;1;rgb:0101/0202/0303\x07\x1b]4;2;rgb:0404/0505/0606\x07"
+        );
+        assert_eq!(output, b"\x1b]4;1;rgb:01/02/03;2;rgb:04/05/06\x07");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_multiple_palette_color_queries_from_one_osc4_sequence() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"\x1b]4;1;rgb:01/02/03;2;rgb:04/05/06\x07\
+                  \x1b]4;1;?;2;?\x07",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(
+            responses,
+            b"\x1b]4;1;rgb:0101/0202/0303\x07\x1b]4;2;rgb:0404/0505/0606\x07"
+        );
+        assert_eq!(output, b"\x1b]4;1;rgb:01/02/03;2;rgb:04/05/06\x07");
     }
 
     #[test]
@@ -5348,27 +7344,214 @@ mod tests {
     }
 
     #[test]
-    fn terminal_output_filter_answers_xtgettcap_modern_style_and_color_capabilities() {
-        let mut filter = TerminalOutputFilter::default();
+    fn terminal_output_filter_answers_xtgettcap_official_numeric_capability_names() {
+        let mut filter = TerminalOutputFilter::new(rssh_pty::PtySize::try_new(132, 43).unwrap());
         let mut output = Vec::new();
         let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"cols".as_slice(),
+            b"lines".as_slice(),
+            b"it".as_slice(),
+            b"pairs".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
 
         filter
-            .write(
-                b"before\x1bP+q5463;536d756c78;536574756c63;7369746d;7269746d\x1b\\after",
-                &mut output,
-                |response| {
-                    responses.extend_from_slice(response);
-                    Ok(())
-                },
-            )
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
             .unwrap();
         filter.flush(&mut output).unwrap();
 
         assert_eq!(output, b"beforeafter");
         assert_eq!(
             responses,
-            b"\x1bP1+r5463=31;536d756c78=1b5b343a25703125646d;536574756c63=1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d;7369746d=1b5b336d;7269746d=1b5b32336d\x1b\\"
+            xtgettcap_response(&[
+                (b"cols".as_slice(), b"132".as_slice()),
+                (b"lines".as_slice(), b"43".as_slice()),
+                (b"it".as_slice(), b"8".as_slice()),
+                (b"pairs".as_slice(), b"32767".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_modern_style_and_color_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"Tc".as_slice(),
+            b"Smulx".as_slice(),
+            b"Setulc".as_slice(),
+            b"sitm".as_slice(),
+            b"ritm".as_slice(),
+            b"Smol".as_slice(),
+            b"smxx".as_slice(),
+            b"rmxx".as_slice(),
+            b"op".as_slice(),
+            b"oc".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"Tc".as_slice(), b"1".as_slice()),
+                (b"Smulx".as_slice(), b"\x1b[4:%p1%dm".as_slice()),
+                (
+                    b"Setulc".as_slice(),
+                    b"\x1b[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%d%;m".as_slice()
+                ),
+                (b"sitm".as_slice(), b"\x1b[3m".as_slice()),
+                (b"ritm".as_slice(), b"\x1b[23m".as_slice()),
+                (b"Smol".as_slice(), b"\x1b[53m".as_slice()),
+                (b"smxx".as_slice(), b"\x1b[9m".as_slice()),
+                (b"rmxx".as_slice(), b"\x1b[29m".as_slice()),
+                (b"op".as_slice(), b"\x1b[39;49m".as_slice()),
+                (b"oc".as_slice(), b"\x1b]104\x07".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_official_boolean_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"am".as_slice(),
+            b"bce".as_slice(),
+            b"ccc".as_slice(),
+            b"hs".as_slice(),
+            b"mc5i".as_slice(),
+            b"mir".as_slice(),
+            b"msgr".as_slice(),
+            b"npc".as_slice(),
+            b"Su".as_slice(),
+            b"xenl".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"am".as_slice(), b"1".as_slice()),
+                (b"bce".as_slice(), b"1".as_slice()),
+                (b"ccc".as_slice(), b"1".as_slice()),
+                (b"hs".as_slice(), b"1".as_slice()),
+                (b"mc5i".as_slice(), b"1".as_slice()),
+                (b"mir".as_slice(), b"1".as_slice()),
+                (b"msgr".as_slice(), b"1".as_slice()),
+                (b"npc".as_slice(), b"1".as_slice()),
+                (b"Su".as_slice(), b"1".as_slice()),
+                (b"xenl".as_slice(), b"1".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_official_printer_memory_and_reset_templates()
+     {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"flash".as_slice(),
+            b"mc0".as_slice(),
+            b"mc4".as_slice(),
+            b"mc5".as_slice(),
+            b"meml".as_slice(),
+            b"memu".as_slice(),
+            b"rs1".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"flash".as_slice(), b"\x1b[?5h$<100/>\x1b[?5l".as_slice()),
+                (b"mc0".as_slice(), b"\x1b[i".as_slice()),
+                (b"mc4".as_slice(), b"\x1b[4i".as_slice()),
+                (b"mc5".as_slice(), b"\x1b[5i".as_slice()),
+                (b"meml".as_slice(), b"\x1bl".as_slice()),
+                (b"memu".as_slice(), b"\x1bm".as_slice()),
+                (b"rs1".as_slice(), b"\x1bc\x1b]104\x07".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_title_and_palette_templates() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"dsl".as_slice(),
+            b"fsl".as_slice(),
+            b"tsl".as_slice(),
+            b"initc".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"dsl".as_slice(), b"\x1b]2;\x1b\\".as_slice()),
+                (b"fsl".as_slice(), b"\x1b\\".as_slice()),
+                (b"tsl".as_slice(), b"\x1b]0;".as_slice()),
+                (
+                    b"initc".as_slice(),
+                    b"\x1b]4;%p1%d;rgb:%p2%{255}%*%{1000}%/%2.2X/%p3%{255}%*%{1000}%/%2.2X/%p4%{255}%*%{1000}%/%2.2X\x1b\\".as_slice()
+                ),
+            ])
         );
     }
 
@@ -5408,6 +7591,69 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_answers_xtgettcap_synchronized_output_capability() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[b"Sync".as_slice()]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[(
+                b"Sync".as_slice(),
+                b"\x1b[?2026%?%p1%{1}%-%tl%eh%;".as_slice()
+            )])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_mouse_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[b"kmous".as_slice(), b"XM".as_slice(), b"xm".as_slice()]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"kmous".as_slice(), b"\x1b[<".as_slice()),
+                (
+                    b"XM".as_slice(),
+                    b"\x1b[?1006;1000%?%p1%{1}%=%th%el%;".as_slice()
+                ),
+                (
+                    b"xm".as_slice(),
+                    b"\x1b[<%i%p3%d;%p1%d;%p2%d;%?%p4%tM%em%;".as_slice()
+                ),
+            ])
+        );
+    }
+
+    #[test]
     fn terminal_output_filter_answers_xtgettcap_foundational_terminal_capabilities() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -5418,13 +7664,17 @@ mod tests {
             b"home".as_slice(),
             b"civis".as_slice(),
             b"cnorm".as_slice(),
+            b"cvvis".as_slice(),
             b"smcup".as_slice(),
             b"rmcup".as_slice(),
             b"sgr0".as_slice(),
+            b"sgr".as_slice(),
             b"bold".as_slice(),
             b"dim".as_slice(),
             b"blink".as_slice(),
             b"rev".as_slice(),
+            b"smso".as_slice(),
+            b"rmso".as_slice(),
             b"invis".as_slice(),
             b"smul".as_slice(),
             b"rmul".as_slice(),
@@ -5451,19 +7701,32 @@ mod tests {
                 (b"cup".as_slice(), b"\x1b[%i%p1%d;%p2%dH".as_slice()),
                 (b"home".as_slice(), b"\x1b[H".as_slice()),
                 (b"civis".as_slice(), b"\x1b[?25l".as_slice()),
-                (b"cnorm".as_slice(), b"\x1b[?25h".as_slice()),
-                (b"smcup".as_slice(), b"\x1b[?1049h".as_slice()),
-                (b"rmcup".as_slice(), b"\x1b[?1049l".as_slice()),
-                (b"sgr0".as_slice(), b"\x1b[0m".as_slice()),
+                (b"cnorm".as_slice(), b"\x1b[?12l\x1b[?25h".as_slice()),
+                (b"cvvis".as_slice(), b"\x1b[?12;25h".as_slice()),
+                (b"smcup".as_slice(), b"\x1b[?1049h\x1b[22;0;0t".as_slice()),
+                (b"rmcup".as_slice(), b"\x1b[?1049l\x1b[23;0;0t".as_slice()),
+                (b"sgr0".as_slice(), b"\x1b(B\x1b[m".as_slice()),
+                (
+                    b"sgr".as_slice(),
+                    b"%?%p9%t\x1b(0%e\x1b(B%;\x1b[0%?%p6%t;1%;%?%p5%t;2%;%?%p2%t;4%;%?%p1%p3%|%t;7%;%?%p4%t;5%;%?%p7%t;8%;m".as_slice()
+                ),
                 (b"bold".as_slice(), b"\x1b[1m".as_slice()),
                 (b"dim".as_slice(), b"\x1b[2m".as_slice()),
                 (b"blink".as_slice(), b"\x1b[5m".as_slice()),
                 (b"rev".as_slice(), b"\x1b[7m".as_slice()),
+                (b"smso".as_slice(), b"\x1b[7m".as_slice()),
+                (b"rmso".as_slice(), b"\x1b[27m".as_slice()),
                 (b"invis".as_slice(), b"\x1b[8m".as_slice()),
                 (b"smul".as_slice(), b"\x1b[4m".as_slice()),
                 (b"rmul".as_slice(), b"\x1b[24m".as_slice()),
-                (b"setaf".as_slice(), b"\x1b[38;5;%p1%dm".as_slice()),
-                (b"setab".as_slice(), b"\x1b[48;5;%p1%dm".as_slice()),
+                (
+                    b"setaf".as_slice(),
+                    b"\x1b[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5;%p1%d%;m".as_slice()
+                ),
+                (
+                    b"setab".as_slice(),
+                    b"\x1b[%?%p1%{8}%<%t4%p1%d%e%p1%{16}%<%t10%p1%{8}%-%d%e48;5;%p1%d%;m".as_slice()
+                ),
             ])
         );
     }
@@ -5487,6 +7750,15 @@ mod tests {
             b"cuf".as_slice(),
             b"hpa".as_slice(),
             b"vpa".as_slice(),
+            b"cbt".as_slice(),
+            b"ht".as_slice(),
+            b"hts".as_slice(),
+            b"tbc".as_slice(),
+            b"ech".as_slice(),
+            b"rep".as_slice(),
+            b"csr".as_slice(),
+            b"indn".as_slice(),
+            b"rin".as_slice(),
             b"smir".as_slice(),
             b"rmir".as_slice(),
             b"smam".as_slice(),
@@ -5521,6 +7793,15 @@ mod tests {
                 (b"cuf".as_slice(), b"\x1b[%p1%dC".as_slice()),
                 (b"hpa".as_slice(), b"\x1b[%i%p1%dG".as_slice()),
                 (b"vpa".as_slice(), b"\x1b[%i%p1%dd".as_slice()),
+                (b"cbt".as_slice(), b"\x1b[Z".as_slice()),
+                (b"ht".as_slice(), b"\t".as_slice()),
+                (b"hts".as_slice(), b"\x1bH".as_slice()),
+                (b"tbc".as_slice(), b"\x1b[3g".as_slice()),
+                (b"ech".as_slice(), b"\x1b[%p1%dX".as_slice()),
+                (b"rep".as_slice(), b"%p1%c\x1b[%p2%{1}%-%db".as_slice()),
+                (b"csr".as_slice(), b"\x1b[%i%p1%d;%p2%dr".as_slice()),
+                (b"indn".as_slice(), b"\x1b[%p1%dS".as_slice()),
+                (b"rin".as_slice(), b"\x1b[%p1%dT".as_slice()),
                 (b"smir".as_slice(), b"\x1b[4h".as_slice()),
                 (b"rmir".as_slice(), b"\x1b[4l".as_slice()),
                 (b"smam".as_slice(), b"\x1b[?7h".as_slice()),
@@ -5539,12 +7820,26 @@ mod tests {
             b"kcud1".as_slice(),
             b"kcuf1".as_slice(),
             b"kcub1".as_slice(),
+            b"kb2".as_slice(),
+            b"kbs".as_slice(),
+            b"kcbt".as_slice(),
             b"khome".as_slice(),
             b"kend".as_slice(),
             b"kich1".as_slice(),
             b"kdch1".as_slice(),
             b"kpp".as_slice(),
             b"knp".as_slice(),
+            b"kHOM".as_slice(),
+            b"kEND".as_slice(),
+            b"kIC".as_slice(),
+            b"kDC".as_slice(),
+            b"kPRV".as_slice(),
+            b"kNXT".as_slice(),
+            b"kLFT".as_slice(),
+            b"kRIT".as_slice(),
+            b"kri".as_slice(),
+            b"kind".as_slice(),
+            b"kent".as_slice(),
             b"kf1".as_slice(),
             b"kf2".as_slice(),
             b"kf3".as_slice(),
@@ -5578,12 +7873,26 @@ mod tests {
                 (b"kcud1".as_slice(), b"\x1bOB".as_slice()),
                 (b"kcuf1".as_slice(), b"\x1bOC".as_slice()),
                 (b"kcub1".as_slice(), b"\x1bOD".as_slice()),
+                (b"kb2".as_slice(), b"\x1bOE".as_slice()),
+                (b"kbs".as_slice(), b"\x7f".as_slice()),
+                (b"kcbt".as_slice(), b"\x1b[Z".as_slice()),
                 (b"khome".as_slice(), b"\x1bOH".as_slice()),
                 (b"kend".as_slice(), b"\x1bOF".as_slice()),
                 (b"kich1".as_slice(), b"\x1b[2~".as_slice()),
                 (b"kdch1".as_slice(), b"\x1b[3~".as_slice()),
                 (b"kpp".as_slice(), b"\x1b[5~".as_slice()),
                 (b"knp".as_slice(), b"\x1b[6~".as_slice()),
+                (b"kHOM".as_slice(), b"\x1b[1;2H".as_slice()),
+                (b"kEND".as_slice(), b"\x1b[1;2F".as_slice()),
+                (b"kIC".as_slice(), b"\x1b[2;2~".as_slice()),
+                (b"kDC".as_slice(), b"\x1b[3;2~".as_slice()),
+                (b"kPRV".as_slice(), b"\x1b[5;2~".as_slice()),
+                (b"kNXT".as_slice(), b"\x1b[6;2~".as_slice()),
+                (b"kLFT".as_slice(), b"\x1b[1;2D".as_slice()),
+                (b"kRIT".as_slice(), b"\x1b[1;2C".as_slice()),
+                (b"kri".as_slice(), b"\x1b[1;2A".as_slice()),
+                (b"kind".as_slice(), b"\x1b[1;2B".as_slice()),
+                (b"kent".as_slice(), b"\x1bOM".as_slice()),
                 (b"kf1".as_slice(), b"\x1bOP".as_slice()),
                 (b"kf2".as_slice(), b"\x1bOQ".as_slice()),
                 (b"kf3".as_slice(), b"\x1bOR".as_slice()),
@@ -5598,6 +7907,110 @@ mod tests {
                 (b"kf12".as_slice(), b"\x1b[24~".as_slice()),
             ])
         );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_keypad_transmit_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[b"smkx".as_slice(), b"rmkx".as_slice()]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"smkx".as_slice(), b"\x1b[?1h\x1b=".as_slice()),
+                (b"rmkx".as_slice(), b"\x1b[?1l\x1b>".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_modified_function_key_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let entries: &[(&[u8], &[u8])] = &[
+            (b"kf13".as_slice(), b"\x1b[1;2P".as_slice()),
+            (b"kf14".as_slice(), b"\x1b[1;2Q".as_slice()),
+            (b"kf15".as_slice(), b"\x1b[1;2R".as_slice()),
+            (b"kf16".as_slice(), b"\x1b[1;2S".as_slice()),
+            (b"kf17".as_slice(), b"\x1b[15;2~".as_slice()),
+            (b"kf18".as_slice(), b"\x1b[17;2~".as_slice()),
+            (b"kf19".as_slice(), b"\x1b[18;2~".as_slice()),
+            (b"kf20".as_slice(), b"\x1b[19;2~".as_slice()),
+            (b"kf21".as_slice(), b"\x1b[20;2~".as_slice()),
+            (b"kf22".as_slice(), b"\x1b[21;2~".as_slice()),
+            (b"kf23".as_slice(), b"\x1b[23;2~".as_slice()),
+            (b"kf24".as_slice(), b"\x1b[24;2~".as_slice()),
+            (b"kf25".as_slice(), b"\x1b[1;5P".as_slice()),
+            (b"kf26".as_slice(), b"\x1b[1;5Q".as_slice()),
+            (b"kf27".as_slice(), b"\x1b[1;5R".as_slice()),
+            (b"kf28".as_slice(), b"\x1b[1;5S".as_slice()),
+            (b"kf29".as_slice(), b"\x1b[15;5~".as_slice()),
+            (b"kf30".as_slice(), b"\x1b[17;5~".as_slice()),
+            (b"kf31".as_slice(), b"\x1b[18;5~".as_slice()),
+            (b"kf32".as_slice(), b"\x1b[19;5~".as_slice()),
+            (b"kf33".as_slice(), b"\x1b[20;5~".as_slice()),
+            (b"kf34".as_slice(), b"\x1b[21;5~".as_slice()),
+            (b"kf35".as_slice(), b"\x1b[23;5~".as_slice()),
+            (b"kf36".as_slice(), b"\x1b[24;5~".as_slice()),
+            (b"kf37".as_slice(), b"\x1b[1;6P".as_slice()),
+            (b"kf38".as_slice(), b"\x1b[1;6Q".as_slice()),
+            (b"kf39".as_slice(), b"\x1b[1;6R".as_slice()),
+            (b"kf40".as_slice(), b"\x1b[1;6S".as_slice()),
+            (b"kf41".as_slice(), b"\x1b[15;6~".as_slice()),
+            (b"kf42".as_slice(), b"\x1b[17;6~".as_slice()),
+            (b"kf43".as_slice(), b"\x1b[18;6~".as_slice()),
+            (b"kf44".as_slice(), b"\x1b[19;6~".as_slice()),
+            (b"kf45".as_slice(), b"\x1b[20;6~".as_slice()),
+            (b"kf46".as_slice(), b"\x1b[21;6~".as_slice()),
+            (b"kf47".as_slice(), b"\x1b[23;6~".as_slice()),
+            (b"kf48".as_slice(), b"\x1b[24;6~".as_slice()),
+            (b"kf49".as_slice(), b"\x1b[1;3P".as_slice()),
+            (b"kf50".as_slice(), b"\x1b[1;3Q".as_slice()),
+            (b"kf51".as_slice(), b"\x1b[1;3R".as_slice()),
+            (b"kf52".as_slice(), b"\x1b[1;3S".as_slice()),
+            (b"kf53".as_slice(), b"\x1b[15;3~".as_slice()),
+            (b"kf54".as_slice(), b"\x1b[17;3~".as_slice()),
+            (b"kf55".as_slice(), b"\x1b[18;3~".as_slice()),
+            (b"kf56".as_slice(), b"\x1b[19;3~".as_slice()),
+            (b"kf57".as_slice(), b"\x1b[20;3~".as_slice()),
+            (b"kf58".as_slice(), b"\x1b[21;3~".as_slice()),
+            (b"kf59".as_slice(), b"\x1b[23;3~".as_slice()),
+            (b"kf60".as_slice(), b"\x1b[24;3~".as_slice()),
+            (b"kf61".as_slice(), b"\x1b[1;4P".as_slice()),
+            (b"kf62".as_slice(), b"\x1b[1;4Q".as_slice()),
+            (b"kf63".as_slice(), b"\x1b[1;4R".as_slice()),
+        ];
+        let names: Vec<&[u8]> = entries.iter().map(|(name, _)| *name).collect();
+        let query = xtgettcap_query(&names);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, xtgettcap_response(entries));
     }
 
     #[test]
@@ -5628,12 +8041,165 @@ mod tests {
             responses,
             xtgettcap_response(&[
                 (b"enacs".as_slice(), b"\x1b)0".as_slice()),
-                (b"smacs".as_slice(), b"\x0e".as_slice()),
-                (b"rmacs".as_slice(), b"\x0f".as_slice()),
+                (b"smacs".as_slice(), b"\x1b(0".as_slice()),
+                (b"rmacs".as_slice(), b"\x1b(B".as_slice()),
                 (
                     b"acsc".as_slice(),
                     b"``aaffggiijjkkllmmnnooppqqrrssttuuvvwwxxyyzz{{||}}~~".as_slice()
                 ),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_control_sequence_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"bel".as_slice(),
+            b"cr".as_slice(),
+            b"ind".as_slice(),
+            b"ri".as_slice(),
+            b"sc".as_slice(),
+            b"rc".as_slice(),
+            b"cuu1".as_slice(),
+            b"cud1".as_slice(),
+            b"cuf1".as_slice(),
+            b"cub1".as_slice(),
+            b"dch".as_slice(),
+            b"ich".as_slice(),
+            b"dl".as_slice(),
+            b"il".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"bel".as_slice(), b"\x07".as_slice()),
+                (b"cr".as_slice(), b"\r".as_slice()),
+                (b"ind".as_slice(), b"\n".as_slice()),
+                (b"ri".as_slice(), b"\x1bM".as_slice()),
+                (b"sc".as_slice(), b"\x1b7".as_slice()),
+                (b"rc".as_slice(), b"\x1b8".as_slice()),
+                (b"cuu1".as_slice(), b"\x1b[A".as_slice()),
+                (b"cud1".as_slice(), b"\n".as_slice()),
+                (b"cuf1".as_slice(), b"\x1b[C".as_slice()),
+                (b"cub1".as_slice(), b"\x08".as_slice()),
+                (b"dch".as_slice(), b"\x1b[%p1%dP".as_slice()),
+                (b"ich".as_slice(), b"\x1b[%p1%d@".as_slice()),
+                (b"dl".as_slice(), b"\x1b[%p1%dM".as_slice()),
+                (b"il".as_slice(), b"\x1b[%p1%dL".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_meta_key_capabilities() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[b"km".as_slice(), b"smm".as_slice(), b"rmm".as_slice()]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"km".as_slice(), b"1".as_slice()),
+                (b"smm".as_slice(), b"\x1b[?1034h".as_slice()),
+                (b"rmm".as_slice(), b"\x1b[?1034l".as_slice()),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_reset_templates() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[b"is2".as_slice(), b"rs2".as_slice()]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (
+                    b"is2".as_slice(),
+                    b"\x1b[!p\x1b[?3;4l\x1b[4l\x1b>".as_slice()
+                ),
+                (
+                    b"rs2".as_slice(),
+                    b"\x1b[!p\x1b[?3;4l\x1b[4l\x1b>".as_slice()
+                ),
+            ])
+        );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_xtgettcap_wezterm_query_templates() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let query = xtgettcap_query(&[
+            b"u6".as_slice(),
+            b"u7".as_slice(),
+            b"u8".as_slice(),
+            b"u9".as_slice(),
+        ]);
+        let mut input = b"before".to_vec();
+        input.extend_from_slice(&query);
+        input.extend_from_slice(b"after");
+
+        filter
+            .write(&input, &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(
+            responses,
+            xtgettcap_response(&[
+                (b"u6".as_slice(), b"\x1b[%i%d;%dR".as_slice()),
+                (b"u7".as_slice(), b"\x1b[6n".as_slice()),
+                (b"u8".as_slice(), b"\x1b[?%[;0123456789]c".as_slice()),
+                (b"u9".as_slice(), b"\x1b[c".as_slice()),
             ])
         );
     }
@@ -5646,7 +8212,7 @@ mod tests {
 
         filter
             .write(
-                b"before\x1b[1;2;4:3;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
+                b"before\x1b[1;2;4:3;5;8;9;53;74;58;5;34;38;6;4;5;6;7;48;2;1;2;3m\x1bP$qm\x1b\\ middle\x1b[5 q\x90$q q\x9c after\x1b[2;5r\x1bP$qr\x1b\\done",
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);
@@ -5658,12 +8224,86 @@ mod tests {
 
         assert_eq!(
             output,
-            b"before\x1b[1;2;4:3;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m middle\x1b[5 q after\x1b[2;5rdone"
+            b"before\x1b[1;2;4:3;5;8;9;53;74;58;5;34;38;6;4;5;6;7;48;2;1;2;3m middle\x1b[5 q after\x1b[2;5rdone"
         );
         assert_eq!(
             responses,
-            b"\x1bP1$r1;2;4:3;5;8;9;53;58;5;34;38;5;196;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
+            b"\x1bP1$r1;2;4:3;5;8;9;53;74;58;5;34;38;6;4;5;6;7;48;2;1;2;3m\x1b\\\x1bP1$r5 q\x9c\x1bP1$r2;5r\x1b\\"
         );
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_wezterm_decrqss_conformance_and_left_right_margins() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1bP$q\"p\x1b\\ middle\x90$qs\x9c after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middle after");
+        assert_eq!(responses, b"\x1bP1$r61;1\"p\x1b\\\x1bP1$r1;80s\x9c");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_split_wezterm_decrqss_conformance_and_left_right_margins() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(b"before\x1bP$q\"", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"p\x1b\\ middle\x90$q", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter
+            .write(b"s\x9c after", &mut output, |response| {
+                responses.extend_from_slice(response);
+                Ok(())
+            })
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before middle after");
+        assert_eq!(responses, b"\x1bP1$r61;1\"p\x1b\\\x1bP1$r1;80s\x9c");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_decrqss_left_right_margin_query_from_declrmm_state() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write(
+                b"before\x1b[?69h\x1b[3;6s\x1bP$qs\x1b\\after",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"before\x1b[?69h\x1b[3;6safter");
+        assert_eq!(responses, b"\x1bP1$r3;6s\x1b\\");
     }
 
     #[test]
@@ -5731,6 +8371,36 @@ mod tests {
         filter
             .write_with_clipboard(
                 b"before\x9d52;c;Y29weQ==\x9cafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert!(responses.is_empty());
+        assert_eq!(writes, vec!["copy"]);
+    }
+
+    #[test]
+    fn terminal_output_filter_writes_utf8_c1_osc52_clipboard_text() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                "before\u{9d}52;c;Y29weQ==\u{9c}after".as_bytes(),
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);
@@ -5834,6 +8504,68 @@ mod tests {
     }
 
     #[test]
+    fn terminal_output_filter_writes_split_utf8_c1_osc52_clipboard_text() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+        let mut writes = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                b"before\xc2",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter
+            .write_with_clipboard(
+                b"\x9d52;c;Y29weQ==\xc2",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter
+            .write_with_clipboard(
+                b"\x9cafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |text| {
+                    writes.push(text.to_owned());
+                    true
+                },
+                || Some("ignored".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert!(responses.is_empty());
+        assert_eq!(writes, vec!["copy"]);
+    }
+
+    #[test]
     fn terminal_output_filter_answers_osc52_clipboard_query() {
         let mut filter = TerminalOutputFilter::default();
         let mut output = Vec::new();
@@ -5867,6 +8599,31 @@ mod tests {
         filter
             .write_with_clipboard(
                 b"before\x9d52;c;?\x9cafter",
+                &mut output,
+                |response| {
+                    responses.extend_from_slice(response);
+                    Ok(())
+                },
+                |_| true,
+                || Some("copy".to_owned()),
+                Osc52Policy::ReadWrite,
+            )
+            .unwrap();
+        filter.flush(&mut output).unwrap();
+
+        assert_eq!(output, b"beforeafter");
+        assert_eq!(responses, b"\x1b]52;c;Y29weQ==\x07");
+    }
+
+    #[test]
+    fn terminal_output_filter_answers_utf8_c1_osc52_clipboard_query() {
+        let mut filter = TerminalOutputFilter::default();
+        let mut output = Vec::new();
+        let mut responses = Vec::new();
+
+        filter
+            .write_with_clipboard(
+                "before\u{9d}52;c;?\u{9c}after".as_bytes(),
                 &mut output,
                 |response| {
                     responses.extend_from_slice(response);

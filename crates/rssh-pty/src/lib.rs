@@ -2,7 +2,7 @@ use std::{
     error::Error,
     fmt::{self, Display, Formatter},
     io::{self, Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::mpsc,
     thread,
     time::{Duration, Instant},
@@ -72,6 +72,18 @@ mod tests {
 
         assert_eq!(command.env_value("TERM"), Some("vt100"));
         assert_eq!(command.env_value("COLORTERM"), Some("truecolor"));
+    }
+
+    #[test]
+    fn pty_command_exposes_configured_current_working_dir() {
+        let command = PtyCommand::new("shell").with_cwd("/tmp/project");
+
+        assert_eq!(
+            command
+                .cwd()
+                .map(|path| path.to_string_lossy().into_owned()),
+            Some("/tmp/project".to_owned())
+        );
     }
 
     #[test]
@@ -387,6 +399,11 @@ impl PtyCommand {
     #[must_use]
     pub fn args(&self) -> &[String] {
         &self.args
+    }
+
+    #[must_use]
+    pub fn cwd(&self) -> Option<&Path> {
+        self.cwd.as_deref()
     }
 
     #[must_use]

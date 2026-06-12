@@ -7,10 +7,64 @@ tunnels, logging, and secure key storage.
 
 The repository now includes MVP 1 for the terminal core, MVP 2 for a
 console-hosted local terminal path, MVP 3 for a native `winit` renderer demo,
-and MVP 4 for a live PTY session inside the native window. The current app can
-start a native window, spawn the platform shell through the local PTY layer,
-feed PTY output into the terminal grid, render live terminal cells, and write
-keyboard input back to the PTY.
+MVP 4 for a live PTY session inside the native window, MVP 5 for SSH
+boundary/session transport work, and MVP 6 for the first App Shell model.
+
+The current app can start a native window, spawn the platform shell through the
+local PTY layer, feed PTY output into the terminal grid, render live terminal
+cells, and write keyboard input back to the PTY.
+
+MVP 6 keeps startup compatible: `rssh-app` still opens a single local PTY pane
+by default, but that runtime is now surfaced through typed app-shell state:
+workspace, tabs, and panes. The native window can render a basic tab bar and
+right/down split panes with explicit tab titles, active-pane terminal title
+fallback, pane-local click focus, wheel routing, and keyboard/palette resize and
+zoom actions including explicit zoom/unzoom, directional pane activation,
+palette-driven Rename Tab queries, Activate Last Tab, indexed tab activation,
+wrapping and no-wrap relative tab activation, indexed pane activation, pane
+rotation, relative and absolute tab-order movement, and pane-select Activate,
+swap, and move-to-new-tab/window overlays, plus command-palette selection
+clearing, CopyTo/PasteFrom actions for the system clipboard plus
+PrimarySelection command routing, and paste-from-clipboard into the active pane.
+The command palette also exposes Clear Scrollback (`ScrollbackOnly`) and Clear
+Scrollback And Viewport (`ScrollbackAndViewport`), Reset Terminal, and
+scrollback navigation actions for top/bottom, page, line, and OSC 133
+previous/next prompt movement. The terminal core also records OSC 133
+Prompt/Input/Output semantic zones for retained rows and can extract text from
+those zones while unwrapping soft-wrapped physical rows into logical lines; copy
+mode can move between semantic zones across retained scrollback with `z` and
+`Shift+Z`, plus typed Prompt/Input/Output zone movement via `Alt+P`, `Alt+I`,
+and `Alt+O`/`Alt+Z`, while copy-mode selection anchors let `y` copy text
+spanning the live viewport and retained history to ClipboardAndPrimarySelection
+before scrolling back to bottom and closing, including WezTerm-style cell
+selection through Space/`v`, line selection through uppercase no-modifier or
+shifted `V`, and rectangular block selection with `Ctrl+V`; `j`/`k`, Enter/CR, and
+PageUp/PageDown also move through retained history, with Enter/CR moving to the
+next line start, and `g`/`Shift+G` jump to
+scrollback top/bottom. WezTerm-style viewport movement through `H`/`M`/`L`
+handles both shifted and uppercase no-modifier key events. Copy-mode
+`^`/`Alt+m` and `$`/End now use WezTerm-style content-aware
+line start/end movement, landing on the first/last non-space cell, and
+WezTerm-style word movement is available through `w`, `b`, `e`, Tab,
+Shift+Tab, Alt+Left/Right, and Alt+F/B. Copy-mode jump-to-char also covers
+WezTerm-style `f`/`t`/`F`/`T` plus `;` repeat and `,` reverse repeat. The
+`o`/`O` bindings move to the other selection end or horizontal selection end.
+Ordinary copy-mode close scrolls back to the bottom before exiting, and
+copy/search close handles both Escape key events and character ESC (`\u{1b}`)
+events while clearing copy-mode search status from the window title. Copy mode
+and copy-mode search also allow global command-palette and app-shell shortcuts
+such as `Ctrl+Shift+P` and `Ctrl+Shift+T` to fall through from the overlay,
+matching WezTerm key-table fallback behavior.
+The copy-mode search path keeps copy mode active with `/`/`?` search input,
+WezTerm-style next/prior match navigation via Down/`Ctrl+N` and
+Up/Enter/CR/`Ctrl+P`, page-wise match navigation via PageDown/PageUp, and
+`Ctrl+R` match-type cycling across case-sensitive, case-insensitive, and regex
+search. Ordinary `Ctrl+F` search uses the same WezTerm-style search navigation
+bindings for Down/Up, `Ctrl+N`/`Ctrl+P`, PageDown/PageUp, `Ctrl+R` match-type
+cycling, `Ctrl+U` clear-pattern, character ESC close, and initial query
+prefill from the current selection's first line.
+The default startup maps to workspace `1`, tab `1`, and pane `1`, with
+`rssh-app` window title exposing the current state.
 
 ## Technical Direction
 
@@ -149,19 +203,58 @@ runtime delays render damage until reset, and the console path buffers visible
 host-console writes while continuing to answer terminal queries.
 The console path also answers basic terminal status, device-attribute, and
 DECRQM status queries, including private input, cursor visibility, auto-wrap,
-origin, alternate-screen, private cursor save modes, and ANSI insert/replace
-mode (`CSI 4 $ p`). `RIS` (`ESC c`) resets tracked mode state and releases
-synchronized-output buffers.
+origin, alternate-screen, private cursor save modes, cursor blinking (`?12`),
+Meta-key mode (`?1034`), and ANSI insert/replace mode (`CSI 4 $ p`). `RIS`
+(`ESC c`) resets tracked mode state and releases synchronized-output buffers.
+`DECSTR` (`CSI ! p`, including the C1 CSI form) soft-resets tracked origin and
+insert/replace modes without treating the stream as a full terminal reset.
+Kitty keyboard progressive-enhancement negotiation is tracked from PTY output:
+`CSI = flags ; mode u` applies replace/set/reset flag updates, `CSI > flags u`
+/ `CSI < n u` update the active flags stack, `CSI ? u` is answered with the
+current flags, and Ctrl/Alt ASCII character keys are encoded as kitty `CSI-u`
+events when the disambiguate flag is active. When the kitty report-all flag is
+active, plain text keys plus Enter/Tab/Backspace are also encoded as canonical
+`CSI-u` events. Navigation/editing keys, F1-F12, and F13-F35 use kitty
+canonical functional-key forms under disambiguate/report-all modes, and keypad
+keys use kitty KP_* private-use codepoints when kitty keyboard flags request
+CSI-u reporting. Kitty private-use functional codes also cover CapsLock,
+ScrollLock, NumLock, PrintScreen, Pause, and Menu/ContextMenu in console and
+native-window paths, plus media transport, track, record, and volume keys where
+the input backend exposes them. Kitty
+event-type reporting is supported for repeat/release events using
+`modifier:event` subfields, and report-all input includes kitty associated-text
+third fields when flag 16 is active. Console and native-window text-key input
+also reports kitty alternate shifted key subfields when flag 4 is active, with
+console kitty modifier encoding including crossterm-provided Super/Hyper/Meta
+and CapsLock/NumLock state bits plus modifier-key private-use codepoints for
+left/right Shift/Ctrl/Alt/Super/Hyper/Meta and ISO level shifts, and
+native-window input additionally reporting printable PC-101 physical
+base-layout subfields and kitty Super/Cmd/Windows modifier bits.
+Xterm `modifyOtherKeys` negotiation is also tracked from `CSI > 4 ; N m`,
+answered through `CSI ? 4 m`, and used for modified other-key input such as
+Ctrl+Enter and Ctrl+Shift+I.
 XTGETTCAP capability replies include terminal name, 256-color/true-color
-markers, OSC 52 clipboard support, italic/style underline/underline-color
-templates, tmux/xterm cursor style and cursor color templates, foundational
-cursor/screen/style/color capabilities, common line/display editing controls,
-application cursor/function-key capabilities, ACS metadata, and current
-column/row counts.
+markers, official WezTerm booleans, Meta-key boolean/templates
+(`km`/`smm`/`rmm`), OSC 52 clipboard support, italic/style
+underline/underline-color, overline, strikethrough, default-color, and
+palette-reset templates, tmux/xterm cursor style and cursor color templates,
+the WezTerm `Sync` synchronized-output template, foundational
+cursor/screen/style/color capabilities including WezTerm cursor
+visibility/blink, SGR, flash, and select-color templates, common line/display
+editing controls, WezTerm control/save-restore sequence capabilities,
+cursor-position/device-attribute query templates, title/status-line,
+title-stack, palette-initialization, printer, memory-lock, and reset/init
+templates, tab-stop/erase/repeat/scroll-region templates, WezTerm SGR mouse
+templates (`kmous`/`XM`/`xm`), application cursor, base and modified function-key
+capabilities, WezTerm keypad transmit templates,
+Backspace/BackTab/keypad-center/keypad-enter and shifted navigation/editing key
+capabilities, WezTerm ACS enter/exit metadata, current `co`/`li` plus official
+`cols`/`lines` column/row counts, `it=8` tab interval, and `pairs=32767`.
 OSC color handling tracks and answers default foreground/background, cursor
-color, and indexed palette queries, including `OSC 110`/`OSC 111`
-foreground/background reset, `OSC 112` cursor-color reset, and `OSC 104`
-indexed-palette reset.
+color, and indexed palette queries, including multi-index `OSC 4` query
+sequences, WezTerm-style RGBA dynamic color specs for `OSC 10`/`11`/`12`,
+`OSC 110`/`OSC 111` foreground/background reset, `OSC 112` cursor-color reset,
+and `OSC 104` indexed-palette reset.
 OSC 52 clipboard writes and read queries are handled in the console path so
 local and OpenSSH-backed terminal programs can use terminal clipboard
 integration. Use `--osc52 off|write|read-write` on `console`/`local`, `ssh`,
@@ -383,6 +476,20 @@ wide threshold gates, bundled profile validation, a
   system OpenSSH client through the PTY console runtime as an interim backend.
   See
   `docs/mvp-5-ssh-session-boundary.md`.
+
+- MVP 6 foundation: App Shell v1 introduces process-local workspace, tab, and
+  pane state in `rssh-core` with typed IDs and actions; `rssh-app window`
+  initializes with workspace `1`, tab `1`, pane `1` and appends that shell
+  state in the native window title. Shortcuts for tab/pane actions are routed
+  through the action dispatch boundary, with a basic explicit-title-aware tab
+  bar that falls back to active-pane terminal titles, split-pane rendering,
+  click-to-focus, pane-local wheel scrolling, and keyboard/palette pane
+  resize/zoom actions including explicit zoom/unzoom plus `rename tab <title>`
+  palette input, Activate Last Tab, indexed tab activation, wrapping/no-wrap
+  relative tab activation, indexed pane activation, pane rotation, tab-order
+  movement including Move Tab To entries, and pane-select
+  Activate/swap/move-to-new-tab/window modes in the native window.
+  See `docs/mvp-6-app-shell-v1.md`.
 
 ## Reference Sources
 
