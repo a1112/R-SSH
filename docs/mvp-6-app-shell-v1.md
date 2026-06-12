@@ -235,8 +235,8 @@ runtime storage for tabs and split panes.
   palette definitions, color selection, raster-attribute `Ph`/`Pv` pixel
   dimensions with clipping to the declared size, DCS `P2` transparent/opaque
   background mode, repeat introducers, carriage returns, and sixel newlines are
-  normalized into raw RGBA inline images and rendered through the same snapshot
-  path. Automatic animated GIF
+  normalized into raw RGBA inline images, advance the cursor to the next
+  terminal line, and render through the same snapshot path. Automatic animated GIF
   refresh/invalidation scheduling, Kitty
   shared-memory transfers, remaining richer placement controls, broader query
   responses beyond current direct payload and stored-image existence checks,
@@ -447,8 +447,8 @@ runtime storage for tabs and split panes.
   `?1049` alternate-screen image isolation, plus basic Sixel DCS `q`
   bitmap rendering
   with RGB/HLS palette, raster-attribute pixel dimensions with clipping to the
-  declared size, and DCS `P2` background mode, with typed native-window
-  user-var change hooks for changed pane values, while
+  declared size, DCS `P2` background mode, and post-image cursor advancement,
+  with typed native-window user-var change hooks for changed pane values, while
   Lua pane APIs/events, automatic animated GIF refresh/invalidation scheduling,
   Kitty shared-memory transfers, remaining richer placement controls, broader
   query responses beyond current direct payload and stored-image existence

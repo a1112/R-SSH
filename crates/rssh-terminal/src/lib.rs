@@ -2731,6 +2731,24 @@ mod tests {
     }
 
     #[test]
+    fn terminal_keeps_kitty_image_data_when_uppercase_all_delete_leaves_virtual_placement() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=t,q=1,i=53,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,q=1,i=53\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,q=1,U=1,i=53,c=2,r=2\x1b\\");
+        terminal.feed(b"\x1b_Ga=d,d=A\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b[2;3H\x1b[38;5;53m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(53));
+    }
+
+    #[test]
     fn terminal_acknowledges_stored_kitty_image_upload_by_id() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
@@ -3212,6 +3230,24 @@ mod tests {
         assert_eq!(&image.data[4..8], &[0, 0, 0, 0]);
         assert_eq!(&image.data[80..84], &[255, 0, 0, 255]);
         assert_eq!(&image.data[96..100], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn terminal_moves_cursor_below_sixel_image() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 3));
+
+        terminal.feed(b"ab");
+        terminal.feed(b"\x1bP0;1q\"1;1;2;6#1;2;100;0;0#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 2);
+        assert_eq!(terminal.cursor(), (1, 0));
+
+        terminal.feed(b"cd");
+
+        assert_eq!(row_text(&terminal, 0), "ab                      ");
+        assert_eq!(row_text(&terminal, 1), "cd                      ");
     }
 
     #[test]

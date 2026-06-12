@@ -191,10 +191,10 @@ support the next PTY and SSH milestones.
   placeholder metadata, and scroll-region movement plus scrollback pruning
   rebase stored placeholder metadata with the text cells; alternate-screen
   switching snapshots and isolates placeholder metadata with the main screen.
-  Deleting visible placements does not drop stored image data while a virtual
-  placement still references the image. Attempts to make a `U=1` virtual
-  placement relative are rejected with `EINVAL`; full virtual-placement
-  lifecycle parity remains open.
+  Deleting visible placements, including uppercase all-placement deletion, does
+  not drop stored image data while a virtual placement still references the
+  image. Attempts to make a `U=1` virtual placement relative are rejected with
+  `EINVAL`; full virtual-placement lifecycle parity remains open.
   Terminal erase operations also maintain image placement state: `CSI 2J`
   removes visible inline-image placements without dropping stored Kitty image
   data, while `CSI 3J` removes scrollback inline images and rebases retained
@@ -206,7 +206,7 @@ support the next PTY and SSH milestones.
   definitions, color selection, raster-attribute `Ph`/`Pv` pixel dimensions,
   clipping to the declared raster size, DCS `P2` transparent/opaque background
   mode, sixel data bytes, repeat introducers, carriage return, and sixel
-  newline.
+  newline, with cursor advancement to the next terminal line.
 - Basic SGR handling:
   - reset
   - bold, faint, italic, blink, underline, double underline, conceal,
@@ -360,7 +360,7 @@ cover:
 - Basic Sixel DCS `q` bitmap capture with RGB and HLS palette color
   definitions, raster-attribute `Ph`/`Pv` pixel dimensions with clipping to
   the declared size, repeat introducers, DCS `P2` transparent/opaque background
-  mode, carriage returns, and sixel newlines
+  mode, carriage returns, sixel newlines, and post-image cursor advancement
 - SGR color/style parsing, including inverse video, faint, blink, double
   underline, colon-separated underline styles, underline color, conceal,
   strikethrough, overline, and colon-separated extended color parameters

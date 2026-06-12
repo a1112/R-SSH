@@ -274,7 +274,8 @@ keyboard, mouse, paste, resize
   definitions, raster-attribute `Ph`/`Pv` pixel dimensions with clipping to the
   declared size, DCS `P2` transparent/opaque background mode, repeat
   introducers, carriage returns, and sixel newlines are normalized into raw
-  RGBA inline images and drawn through the same snapshot path. Automatic animated GIF
+  RGBA inline images, advance the cursor to the next terminal line, and draw
+  through the same snapshot path. Automatic animated GIF
   refresh/invalidation scheduling, Kitty shared-memory transfers, remaining
   richer placement controls, broader query responses beyond current direct
   payload and stored-image existence checks, full Sixel protocol coverage, and

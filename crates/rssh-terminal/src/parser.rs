@@ -1336,11 +1336,7 @@ impl Terminal {
 
         match params.delete_target.unwrap_or('a') {
             'a' => self.delete_kitty_placements(false, |image| image.kitty_image_id.is_some()),
-            'A' => {
-                self.delete_kitty_placements(false, |image| image.kitty_image_id.is_some());
-                self.kitty_images.clear();
-                self.kitty_image_numbers.clear();
-            }
+            'A' => self.delete_kitty_placements(true, |image| image.kitty_image_id.is_some()),
             'i' | 'I' => {
                 let Some(image_id) = params.image_id else {
                     return;
@@ -1522,6 +1518,7 @@ impl Terminal {
             target_y: None,
             data: image.data,
         });
+        self.next_line();
     }
 
     fn push_kitty_graphics_ok_response(&mut self, params: KittyGraphicsParams) {

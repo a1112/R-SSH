@@ -240,9 +240,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   paths clear stale placeholder metadata. Scroll-region movement and scrollback
   pruning rebase stored placeholder metadata with the text cells, and
   alternate-screen switching snapshots and isolates placeholder metadata with
-  the main screen. Visible placement deletion keeps stored image data alive
-  while a virtual placement still references that image; attempts to make a
-  `U=1` virtual placement relative return `EINVAL`.
+  the main screen. Visible placement deletion, including uppercase
+  all-placement deletion, keeps stored image data alive while a virtual
+  placement still references that image; attempts to make a `U=1` virtual
+  placement relative return `EINVAL`.
   Basic `a=d`
   deletion removes all visible Kitty placements,
   placements for a specific image id, placements for the latest image assigned
@@ -262,8 +263,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   definitions, color selection, raster-attribute `Ph`/`Pv` pixel dimensions
   with clipping to the declared size, DCS `P2` transparent/opaque background
   mode, repeat introducers, carriage returns, and sixel newlines are normalized
-  into raw RGBA inline images and rendered through the same snapshot path. Automatic
-  animated GIF refresh/invalidation scheduling, Kitty shared-memory transfers,
+  into raw RGBA inline images, advance the cursor to the next terminal line,
+  and render through the same snapshot path. Automatic animated GIF
+  refresh/invalidation scheduling, Kitty shared-memory transfers,
   remaining richer placement controls, broader query responses beyond current
   direct/chunked direct payload and stored-image
   existence checks, full Sixel protocol coverage, sixel scrolling/pan edge
