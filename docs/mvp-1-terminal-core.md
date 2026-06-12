@@ -139,7 +139,8 @@ support the next PTY and SSH milestones.
   for invalid identified upload parameters or payloads, and minimal placement
   at the current cursor via either `a=p,i=<id>` or `a=p,I=<number>`, reusing
   stored pixel data and default display dimensions unless the placement
-  supplies `c`/`r`.
+  supplies `c`/`r`; when only one of `c` or `r` is supplied, the other axis is
+  derived from the source image or source-rectangle aspect ratio.
   Non-zero image ids may also carry `p=<placement-id>`; repeated
   `(image id, placement id)` pairs replace the previous visible placement.
   Re-transmitting image data for an existing non-zero image id clears that
@@ -155,9 +156,10 @@ support the next PTY and SSH milestones.
   return `OK`/`ENOENT`, honoring Kitty `q=1`/`q=2` response suppression.
   Commands that specify both `i=<id>` and `I=<number>` are rejected with
   `EINVAL`.
-- Kitty Graphics Protocol delete flow is supported for `a=d` to remove visible
-  Kitty placements and `a=d,d=i,i=<id>` / `a=d,d=I,i=<id>` to remove placements
-  for a specific image id, plus `a=d,d=n,I=<number>` /
+- Kitty Graphics Protocol delete flow is supported for `a=d` to remove live
+  viewport visible Kitty placements while retaining placements already in
+  scrollback, and `a=d,d=i,i=<id>` / `a=d,d=I,i=<id>` to remove placements for
+  a specific image id, plus `a=d,d=n,I=<number>` /
   `a=d,d=N,I=<number>` to remove placements for the latest image assigned to
   an image number, and `a=d,d=r,x=<first>,y=<last>` /
   `a=d,d=R,x=<first>,y=<last>` to remove placements in an image-id range,
@@ -167,8 +169,8 @@ support the next PTY and SSH milestones.
   current cursor, `d=p/P,x=<col>,y=<row>` at an explicit cell, and
   `d=x/X,x=<col>` / `d=y/Y,y=<row>` for visible columns or rows. Z-index
   delete matching is supported for `d=z/Z,z=<index>` and
-  `d=q/Q,x=<col>,y=<row>,z=<index>`. Uppercase forms drop
-  stored image data once no visible placement still references that image id.
+  `d=q/Q,x=<col>,y=<row>,z=<index>`. Uppercase forms drop stored image data
+  once no live, scrollback, or virtual placement still references that image id.
   Relative-placement keys `P`/`Q` plus offsets `H`/`V` support initial
   placement relative to an existing parent placement and reject missing parents
   with `ENOPARENT`. Deleting a parent placement also deletes its relative
@@ -191,10 +193,14 @@ support the next PTY and SSH milestones.
   placeholder metadata, and scroll-region movement plus scrollback pruning
   rebase stored placeholder metadata with the text cells; alternate-screen
   switching snapshots and isolates placeholder metadata with the main screen.
-  Deleting visible placements, including uppercase all-placement deletion, does
-  not drop stored image data while a virtual placement still references the
-  image. Attempts to make a `U=1` virtual placement relative are rejected with
-  `EINVAL`; full virtual-placement lifecycle parity remains open.
+  Position-oriented placement deletion leaves Unicode-placeholder-derived
+  renders intact because those renders are backed by text cells rather than
+  protocol placements; overwriting or erasing the underlying placeholder cells
+  removes the derived render. Deleting visible placements, including uppercase
+  all-placement deletion, does not drop stored image data while a virtual
+  placement still references the image. Attempts to make a `U=1` virtual
+  placement relative are rejected with `EINVAL`; full virtual-placement
+  lifecycle parity remains open.
   Terminal erase operations also maintain image placement state: `CSI 2J`
   removes visible inline-image placements without dropping stored Kitty image
   data, while `CSI 3J` removes scrollback inline images and rebases retained

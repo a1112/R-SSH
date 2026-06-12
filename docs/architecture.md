@@ -249,7 +249,9 @@ keyboard, mouse, paste, resize
   number at the current cursor.
   Basic source rectangles (`x`/`y`/`w`/`h`) are propagated for direct and
   stored-placement image cropping, and `X`/`Y` target pixel offsets shift direct
-  and stored placements relative to the placement cell. Basic direct `a=q`
+  and stored placements relative to the placement cell; placements that specify
+  only `c` or only `r` derive the other cell axis from the source image or
+  source-rectangle aspect ratio. Basic direct `a=q`
   support queries return `OK`/`EINVAL`, stored-image existence queries and
   stored placements return `OK` or `ENOENT` for present/missing image ids or
   image numbers, Kitty `q=1`/`q=2` response suppression is honored, `i`/`I`
@@ -257,12 +259,17 @@ keyboard, mouse, paste, resize
   the placement cell rectangle unless `C=1` suppresses movement, and basic
   placement ids are tracked so repeated `(image id, placement id)` pairs
   replace old placements.
-  Basic `a=d` deletion covers all visible Kitty placements, image-id placement
-  deletion, image-number placement deletion, image-id range deletion,
+  Basic `a=d` deletion covers all live viewport visible Kitty placements while
+  retaining scrollback placements, image-id placement deletion, image-number
+  placement deletion, image-id range deletion,
   `(image id, placement id)` pair deletion, and cursor-cell, explicit-cell,
-  visible-column, visible-row, z-index, and cell-plus-z-index deletion. The
+  visible-column, visible-row, z-index, and cell-plus-z-index deletion. These
+  position-oriented deletes leave Unicode-placeholder-derived renders intact;
+  the derived render is removed when the underlying placeholder cell is
+  overwritten or erased. The
   renderer applies Kitty z-index layer ordering, drawing negative z-index images
-  below text and non-negative z-index images above text in ascending z order.
+  below text and non-negative z-index images above text in ascending z order,
+  with Kitty image id breaking ties for overlapping same-z images.
   Terminal erase display paths remove affected inline-image
   placements for `CSI 2J`, drop scrollback inline images for `CSI 3J`, and
   rebase retained visible image rows after scrollback clearing. Alternate-screen

@@ -2381,6 +2381,32 @@ mod tests {
     }
 
     #[test]
+    fn terminal_derives_kitty_display_rows_from_columns_and_image_aspect_ratio() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(
+            b"\x1b_Ga=T,C=1,q=1,i=70,f=24,s=4,v=2,c=4;/wAA/wAA/wAA/wAA/wAA/wAA/wAA/wAA\x1b\\",
+        );
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].width, Some("4".to_owned()));
+        assert_eq!(terminal.inline_images()[0].height, Some("2".to_owned()));
+    }
+
+    #[test]
+    fn terminal_derives_kitty_display_columns_from_rows_and_image_aspect_ratio() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(
+            b"\x1b_Ga=T,C=1,q=1,i=71,f=24,s=4,v=2,r=3;/wAA/wAA/wAA/wAA/wAA/wAA/wAA/wAA\x1b\\",
+        );
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].width, Some("6".to_owned()));
+        assert_eq!(terminal.inline_images()[0].height, Some("3".to_owned()));
+    }
+
+    #[test]
     fn terminal_displays_kitty_virtual_placement_from_unicode_placeholder() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 4));
 
@@ -2504,7 +2530,7 @@ mod tests {
         terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
         terminal.feed(b"\x1b_Ga=d,d=a\x1b\\");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
 
         terminal.feed("\u{10eeee}x".as_bytes());
 
@@ -2523,7 +2549,7 @@ mod tests {
         terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
         terminal.feed(b"\x1b[2;1Hx\x1b_Ga=d,d=a\x1b\\");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
 
         terminal.feed(b"\x1b[1;3H\x1b[38;5;50m");
         terminal.feed("\u{10eeee}x".as_bytes());
@@ -2535,7 +2561,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_does_not_replay_pending_kitty_placeholder_after_graphics_delete() {
+    fn terminal_keeps_kitty_placeholder_render_after_graphics_delete_until_cell_overwritten() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 4));
 
         terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=49,f=24,s=2,v=2,c=2,r=2;/wAAAP8AAAD/////\x1b\\");
@@ -2543,9 +2569,10 @@ mod tests {
         terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
         terminal.feed(b"\x1b_Ga=d,d=a\x1b\\");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(49));
 
-        terminal.feed(b"x");
+        terminal.feed(b"\x1b[1;1Hx");
 
         assert!(terminal.inline_images().is_empty());
     }
@@ -2592,7 +2619,7 @@ mod tests {
         terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
         terminal.feed(b"\x1b[2;4r\x1b[4;1H\n\x1b_Ga=d,d=a\x1b\\");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
 
         terminal.feed(b"\x1b[2;3H\x1b[38;5;55m");
         terminal.feed("\u{10eeee}x".as_bytes());
@@ -2612,7 +2639,7 @@ mod tests {
         terminal.feed("\u{10eeee}\u{0305}\u{030d}".as_bytes());
         terminal.feed(b"\x1b[1;1H\x1b[L\x1b_Ga=d,d=a\x1b\\");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
 
         terminal.feed(b"\x1b[3;3H\x1b[38;5;56m");
         terminal.feed("\u{10eeee}x".as_bytes());
@@ -2636,7 +2663,7 @@ mod tests {
         terminal.feed(b"\x1b[3J\x1b_Ga=d,d=a\x1b\\");
 
         assert!(terminal.scrollback().is_empty());
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
 
         terminal.feed(b"\x1b[3;3H\x1b[38;5;57m");
         terminal.feed("\u{10eeee}x".as_bytes());
@@ -2661,7 +2688,7 @@ mod tests {
 
         terminal.feed(b"\x1b[?1049l\x1b_Ga=d,d=a\x1b\\");
 
-        assert!(terminal.inline_images().is_empty());
+        assert_eq!(terminal.inline_images().len(), 1);
 
         terminal.feed(b"\x1b[1;3H\x1b[38;5;58m");
         terminal.feed("\u{10eeee}x".as_bytes());
@@ -2746,6 +2773,31 @@ mod tests {
 
         assert_eq!(terminal.inline_images().len(), 1);
         assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(53));
+    }
+
+    #[test]
+    fn terminal_keeps_scrollback_kitty_placements_when_deleting_visible_placements() {
+        for delete_target in ['a', 'A'] {
+            let mut terminal = Terminal::new(TerminalSize::new(8, 2));
+
+            terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=60,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+            terminal.feed(b"one\ntwo\n");
+
+            assert_eq!(terminal.scrollback().len(), 1);
+            assert_eq!(terminal.inline_images().len(), 1);
+            assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(60));
+            assert_eq!(terminal.inline_images()[0].row, 0);
+
+            terminal.feed(b"\x1b_Ga=T,C=1,q=1,i=61,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+            assert_eq!(terminal.inline_images().len(), 2);
+
+            let delete = format!("\x1b_Ga=d,d={delete_target}\x1b\\");
+            terminal.feed(delete.as_bytes());
+
+            assert_eq!(terminal.inline_images().len(), 1);
+            assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(60));
+            assert!(terminal.inline_images()[0].row < terminal.scrollback().len());
+        }
     }
 
     #[test]

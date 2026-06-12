@@ -490,7 +490,15 @@ fn render_inline_images_in_z_order<'a>(
     animation_elapsed_ms: Option<u64>,
 ) {
     let mut images = images.enumerate().collect::<Vec<_>>();
-    images.sort_by_key(|(index, image)| (image_z_index(image), *index));
+    images.sort_by(|(left_index, left), (right_index, right)| {
+        image_z_index(left)
+            .cmp(&image_z_index(right))
+            .then_with(|| match (left.kitty_image_id, right.kitty_image_id) {
+                (Some(left_id), Some(right_id)) => left_id.cmp(&right_id),
+                _ => std::cmp::Ordering::Equal,
+            })
+            .then_with(|| left_index.cmp(right_index))
+    });
 
     for (_, image) in images {
         render_inline_image(
@@ -2321,6 +2329,20 @@ mod tests {
     }
 
     #[test]
+    fn pixel_renderer_uses_kitty_image_id_as_same_z_index_tiebreaker() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        feed_overlapping_kitty_rgb_images_high_id_first(&mut terminal);
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 8, 7, 7), [0, 255, 0, 255]);
+    }
+
+    #[test]
     fn pixel_renderer_places_negative_z_kitty_images_below_text() {
         let mut terminal = Terminal::new(TerminalSize::new(1, 1));
         terminal.feed(b"\x1b[?25lA\x1b[1;1H");
@@ -3047,6 +3069,16 @@ mod tests {
         terminal.feed(format!("\x1b_Ga=p,i=7,z={red_z_index}\x1b\\").as_bytes());
         terminal.feed(b"\x1b[1;1H");
         terminal.feed(format!("\x1b_Ga=p,i=8,z={green_z_index}\x1b\\").as_bytes());
+    }
+
+    fn feed_overlapping_kitty_rgb_images_high_id_first(terminal: &mut Terminal) {
+        terminal.feed(b"\x1b[?25l");
+        terminal.take_damage();
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=8,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=8,z=2\x1b\\");
+        terminal.feed(b"\x1b[1;1H");
+        terminal.feed(b"\x1b_Ga=p,i=7,z=2\x1b\\");
     }
 
     fn feed_inline_image(terminal: &mut Terminal, params: &str, payload_base64: &str) {

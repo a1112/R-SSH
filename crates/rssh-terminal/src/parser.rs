@@ -52,6 +52,7 @@ const KITTY_PLACEHOLDER_DIACRITICS: [char; 256] = [
     '\u{a6f0}', '\u{a6f1}', '\u{a8e0}', '\u{a8e1}', '\u{a8e2}', '\u{a8e3}', '\u{a8e4}', '\u{a8e5}',
 ];
 type KittyPlacementKey = (u32, u32);
+type KittyPlaceholderRenderKey = (usize, u16, u32, Option<u32>);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterSet {
@@ -1335,8 +1336,14 @@ impl Terminal {
         self.pending_kitty_graphics = None;
 
         match params.delete_target.unwrap_or('a') {
-            'a' => self.delete_kitty_placements(false, |image| image.kitty_image_id.is_some()),
-            'A' => self.delete_kitty_placements(true, |image| image.kitty_image_id.is_some()),
+            'a' | 'A' => {
+                let (first_row, last_row) = self.visible_history_rows();
+                let columns = self.grid.size().columns;
+                self.delete_kitty_physical_placements(params.delete_target == Some('A'), |image| {
+                    image.kitty_image_id.is_some()
+                        && inline_image_intersects_region(image, first_row, last_row, 0, columns)
+                });
+            }
             'i' | 'I' => {
                 let Some(image_id) = params.image_id else {
                     return;
@@ -1375,7 +1382,7 @@ impl Terminal {
             'c' | 'C' => {
                 let row = self.current_history_row();
                 let column = self.cursor_column;
-                self.delete_kitty_placements(params.delete_target == Some('C'), |image| {
+                self.delete_kitty_physical_placements(params.delete_target == Some('C'), |image| {
                     kitty_image_intersects_cell(image, row, column)
                 });
             }
@@ -1383,7 +1390,7 @@ impl Terminal {
                 let Some((row, column)) = self.kitty_delete_cell(params) else {
                     return;
                 };
-                self.delete_kitty_placements(params.delete_target == Some('P'), |image| {
+                self.delete_kitty_physical_placements(params.delete_target == Some('P'), |image| {
                     kitty_image_intersects_cell(image, row, column)
                 });
             }
@@ -1392,7 +1399,7 @@ impl Terminal {
                     return;
                 };
                 let (first_row, last_row) = self.visible_history_rows();
-                self.delete_kitty_placements(params.delete_target == Some('X'), |image| {
+                self.delete_kitty_physical_placements(params.delete_target == Some('X'), |image| {
                     kitty_image_intersects_column(image, first_row, last_row, column)
                 });
             }
@@ -1400,7 +1407,7 @@ impl Terminal {
                 let Some(row) = params.cell_y.and_then(|row| self.visible_history_row(row)) else {
                     return;
                 };
-                self.delete_kitty_placements(params.delete_target == Some('Y'), |image| {
+                self.delete_kitty_physical_placements(params.delete_target == Some('Y'), |image| {
                     kitty_image_intersects_row(image, row)
                 });
             }
@@ -1408,7 +1415,7 @@ impl Terminal {
                 let Some(z_index) = params.z_index else {
                     return;
                 };
-                self.delete_kitty_placements(params.delete_target == Some('Z'), |image| {
+                self.delete_kitty_physical_placements(params.delete_target == Some('Z'), |image| {
                     image.kitty_image_id.is_some() && image.kitty_z_index == Some(z_index)
                 });
             }
@@ -1419,7 +1426,7 @@ impl Terminal {
                 let Some((row, column)) = self.kitty_delete_cell(params) else {
                     return;
                 };
-                self.delete_kitty_placements(params.delete_target == Some('Q'), |image| {
+                self.delete_kitty_physical_placements(params.delete_target == Some('Q'), |image| {
                     image.kitty_z_index == Some(z_index)
                         && kitty_image_intersects_cell(image, row, column)
                 });
@@ -1486,6 +1493,18 @@ impl Terminal {
         if remove_unreferenced_data {
             self.remove_unreferenced_kitty_images(removed_image_ids);
         }
+    }
+
+    fn delete_kitty_physical_placements(
+        &mut self,
+        remove_unreferenced_data: bool,
+        mut matches: impl FnMut(&ItermInlineImage) -> bool,
+    ) {
+        let placeholder_render_keys = self.kitty_placeholder_render_keys();
+        self.delete_kitty_placements(remove_unreferenced_data, |image| {
+            !kitty_image_matches_placeholder_render(image, &placeholder_render_keys)
+                && matches(image)
+        });
     }
 
     fn apply_sixel_content(&mut self, options: SixelOptions, content: &str) {
@@ -1803,16 +1822,7 @@ impl Terminal {
     }
 
     fn place_kitty_image(&mut self, image: &StoredKittyImage, options: KittyPlacementOptions) {
-        let width = options
-            .display_columns
-            .or(image.display_columns)
-            .map(|columns| columns.to_string())
-            .or_else(|| image.pixel_width.map(|width| format!("{width}px")));
-        let height = options
-            .display_rows
-            .or(image.display_rows)
-            .map(|rows| rows.to_string())
-            .or_else(|| image.pixel_height.map(|height| format!("{height}px")));
+        let (width, height) = kitty_display_dimensions(image, options);
         let placement_columns = iterm_inline_image_cell_extent(width.as_deref()).max(1);
         let placement_rows = iterm_inline_image_cell_extent(height.as_deref()).max(1);
         let row = options.row.unwrap_or_else(|| self.current_history_row());
@@ -2727,8 +2737,19 @@ impl Terminal {
 
     fn clear_kitty_placeholder_cells(&mut self, row: usize, column: u16, width: u16) {
         for offset in 0..width {
-            self.kitty_placeholder_cells
-                .remove(&(row, column.saturating_add(offset)));
+            let column = column.saturating_add(offset);
+            if let Some(placeholder) = self.kitty_placeholder_cells.remove(&(row, column)) {
+                if let Some((render_row, render_column, image_id, placement_id)) =
+                    self.kitty_placeholder_render_key(row, column, placeholder)
+                {
+                    self.remove_kitty_placeholder_render(
+                        render_row,
+                        render_column,
+                        image_id,
+                        placement_id,
+                    );
+                }
+            }
         }
         if self.last_kitty_placeholder.is_some_and(|placeholder| {
             placeholder.row == row
@@ -2835,6 +2856,39 @@ impl Terminal {
         self.kitty_placeholder_cells
             .insert((pending.row, pending.column), placeholder);
         self.last_kitty_placeholder = Some(placeholder);
+    }
+
+    fn kitty_placeholder_render_keys(&self) -> HashSet<KittyPlaceholderRenderKey> {
+        self.kitty_placeholder_cells
+            .iter()
+            .filter_map(|(&(row, column), &placeholder)| {
+                self.kitty_placeholder_render_key(row, column, placeholder)
+            })
+            .collect()
+    }
+
+    fn kitty_placeholder_render_key(
+        &self,
+        row: usize,
+        column: u16,
+        placeholder: LastKittyPlaceholder,
+    ) -> Option<KittyPlaceholderRenderKey> {
+        let low_bytes = kitty_placeholder_image_id(placeholder.foreground)? & 0x00ff_ffff;
+        let image_id = low_bytes | (placeholder.image_id_high_byte << 24);
+        let placement_id = kitty_placeholder_placement_id(placeholder.underline_color);
+        let (origin_row, origin_column) = kitty_placeholder_origin_from_cell(
+            row,
+            column,
+            placeholder.placeholder_row,
+            placeholder.placeholder_column,
+        )?;
+        let placement = self.kitty_virtual_placement_for_placeholder(image_id, placement_id)?;
+        Some((
+            origin_row,
+            origin_column,
+            placement.image_id,
+            placement.placement_id,
+        ))
     }
 
     fn resolve_kitty_placeholder(
@@ -4767,6 +4821,89 @@ fn kitty_image_placement_key(image: &ItermInlineImage) -> Option<KittyPlacementK
     kitty_placement_key(image.kitty_image_id, image.kitty_placement_id)
 }
 
+fn kitty_display_dimensions(
+    image: &StoredKittyImage,
+    options: KittyPlacementOptions,
+) -> (Option<String>, Option<String>) {
+    let columns = options.display_columns.or(image.display_columns);
+    let rows = options.display_rows.or(image.display_rows);
+    let aspect = kitty_source_aspect_pixels(image, options.source_rect);
+
+    let derived_rows = match (columns, rows, aspect) {
+        (Some(columns), None, Some((source_width, source_height))) => {
+            derive_kitty_display_axis(columns, source_height, source_width)
+        }
+        _ => None,
+    };
+    let derived_columns = match (columns, rows, aspect) {
+        (None, Some(rows), Some((source_width, source_height))) => {
+            derive_kitty_display_axis(rows, source_width, source_height)
+        }
+        _ => None,
+    };
+
+    let width = columns
+        .or(derived_columns)
+        .map(|columns| columns.to_string())
+        .or_else(|| image.pixel_width.map(|width| format!("{width}px")));
+    let height = rows
+        .or(derived_rows)
+        .map(|rows| rows.to_string())
+        .or_else(|| image.pixel_height.map(|height| format!("{height}px")));
+
+    (width, height)
+}
+
+fn kitty_source_aspect_pixels(
+    image: &StoredKittyImage,
+    source_rect: KittySourceRect,
+) -> Option<(u32, u32)> {
+    let pixel_width = image.pixel_width?;
+    let pixel_height = image.pixel_height?;
+    let source_x = source_rect.x.unwrap_or(0);
+    let source_y = source_rect.y.unwrap_or(0);
+    if source_x >= pixel_width || source_y >= pixel_height {
+        return None;
+    }
+
+    let width = source_rect.width.unwrap_or(pixel_width - source_x);
+    let height = source_rect.height.unwrap_or(pixel_height - source_y);
+    Some((
+        width.min(pixel_width - source_x),
+        height.min(pixel_height - source_y),
+    ))
+    .filter(|(width, height)| *width > 0 && *height > 0)
+}
+
+fn derive_kitty_display_axis(
+    known_cells: u16,
+    numerator_pixels: u32,
+    denominator_pixels: u32,
+) -> Option<u16> {
+    if denominator_pixels == 0 {
+        return None;
+    }
+    let derived = u64::from(known_cells)
+        .saturating_mul(u64::from(numerator_pixels))
+        .saturating_add(u64::from(denominator_pixels) - 1)
+        / u64::from(denominator_pixels);
+    Some(u16::try_from(derived.max(1)).unwrap_or(u16::MAX))
+}
+
+fn kitty_image_matches_placeholder_render(
+    image: &ItermInlineImage,
+    placeholder_render_keys: &HashSet<KittyPlaceholderRenderKey>,
+) -> bool {
+    image.kitty_image_id.is_some_and(|image_id| {
+        placeholder_render_keys.contains(&(
+            image.row,
+            image.column,
+            image_id,
+            image.kitty_placement_id,
+        ))
+    })
+}
+
 fn kitty_placeholder_image_id(color: Color) -> Option<u32> {
     kitty_placeholder_color_value(color).filter(|image_id| *image_id != ANONYMOUS_KITTY_IMAGE_ID)
 }
@@ -4780,11 +4917,25 @@ fn kitty_placeholder_origin(
     placeholder_row: u32,
     placeholder_column: u32,
 ) -> Option<(usize, u16)> {
+    kitty_placeholder_origin_from_cell(
+        pending.row,
+        pending.column,
+        placeholder_row,
+        placeholder_column,
+    )
+}
+
+fn kitty_placeholder_origin_from_cell(
+    row: usize,
+    column: u16,
+    placeholder_row: u32,
+    placeholder_column: u32,
+) -> Option<(usize, u16)> {
     let row_offset = usize::try_from(placeholder_row).ok()?;
     let column_offset = u16::try_from(placeholder_column).ok()?;
     Some((
-        pending.row.checked_sub(row_offset)?,
-        pending.column.checked_sub(column_offset)?,
+        row.checked_sub(row_offset)?,
+        column.checked_sub(column_offset)?,
     ))
 }
 

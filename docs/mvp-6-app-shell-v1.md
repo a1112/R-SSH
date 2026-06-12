@@ -209,7 +209,9 @@ runtime storage for tabs and split panes.
   id or image number at the current cursor. Basic source rectangles
   (`x`/`y`/`w`/`h`) are propagated for
   direct and stored-placement image cropping, and `X`/`Y` target pixel offsets
-  shift direct and stored placements relative to the placement cell. Basic
+  shift direct and stored placements relative to the placement cell. Placements
+  that specify only `c` or only `r` derive the other cell axis from the source
+  image or source-rectangle aspect ratio. Basic
   direct `a=q` support queries return `OK`/`EINVAL`, stored placements return
   `OK` or `ENOENT` for present/missing image ids or image numbers, stored-image
   existence queries return `OK`/`ENOENT`, Kitty `q=1`/`q=2` response
@@ -218,13 +220,16 @@ runtime storage for tabs and split panes.
   suppresses movement, and placement ids are tracked so
   repeated
   `(image id, placement id)` pairs replace old placements. Basic `a=d` deletion
-  covers all visible Kitty placements,
-  image-id placement deletion, image-number placement deletion, image-id range
-  deletion, `(image id, placement id)` pair deletion, and cursor-cell,
+  covers all live viewport visible Kitty placements while retaining scrollback
+  placements, image-id placement deletion, image-number placement deletion,
+  image-id range deletion, `(image id, placement id)` pair deletion, and cursor-cell,
   explicit-cell, visible-column, visible-row, z-index, and cell-plus-z-index
-  deletion. The renderer applies Kitty z-index layer ordering, drawing negative
+  deletion. Position-oriented deletes leave Unicode-placeholder-derived renders
+  intact until the underlying placeholder cell is overwritten or erased. The
+  renderer applies Kitty z-index layer ordering, drawing negative
   z-index images below text and non-negative z-index images above text in
-  ascending z order. Terminal erase display paths remove affected inline-image
+  ascending z order, with Kitty image id breaking ties for overlapping same-z
+  images. Terminal erase display paths remove affected inline-image
   placements for `CSI 2J`, drop scrollback inline images for `CSI 3J`, and
   rebase retained visible image rows after scrollback clearing. Alternate-screen
   `?1049` switches isolate inline-image placements between main and alternate
@@ -440,8 +445,9 @@ runtime storage for tabs and split panes.
   transfers with guarded deletion, placement-id replacement, placement cursor
   movement with `C=1` suppression, and basic `a=d`
   image/image-number/image-range/placement/cell/row/column/z-index
-  deletion, source-rectangle cropping, `X`/`Y` target pixel offsets, z-index
-  layer ordering, and basic Kitty `a=q` plus stored-image query and
+  deletion, source-rectangle cropping, single-axis `c`/`r` aspect-ratio
+  derivation, `X`/`Y` target pixel offsets, z-index layer ordering, and basic
+  Kitty `a=q` plus stored-image query and
   stored-placement `OK`/`ENOENT` response writeback with `q=1`/`q=2`
   suppression, terminal erase display cleanup for retained inline images,
   `?1049` alternate-screen image isolation, plus basic Sixel DCS `q`
