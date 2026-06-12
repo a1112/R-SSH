@@ -204,7 +204,9 @@ support the next PTY and SSH milestones.
 - Basic Sixel DCS `q` image payloads are parsed into retained inline image
   metadata for renderer snapshots, covering RGB percentage and HLS color
   definitions, color selection, raster-attribute `Ph`/`Pv` pixel dimensions,
-  sixel data bytes, repeat introducers, carriage return, and sixel newline.
+  clipping to the declared raster size, DCS `P2` transparent/opaque background
+  mode, sixel data bytes, repeat introducers, carriage return, and sixel
+  newline.
 - Basic SGR handling:
   - reset
   - bold, faint, italic, blink, underline, double underline, conceal,
@@ -235,7 +237,7 @@ support the next PTY and SSH milestones.
   `t=f`/`t=t` subset, including shared-memory transfers, richer placement
   controls, broader query-response variants, and animation.
 - Full Sixel protocol coverage beyond the basic DCS `q`
-  color/raster-size/repeat/newline bitmap subset.
+  color/raster-size/background-mode/repeat/newline bitmap subset.
 - GPU rendering.
 - Local PTY and SSH channel I/O.
 
@@ -356,8 +358,9 @@ cover:
 - Terminal erase display `CSI 2J`/`CSI 3J` inline-image deletion and retained
   visible image row rebasing
 - Basic Sixel DCS `q` bitmap capture with RGB and HLS palette color
-  definitions, raster-attribute `Ph`/`Pv` pixel dimensions, repeat introducers,
-  carriage returns, and sixel newlines
+  definitions, raster-attribute `Ph`/`Pv` pixel dimensions with clipping to
+  the declared size, repeat introducers, DCS `P2` transparent/opaque background
+  mode, carriage returns, and sixel newlines
 - SGR color/style parsing, including inverse video, faint, blink, double
   underline, colon-separated underline styles, underline color, conceal,
   strikethrough, overline, and colon-separated extended color parameters

@@ -753,8 +753,9 @@ impl Terminal {
 
     fn apply_dcs_content(&mut self, content: &[char]) {
         let content = content.iter().collect::<String>();
-        if let Some(sixel_start) = content.find('q') {
-            self.apply_sixel_content(&content[sixel_start + 1..]);
+        if let Some(sixel_start) = sixel_dcs_marker_index(&content) {
+            let options = parse_sixel_dcs_options(&content[..sixel_start]);
+            self.apply_sixel_content(options, &content[sixel_start + 1..]);
         }
     }
 
@@ -1491,8 +1492,8 @@ impl Terminal {
         }
     }
 
-    fn apply_sixel_content(&mut self, content: &str) {
-        let Some(image) = parse_sixel_image(content) else {
+    fn apply_sixel_content(&mut self, options: SixelOptions, content: &str) {
+        let Some(image) = parse_sixel_image(options, content) else {
             return;
         };
 
@@ -4212,10 +4213,30 @@ struct SixelImage {
     data: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SixelBackground {
+    Opaque,
+    Transparent,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SixelOptions {
+    background: SixelBackground,
+}
+
+impl Default for SixelOptions {
+    fn default() -> Self {
+        Self {
+            background: SixelBackground::Opaque,
+        }
+    }
+}
+
 struct SixelCanvas {
     pixels: HashMap<(u32, u32), [u8; 4]>,
     palette: HashMap<u16, [u8; 4]>,
     current_color: [u8; 4],
+    background: SixelBackground,
     x: u32,
     y: u32,
     max_x: u32,
@@ -4224,12 +4245,13 @@ struct SixelCanvas {
     declared_height: Option<u32>,
 }
 
-impl Default for SixelCanvas {
-    fn default() -> Self {
+impl SixelCanvas {
+    fn new(options: SixelOptions) -> Self {
         Self {
             pixels: HashMap::new(),
             palette: HashMap::new(),
             current_color: [255, 255, 255, 255],
+            background: options.background,
             x: 0,
             y: 0,
             max_x: 0,
@@ -4238,9 +4260,7 @@ impl Default for SixelCanvas {
             declared_height: None,
         }
     }
-}
 
-impl SixelCanvas {
     fn write_bits(&mut self, bits: u8, repeat: u32) {
         for _ in 0..repeat.max(1) {
             for bit in 0..6 {
@@ -4297,24 +4317,37 @@ impl SixelCanvas {
     }
 
     fn into_image(self) -> Option<SixelImage> {
-        if self.pixels.is_empty() {
+        if self.pixels.is_empty() && self.background == SixelBackground::Transparent {
             return None;
         }
 
-        let drawn_width = self.max_x.checked_add(1)?;
-        let drawn_height = self.max_y.checked_add(1)?;
-        let width = self.declared_width.unwrap_or(drawn_width).max(drawn_width);
-        let height = self
-            .declared_height
-            .unwrap_or(drawn_height)
-            .max(drawn_height);
+        let (drawn_width, drawn_height) = if self.pixels.is_empty() {
+            (0, 0)
+        } else {
+            (self.max_x.checked_add(1)?, self.max_y.checked_add(1)?)
+        };
+        let width = self.declared_width.unwrap_or(drawn_width);
+        let height = self.declared_height.unwrap_or(drawn_height);
+        if width == 0 || height == 0 {
+            return None;
+        }
         let len = usize::try_from(width)
             .ok()?
             .checked_mul(usize::try_from(height).ok()?)?
             .checked_mul(4)?;
+        let background_color = match self.background {
+            SixelBackground::Opaque => self.palette.get(&0).copied().unwrap_or([0, 0, 0, 255]),
+            SixelBackground::Transparent => [0, 0, 0, 0],
+        };
         let mut data = vec![0; len];
+        for pixel in data.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&background_color);
+        }
 
         for ((x, y), color) in self.pixels {
+            if x >= width || y >= height {
+                continue;
+            }
             let index = usize::try_from((y * width + x) * 4).ok()?;
             data.get_mut(index..index + 4)?.copy_from_slice(&color);
         }
@@ -4327,8 +4360,26 @@ impl SixelCanvas {
     }
 }
 
-fn parse_sixel_image(content: &str) -> Option<SixelImage> {
-    let mut canvas = SixelCanvas::default();
+fn parse_sixel_dcs_options(params: &str) -> SixelOptions {
+    let params = parse_sixel_numeric_params(params);
+    let background = match params.get(1).copied() {
+        Some(1) => SixelBackground::Transparent,
+        _ => SixelBackground::Opaque,
+    };
+
+    SixelOptions { background }
+}
+
+fn sixel_dcs_marker_index(content: &str) -> Option<usize> {
+    let marker = content.find('q')?;
+    content[..marker]
+        .chars()
+        .all(|ch| ch.is_ascii_digit() || ch == ';')
+        .then_some(marker)
+}
+
+fn parse_sixel_image(options: SixelOptions, content: &str) -> Option<SixelImage> {
+    let mut canvas = SixelCanvas::new(options);
     let mut chars = content.chars().peekable();
 
     while let Some(ch) = chars.next() {
@@ -4395,8 +4446,18 @@ fn parse_sixel_parameter_list(chars: &mut std::iter::Peekable<std::str::Chars<'_
         }
     }
 
+    parse_sixel_numeric_params(&raw)
+}
+
+fn parse_sixel_numeric_params(raw: &str) -> Vec<u16> {
     raw.split(';')
-        .filter_map(|value| value.parse::<u16>().ok())
+        .map(|value| {
+            if value.is_empty() {
+                0
+            } else {
+                value.parse::<u16>().unwrap_or(0)
+            }
+        })
         .collect()
 }
 

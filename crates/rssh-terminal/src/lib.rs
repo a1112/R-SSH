@@ -3192,11 +3192,11 @@ mod tests {
     }
 
     #[test]
-    fn terminal_preserves_sixel_raster_attribute_pixel_size() {
+    fn terminal_preserves_transparent_sixel_raster_attribute_pixel_size() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
         terminal.feed(b"ab");
-        terminal.feed(b"\x1bPq\"1;1;4;8#1;2;100;0;0#1~\x1b\\");
+        terminal.feed(b"\x1bP0;1q\"1;1;4;8#1;2;100;0;0#1~\x1b\\");
 
         assert_eq!(terminal.inline_images().len(), 1);
         let image = &terminal.inline_images()[0];
@@ -3212,6 +3212,70 @@ mod tests {
         assert_eq!(&image.data[4..8], &[0, 0, 0, 0]);
         assert_eq!(&image.data[80..84], &[255, 0, 0, 255]);
         assert_eq!(&image.data[96..100], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn terminal_fills_default_sixel_background_opaque() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bPq\"1;1;2;6#1;2;100;0;0#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        let image = &terminal.inline_images()[0];
+        assert_eq!(image.pixel_width, Some(2));
+        assert_eq!(image.pixel_height, Some(6));
+        assert_eq!(&image.data[0..4], &[255, 0, 0, 255]);
+        assert_eq!(&image.data[4..8], &[0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn terminal_honors_sixel_opaque_background_parameter_without_drawn_pixels() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bP0;2q\"1;1;2;6?\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        let image = &terminal.inline_images()[0];
+        assert_eq!(image.pixel_width, Some(2));
+        assert_eq!(image.pixel_height, Some(6));
+        assert_eq!(image.data.len(), 2 * 6 * 4);
+        assert!(
+            image
+                .data
+                .chunks_exact(4)
+                .all(|pixel| pixel == [0, 0, 0, 255])
+        );
+    }
+
+    #[test]
+    fn terminal_clips_sixel_pixels_to_raster_attribute_size() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bP0;1q\"1;1;1;6#1;2;100;0;0#1~~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        let image = &terminal.inline_images()[0];
+        assert_eq!(image.pixel_width, Some(1));
+        assert_eq!(image.pixel_height, Some(6));
+        assert_eq!(image.width.as_deref(), Some("1px"));
+        assert_eq!(image.height.as_deref(), Some("6px"));
+        assert_eq!(image.data.len(), 6 * 4);
+        assert!(
+            image
+                .data
+                .chunks_exact(4)
+                .all(|pixel| pixel == [255, 0, 0, 255])
+        );
+    }
+
+    #[test]
+    fn terminal_does_not_treat_decrqss_dcs_as_sixel_image() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bP$qm\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert!(terminal.take_damage().is_empty());
     }
 
     #[test]
