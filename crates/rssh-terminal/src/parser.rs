@@ -16,6 +16,41 @@ use crate::{
 const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
 const ANONYMOUS_KITTY_IMAGE_ID: u32 = 0;
 const MAX_KITTY_RELATIVE_CHAIN_DEPTH: usize = 8;
+const KITTY_UNICODE_PLACEHOLDER: char = '\u{10eeee}';
+const KITTY_PLACEHOLDER_DIACRITICS: [char; 256] = [
+    '\u{0305}', '\u{030d}', '\u{030e}', '\u{0310}', '\u{0312}', '\u{033d}', '\u{033e}', '\u{033f}',
+    '\u{0346}', '\u{034a}', '\u{034b}', '\u{034c}', '\u{0350}', '\u{0351}', '\u{0352}', '\u{0357}',
+    '\u{035b}', '\u{0363}', '\u{0364}', '\u{0365}', '\u{0366}', '\u{0367}', '\u{0368}', '\u{0369}',
+    '\u{036a}', '\u{036b}', '\u{036c}', '\u{036d}', '\u{036e}', '\u{036f}', '\u{0483}', '\u{0484}',
+    '\u{0485}', '\u{0486}', '\u{0487}', '\u{0592}', '\u{0593}', '\u{0594}', '\u{0595}', '\u{0597}',
+    '\u{0598}', '\u{0599}', '\u{059c}', '\u{059d}', '\u{059e}', '\u{059f}', '\u{05a0}', '\u{05a1}',
+    '\u{05a8}', '\u{05a9}', '\u{05ab}', '\u{05ac}', '\u{05af}', '\u{05c4}', '\u{0610}', '\u{0611}',
+    '\u{0612}', '\u{0613}', '\u{0614}', '\u{0615}', '\u{0616}', '\u{0617}', '\u{0657}', '\u{0658}',
+    '\u{0659}', '\u{065a}', '\u{065b}', '\u{065d}', '\u{065e}', '\u{06d6}', '\u{06d7}', '\u{06d8}',
+    '\u{06d9}', '\u{06da}', '\u{06db}', '\u{06dc}', '\u{06df}', '\u{06e0}', '\u{06e1}', '\u{06e2}',
+    '\u{06e4}', '\u{06e7}', '\u{06e8}', '\u{06eb}', '\u{06ec}', '\u{0730}', '\u{0732}', '\u{0733}',
+    '\u{0735}', '\u{0736}', '\u{073a}', '\u{073d}', '\u{073f}', '\u{0740}', '\u{0741}', '\u{0743}',
+    '\u{0745}', '\u{0747}', '\u{0749}', '\u{074a}', '\u{07eb}', '\u{07ec}', '\u{07ed}', '\u{07ee}',
+    '\u{07ef}', '\u{07f0}', '\u{07f1}', '\u{07f3}', '\u{0816}', '\u{0817}', '\u{0818}', '\u{0819}',
+    '\u{081b}', '\u{081c}', '\u{081d}', '\u{081e}', '\u{081f}', '\u{0820}', '\u{0821}', '\u{0822}',
+    '\u{0823}', '\u{0825}', '\u{0826}', '\u{0827}', '\u{0829}', '\u{082a}', '\u{082b}', '\u{082c}',
+    '\u{082d}', '\u{0951}', '\u{0953}', '\u{0954}', '\u{0f82}', '\u{0f83}', '\u{0f86}', '\u{0f87}',
+    '\u{135d}', '\u{135e}', '\u{135f}', '\u{17dd}', '\u{193a}', '\u{1a17}', '\u{1a75}', '\u{1a76}',
+    '\u{1a77}', '\u{1a78}', '\u{1a79}', '\u{1a7a}', '\u{1a7b}', '\u{1a7c}', '\u{1b6b}', '\u{1b6d}',
+    '\u{1b6e}', '\u{1b6f}', '\u{1b70}', '\u{1b71}', '\u{1b72}', '\u{1b73}', '\u{1cd0}', '\u{1cd1}',
+    '\u{1cd2}', '\u{1cda}', '\u{1cdb}', '\u{1ce0}', '\u{1dc0}', '\u{1dc1}', '\u{1dc3}', '\u{1dc4}',
+    '\u{1dc5}', '\u{1dc6}', '\u{1dc7}', '\u{1dc8}', '\u{1dc9}', '\u{1dcb}', '\u{1dcc}', '\u{1dd1}',
+    '\u{1dd2}', '\u{1dd3}', '\u{1dd4}', '\u{1dd5}', '\u{1dd6}', '\u{1dd7}', '\u{1dd8}', '\u{1dd9}',
+    '\u{1dda}', '\u{1ddb}', '\u{1ddc}', '\u{1ddd}', '\u{1dde}', '\u{1ddf}', '\u{1de0}', '\u{1de1}',
+    '\u{1de2}', '\u{1de3}', '\u{1de4}', '\u{1de5}', '\u{1de6}', '\u{1dfe}', '\u{20d0}', '\u{20d1}',
+    '\u{20d4}', '\u{20d5}', '\u{20d6}', '\u{20d7}', '\u{20db}', '\u{20dc}', '\u{20e1}', '\u{20e7}',
+    '\u{20e9}', '\u{20f0}', '\u{2cef}', '\u{2cf0}', '\u{2cf1}', '\u{2de0}', '\u{2de1}', '\u{2de2}',
+    '\u{2de3}', '\u{2de4}', '\u{2de5}', '\u{2de6}', '\u{2de7}', '\u{2de8}', '\u{2de9}', '\u{2dea}',
+    '\u{2deb}', '\u{2dec}', '\u{2ded}', '\u{2dee}', '\u{2def}', '\u{2df0}', '\u{2df1}', '\u{2df2}',
+    '\u{2df3}', '\u{2df4}', '\u{2df5}', '\u{2df6}', '\u{2df7}', '\u{2df8}', '\u{2df9}', '\u{2dfa}',
+    '\u{2dfb}', '\u{2dfc}', '\u{2dfd}', '\u{2dfe}', '\u{2dff}', '\u{a66f}', '\u{a67c}', '\u{a67d}',
+    '\u{a6f0}', '\u{a6f1}', '\u{a8e0}', '\u{a8e1}', '\u{a8e2}', '\u{a8e3}', '\u{a8e4}', '\u{a8e5}',
+];
 type KittyPlacementKey = (u32, u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +115,7 @@ struct PendingKittyGraphics {
     file_offset: Option<u64>,
     file_size: Option<u64>,
     quiet: Option<u8>,
+    virtual_placement: bool,
     encoded_data: String,
 }
 
@@ -91,6 +127,27 @@ struct StoredKittyImage {
     display_columns: Option<u16>,
     display_rows: Option<u16>,
     data: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct KittyVirtualPlacement {
+    image_id: u32,
+    placement_id: Option<u32>,
+    z_index: Option<i32>,
+    display_columns: Option<u16>,
+    display_rows: Option<u16>,
+    source_rect: KittySourceRect,
+    target_x: Option<u32>,
+    target_y: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+struct PendingKittyPlaceholder {
+    row: usize,
+    column: u16,
+    image_id: Option<u32>,
+    placement_id: Option<u32>,
+    diacritics: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -254,6 +311,8 @@ pub struct Terminal {
     kitty_images: HashMap<u32, StoredKittyImage>,
     kitty_image_numbers: HashMap<u32, u32>,
     kitty_relative_parents: HashMap<KittyPlacementKey, KittyPlacementKey>,
+    kitty_virtual_placements: HashMap<KittyPlacementKey, KittyVirtualPlacement>,
+    pending_kitty_placeholder: Option<PendingKittyPlaceholder>,
     next_kitty_image_id: u32,
     semantic_prompt_rows: Vec<usize>,
     semantic_command_exits: Vec<SemanticCommandExit>,
@@ -338,6 +397,8 @@ impl Terminal {
             kitty_images: HashMap::new(),
             kitty_image_numbers: HashMap::new(),
             kitty_relative_parents: HashMap::new(),
+            kitty_virtual_placements: HashMap::new(),
+            pending_kitty_placeholder: None,
             next_kitty_image_id: 1,
             semantic_prompt_rows: Vec::new(),
             semantic_command_exits: Vec::new(),
@@ -953,6 +1014,32 @@ impl Terminal {
         }
 
         if upload.action == KittyUploadAction::Display {
+            if upload.virtual_placement {
+                if let Some(image_id) = image_id {
+                    self.store_kitty_virtual_placement(
+                        KittyGraphicsParams {
+                            image_id: Some(image_id),
+                            image_number: upload.image_number,
+                            placement_id: upload.placement_id,
+                            z_index: upload.z_index,
+                            display_columns: upload.display_columns,
+                            display_rows: upload.display_rows,
+                            source_x: upload.source_x,
+                            source_y: upload.source_y,
+                            source_width: upload.source_width,
+                            source_height: upload.source_height,
+                            target_x: upload.target_x,
+                            target_y: upload.target_y,
+                            quiet: upload.quiet,
+                            virtual_placement: true,
+                            ..KittyGraphicsParams::default()
+                        },
+                        image_id,
+                        false,
+                    );
+                }
+                return;
+            }
             self.place_kitty_image(
                 &image,
                 KittyPlacementOptions {
@@ -988,6 +1075,10 @@ impl Terminal {
             self.apply_relative_kitty_graphics_placement(params, image_id);
             return;
         }
+        if params.virtual_placement {
+            self.apply_kitty_virtual_placement(params, image_id);
+            return;
+        }
         let Some(image) = self.kitty_images.get(&image_id).cloned() else {
             let subject = params.image_number.map_or_else(
                 || format!("id {image_id}"),
@@ -1021,6 +1112,50 @@ impl Terminal {
         self.push_kitty_graphics_ok_response(Self::kitty_response_params_with_image_id(
             params, image_id,
         ));
+    }
+
+    fn apply_kitty_virtual_placement(&mut self, params: KittyGraphicsParams, image_id: u32) {
+        if !self.kitty_images.contains_key(&image_id) {
+            let subject = params.image_number.map_or_else(
+                || format!("id {image_id}"),
+                |image_number| format!("number {image_number}"),
+            );
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "ENOENT",
+                &format!("No image with {subject}"),
+            );
+            return;
+        }
+
+        self.store_kitty_virtual_placement(params, image_id, true);
+    }
+
+    fn store_kitty_virtual_placement(
+        &mut self,
+        params: KittyGraphicsParams,
+        image_id: u32,
+        respond: bool,
+    ) {
+        let placement = KittyVirtualPlacement {
+            image_id,
+            placement_id: params.placement_id,
+            z_index: Some(params.z_index.unwrap_or(0)),
+            display_columns: params.display_columns,
+            display_rows: params.display_rows,
+            source_rect: params.source_rect(),
+            target_x: params.target_x,
+            target_y: params.target_y,
+        };
+        self.kitty_virtual_placements.insert(
+            kitty_virtual_placement_key(image_id, params.placement_id),
+            placement,
+        );
+        if respond {
+            self.push_kitty_graphics_ok_response(Self::kitty_response_params_with_image_id(
+                params, image_id,
+            ));
+        }
     }
 
     fn apply_relative_kitty_graphics_placement(
@@ -1260,6 +1395,7 @@ impl Terminal {
         placement_id: Option<u32>,
         remove_unreferenced_data: bool,
     ) {
+        self.delete_kitty_virtual_placements_by_image_id(image_id, placement_id);
         if let Some(placement_id) = placement_id {
             self.delete_kitty_placements(false, |image| {
                 image.kitty_image_id == Some(image_id)
@@ -1271,6 +1407,18 @@ impl Terminal {
         if remove_unreferenced_data {
             self.remove_unreferenced_kitty_images(vec![image_id]);
         }
+    }
+
+    fn delete_kitty_virtual_placements_by_image_id(
+        &mut self,
+        image_id: u32,
+        placement_id: Option<u32>,
+    ) {
+        self.kitty_virtual_placements.retain(|_, placement| {
+            placement.image_id != image_id
+                || placement_id
+                    .is_some_and(|placement_id| placement.placement_id != Some(placement_id))
+        });
     }
 
     fn delete_kitty_placements_by_image_id_range(
@@ -1288,6 +1436,9 @@ impl Terminal {
             .copied()
             .filter(|image_id| *image_id >= first_image_id && *image_id <= last_image_id)
             .collect::<Vec<_>>();
+        self.kitty_virtual_placements.retain(|_, placement| {
+            placement.image_id < first_image_id || placement.image_id > last_image_id
+        });
         self.delete_kitty_placements(false, |image| {
             image
                 .kitty_image_id
@@ -1485,6 +1636,10 @@ impl Terminal {
                 .inline_images
                 .iter()
                 .any(|image| image.kitty_image_id == Some(image_id))
+                && !self
+                    .kitty_virtual_placements
+                    .values()
+                    .any(|placement| placement.image_id == image_id)
             {
                 self.kitty_images.remove(&image_id);
                 self.kitty_image_numbers
@@ -2448,10 +2603,15 @@ impl Terminal {
 
     fn write_char(&mut self, ch: char) {
         let ch = self.map_graphic_character(ch);
-        let width = display_width(ch);
-        if width == 0 {
+        if self.apply_kitty_placeholder_diacritic(ch) {
             return;
         }
+        let width = display_width(ch);
+        if width == 0 {
+            self.pending_kitty_placeholder = None;
+            return;
+        }
+        self.pending_kitty_placeholder = None;
 
         if self.pending_wrap && self.modes.auto_wrap {
             self.wrapped_newline();
@@ -2495,7 +2655,93 @@ impl Terminal {
             self.record_damage(DamageRegion::new(column, row, write_width, 1));
             self.advance_cursor(write_width);
             self.last_printable = Some(ch);
+            if ch == KITTY_UNICODE_PLACEHOLDER {
+                self.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
+                    row: self.scrollback.len().saturating_add(usize::from(row)),
+                    column,
+                    image_id: kitty_placeholder_image_id(self.style.foreground),
+                    placement_id: kitty_placeholder_placement_id(self.style.underline_color),
+                    diacritics: Vec::new(),
+                });
+            }
         }
+    }
+
+    fn apply_kitty_placeholder_diacritic(&mut self, ch: char) -> bool {
+        let Some(value) = kitty_placeholder_diacritic_value(ch) else {
+            return false;
+        };
+        let Some(pending) = self.pending_kitty_placeholder.as_mut() else {
+            return false;
+        };
+
+        pending.diacritics.push(value);
+        let pending = pending.clone();
+        self.place_kitty_virtual_placeholder(&pending);
+        true
+    }
+
+    fn place_kitty_virtual_placeholder(&mut self, pending: &PendingKittyPlaceholder) {
+        if pending.diacritics.len() != 2 {
+            return;
+        }
+        let Some(image_id) = pending.image_id else {
+            return;
+        };
+        let Some(placeholder_row) = pending.diacritics.first().copied() else {
+            return;
+        };
+        let Some(placeholder_column) = pending.diacritics.get(1).copied() else {
+            return;
+        };
+        if placeholder_row != 0 || placeholder_column != 0 {
+            return;
+        }
+        let Some(placement) = self
+            .kitty_virtual_placement_for_placeholder(image_id, pending.placement_id)
+            .cloned()
+        else {
+            return;
+        };
+        let Some(image) = self.kitty_images.get(&placement.image_id).cloned() else {
+            return;
+        };
+
+        self.place_kitty_image(
+            &image,
+            KittyPlacementOptions {
+                display_columns: placement.display_columns,
+                display_rows: placement.display_rows,
+                image_id: Some(placement.image_id),
+                placement_id: placement.placement_id,
+                z_index: placement.z_index,
+                parent_placement: None,
+                row: Some(pending.row),
+                column: Some(pending.column),
+                move_cursor: false,
+                source_rect: placement.source_rect,
+                target_x: placement.target_x,
+                target_y: placement.target_y,
+            },
+        );
+    }
+
+    fn kitty_virtual_placement_for_placeholder(
+        &self,
+        image_id: u32,
+        placement_id: Option<u32>,
+    ) -> Option<&KittyVirtualPlacement> {
+        if let Some(placement_id) = placement_id {
+            return self.kitty_virtual_placements.get(&(image_id, placement_id));
+        }
+
+        self.kitty_virtual_placements
+            .get(&kitty_virtual_placement_key(image_id, None))
+            .or_else(|| {
+                self.kitty_virtual_placements
+                    .values()
+                    .find(|placement| placement.image_id == image_id)
+            })
     }
 
     fn advance_cursor(&mut self, width: u16) {
@@ -3980,6 +4226,7 @@ fn start_kitty_graphics_upload(
         file_offset: params.file_offset,
         file_size: params.file_size,
         quiet: params.quiet,
+        virtual_placement: params.virtual_placement,
         encoded_data: encoded_data.to_owned(),
     })
 }
@@ -4146,8 +4393,37 @@ fn kitty_placement_key(
     Some((image_id?, placement_id?))
 }
 
+fn kitty_virtual_placement_key(image_id: u32, placement_id: Option<u32>) -> KittyPlacementKey {
+    (image_id, placement_id.unwrap_or(0))
+}
+
 fn kitty_image_placement_key(image: &ItermInlineImage) -> Option<KittyPlacementKey> {
     kitty_placement_key(image.kitty_image_id, image.kitty_placement_id)
+}
+
+fn kitty_placeholder_image_id(color: Color) -> Option<u32> {
+    kitty_placeholder_color_value(color).filter(|image_id| *image_id != ANONYMOUS_KITTY_IMAGE_ID)
+}
+
+fn kitty_placeholder_placement_id(color: Color) -> Option<u32> {
+    kitty_placeholder_color_value(color).filter(|placement_id| *placement_id != 0)
+}
+
+fn kitty_placeholder_color_value(color: Color) -> Option<u32> {
+    match color {
+        Color::Default => None,
+        Color::Indexed(value) => Some(u32::from(value)),
+        Color::Rgb(red, green, blue) | Color::Rgba(red, green, blue, _) => {
+            Some((u32::from(red) << 16) | (u32::from(green) << 8) | u32::from(blue))
+        }
+    }
+}
+
+fn kitty_placeholder_diacritic_value(ch: char) -> Option<u32> {
+    KITTY_PLACEHOLDER_DIACRITICS
+        .iter()
+        .position(|diacritic| *diacritic == ch)
+        .and_then(|index| u32::try_from(index).ok())
 }
 
 fn offset_kitty_history_row(row: usize, offset: i32) -> usize {

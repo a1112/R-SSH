@@ -177,9 +177,15 @@ support the next PTY and SSH milestones.
   deletes orphan relative children. Relative placement creation rejects parent
   cycles with `ECYCLE`; re-placing a parent placement moves relative
   descendants by the same cell delta. Relative chains are allowed up to eight
-  parent levels and deeper chains return `ETOODEEP`. Attempts to make a
-  `U=1` virtual placement relative are rejected with `EINVAL`; full Unicode
-  placeholder virtual placement rendering remains open.
+  parent levels and deeper chains return `ETOODEEP`. Basic `U=1` virtual
+  placements are recorded for stored images or combined `a=T,U=1` uploads and
+  can be rendered when a `U+10EEEE` Unicode placeholder cell uses foreground
+  color to reference the image id plus explicit row/column diacritics from
+  Kitty's 0..255 placeholder table. Deleting visible placements does not drop
+  stored image data while a virtual placement still references the image.
+  Attempts to make a `U=1` virtual placement relative are rejected with
+  `EINVAL`; placeholder diacritic inheritance and full virtual-placement
+  lifecycle parity remain open.
   Terminal erase operations also maintain image placement state: `CSI 2J`
   removes visible inline-image placements without dropping stored Kitty image
   data, while `CSI 3J` removes scrollback inline images and rebases retained
@@ -328,6 +334,10 @@ cover:
   or parent-scrollout cascading for relative children plus `ECYCLE` cycle
   rejection, parent-move descendant propagation, `ETOODEEP` depth limiting, and
   `U=1` virtual-relative `EINVAL`
+- Kitty basic `U=1` virtual placement display from a `U+10EEEE` placeholder
+  cell with foreground image-id encoding and explicit row/column diacritics,
+  including combined `a=T,U=1` upload plus virtual placement and retained image
+  data when visible placement deletion leaves a virtual reference
 - Terminal erase display `CSI 2J`/`CSI 3J` inline-image deletion and retained
   visible image row rebasing
 - Basic Sixel DCS `q` bitmap capture with RGB and HLS palette color
