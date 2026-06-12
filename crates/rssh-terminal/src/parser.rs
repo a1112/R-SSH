@@ -59,11 +59,11 @@ struct PendingKittyGraphics {
     image_format: InlineImageFormat,
     medium: KittyTransmissionMedium,
     compression: Option<char>,
+    action: KittyUploadAction,
     image_id: Option<u32>,
     image_number: Option<u32>,
     placement_id: Option<u32>,
     z_index: Option<i32>,
-    display_on_finish: bool,
     pixel_width: Option<u32>,
     pixel_height: Option<u32>,
     display_columns: Option<u16>,
@@ -119,6 +119,13 @@ enum KittyTransmissionMedium {
     TempFile,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KittyUploadAction {
+    Display,
+    Store,
+    Query,
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 struct KittyGraphicsParams {
     action: Option<char>,
@@ -128,6 +135,10 @@ struct KittyGraphicsParams {
     image_id: Option<u32>,
     image_number: Option<u32>,
     placement_id: Option<u32>,
+    parent_image_id: Option<u32>,
+    parent_placement_id: Option<u32>,
+    parent_offset_columns: Option<i32>,
+    parent_offset_rows: Option<i32>,
     z_index: Option<i32>,
     delete_target: Option<char>,
     cell_x: Option<u16>,
@@ -764,7 +775,7 @@ impl Terminal {
             return;
         }
 
-        if params.action == Some('q') {
+        if params.action == Some('q') && params.more_chunks.is_none() {
             self.apply_kitty_graphics_query(params, encoded_data);
             return;
         }
@@ -786,14 +797,14 @@ impl Terminal {
                 pending.encoded_data.push_str(encoded_data);
                 self.pending_kitty_graphics = Some(pending);
             }
-            (None, Some(1)) => {
-                self.pending_kitty_graphics = start_kitty_graphics_upload(params, encoded_data);
-            }
-            (None, Some(0) | None) => {
-                if let Some(pending) = start_kitty_graphics_upload(params, encoded_data) {
-                    self.finish_kitty_graphics_upload(&pending);
-                }
-            }
+            (None, Some(1)) => match start_kitty_graphics_upload(params, encoded_data) {
+                Ok(pending) => self.pending_kitty_graphics = Some(pending),
+                Err(error) => self.push_kitty_graphics_upload_start_error(params, error),
+            },
+            (None, Some(0) | None) => match start_kitty_graphics_upload(params, encoded_data) {
+                Ok(pending) => self.finish_kitty_graphics_upload(&pending),
+                Err(error) => self.push_kitty_graphics_upload_start_error(params, error),
+            },
             (Some(_), _) | (None, Some(_)) => {}
         }
     }
@@ -803,9 +814,12 @@ impl Terminal {
             return;
         }
 
-        let Some(upload) = start_kitty_graphics_upload(params, encoded_data) else {
-            self.push_kitty_graphics_error_response(params, "EINVAL", "Unsupported query");
-            return;
+        let upload = match start_kitty_graphics_upload(params, encoded_data) {
+            Ok(upload) => upload,
+            Err(error) => {
+                self.push_kitty_graphics_upload_start_error(params, error);
+                return;
+            }
         };
 
         let data = match load_kitty_graphics_payload(&upload) {
@@ -874,8 +888,14 @@ impl Terminal {
     }
 
     fn finish_kitty_graphics_upload(&mut self, upload: &PendingKittyGraphics) {
-        let Ok(data) = load_kitty_graphics_payload(upload) else {
-            return;
+        let data = match load_kitty_graphics_payload(upload) {
+            Ok(data) => data,
+            Err(error) => {
+                if Self::kitty_upload_should_respond(upload) {
+                    self.push_kitty_graphics_upload_error_response(upload, error);
+                }
+                return;
+            }
         };
 
         if !kitty_graphics_payload_is_supported(
@@ -884,6 +904,18 @@ impl Terminal {
             upload.pixel_height,
             data.len(),
         ) {
+            if Self::kitty_upload_should_respond(upload) {
+                self.push_kitty_graphics_error_response(
+                    Self::kitty_response_params_from_upload(upload),
+                    "EINVAL",
+                    "Unsupported image data",
+                );
+            }
+            return;
+        }
+
+        if upload.action == KittyUploadAction::Query {
+            self.push_kitty_graphics_ok_response(Self::kitty_response_params_from_upload(upload));
             return;
         }
 
@@ -899,15 +931,20 @@ impl Terminal {
         let image_id = upload
             .image_id
             .or_else(|| upload.image_number.map(|_| self.next_kitty_image_id()));
+        if let Some(image_id) = upload.image_id {
+            self.delete_kitty_placements(false, |image| image.kitty_image_id == Some(image_id));
+        }
         if let Some(image_id) = image_id {
             self.kitty_images.insert(image_id, image.clone());
-        }
-        if let (Some(image_number), Some(image_id)) = (upload.image_number, image_id) {
-            self.kitty_image_numbers.insert(image_number, image_id);
-            self.push_kitty_graphics_upload_ok_response(upload, image_id);
+            if let Some(image_number) = upload.image_number {
+                self.kitty_image_numbers.insert(image_number, image_id);
+            }
+            if upload.image_id.is_some() || upload.image_number.is_some() {
+                self.push_kitty_graphics_upload_ok_response(upload, image_id);
+            }
         }
 
-        if upload.display_on_finish {
+        if upload.action == KittyUploadAction::Display {
             self.place_kitty_image(
                 &image,
                 KittyPlacementOptions {
@@ -936,6 +973,35 @@ impl Terminal {
             }
             return;
         };
+        if let Some(parent_image_id) = params.parent_image_id {
+            let Some(parent_placement_id) = params.parent_placement_id else {
+                self.push_kitty_graphics_error_response(
+                    Self::kitty_response_params_with_image_id(params, image_id),
+                    "ENOPARENT",
+                    &format!("No parent placement with id {parent_image_id}"),
+                );
+                return;
+            };
+            if !self.inline_images.iter().any(|image| {
+                image.kitty_image_id == Some(parent_image_id)
+                    && image.kitty_placement_id == Some(parent_placement_id)
+            }) {
+                self.push_kitty_graphics_error_response(
+                    Self::kitty_response_params_with_image_id(params, image_id),
+                    "ENOPARENT",
+                    &format!(
+                        "No parent placement with id {parent_image_id},p={parent_placement_id}"
+                    ),
+                );
+                return;
+            }
+            self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_with_image_id(params, image_id),
+                "EINVAL",
+                "Relative placements are not supported",
+            );
+            return;
+        }
         let Some(image) = self.kitty_images.get(&image_id).cloned() else {
             let subject = params.image_number.map_or_else(
                 || format!("id {image_id}"),
@@ -1253,6 +1319,61 @@ impl Terminal {
             quiet: upload.quiet,
             ..KittyGraphicsParams::default()
         });
+    }
+
+    fn push_kitty_graphics_upload_error_response(
+        &mut self,
+        upload: &PendingKittyGraphics,
+        error: KittyGraphicsDataError,
+    ) {
+        match error {
+            KittyGraphicsDataError::InvalidBase64 => self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_from_upload(upload),
+                "EINVAL",
+                "Invalid base64 payload",
+            ),
+            KittyGraphicsDataError::InvalidFile => self.push_kitty_graphics_error_response(
+                Self::kitty_response_params_from_upload(upload),
+                "EINVAL",
+                "Invalid file payload",
+            ),
+            KittyGraphicsDataError::UnsupportedCompression => self
+                .push_kitty_graphics_error_response(
+                    Self::kitty_response_params_from_upload(upload),
+                    "EINVAL",
+                    "Unsupported compression",
+                ),
+        }
+    }
+
+    fn push_kitty_graphics_upload_start_error(
+        &mut self,
+        params: KittyGraphicsParams,
+        error: KittyGraphicsStartError,
+    ) {
+        if !Self::kitty_params_should_respond(params) {
+            return;
+        }
+        self.push_kitty_graphics_error_response(params, "EINVAL", error.message());
+    }
+
+    fn kitty_upload_should_respond(upload: &PendingKittyGraphics) -> bool {
+        upload.action == KittyUploadAction::Query
+            || Self::kitty_params_should_respond(Self::kitty_response_params_from_upload(upload))
+    }
+
+    fn kitty_params_should_respond(params: KittyGraphicsParams) -> bool {
+        params.action == Some('q') || params.image_id.is_some() || params.image_number.is_some()
+    }
+
+    fn kitty_response_params_from_upload(upload: &PendingKittyGraphics) -> KittyGraphicsParams {
+        KittyGraphicsParams {
+            image_id: upload.image_id,
+            image_number: upload.image_number,
+            placement_id: upload.placement_id,
+            quiet: upload.quiet,
+            ..KittyGraphicsParams::default()
+        }
     }
 
     fn next_kitty_image_id(&mut self) -> u32 {
@@ -3519,42 +3640,43 @@ fn unit_float_to_u8(value: f32) -> u8 {
 fn start_kitty_graphics_upload(
     params: KittyGraphicsParams,
     encoded_data: &str,
-) -> Option<PendingKittyGraphics> {
-    let display_on_finish = match params.action {
-        Some('T') => true,
-        Some('t' | 'q') => false,
-        _ => return None,
+) -> Result<PendingKittyGraphics, KittyGraphicsStartError> {
+    let action = match params.action {
+        Some('T') => KittyUploadAction::Display,
+        Some('t') | None => KittyUploadAction::Store,
+        Some('q') => KittyUploadAction::Query,
+        _ => return Err(KittyGraphicsStartError::Action),
     };
 
     let medium = match params.medium.unwrap_or('d') {
         'd' => KittyTransmissionMedium::Direct,
         'f' => KittyTransmissionMedium::File,
         't' => KittyTransmissionMedium::TempFile,
-        _ => return None,
+        _ => return Err(KittyGraphicsStartError::TransmissionMedium),
     };
     if params
         .compression
         .is_some_and(|compression| compression != 'z')
     {
-        return None;
+        return Err(KittyGraphicsStartError::Compression);
     }
 
     let image_format = match params.format.unwrap_or(32) {
         24 => InlineImageFormat::Rgb,
         32 => InlineImageFormat::Rgba,
         100 => InlineImageFormat::Encoded,
-        _ => return None,
+        _ => return Err(KittyGraphicsStartError::ImageFormat),
     };
 
-    Some(PendingKittyGraphics {
+    Ok(PendingKittyGraphics {
         image_format,
         medium,
         compression: params.compression,
+        action,
         image_id: params.image_id,
         image_number: params.image_number,
         placement_id: params.placement_id,
         z_index: params.z_index,
-        display_on_finish,
         pixel_width: params.pixel_width,
         pixel_height: params.pixel_height,
         display_columns: params.display_columns,
@@ -3571,6 +3693,25 @@ fn start_kitty_graphics_upload(
         quiet: params.quiet,
         encoded_data: encoded_data.to_owned(),
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KittyGraphicsStartError {
+    Action,
+    TransmissionMedium,
+    Compression,
+    ImageFormat,
+}
+
+impl KittyGraphicsStartError {
+    const fn message(self) -> &'static str {
+        match self {
+            Self::Action => "Unsupported action",
+            Self::TransmissionMedium => "Unsupported transmission medium",
+            Self::Compression => "Unsupported compression",
+            Self::ImageFormat => "Unsupported image format",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3799,6 +3940,8 @@ fn parse_kitty_graphics_params(control: &str) -> KittyGraphicsParams {
             "i" => params.image_id = parse_positive_u32(value),
             "I" => params.image_number = parse_positive_u32(value),
             "p" => params.placement_id = parse_positive_u32(value),
+            "P" => params.parent_image_id = parse_positive_u32(value),
+            "Q" => params.parent_placement_id = parse_positive_u32(value),
             "t" => params.medium = parse_single_char(value),
             "o" => params.compression = parse_single_char(value),
             "m" => params.more_chunks = value.parse::<u8>().ok(),
@@ -3811,6 +3954,8 @@ fn parse_kitty_graphics_params(control: &str) -> KittyGraphicsParams {
             "h" => params.source_height = parse_positive_u32(value),
             "X" => params.target_x = value.parse::<u32>().ok(),
             "Y" => params.target_y = value.parse::<u32>().ok(),
+            "H" => params.parent_offset_columns = value.parse::<i32>().ok(),
+            "V" => params.parent_offset_rows = value.parse::<i32>().ok(),
             "x" => {
                 params.cell_x = parse_positive_u16(value);
                 params.source_x = value.parse::<u32>().ok();

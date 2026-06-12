@@ -2313,6 +2313,32 @@ mod tests {
     }
 
     #[test]
+    fn terminal_answers_chunked_kitty_query_after_final_chunk_without_storing_image() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=q,i=31,f=24,s=2,v=1,c=2,r=1,m=1;/wAA\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert!(terminal.take_kitty_graphics_responses().is_empty());
+
+        terminal.feed(b"\x1b_Gm=0;AP8A\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=31;OK\x1b\\".to_vec()]
+        );
+
+        terminal.feed(b"\x1b_Ga=p,i=31\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=31;ENOENT:No image with id 31\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
     fn terminal_places_stored_kitty_rgb_image_by_id() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
@@ -2355,6 +2381,110 @@ mod tests {
     }
 
     #[test]
+    fn terminal_acknowledges_stored_kitty_image_upload_by_id() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7;OK\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_defaults_kitty_graphics_action_to_stored_upload() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Gi=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7;OK\x1b\\".to_vec()]
+        );
+
+        terminal.feed(b"\x1b_Ga=p,i=7\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(7));
+        assert_eq!(terminal.inline_images()[0].data, vec![255, 0, 0]);
+    }
+
+    #[test]
+    fn terminal_suppresses_stored_kitty_image_upload_ok_when_quiet_is_one() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=t,q=1,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+
+        assert!(terminal.take_kitty_graphics_responses().is_empty());
+    }
+
+    #[test]
+    fn terminal_reports_invalid_stored_kitty_image_upload_by_id() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;not-base64!\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7;EINVAL:Invalid base64 payload\x1b\\".to_vec()]
+        );
+
+        terminal.feed(b"\x1b_Ga=p,i=7\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7;ENOENT:No image with id 7\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_reports_unsupported_stored_kitty_image_format_by_id() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=99,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7;EINVAL:Unsupported image format\x1b\\".to_vec()]
+        );
+
+        terminal.feed(b"\x1b_Ga=p,i=7\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7;ENOENT:No image with id 7\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_retransmitted_kitty_image_id_deletes_existing_placements() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].data, vec![255, 0, 0]);
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b_Ga=p,i=7\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].kitty_image_id, Some(7));
+        assert_eq!(terminal.inline_images()[0].data, vec![0, 255, 0]);
+    }
+
+    #[test]
     fn terminal_suppresses_kitty_ok_response_when_quiet_is_one() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
@@ -2389,6 +2519,7 @@ mod tests {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
         terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.take_kitty_graphics_responses();
         terminal.feed(b"\x1b_Ga=q,i=7\x1b\\");
 
         assert!(terminal.inline_images().is_empty());
@@ -2452,6 +2583,21 @@ mod tests {
         assert_eq!(
             terminal.take_kitty_graphics_responses(),
             vec![b"\x1b_GI=13,p=2;ENOENT:No image with number 13\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_reports_missing_kitty_relative_parent_placement() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=1,V=0\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;ENOPARENT:No parent placement with id 30,p=4\x1b\\".to_vec()]
         );
     }
 
@@ -2776,6 +2922,7 @@ mod tests {
         let mut terminal = Terminal::new(TerminalSize::new(8, 1));
 
         terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.take_kitty_graphics_responses();
         terminal.feed(b"\x1b_Ga=d,d=I,i=7\x1b\\");
         terminal.feed(b"\x1b_Ga=p,i=7\x1b\\");
 

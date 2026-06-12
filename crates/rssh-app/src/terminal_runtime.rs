@@ -5023,7 +5023,7 @@ mod tests {
 
         let store =
             runtime.feed_pty_output_with_display(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
-        assert!(store.responses.is_empty());
+        assert_eq!(store.responses, vec![b"\x1b_Gi=7;OK\x1b\\".to_vec()]);
 
         let output = runtime.feed_pty_output_with_display(b"before\x1b_Ga=p,i=7,p=2\x1b\\after");
 

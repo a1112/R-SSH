@@ -128,15 +128,23 @@ support the next PTY and SSH milestones.
   `X`/`Y` target pixel offsets are retained for renderer placement, and image
   bytes are recorded in retained-history coordinates for renderer snapshots.
   Basic direct `a=q` support queries validate supported direct/local file
-  payloads and queue Kitty `OK`/`EINVAL` responses for PTY writeback, honoring
-  Kitty `q=1` OK-response suppression and `q=2` error-response suppression.
+  payloads, including `m=1`/`m=0` chunked direct payloads without storing or
+  displaying the queried image, and queue Kitty `OK`/`EINVAL` responses for PTY
+  writeback, honoring Kitty `q=1` OK-response suppression and `q=2`
+  error-response suppression.
 - Kitty Graphics Protocol stored-image flow is supported for the direct
-  `a=t,i=<id>` transmit path, terminal-assigned image numbers through
-  `a=t,I=<number>` with `i`/`I` OK responses, and minimal placement at the
-  current cursor via either `a=p,i=<id>` or `a=p,I=<number>`, reusing stored
-  pixel data and default display dimensions unless the placement supplies
-  `c`/`r`. Non-zero image ids may also carry `p=<placement-id>`; repeated
+  `a=t,i=<id>` transmit path, including Kitty's default `a=t` behavior when
+  the action key is omitted, terminal-assigned image numbers through
+  `a=t,I=<number>` with `i` and `i`/`I` OK responses plus `EINVAL` responses
+  for invalid identified upload parameters or payloads, and minimal placement
+  at the current cursor via either `a=p,i=<id>` or `a=p,I=<number>`, reusing
+  stored pixel data and default display dimensions unless the placement
+  supplies `c`/`r`.
+  Non-zero image ids may also carry `p=<placement-id>`; repeated
   `(image id, placement id)` pairs replace the previous visible placement.
+  Re-transmitting image data for an existing non-zero image id clears that
+  image's visible placements before replacing the stored bytes, so the new
+  image is not shown until a later placement command.
   Placements may also supply basic `x`/`y`/`w`/`h` source rectangles for
   renderer cropping and `X`/`Y` target pixel offsets for renderer placement.
   Direct and stored placements advance the cursor by the placement cell
@@ -161,6 +169,10 @@ support the next PTY and SSH milestones.
   delete matching is supported for `d=z/Z,z=<index>` and
   `d=q/Q,x=<col>,y=<row>,z=<index>`. Uppercase forms drop
   stored image data once no visible placement still references that image id.
+  Relative-placement keys `P`/`Q` plus offsets `H`/`V` are parsed enough to
+  reject references to missing parent placements with `ENOPARENT` instead of
+  creating an incorrectly positioned ordinary placement; full relative
+  placement layout and parent/child lifetime tracking remain open.
   Terminal erase operations also maintain image placement state: `CSI 2J`
   removes visible inline-image placements without dropping stored Kitty image
   data, while `CSI 3J` removes scrollback inline images and rebases retained
@@ -278,6 +290,12 @@ cover:
   and guarded `tty-graphics-protocol` temp-file deletion
 - Kitty stored `a=t` image metadata and minimal `a=p,i=<id>` placement capture,
   including `p=<placement-id>` replacement
+- Kitty default graphics action handling for omitted `a`, treating it as
+  stored upload (`a=t`)
+- Kitty stored image-id upload `OK`/`EINVAL` responses for invalid parameters
+  or payloads plus `q=1` OK suppression
+- Kitty stored image-id re-transmission clearing old visible placements before
+  replacement data is placed again
 - Kitty `I=<number>` image-number uploads with generated image-id responses,
   placement and deletion by image number, and `i`/`I` mutual-exclusion errors
 - Kitty direct and stored-placement `x`/`y`/`w`/`h` source rectangle metadata
@@ -286,8 +304,9 @@ cover:
   propagation for renderer placement
 - Kitty direct and stored-placement cursor movement, including `C=1`
   no-cursor-movement suppression
-- Kitty direct `a=q` support query responses plus stored-image query and
-  stored-placement `OK`/`ENOENT` responses for PTY writeback
+- Kitty direct `a=q` support query responses, including chunked direct query
+  payloads, plus stored-image query and stored-placement `OK`/`ENOENT`
+  responses for PTY writeback
 - Kitty Graphics Protocol `q=1` OK-response and `q=2` error-response
   suppression
 - Kitty `a=d` visible-placement deletion, image-id deletion, image-number
@@ -297,6 +316,8 @@ cover:
   placement deletion
 - Kitty `a=d` z-index placement deletion and cell-plus-z-index placement
   deletion
+- Kitty relative-placement missing-parent `ENOPARENT` response for `P`/`Q`
+  references
 - Terminal erase display `CSI 2J`/`CSI 3J` inline-image deletion and retained
   visible image row rebasing
 - Basic Sixel DCS `q` bitmap capture with RGB and HLS palette color
