@@ -209,10 +209,13 @@ support the next PTY and SSH milestones.
   alternate screen is active, and discards alternate-screen placements on exit.
 - Basic Sixel DCS `q` image payloads are parsed into retained inline image
   metadata for renderer snapshots, covering RGB percentage and HLS color
-  definitions, color selection, raster-attribute `Ph`/`Pv` pixel dimensions,
-  clipping to the declared raster size, DCS `P2` transparent/opaque background
-  mode, sixel data bytes, repeat introducers, carriage return, and sixel
-  newline, with cursor advancement to the next terminal line.
+  definitions, color selection, raster-attribute `Ph`/`Pv` minimum background
+  dimensions, DCS `P1` macro pixel aspect, DECGRA `Pan`/`Pad` aspect override,
+  DCS `P2` transparent/opaque background mode, sixel data bytes, repeat
+  introducers, carriage return, and sixel newline. By default and after
+  `?80l`, Sixel output advances the cursor from the text cursor position; when
+  DECSDM `?80h` is set, output is placed at the active graphics-page origin and
+  the text cursor is preserved.
 - Basic SGR handling:
   - reset
   - bold, faint, italic, blink, underline, double underline, conceal,
@@ -364,9 +367,10 @@ cover:
 - Terminal erase display `CSI 2J`/`CSI 3J` inline-image deletion and retained
   visible image row rebasing
 - Basic Sixel DCS `q` bitmap capture with RGB and HLS palette color
-  definitions, raster-attribute `Ph`/`Pv` pixel dimensions with clipping to
-  the declared size, repeat introducers, DCS `P2` transparent/opaque background
-  mode, carriage returns, sixel newlines, and post-image cursor advancement
+  definitions, raster-attribute `Ph`/`Pv` minimum background dimensions, repeat
+  introducers, DCS `P1` macro pixel aspect, DECGRA `Pan`/`Pad` aspect override,
+  DCS `P2` transparent/opaque background mode, carriage returns, sixel
+  newlines, and DECSDM-controlled image origin plus cursor advancement
 - SGR color/style parsing, including inverse video, faint, blink, double
   underline, colon-separated underline styles, underline color, conceal,
   strikethrough, overline, and colon-separated extended color parameters

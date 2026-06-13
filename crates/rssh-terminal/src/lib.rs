@@ -3303,15 +3303,15 @@ mod tests {
     }
 
     #[test]
-    fn terminal_sixel_display_mode_reset_keeps_cursor_position() {
+    fn terminal_sixel_display_mode_set_starts_image_at_graphics_origin() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 3));
 
-        terminal.feed(b"ab\x1b[?80l");
+        terminal.feed(b"ab\x1b[?80h");
         terminal.feed(b"\x1bP0;1q\"1;1;2;6#1;2;100;0;0#1~\x1b\\");
 
         assert_eq!(terminal.inline_images().len(), 1);
         assert_eq!(terminal.inline_images()[0].row, 0);
-        assert_eq!(terminal.inline_images()[0].column, 2);
+        assert_eq!(terminal.inline_images()[0].column, 0);
         assert_eq!(terminal.cursor(), (0, 2));
 
         terminal.feed(b"cd");

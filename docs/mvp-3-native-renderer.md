@@ -53,8 +53,9 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   normalizes supported Sixel VT340 default palette entries, RGB plus DEC HLS
   hue color definitions, DCS macro pixel aspect, DECGRA aspect override,
   raster-size, repeat, and newline bitmap payloads into raw RGBA inline image
-  snapshot items, with DECSDM `?80` controlling whether Sixel output advances
-  the terminal cursor.
+  snapshot items. Default and `?80l` output starts at the text cursor and
+  advances it; DECSDM `?80h` output starts at the active graphics-page origin
+  while preserving the text cursor.
 - `PixelRenderer` maps the xterm 256-color indexed palette, including the
   6x6x6 color cube and grayscale ramp.
 - `PixelRenderer` draws bold text with an extra bitmap stroke, italic text with

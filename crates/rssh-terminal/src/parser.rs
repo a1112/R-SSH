@@ -73,7 +73,7 @@ struct TerminalModes {
     cursor_blinking: bool,
     cursor_shape: CursorShape,
     auto_wrap: bool,
-    sixel_scrolling: bool,
+    sixel_display_mode: bool,
     origin_mode: bool,
     left_right_margin_mode: bool,
     write_mode: CharacterWriteMode,
@@ -86,7 +86,7 @@ impl Default for TerminalModes {
             cursor_blinking: false,
             cursor_shape: CursorShape::Block,
             auto_wrap: true,
-            sixel_scrolling: true,
+            sixel_display_mode: false,
             origin_mode: false,
             left_right_margin_mode: false,
             write_mode: CharacterWriteMode::Replace,
@@ -1516,10 +1516,15 @@ impl Terminal {
 
         let width = format!("{}px", image.width);
         let height = format!("{}px", image.height);
-        self.record_inline_image_damage(Some(&width), Some(&height));
+        let (row, column) = if self.modes.sixel_display_mode {
+            (self.visible_history_rows().0, 0)
+        } else {
+            (self.current_history_row(), self.cursor_column)
+        };
+        self.record_inline_image_damage_at(row, column, Some(&width), Some(&height));
         self.inline_images.push(ItermInlineImage {
-            row: self.current_history_row(),
-            column: self.cursor_column,
+            row,
+            column,
             name: None,
             kitty_image_id: None,
             kitty_placement_id: None,
@@ -1539,7 +1544,7 @@ impl Terminal {
             target_y: None,
             data: image.data,
         });
-        if self.modes.sixel_scrolling {
+        if !self.modes.sixel_display_mode {
             self.next_line();
         }
     }
@@ -3103,7 +3108,7 @@ impl Terminal {
                 12 => self.modes.cursor_blinking = enabled,
                 25 => self.modes.cursor_visible = enabled,
                 69 => self.set_left_right_margin_mode(enabled),
-                80 => self.modes.sixel_scrolling = enabled,
+                80 => self.modes.sixel_display_mode = enabled,
                 47 | 1047 | 1049 => self.set_alternate_screen(enabled),
                 1048 => {
                     if enabled {

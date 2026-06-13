@@ -236,13 +236,14 @@ runtime storage for tabs and split panes.
   buffers, restoring main placements on exit and discarding alternate placements.
   Scroll operations move inline-image placements with affected text rows and
   drop placements that leave the scrolled region. Basic Sixel DCS `q` payloads
-  with RGB/HLS
-  palette definitions, color selection, raster-attribute `Ph`/`Pv` pixel
-  dimensions with clipping to the declared size, DCS `P2` transparent/opaque
-  background mode, repeat introducers, carriage returns, and sixel newlines are
-  normalized into raw RGBA inline images, advance the cursor to the next
-  terminal line, and render through the same snapshot path. Automatic animated GIF
-  refresh/invalidation scheduling, Kitty
+  with RGB/HLS palette definitions, color selection, DCS `P1` macro pixel
+  aspect, DECGRA `Pan`/`Pad` aspect override plus `Ph`/`Pv` minimum background
+  dimensions, DCS `P2` transparent/opaque background mode, repeat introducers,
+  carriage returns, and sixel newlines are normalized into raw RGBA inline
+  images. Default and `?80l` output starts at the text cursor and advances the
+  cursor; DECSDM `?80h` output starts at the active graphics-page origin and
+  preserves the text cursor. Automatic animated GIF refresh/invalidation
+  scheduling, Kitty
   shared-memory transfers, remaining richer placement controls, broader query
   responses beyond current direct payload and stored-image existence checks,
   full Sixel protocol coverage, sixel scrolling/pan edge cases, and pane sync
@@ -452,8 +453,9 @@ runtime storage for tabs and split panes.
   suppression, terminal erase display cleanup for retained inline images,
   `?1049` alternate-screen image isolation, plus basic Sixel DCS `q`
   bitmap rendering
-  with RGB/HLS palette, raster-attribute pixel dimensions with clipping to the
-  declared size, DCS `P2` background mode, and post-image cursor advancement,
+  with RGB/HLS palette, raster-attribute minimum background dimensions,
+  DCS/DECGRA pixel aspect controls, DCS `P2` background mode, and
+  DECSDM-controlled image origin plus cursor advancement,
   with typed native-window user-var change hooks for changed pane values, while
   Lua pane APIs/events, automatic animated GIF refresh/invalidation scheduling,
   Kitty shared-memory transfers, remaining richer placement controls, broader

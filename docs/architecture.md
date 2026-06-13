@@ -282,10 +282,11 @@ keyboard, mouse, paste, resize
   palette definitions, DCS `P1` macro pixel aspect, DECGRA `Pan`/`Pad` aspect
   override plus `Ph`/`Pv` minimum background dimensions, DCS `P2`
   transparent/opaque background mode, repeat introducers, carriage returns,
-  and sixel newlines are normalized into raw RGBA inline images,
-  advance the cursor to the next terminal line while DECSDM `?80` sixel
-  scrolling is enabled, keep the cursor fixed when `?80l` disables it, and draw
-  through the same snapshot path.
+  and sixel newlines are normalized into raw RGBA inline images. By default
+  and after `?80l`, Sixel output starts at the text cursor and advances to the
+  next terminal line. When DECSDM `?80h` is set, Sixel output starts at the
+  active graphics-page origin and keeps the text cursor fixed, matching
+  WezTerm's placement behavior, and draws through the same snapshot path.
   Automatic animated GIF
   refresh/invalidation scheduling, Kitty shared-memory transfers, remaining
   richer placement controls, broader query responses beyond current direct
