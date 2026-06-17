@@ -1771,8 +1771,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and structured `pane select mode <mode>` / `pane select mode=<mode>` queries with
   `[show_pane_ids true|false] [show_pane_ids=true|false] [alphabet <chars>|alphabet=<chars>]` fields plus
   action-name `paneselect ...` aliases map WezTerm-style option names to that payload while
-  rejecting duplicate structured fields. Lua `PaneSelect` option-table parsing
-  remains open.
+  rejecting duplicate structured fields. WezTerm-style
+  `wezterm.action.PaneSelect { mode = ..., show_pane_ids = ..., alphabet = ... }`
+  and parenthesized table calls parse the same native option subset, with
+  omitted `mode` defaulting to Activate.
 - Pane-select swap modes now expose WezTerm-style mode entries `Pane Select Swap
   With Active` and `Pane Select Swap With Active Keep Focus`: selected panes
   exchange layout positions with the active pane, with focus either moving to the
