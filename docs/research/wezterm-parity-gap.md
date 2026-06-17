@@ -1608,8 +1608,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   typed `Regex`, `CaseSensitiveString`, and `CaseInSensitiveString` patterns
   through the same search path, plus
   `CurrentSelectionOrEmptyString` to reuse the selected text collapsed to a
-  single line or open an empty search overlay when nothing is selected; Lua
-  parsing/wiring remains future work. Plain `Ctrl+F` stays available to the PTY.
+  single line or open an empty search overlay when nothing is selected.
+  WezTerm-style `wezterm.action.Search { Regex = ... }`,
+  `CaseSensitiveString`, `CaseInSensitiveString`, and
+  `wezterm.action.Search("CurrentSelectionOrEmptyString")` Lua action queries
+  dispatch the same native payload subset. Plain `Ctrl+F` stays available to
+  the PTY.
 - Command palette now exposes Activate Last Tab backed by app-shell last-active
   tab state.
 - App-shell close-tab state handling now supports WezTerm's

@@ -22032,6 +22032,11 @@ enum WindowSearchCommandQuery {
 }
 
 fn search_query_from_query(query: &str) -> Option<WindowSearchCommandQuery> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    if let Some(search_query) = search_query_lua_action_from_query(query) {
+        return Some(search_query);
+    }
+
     let pattern = strip_query_prefix_from_any(query, &["search=", "search "])?;
     if pattern.is_empty() {
         return None;
@@ -22076,6 +22081,63 @@ fn search_query_from_query(query: &str) -> Option<WindowSearchCommandQuery> {
         pattern,
         match_type,
     })
+}
+
+fn search_query_lua_action_from_query(query: &str) -> Option<WindowSearchCommandQuery> {
+    if let Some(value) = strip_lua_function_call_from_query(query, "search") {
+        if value.trim_start().starts_with('{') {
+            return search_query_lua_table_from_query(value);
+        }
+        let value = parse_maybe_quoted_query_text(value)?;
+        return search_query_lua_string_from_value(&value);
+    }
+
+    if let Some(value) = strip_query_table_assignment_from_prefix(query, "search=")
+        && value.trim_start().starts_with('{')
+    {
+        return search_query_lua_table_from_query(value);
+    }
+
+    None
+}
+
+fn search_query_lua_string_from_value(value: &str) -> Option<WindowSearchCommandQuery> {
+    search_current_selection_query_matches(value)
+        .then_some(WindowSearchCommandQuery::CurrentSelectionOrEmptyString)
+}
+
+fn search_query_lua_table_from_query(value: &str) -> Option<WindowSearchCommandQuery> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut search_query = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let (name, value) = field.trim().split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+        if search_query.is_some() {
+            return None;
+        }
+        let match_type = match normalized_search_lua_field(&name).as_str() {
+            "regex" => WindowSearchMatchType::Regex,
+            "casesensitivestring" => WindowSearchMatchType::CaseSensitive,
+            "caseinsensitivestring" => WindowSearchMatchType::CaseInsensitive,
+            _ => return None,
+        };
+        search_query = Some(WindowSearchCommandQuery::Pattern {
+            pattern: value,
+            match_type,
+        });
+    }
+
+    search_query
+}
+
+fn normalized_search_lua_field(field: &str) -> String {
+    field
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 fn search_query_strip_match_type_prefix<'a>(
@@ -60637,6 +60699,57 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_search_wezterm_action_table_queries() {
+        for (query, expected_pattern, expected_match_type, expected_selection) in [
+            (
+                "wezterm.action.Search { Regex = '\\\\d+' }",
+                "\\d+",
+                WindowSearchMatchType::Regex,
+                WindowSelection::new(
+                    SelectionCell { row: 0, column: 6 },
+                    SelectionCell { row: 0, column: 8 },
+                ),
+            ),
+            (
+                "wezterm.action.Search { CaseSensitiveString = 'Alpha' }",
+                "Alpha",
+                WindowSearchMatchType::CaseSensitive,
+                WindowSelection::new(
+                    SelectionCell { row: 0, column: 0 },
+                    SelectionCell { row: 0, column: 4 },
+                ),
+            ),
+            (
+                "wezterm.action.Search { CaseInSensitiveString = 'alpha' }",
+                "alpha",
+                WindowSearchMatchType::CaseInsensitive,
+                WindowSelection::new(
+                    SelectionCell { row: 0, column: 0 },
+                    SelectionCell { row: 0, column: 4 },
+                ),
+            ),
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+            app.handle_pty_output(b"Alpha 123 alpha").unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let commands = app.command_palette_filtered_commands();
+            let command = commands.first().cloned().expect("expected search command");
+            app.command_palette_execute(command);
+
+            let search = app.search.as_ref().expect("search mode should be active");
+            assert_eq!(search.query, expected_pattern);
+            assert_eq!(search.match_type, expected_match_type);
+            assert_eq!(app.selection, Some(expected_selection));
+            assert!(app.command_palette.is_none());
+            assert!(app.copy_mode.is_none());
+            assert!(app.quick_select.is_none());
+        }
+    }
+
+    #[test]
     fn window_app_dispatches_palette_search_regex_pattern_assignment_text() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
@@ -60705,6 +60818,38 @@ mod tests {
         app.command_palette_execute(WindowCommand::Search(
             WindowSearchCommandQuery::CurrentSelectionOrEmptyString,
         ));
+
+        let search = app.search.as_ref().expect("search mode should be active");
+        assert_eq!(search.query, "beta");
+        assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 6 },
+                SelectionCell { row: 0, column: 9 },
+            ))
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_search_wezterm_action_current_selection_string_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"alpha beta alpha").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 6 },
+            SelectionCell { row: 0, column: 9 },
+        ));
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Search(\"CurrentSelectionOrEmptyString\")".to_owned(),
+        );
+        let commands = app.command_palette_filtered_commands();
+        let command = commands.first().cloned().expect("expected search command");
+        app.command_palette_execute(command);
 
         let search = app.search.as_ref().expect("search mode should be active");
         assert_eq!(search.query, "beta");
