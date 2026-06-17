@@ -22092,6 +22092,13 @@ fn search_query_lua_action_from_query(query: &str) -> Option<WindowSearchCommand
         return search_query_lua_string_from_value(&value);
     }
 
+    if let Some(value) = strip_query_prefix_from_any(query, &["search "]) {
+        let value = parse_maybe_quoted_query_text(value)?;
+        if let Some(search_query) = search_query_lua_string_from_value(&value) {
+            return Some(search_query);
+        }
+    }
+
     if let Some(value) = strip_query_table_assignment_from_prefix(query, "search=")
         && value.trim_start().starts_with('{')
     {
@@ -60846,6 +60853,38 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.Search(\"CurrentSelectionOrEmptyString\")".to_owned(),
+        );
+        let commands = app.command_palette_filtered_commands();
+        let command = commands.first().cloned().expect("expected search command");
+        app.command_palette_execute(command);
+
+        let search = app.search.as_ref().expect("search mode should be active");
+        assert_eq!(search.query, "beta");
+        assert_eq!(search.match_type, WindowSearchMatchType::CaseSensitive);
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 6 },
+                SelectionCell { row: 0, column: 9 },
+            ))
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_search_wezterm_action_bare_string_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"alpha beta alpha").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 6 },
+            SelectionCell { row: 0, column: 9 },
+        ));
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Search 'CurrentSelectionOrEmptyString'".to_owned(),
         );
         let commands = app.command_palette_filtered_commands();
         let command = commands.first().cloned().expect("expected search command");
