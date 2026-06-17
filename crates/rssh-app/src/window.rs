@@ -17105,6 +17105,9 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
     if let Some(options) = char_select_options_from_query(query) {
         return Some(WindowCommand::CharSelectArgs(options));
     }
+    if let Some(options) = quick_select_lua_table_from_query(query) {
+        return Some(WindowCommand::QuickSelect(options));
+    }
     if quick_select_patterns_from_query(query).is_some()
         || quick_select_pattern_from_query(query).is_some()
         || quick_select_alphabet_from_query(query).is_some()
@@ -52180,6 +52183,29 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "Multiple quickselectargs action open uri pattern ticket-[0-9]+ ; NoP".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::Multiple(vec![
+                WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::OpenUri),
+                    ..WindowQuickSelectOptions::default()
+                }),
+                WindowCommand::Nop,
+            ])]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_multiple_nested_quick_select_lua_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Multiple({ wezterm.action.QuickSelectArgs({ pattern = \"ticket-[0-9]+\", action = \"open-uri\" }), wezterm.action.Nop() })"
+                .to_owned(),
         );
 
         assert_eq!(

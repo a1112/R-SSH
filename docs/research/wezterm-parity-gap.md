@@ -930,7 +930,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style Lua table calls now accept both
   `wezterm.action.Multiple { ... }` and
   `wezterm.action.Multiple({ ... })` forms for the same implemented nested
-  action subset.
+  action subset, including nested `wezterm.action.QuickSelectArgs({ ... })`
+  payload tables without dropping their pattern/action options.
 - Command palette now exposes WezTerm-style `ReloadConfiguration`, and the
   default `Ctrl+Shift+R` shortcut dispatches the same typed native
   `window-config-reloaded` hook with the window id and active pane id.
