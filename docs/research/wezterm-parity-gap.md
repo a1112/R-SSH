@@ -526,10 +526,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   spawn command use native `default_prog` for the new pane when configured.
   Native `default_workspace` overrides rename the initial `default` workspace
   before spawn while preserving explicit startup workspace names.
-  Omitted-name actions create randomly named workspaces. Relative payloads switch by arbitrary signed offsets using the
+  Omitted-name actions create randomly named workspaces, including
+  `wezterm.action.SwitchToWorkspace` no-argument action-name queries. Relative
+  payloads switch by arbitrary signed offsets using the
   same sorted workspace order as Next/Previous Workspace, and structured
-  command-palette `switch workspace relative <offset>` and action-name
-  `switchworkspacerelative <offset>` queries dispatch those native payloads.
+  command-palette `switch workspace relative <offset>`, action-name
+  `switchworkspacerelative <offset>`, and WezTerm-style
+  `wezterm.action.SwitchWorkspaceRelative(<offset>)` queries dispatch those
+  native payloads.
   The command palette exposes named switching through `Switch To Workspace`,
   `switch workspace <name>`, and action-name `switchtoworkspace <name>`
   queries; `switch workspace <name> spawn [--domain ...] [--cwd ...]
@@ -541,7 +545,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   launch path. `switch workspace spawn [--domain ...] [--cwd ...] [--env
   NAME=VALUE] [--set-environment-variables NAME=VALUE] [<program> [args...]]`
   creates a randomly named workspace with
-  the requested launch command or commandless spawn options. Native
+  the requested launch command or commandless spawn options. WezTerm-style
+  `wezterm.action.SwitchToWorkspace { name = ..., spawn = { ... } }` and
+  `wezterm.action.SwitchToWorkspace({ name = ..., spawn = { ... } })` table
+  queries dispatch the same implemented `name` plus native `SpawnCommand`
+  subset. Native
   `ShowLauncher`
   opens the default Launcher Menu for local-domain spawning plus native
   launch-menu items. Native `ShowLauncherArgs` accepts WezTerm-style
@@ -621,17 +629,26 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SpawnCommand` `args`/`cwd`/`set_environment_variables` subset through the
   same tab/window launch paths, accept the local-domain subset
   `CurrentPaneDomain`, `DefaultDomain`, and `DomainName("local")`, and
+  `SpawnCommandInNewTab`/`SpawnCommandInNewWindow` accept both
+  `wezterm.action.SpawnCommandInNewTab { ... }` and
+  `wezterm.action.SpawnCommandInNewTab({ ... })`-style Lua table action forms.
   `SpawnCommandInNewWindow` carries the WezTerm-style `position` payload into
-  the detached native window's initial position. Remote/mux domains and full
-  Lua parsing remain open.
+  the detached native window's initial position. Remote/mux domains and full Lua
+  parsing remain open.
 - Native `SpawnTab` action payloads now carry a local-domain subset:
   `CurrentPaneDomain`, `DefaultDomain`, and `DomainName("local")` create and
   activate a new tab through the same native `NewTab` launch path. Structured
   command-palette `spawn tab current pane domain`, `spawn tab default domain`,
   and `spawn tab domain <name>` queries plus action-name `spawntab ...` aliases
   dispatch the same payload subset with quote-aware domain-name parsing, and
-  no-argument `spawntab` dispatches the current-pane-domain default.
-  Remote/mux named domain spawning remains open.
+  no-argument `spawntab` dispatches the current-pane-domain default. WezTerm-style
+  `wezterm.action.SpawnTab 'CurrentPaneDomain'`,
+  `wezterm.action.SpawnTab('CurrentPaneDomain')`,
+  `wezterm.action.SpawnTab 'DefaultDomain'`,
+  `wezterm.action.SpawnTab('DefaultDomain')`,
+  `wezterm.action.SpawnTab { DomainName = 'local' }`, and
+  `wezterm.action.SpawnTab({ DomainName = 'local' })` queries dispatch the same
+  implemented local-domain subset. Remote/mux named domain spawning remains open.
 - Command palette split entries now use WezTerm action names:
   native `SplitHorizontal` dispatches the right-side split path and is exposed
   as Split Horizontal, while native `SplitVertical` dispatches the downward
@@ -660,7 +677,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   through the same split launch path, and support
   `size = { Percent = ... }` / `size = { Cells = ... }` for the new pane's
   initial size. Action-name `splitvertical` and `splithorizontal` queries
-  dispatch the corresponding default split directions. Native
+  dispatch the corresponding default split directions. WezTerm-style
+  `wezterm.action.SplitPane({ ... })`,
+  `wezterm.action.SplitHorizontal({ ... })`, and
+  `wezterm.action.SplitVertical({ ... })` parenthesized Lua table calls now
+  dispatch through the same implemented split table payload parser. Native
   `SplitPane` payloads also support `top_level = true` by splitting the full
   active-tab root region and compressing the existing layout into the source
   side. Full Lua table parsing remains open.
@@ -807,7 +828,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Structured command-palette `emit event <name>` and action-name
   `emitevent <name>` queries dispatch the same typed payload path with
   quote-aware event-name parsing. WezTerm-style
-  `wezterm.action.EmitEvent { name = ... }` table-call queries dispatch the
+  `wezterm.action.EmitEvent { name = ... }` and
+  `wezterm.action.EmitEvent({ name = ... })` table-call queries dispatch the
   same typed payload path. Lua `wezterm.on`/`wezterm.emit` wiring remains open.
 - Native `ActivateKeyTable`, `PopKeyTable`, and `ClearKeyTableStack` action
   payloads now maintain a per-window key-table activation stack and show the
@@ -828,10 +850,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `timeout=<ms>`, `one_shot=false`, and `prevent-fallback=true`. `one shot`
   defaults to true when omitted and single or double quotes group key-table
   names that contain spaces. Duplicate option fields are rejected instead of
-  silently overriding earlier values. Action-name `activatekeytable ...`,
-  `popkeytable`, and `clearkeytablestack` aliases dispatch the same activation
-  and stack mutation payloads as their spaced query forms. Native `key_tables`
-  overrides now match table entries from the
+  silently overriding earlier values. WezTerm-style
+  `wezterm.action.ActivateKeyTable { ... }` and
+  `wezterm.action.ActivateKeyTable({ ... })` table-call queries dispatch the
+  same implemented activation payload fields. Action-name
+  `activatekeytable ...`, `popkeytable`, and `clearkeytablestack` aliases
+  dispatch the same activation and stack mutation payloads as their spaced query
+  forms. Native `key_tables` overrides now match table entries from the
   activation stack top downward and execute the matched native action. Lua
   `key_tables` parsing remains open.
 - Native `Nop` action payloads now map to the no-effect app-shell action, so a
@@ -880,15 +905,19 @@ what remains before WezTerm-style parity in key UX/composition areas.
   directly to the active PTY input path as typed input, without bracketed-paste
   wrapping. Structured command-palette `send string <text>` and action-name
   `sendstring <text>` queries dispatch the same typed payload path.
-  WezTerm-style `wezterm.action.SendString { string = ... }` table-call queries
-  dispatch the same typed payload path.
+  WezTerm-style `wezterm.action.SendString { string = ... }` and
+  `wezterm.action.SendString({ string = ... })` table-call queries dispatch the
+  same typed payload path.
 - Native `SendKey` action payloads now encode the specified key and modifiers
   through the active terminal input mode, write the resulting bytes directly to
   the active PTY input path, and do not re-match key assignments. Structured
   command-palette `send key <mods+key>` and action-name `sendkey <mods+key>`
   queries cover single-character key payloads such as `send key ALT+B` plus
   WezTerm-style logical named keys and F1-F35 identifiers such as
-  `send key ALT+LeftArrow` and `send key CTRL+SHIFT+F5`.
+  `send key ALT+LeftArrow` and `send key CTRL+SHIFT+F5`. WezTerm-style
+  `wezterm.action.SendKey { key = ..., mods = ... }` and
+  `wezterm.action.SendKey({ key = ..., mods = ... })` table-call queries route
+  to the same implemented key/modifier payload parser.
 - Native `Multiple` action payloads now sequence implemented `WindowCommand`
   values in order and stop on the first failed command, matching WezTerm's
   multi-action key assignment model for the covered native action subset.
@@ -896,6 +925,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `multiple <command> ; <command> [; <command>...]` queries dispatch the same
   typed nested native action subset, splitting only on unquoted ` ; `
   separators so quoted `send string` payloads can contain semicolons.
+  WezTerm-style Lua table calls now accept both
+  `wezterm.action.Multiple { ... }` and
+  `wezterm.action.Multiple({ ... })` forms for the same implemented nested
+  action subset.
 - Command palette now exposes WezTerm-style `ReloadConfiguration`, and the
   default `Ctrl+Shift+R` shortcut dispatches the same typed native
   `window-config-reloaded` hook with the window id and active pane id.
@@ -988,6 +1021,67 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `PasteFrom('Clipboard')`, and `PasteFrom('PrimarySelection')` respectively
   for compatibility with older action payloads. Action-name `copy`, `paste`,
   and `pasteprimaryselection` queries dispatch those aliases directly.
+- WezTerm-style zero-argument Lua action queries such as
+  `wezterm.action.ActivateLastTab()`, `wezterm.action.ShowTabNavigator()`, and
+  `wezterm.action.ToggleFullScreen()` now normalize through the same no-argument
+  command-palette action table as their bare action-name forms.
+- WezTerm-style close-current table actions now accept parenthesized Lua table
+  calls such as `wezterm.action.CloseCurrentPane({ confirm = false })` and
+  `wezterm.action.CloseCurrentTab({ confirm = true })`, in addition to the
+  existing `Action { confirm = ... }` form.
+- WezTerm-style clear-scrollback table actions now accept parenthesized Lua
+  table calls such as
+  `wezterm.action.ClearScrollback({ mode = "ScrollbackOnly" })`, in addition
+  to the existing `Action { mode = ... }` form.
+- WezTerm-style launcher table actions now accept Lua table calls such as
+  `wezterm.action.ShowLauncherArgs { flags = "TABS|WORKSPACES", title = "Jump" }`
+  and parenthesized calls such as
+  `wezterm.action.ShowLauncherArgs({ flags = "TABS|WORKSPACES", title = "Jump" })`,
+  routing the same `flags`, `title`, `alphabet`, `help_text`, and
+  `fuzzy_help_text` fields as the existing command-palette query forms.
+- WezTerm-style character-selection table actions now accept parenthesized Lua
+  table calls such as
+  `wezterm.action.CharSelect({ copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" })`,
+  routing the same `copy_on_select`, `copy_to`, and `group` fields as the
+  existing command-palette query forms.
+- WezTerm-style quick-select table actions now accept parenthesized Lua table
+  calls such as
+  `wezterm.action.QuickSelectArgs({ pattern = "ticket-[0-9]+", action = "open-uri", alphabet = "12" })`,
+  routing the same `pattern`/`patterns`, `action`, `alphabet`, `label`,
+  `skip_action_on_paste`, and `scope_lines` fields as the existing
+  command-palette query forms.
+- WezTerm-style pane-selection table actions now accept parenthesized Lua table
+  calls such as
+  `wezterm.action.PaneSelect({ mode = "SwapWithActive", show_pane_ids = true, alphabet = "12" })`,
+  routing the same `mode`, `show_pane_ids`, and `alphabet` fields as the
+  existing command-palette query forms.
+- WezTerm-style prompt-input table actions now accept parenthesized Lua table
+  calls such as
+  `wezterm.action.PromptInputLine({ description = "Rename tab", prompt = "name: ", initial_value = "old name" })`,
+  routing the same `description`, `prompt`, and `initial_value` fields as the
+  existing `Action { ... }` and command-palette query forms.
+- WezTerm-style input-selector table actions now accept parenthesized Lua table
+  calls such as
+  `wezterm.action.InputSelector({ title = "Pick Reply", choices = "decline=No thanks ; lgtm=LGTM", alphabet = "ab" })`,
+  routing the same `title`, `choices`, `alphabet`, `description`,
+  `fuzzy_description`, and `fuzzy` fields as the existing `Action { ... }` and
+  command-palette query forms.
+- WezTerm-style confirmation table actions now accept parenthesized Lua table
+  calls such as
+  `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,
+  routing the same `message`, `action`, and optional `cancel` fields as the
+  existing `Action { ... }` and command-palette query forms.
+- WezTerm-style destination actions now accept single-argument function-call
+  forms including `wezterm.action.CopyTo('PrimarySelection')`,
+  `wezterm.action.CompleteSelection('PrimarySelection')`, and
+  `wezterm.action.CompleteSelectionOrOpenLinkAtMouseCursor('PrimarySelection')`,
+  matching the existing bare-string routing to implemented clipboard
+  destinations.
+- WezTerm-style mouse-selection mode actions now accept single-argument
+  function-call forms including
+  `wezterm.action.SelectTextAtMouseCursor('SemanticZone')` and
+  `wezterm.action.ExtendSelectionToMouseCursor('Block')`, matching the existing
+  bare-string routing to implemented selection modes.
 - Default `Super+R`, `Super+K`/`Ctrl+Shift+K`, and `Super+F` shortcuts now
   route to the same reload-configuration, clear-scrollback, and search paths as
   the existing WezTerm-style actions.
@@ -1593,7 +1687,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   resize amounts, and field forms such as
   `adjustpanesize direction=<direction> amount=<cells>` dispatch the same
   payload. WezTerm-style
-  `wezterm.action.AdjustPaneSize { '<direction>', <cells> }` Lua table action
+  `wezterm.action.AdjustPaneSize { '<direction>', <cells> }` and
+  `wezterm.action.AdjustPaneSize({ '<direction>', <cells> })` Lua table action
   queries dispatch the same payload. Native
   `WindowCommand::AdjustPaneSize { direction, amount }` payloads dispatch the
   same active-pane resize path with arbitrary cell amounts.

@@ -15950,6 +15950,7 @@ fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowC
         || quick_select_label_from_query(query).is_some()
         || quick_select_action_from_query(query).is_some()
         || quick_select_scope_lines_from_query(query).is_some()
+        || quick_select_lua_table_from_query(query).is_some()
     {
         return Some(WindowCommand::EnterQuickSelect);
     }
@@ -15962,6 +15963,12 @@ fn command_palette_basic_structured_query_command(query: &str) -> Option<WindowC
     if let Some(command) = basic_no_arg_action_name_command(&action_name) {
         return Some(command);
     }
+    if let Some(action_name) = strip_zero_arg_lua_function_call_from_query(query)
+        && let Some(command) =
+            basic_no_arg_action_name_command(&normalized_action_name_query(action_name))
+    {
+        return Some(command);
+    }
 
     if rename_tab_title_from_query(query).is_some() {
         return Some(WindowCommand::RenameTab);
@@ -15971,6 +15978,9 @@ fn command_palette_basic_structured_query_command(query: &str) -> Option<WindowC
     }
     if let Some(offset) = switch_workspace_relative_from_query(query) {
         return Some(WindowCommand::SwitchWorkspaceRelative(offset));
+    }
+    if switch_workspace_options_from_query(query).is_some() {
+        return Some(WindowCommand::SwitchToWorkspace);
     }
     if switch_workspace_name_from_query(query).is_some() {
         return Some(WindowCommand::SwitchToWorkspace);
@@ -16033,6 +16043,14 @@ fn command_palette_basic_structured_query_command(query: &str) -> Option<WindowC
     None
 }
 
+fn strip_zero_arg_lua_function_call_from_query(query: &str) -> Option<&str> {
+    let query = query.trim();
+    let without_close = query.strip_suffix(')')?;
+    let (name, args) = without_close.split_once('(')?;
+    let name = name.trim();
+    (!name.is_empty() && args.trim().is_empty()).then_some(name)
+}
+
 fn command_palette_normalized_no_arg_query_command(query: &str) -> Option<WindowCommand> {
     let query = query.trim();
     let action_name = query.to_ascii_lowercase();
@@ -16069,6 +16087,7 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
             ));
         }
         "spawnwindow" => return Some(WindowCommand::SpawnWindow),
+        "switchtoworkspace" => return Some(WindowCommand::SwitchToWorkspace),
         "splithorizontal" => return Some(WindowCommand::SplitHorizontal),
         "splitvertical" => return Some(WindowCommand::SplitVertical),
         "clearselection" => return Some(WindowCommand::ClearSelection),
@@ -16168,6 +16187,12 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
 }
 
 fn clear_scrollback_mode_from_query(query: &str) -> Option<WindowClearScrollbackMode> {
+    if let Some(rest) = strip_lua_function_call_from_query(query, "clearscrollback")
+        && rest.trim_start().starts_with('{')
+    {
+        return clear_scrollback_lua_table_from_query(rest);
+    }
+
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "clearscrollback=")
         && rest.trim_start().starts_with('{')
     {
@@ -16222,6 +16247,10 @@ fn clear_scrollback_lua_table_from_query(value: &str) -> Option<WindowClearScrol
 }
 
 fn copy_destination_command_from_query(query: &str) -> Option<WindowCopyDestination> {
+    if let Some(destination) = strip_lua_function_call_from_query(query, "copyto") {
+        return copy_destination_from_query(destination);
+    }
+
     let destination =
         strip_query_prefix_from_any(query, &["copy to=", "copy to ", "copyto=", "copyto "])?;
     let destination = strip_query_prefix_from_any(destination, &["destination=", "destination "])
@@ -16252,6 +16281,12 @@ fn close_current_command_from_query(query: &str) -> Option<WindowCommand> {
 }
 
 fn close_current_pane_confirm_from_query(query: &str) -> Option<bool> {
+    if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrentpane")
+        && rest.trim_start().starts_with('{')
+    {
+        return close_current_confirm_lua_table_from_query(rest);
+    }
+
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "closecurrentpane=")
         && rest.trim_start().starts_with('{')
     {
@@ -16269,6 +16304,12 @@ fn close_current_pane_confirm_from_query(query: &str) -> Option<bool> {
 }
 
 fn close_current_tab_confirm_from_query(query: &str) -> Option<bool> {
+    if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrenttab")
+        && rest.trim_start().starts_with('{')
+    {
+        return close_current_confirm_lua_table_from_query(rest);
+    }
+
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "closecurrenttab=")
         && rest.trim_start().starts_with('{')
     {
@@ -16319,6 +16360,13 @@ fn bool_query_value_from_prefixes(query: &str, prefixes: &[&str]) -> Option<bool
 }
 
 fn prompt_input_line_options_from_query(query: &str) -> Option<WindowPromptInputLineOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "promptinputline")
+        && rest.trim_start().starts_with('{')
+    {
+        return prompt_input_line_lua_table_from_query(rest);
+    }
+
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "promptinputline=")
         && rest.trim_start().starts_with('{')
     {
@@ -16501,6 +16549,13 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
 }
 
 fn input_selector_options_from_query(query: &str) -> Option<WindowInputSelectorOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "inputselector")
+        && rest.trim_start().starts_with('{')
+    {
+        return input_selector_lua_table_from_query(rest);
+    }
+
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "inputselector=")
         && rest.trim_start().starts_with('{')
     {
@@ -16842,6 +16897,13 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
 
 fn confirmation_options_from_query(query: &str) -> Option<WindowConfirmationOptions> {
     let query = query.trim();
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "confirmation")
+        && rest.trim_start().starts_with('{')
+    {
+        return confirmation_lua_table_from_query(rest);
+    }
+
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "confirmation=")
         && rest.trim_start().starts_with('{')
     {
@@ -17075,7 +17137,9 @@ fn multiple_commands_from_query(query: &str) -> Option<Vec<WindowCommand>> {
 }
 
 fn multiple_table_commands_from_query(query: &str) -> Option<Vec<WindowCommand>> {
-    let rest = strip_query_table_assignment_from_prefix(query, "multiple=")?;
+    let query = strip_wezterm_action_prefix(query.trim()).unwrap_or(query.trim());
+    let rest = strip_lua_function_call_from_query(query, "multiple")
+        .or_else(|| strip_query_table_assignment_from_prefix(query, "multiple="))?;
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut commands = Vec::new();
     let mut indexed_commands = BTreeMap::new();
@@ -17160,6 +17224,9 @@ fn confirmation_next_field_offsets(rest: &str) -> Vec<usize> {
 
 fn emit_event_from_query(query: &str) -> Option<WindowEmitEvent> {
     if let Some(name) = strip_lua_function_call_from_query(query, "emitevent") {
+        if name.trim_start().starts_with('{') {
+            return emit_event_lua_table_from_query(name);
+        }
         return parse_maybe_quoted_query_text(name).map(|name| WindowEmitEvent { name });
     }
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "emitevent=")
@@ -17200,6 +17267,9 @@ fn emit_event_lua_table_from_query(value: &str) -> Option<WindowEmitEvent> {
 
 fn send_string_from_query(query: &str) -> Option<String> {
     if let Some(value) = strip_lua_function_call_from_query(query, "sendstring") {
+        if value.trim_start().starts_with('{') {
+            return send_string_lua_table_from_query(value);
+        }
         return parse_maybe_quoted_query_text(value);
     }
     if let Some(value) = strip_query_table_assignment_from_prefix(query, "sendstring=")
@@ -17255,6 +17325,12 @@ fn strip_lua_function_call_from_query<'a>(query: &'a str, name: &str) -> Option<
 }
 
 fn send_key_from_query(query: &str) -> Option<WindowSendKey> {
+    if let Some(value) = strip_lua_function_call_from_query(query, "sendkey")
+        && value.trim_start().starts_with('{')
+    {
+        return send_key_lua_table_from_query(value);
+    }
+
     if let Some(value) = strip_query_table_assignment_from_prefix(query, "sendkey=")
         && value.trim_start().starts_with('{')
     {
@@ -17531,6 +17607,12 @@ fn key_table_stack_command_from_query(query: &str) -> Option<WindowCommand> {
 }
 
 fn activate_key_table_from_query(query: &str) -> Option<WindowActivateKeyTable> {
+    if let Some(rest) = strip_lua_function_call_from_query(query, "activatekeytable")
+        && rest.trim_start().starts_with('{')
+    {
+        return activate_key_table_lua_table_from_query(rest);
+    }
+
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "activatekeytable=")
         && rest.trim_start().starts_with('{')
     {
@@ -17898,6 +17980,12 @@ fn paste_source_from_query(source: &str) -> Option<WindowPasteSource> {
 }
 
 fn show_launcher_args_from_query(query: &str) -> Option<WindowShowLauncherArgs> {
+    if let Some(rest) = strip_lua_function_call_from_query(query, "showlauncherargs")
+        && rest.trim_start().starts_with('{')
+    {
+        return show_launcher_args_lua_table_from_query(rest);
+    }
+
     let args = strip_query_prefix_from_any(
         query,
         &[
@@ -17912,6 +18000,9 @@ fn show_launcher_args_from_query(query: &str) -> Option<WindowShowLauncherArgs> 
         ],
     )?;
     let args = args.trim();
+    if args.starts_with('{') {
+        return show_launcher_args_lua_table_from_query(args);
+    }
     let (flags, fields) = show_launcher_args_from_query_flags_first(args).or_else(|| {
         let fields = show_launcher_fields_from_query_rest(args)?;
         let flags = fields.flags.clone()?;
@@ -17925,6 +18016,67 @@ fn show_launcher_args_from_query(query: &str) -> Option<WindowShowLauncherArgs> 
         help_text: fields.help_text,
         fuzzy_help_text: fields.fuzzy_help_text,
     })
+}
+
+fn show_launcher_args_lua_table_from_query(value: &str) -> Option<WindowShowLauncherArgs> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut fields = WindowShowLauncherQueryFields::default();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let (name, value) = field.trim().split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+
+        match normalized_show_launcher_lua_field(&name).as_str() {
+            "flags" => {
+                if fields.flags.is_some() {
+                    return None;
+                }
+                fields.flags = Some(WindowShowLauncherFlags::from_pipe_separated(&value)?);
+            }
+            "alphabet" => {
+                if fields.alphabet.is_some() {
+                    return None;
+                }
+                fields.alphabet = Some(value);
+            }
+            "title" => {
+                if fields.title.is_some() {
+                    return None;
+                }
+                fields.title = Some(value);
+            }
+            "helptext" => {
+                if fields.help_text.is_some() {
+                    return None;
+                }
+                fields.help_text = Some(value);
+            }
+            "fuzzyhelptext" => {
+                if fields.fuzzy_help_text.is_some() {
+                    return None;
+                }
+                fields.fuzzy_help_text = Some(value);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(WindowShowLauncherArgs {
+        flags: fields.flags?,
+        title: fields.title,
+        alphabet: fields.alphabet,
+        help_text: fields.help_text,
+        fuzzy_help_text: fields.fuzzy_help_text,
+    })
+}
+
+fn normalized_show_launcher_lua_field(field: &str) -> String {
+    field
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 fn show_launcher_args_from_query_flags_first(
@@ -18179,6 +18331,13 @@ fn switch_workspace_name_from_query(query: &str) -> Option<String> {
 }
 
 fn switch_workspace_relative_from_query(query: &str) -> Option<isize> {
+    if let Some(offset) = strip_lua_function_call_from_query(query, "switchworkspacerelative")
+        .and_then(parse_single_query_value)
+        .and_then(|offset| offset.parse().ok())
+    {
+        return Some(offset);
+    }
+
     let offset = strip_query_prefix_from_any(
         query,
         &[
@@ -18197,6 +18356,12 @@ fn switch_workspace_relative_from_query(query: &str) -> Option<isize> {
 }
 
 fn switch_workspace_options_from_query(query: &str) -> Option<WindowSwitchToWorkspaceOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+
+    if let Some(options) = switch_workspace_lua_table_options_from_query(query) {
+        return Some(options);
+    }
+
     let rest = strip_query_prefix_from_any(
         query,
         &[
@@ -18232,6 +18397,67 @@ fn switch_workspace_options_from_query(query: &str) -> Option<WindowSwitchToWork
         }
         None => (Some(switch_workspace_query_name(rest)?), None, None),
     };
+
+    Some(WindowSwitchToWorkspaceOptions {
+        name,
+        command,
+        command_options,
+    })
+}
+
+fn switch_workspace_lua_table_options_from_query(
+    query: &str,
+) -> Option<WindowSwitchToWorkspaceOptions> {
+    if let Some(rest) = strip_lua_function_call_from_query(query, "switchtoworkspace")
+        && rest.trim_start().starts_with('{')
+    {
+        return switch_workspace_options_lua_table_from_query(rest);
+    }
+
+    if let Some(rest) = strip_query_table_assignment_from_prefix(query, "switchtoworkspace=")
+        && rest.trim_start().starts_with('{')
+    {
+        return switch_workspace_options_lua_table_from_query(rest);
+    }
+
+    None
+}
+
+fn switch_workspace_options_lua_table_from_query(
+    value: &str,
+) -> Option<WindowSwitchToWorkspaceOptions> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut name = None;
+    let mut command = None;
+    let mut command_options = None;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = field.split_once('=')?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim().trim_end_matches(',').trim();
+        if key.eq_ignore_ascii_case("name") {
+            if name.is_some() {
+                return None;
+            }
+            name = Some(parse_maybe_quoted_query_text(value)?);
+        } else if key.eq_ignore_ascii_case("spawn") {
+            if command.is_some() || command_options.is_some() {
+                return None;
+            }
+            command = spawn_command_table_from_query(value, false);
+            if command.is_none() {
+                command_options = spawn_command_table_options_from_query(value, false);
+            }
+            if command.is_none() && command_options.is_none() {
+                return None;
+            }
+        } else {
+            return None;
+        }
+    }
 
     Some(WindowSwitchToWorkspaceOptions {
         name,
@@ -18584,7 +18810,8 @@ fn adjust_pane_size_from_query(query: &str) -> Option<(ResizeDirection, u16)> {
 }
 
 fn adjust_pane_size_table_from_query(query: &str) -> Option<(ResizeDirection, u16)> {
-    let rest = strip_query_table_assignment_from_prefix(query, "adjustpanesize=")?;
+    let rest = strip_lua_function_call_from_query(query, "adjustpanesize")
+        .or_else(|| strip_query_table_assignment_from_prefix(query, "adjustpanesize="))?;
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let fields = split_lua_table_top_level_fields(table)?;
     if fields.len() != 2 {
@@ -18843,6 +19070,11 @@ fn mouse_selection_command_from_query(query: &str) -> Option<WindowCommand> {
 }
 
 fn select_text_at_mouse_cursor_mode_from_query(query: &str) -> Option<WindowMouseSelectionMode> {
+    if let Some(mode) = strip_lua_function_call_from_query(query, "selecttextatmousecursor") {
+        let mode = parse_maybe_quoted_query_text(mode)?;
+        return mouse_selection_mode_from_query(&mode);
+    }
+
     let mode = strip_query_prefix_from_any(
         query,
         &[
@@ -18860,6 +19092,11 @@ fn select_text_at_mouse_cursor_mode_from_query(query: &str) -> Option<WindowMous
 fn extend_selection_to_mouse_cursor_mode_from_query(
     query: &str,
 ) -> Option<WindowMouseSelectionMode> {
+    if let Some(mode) = strip_lua_function_call_from_query(query, "extendselectiontomousecursor") {
+        let mode = parse_maybe_quoted_query_text(mode)?;
+        return mouse_selection_mode_from_query(&mode);
+    }
+
     let mode = strip_query_prefix_from_any(
         query,
         &[
@@ -18891,6 +19128,12 @@ fn mouse_selection_mode_from_query(mode: &str) -> Option<WindowMouseSelectionMod
 }
 
 fn char_select_options_from_query(query: &str) -> Option<WindowCharSelectOptions> {
+    if let Some(rest) = strip_lua_function_call_from_query(query, "charselect")
+        && rest.trim_start().starts_with('{')
+    {
+        return char_select_lua_table_from_query(rest);
+    }
+
     let rest = strip_query_prefix_from_any(
         query,
         &["char select=", "char select ", "charselect=", "charselect "],
@@ -19015,6 +19258,57 @@ fn char_select_options_from_query(query: &str) -> Option<WindowCharSelectOptions
     parsed.then_some(options)
 }
 
+fn char_select_lua_table_from_query(value: &str) -> Option<WindowCharSelectOptions> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut options = WindowCharSelectOptions::default();
+    let mut parsed = false;
+    let mut parsed_copy_on_select = false;
+    let mut parsed_copy_to = false;
+    let mut parsed_group = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let (name, value) = field.trim().split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+
+        match normalized_char_select_lua_field(&name).as_str() {
+            "copyonselect" => {
+                if parsed_copy_on_select {
+                    return None;
+                }
+                options.copy_on_select = bool_from_query(&value)?;
+                parsed_copy_on_select = true;
+            }
+            "copyto" => {
+                if parsed_copy_to {
+                    return None;
+                }
+                options.copy_to = copy_destination_from_query(&value)?;
+                parsed_copy_to = true;
+            }
+            "group" => {
+                if parsed_group {
+                    return None;
+                }
+                options.group = Some(value);
+                parsed_group = true;
+            }
+            _ => return None,
+        }
+        parsed = true;
+    }
+
+    parsed.then_some(options)
+}
+
+fn normalized_char_select_lua_field(field: &str) -> String {
+    field
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
 fn next_char_select_field_index(tokens: &[&str], mut index: usize) -> usize {
     while index < tokens.len() && !char_select_field_at(tokens, index) {
         index += 1;
@@ -19115,6 +19409,10 @@ fn complete_selection_command_from_query(query: &str) -> Option<WindowCommand> {
 }
 
 fn complete_selection_destination_from_query(query: &str) -> Option<WindowCopyDestination> {
+    if let Some(destination) = strip_lua_function_call_from_query(query, "completeselection") {
+        return copy_destination_from_query(destination);
+    }
+
     let destination = strip_query_prefix_from_any(
         query,
         &[
@@ -19134,6 +19432,12 @@ fn complete_selection_destination_from_query(query: &str) -> Option<WindowCopyDe
 fn complete_selection_or_open_link_destination_from_query(
     query: &str,
 ) -> Option<WindowCopyDestination> {
+    if let Some(destination) =
+        strip_lua_function_call_from_query(query, "completeselectionoropenlinkatmousecursor")
+    {
+        return copy_destination_from_query(destination);
+    }
+
     let destination = strip_query_prefix_from_any(
         query,
         &[
@@ -19236,7 +19540,8 @@ impl WindowSpawnCommandQuery {
 
 fn spawn_command_in_new_tab_from_query(query: &str) -> Option<WindowSpawnCommandQuery> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_query_from_prefix(query, "new tab=")
+    spawn_command_table_query_from_lua_function(query, "spawncommandinnewtab", false)
+        .or_else(|| spawn_command_table_query_from_prefix(query, "new tab="))
         .or_else(|| spawn_command_table_query_from_prefix(query, "spawncommandinnewtab="))
         .or_else(|| spawn_command_query_from_prefix(query, "new tab="))
         .or_else(|| spawn_command_query_from_prefix(query, "new tab "))
@@ -19249,6 +19554,18 @@ fn spawn_command_table_query_from_prefix(
     prefix: &str,
 ) -> Option<WindowSpawnCommandQuery> {
     spawn_command_table_query_from_prefix_with_position(query, prefix, false)
+}
+
+fn spawn_command_table_query_from_lua_function(
+    query: &str,
+    name: &str,
+    allow_position: bool,
+) -> Option<WindowSpawnCommandQuery> {
+    let command = strip_lua_function_call_from_query(query, name)?;
+    command
+        .trim_start()
+        .starts_with('{')
+        .then(|| spawn_command_table_from_query(command, allow_position))?
 }
 
 fn spawn_command_table_query_from_prefix_with_position(
@@ -19264,7 +19581,8 @@ fn spawn_command_options_in_new_tab_from_query(
     query: &str,
 ) -> Option<WindowSpawnCommandQueryOptions> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_options_from_prefix(query, "new tab=", false)
+    spawn_command_table_options_from_lua_function(query, "spawncommandinnewtab", false)
+        .or_else(|| spawn_command_table_options_from_prefix(query, "new tab=", false))
         .or_else(|| spawn_command_table_options_from_prefix(query, "spawncommandinnewtab=", false))
         .or_else(|| spawn_command_options_from_prefix(query, "new tab="))
         .or_else(|| spawn_command_options_from_prefix(query, "new tab "))
@@ -19274,10 +19592,69 @@ fn spawn_command_options_in_new_tab_from_query(
 }
 
 fn spawn_tab_domain_from_query(query: &str) -> Option<WindowSpawnTabDomain> {
+    if let Some(domain) = spawn_tab_domain_from_lua_table(query) {
+        return Some(domain);
+    }
+
+    if let Some(domain) = spawn_tab_domain_from_lua_function(query) {
+        return Some(domain);
+    }
+
     let domain = strip_query_prefix_from_any(
         query,
         &["spawn tab=", "spawn tab ", "spawntab=", "spawntab "],
     )?;
+    spawn_tab_domain_value_from_query(domain)
+}
+
+fn spawn_tab_domain_from_lua_table(query: &str) -> Option<WindowSpawnTabDomain> {
+    if let Some(domain) = strip_lua_function_call_from_query(query, "spawntab")
+        && domain.trim_start().starts_with('{')
+    {
+        return spawn_tab_domain_lua_table_from_query(domain);
+    }
+
+    if let Some(domain) = strip_query_table_assignment_from_prefix(query, "spawntab=")
+        && domain.trim_start().starts_with('{')
+    {
+        return spawn_tab_domain_lua_table_from_query(domain);
+    }
+
+    None
+}
+
+fn spawn_tab_domain_lua_table_from_query(value: &str) -> Option<WindowSpawnTabDomain> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut domain = None;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = field.split_once('=')?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value)?;
+        domain = Some(WindowSpawnTabDomain::DomainName(value));
+    }
+    domain
+}
+
+fn spawn_tab_domain_from_lua_function(query: &str) -> Option<WindowSpawnTabDomain> {
+    let domain = strip_lua_function_call_from_query(query, "spawntab")?;
+    let domain = parse_maybe_quoted_query_text(domain)?;
+    spawn_tab_domain_value_from_query(&domain)
+}
+
+fn spawn_tab_domain_value_from_query(domain: &str) -> Option<WindowSpawnTabDomain> {
+    let trimmed = domain.trim();
+    if trimmed.starts_with('"') || trimmed.starts_with('\'') {
+        let domain = parse_maybe_quoted_query_text(trimmed)?;
+        return spawn_tab_domain_value_from_query(&domain);
+    }
+
     if let Some(name) =
         strip_query_prefix_from_any(domain, &["domain name=", "domain name ", "domain "])
             .and_then(parse_maybe_quoted_query_text)
@@ -19301,7 +19678,10 @@ fn spawn_tab_domain_from_query(query: &str) -> Option<WindowSpawnTabDomain> {
 
 fn spawn_command_in_new_window_from_query(query: &str) -> Option<WindowSpawnCommandQuery> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_query_from_prefix_with_position(query, "spawn window=", true)
+    spawn_command_table_query_from_lua_function(query, "spawncommandinnewwindow", true)
+        .or_else(|| {
+            spawn_command_table_query_from_prefix_with_position(query, "spawn window=", true)
+        })
         .or_else(|| spawn_command_table_query_from_prefix_with_position(query, "new window=", true))
         .or_else(|| {
             spawn_command_table_query_from_prefix_with_position(
@@ -19322,7 +19702,8 @@ fn spawn_command_options_in_new_window_from_query(
     query: &str,
 ) -> Option<WindowSpawnCommandQueryOptions> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_options_from_prefix(query, "spawn window=", true)
+    spawn_command_table_options_from_lua_function(query, "spawncommandinnewwindow", true)
+        .or_else(|| spawn_command_table_options_from_prefix(query, "spawn window=", true))
         .or_else(|| spawn_command_table_options_from_prefix(query, "new window=", true))
         .or_else(|| {
             spawn_command_table_options_from_prefix(query, "spawncommandinnewwindow=", true)
@@ -19342,6 +19723,18 @@ fn spawn_command_table_options_from_prefix(
 ) -> Option<WindowSpawnCommandQueryOptions> {
     let command = strip_query_table_assignment_from_prefix(query, prefix)?;
     spawn_command_table_options_from_query(command, allow_position)
+}
+
+fn spawn_command_table_options_from_lua_function(
+    query: &str,
+    name: &str,
+    allow_position: bool,
+) -> Option<WindowSpawnCommandQueryOptions> {
+    let command = strip_lua_function_call_from_query(query, name)?;
+    command
+        .trim_start()
+        .starts_with('{')
+        .then(|| spawn_command_table_options_from_query(command, allow_position))?
 }
 
 fn strip_query_table_assignment_from_prefix<'a>(query: &'a str, prefix: &str) -> Option<&'a str> {
@@ -19464,8 +19857,20 @@ fn split_pane_action_name_options_from_query(query: &str) -> Option<WindowSplitP
 }
 
 fn split_pane_table_action_from_query(query: &str) -> Option<WindowSplitPaneOptions> {
-    let (rest, direction) = strip_query_table_assignment_from_prefix(query, "splitpane=")
-        .map(|rest| (rest, None))
+    let (rest, direction) = split_pane_table_from_lua_function(query, "splitpane", None)
+        .or_else(|| {
+            split_pane_table_from_lua_function(
+                query,
+                "splithorizontal",
+                Some(SplitDirection::Right),
+            )
+        })
+        .or_else(|| {
+            split_pane_table_from_lua_function(query, "splitvertical", Some(SplitDirection::Down))
+        })
+        .or_else(|| {
+            strip_query_table_assignment_from_prefix(query, "splitpane=").map(|rest| (rest, None))
+        })
         .or_else(|| {
             strip_query_table_assignment_from_prefix(query, "splithorizontal=")
                 .map(|rest| (rest, Some(SplitDirection::Right)))
@@ -19484,6 +19889,18 @@ fn split_pane_table_action_from_query(query: &str) -> Option<WindowSplitPaneOpti
         size: options.size,
         top_level: options.top_level.unwrap_or(false),
     })
+}
+
+fn split_pane_table_from_lua_function<'a>(
+    query: &'a str,
+    name: &str,
+    direction: Option<SplitDirection>,
+) -> Option<(&'a str, Option<SplitDirection>)> {
+    let table = strip_lua_function_call_from_query(query, name)?;
+    table
+        .trim_start()
+        .starts_with('{')
+        .then_some((table, direction))
 }
 
 #[derive(Debug, Default)]
@@ -20311,8 +20728,12 @@ fn quick_select_action_from_query(query: &str) -> Option<WindowQuickSelectAction
     let action = quick_select_action_suffix_stripped(&action);
     let action = quick_select_text_before_next_field(action, quick_select_next_fields())?;
     let action = parse_maybe_quoted_query_text(action)?;
+    quick_select_action_from_value(&action)
+}
+
+fn quick_select_action_from_value(action: &str) -> Option<WindowQuickSelectAction> {
     if let Some(destination) =
-        strip_query_prefix_from_any(&action, &["copy to=", "copy to ", "copy=", "copy "])
+        strip_query_prefix_from_any(action, &["copy to=", "copy to ", "copy=", "copy "])
     {
         return copy_destination_from_query(destination).map(WindowQuickSelectAction::CopyTo);
     }
@@ -20604,6 +21025,10 @@ fn quick_select_scope_lines_word_value_from_query(query: &str) -> Option<usize> 
 }
 
 fn quick_select_options_from_query(query: &str) -> WindowQuickSelectOptions {
+    if let Some(options) = quick_select_lua_table_from_query(query) {
+        return options;
+    }
+
     let mut patterns = quick_select_patterns_from_query(query);
     if patterns.is_none() {
         patterns = quick_select_pattern_from_query(query).map(|pattern| vec![pattern]);
@@ -20618,7 +21043,111 @@ fn quick_select_options_from_query(query: &str) -> WindowQuickSelectOptions {
     }
 }
 
+fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    let value = strip_lua_function_call_from_query(query, "quickselectargs")?;
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut options = WindowQuickSelectOptions::default();
+    let mut parsed = false;
+    let mut parsed_patterns = false;
+    let mut parsed_alphabet = false;
+    let mut parsed_label = false;
+    let mut parsed_action = false;
+    let mut parsed_skip_action_on_paste = false;
+    let mut parsed_scope_lines = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let (name, value) = field.trim().split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = value.trim();
+
+        match normalized_quick_select_lua_field(&name).as_str() {
+            "pattern" => {
+                if parsed_patterns {
+                    return None;
+                }
+                options.patterns = Some(vec![parse_maybe_quoted_query_text(value)?]);
+                parsed_patterns = true;
+            }
+            "patterns" => {
+                if parsed_patterns {
+                    return None;
+                }
+                let patterns = if value.starts_with('{') {
+                    split_lua_table_string_array(value)?
+                } else {
+                    split_unquoted_query_semicolons(value)
+                        .into_iter()
+                        .map(str::trim)
+                        .filter(|pattern| !pattern.is_empty())
+                        .map(parse_maybe_quoted_query_text)
+                        .collect::<Option<Vec<_>>>()?
+                };
+                if patterns.is_empty() {
+                    return None;
+                }
+                options.patterns = Some(patterns);
+                parsed_patterns = true;
+            }
+            "alphabet" => {
+                if parsed_alphabet {
+                    return None;
+                }
+                options.alphabet = Some(parse_maybe_quoted_query_text(value)?);
+                parsed_alphabet = true;
+            }
+            "label" => {
+                if parsed_label {
+                    return None;
+                }
+                options.label = Some(parse_maybe_quoted_query_text(value)?);
+                parsed_label = true;
+            }
+            "action" => {
+                if parsed_action {
+                    return None;
+                }
+                let action = parse_maybe_quoted_query_text(value)?;
+                options.action = Some(quick_select_action_from_value(&action)?);
+                parsed_action = true;
+            }
+            "skipactiononpaste" => {
+                if parsed_skip_action_on_paste {
+                    return None;
+                }
+                let value = parse_maybe_quoted_query_text(value)?;
+                options.skip_action_on_paste = bool_from_query(&value)?;
+                parsed_skip_action_on_paste = true;
+            }
+            "scopelines" => {
+                if parsed_scope_lines {
+                    return None;
+                }
+                let value = parse_maybe_quoted_query_text(value)?;
+                options.scope_lines = Some(value.parse().ok()?);
+                parsed_scope_lines = true;
+            }
+            _ => return None,
+        }
+        parsed = true;
+    }
+
+    parsed.then_some(options)
+}
+
+fn normalized_quick_select_lua_field(field: &str) -> String {
+    field
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
 fn pane_select_options_from_query(query: &str) -> Option<WindowPaneSelectOptions> {
+    if let Some(options) = pane_select_lua_table_from_query(query) {
+        return Some(options);
+    }
+
     let rest = strip_query_prefix_from_any(
         query,
         &["pane select=", "pane select ", "paneselect=", "paneselect "],
@@ -20723,6 +21252,66 @@ fn pane_select_options_from_query(query: &str) -> Option<WindowPaneSelectOptions
         }
     }
     parsed_mode.then_some(options)
+}
+
+fn pane_select_lua_table_from_query(query: &str) -> Option<WindowPaneSelectOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    let value = strip_lua_function_call_from_query(query, "paneselect")?;
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut options = WindowPaneSelectOptions {
+        mode: WindowPaneSelectMode::Activate,
+        show_pane_ids: false,
+        alphabet: None,
+    };
+    let mut parsed = false;
+    let mut parsed_mode = false;
+    let mut parsed_show_pane_ids = false;
+    let mut parsed_alphabet = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let (name, value) = field.trim().split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+
+        match normalized_pane_select_lua_field(&name).as_str() {
+            "mode" => {
+                if parsed_mode {
+                    return None;
+                }
+                options.mode = pane_select_mode_option_from_query(&value)?;
+                parsed_mode = true;
+            }
+            "showpaneids" => {
+                if parsed_show_pane_ids {
+                    return None;
+                }
+                options.show_pane_ids = bool_from_query(&value)?;
+                parsed_show_pane_ids = true;
+            }
+            "alphabet" => {
+                if parsed_alphabet {
+                    return None;
+                }
+                if value.is_empty() {
+                    return None;
+                }
+                options.alphabet = Some(value);
+                parsed_alphabet = true;
+            }
+            _ => return None,
+        }
+        parsed = true;
+    }
+
+    (parsed && parsed_mode).then_some(options)
+}
+
+fn normalized_pane_select_lua_field(field: &str) -> String {
+    field
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase()
 }
 
 fn pane_select_mode_option_from_query(mode: &str) -> Option<WindowPaneSelectMode> {
@@ -40175,6 +40764,23 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_complete_selection_wezterm_action_function_call_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CompleteSelection('PrimarySelection')".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            [WindowCommand::CompleteSelectionTo(
+                WindowCopyDestination::PrimarySelection
+            )]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_complete_selection_action_name_queries() {
         for (query, expected) in [
             (
@@ -40277,6 +40883,25 @@ mod tests {
             app.command_palette_filtered_commands(),
             [WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(
                 WindowCopyDestination::Clipboard
+            )]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_complete_selection_or_open_link_wezterm_action_function_call_query()
+     {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CompleteSelectionOrOpenLinkAtMouseCursor('PrimarySelection')"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            [WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(
+                WindowCopyDestination::PrimarySelection
             )]
         );
     }
@@ -42031,6 +42656,23 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_select_text_at_mouse_cursor_wezterm_action_function_call_query()
+     {
+        let mut app = NativeWindowApp::new(None);
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SelectTextAtMouseCursor('SemanticZone')".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SelectTextAtMouseCursor(
+                WindowMouseSelectionMode::SemanticZone
+            )]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_extend_selection_to_mouse_cursor_equals_query() {
         let mut app = NativeWindowApp::new(None);
         app.enter_command_palette_mode();
@@ -42079,6 +42721,23 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.ExtendSelectionToMouseCursor 'Block'".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ExtendSelectionToMouseCursor(
+                WindowMouseSelectionMode::Block
+            )]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_extend_selection_to_mouse_cursor_wezterm_action_function_call_query()
+     {
+        let mut app = NativeWindowApp::new(None);
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ExtendSelectionToMouseCursor('Block')".to_owned(),
         );
 
         assert_eq!(
@@ -42230,6 +42889,104 @@ mod tests {
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
             let expected_command = WindowCommand::SpawnTab(expected_domain);
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected_command.clone()]
+            );
+
+            assert!(app.command_palette_execute(expected_command));
+            assert_eq!(app.active_tab_id(), expected_tab);
+            assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_tab_wezterm_action_function_call_queries() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        for (query, expected_tab, expected_domain) in [
+            (
+                "wezterm.action.SpawnTab('CurrentPaneDomain')",
+                rssh_core::TabId::new(2),
+                WindowSpawnTabDomain::CurrentPaneDomain,
+            ),
+            (
+                "wezterm.action.SpawnTab(\"DefaultDomain\")",
+                rssh_core::TabId::new(3),
+                WindowSpawnTabDomain::DefaultDomain,
+            ),
+        ] {
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected_command = WindowCommand::SpawnTab(expected_domain);
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected_command.clone()]
+            );
+
+            assert!(app.command_palette_execute(expected_command));
+            assert_eq!(app.active_tab_id(), expected_tab);
+            assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_tab_wezterm_action_bare_string_queries() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        for (query, expected_tab, expected_domain) in [
+            (
+                "wezterm.action.SpawnTab 'CurrentPaneDomain'",
+                rssh_core::TabId::new(2),
+                WindowSpawnTabDomain::CurrentPaneDomain,
+            ),
+            (
+                "wezterm.action.SpawnTab \"DefaultDomain\"",
+                rssh_core::TabId::new(3),
+                WindowSpawnTabDomain::DefaultDomain,
+            ),
+        ] {
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected_command = WindowCommand::SpawnTab(expected_domain);
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected_command.clone()]
+            );
+
+            assert!(app.command_palette_execute(expected_command));
+            assert_eq!(app.active_tab_id(), expected_tab);
+            assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_tab_wezterm_action_domain_name_table_queries() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        for (query, expected_tab) in [
+            (
+                "wezterm.action.SpawnTab { DomainName = 'local' }",
+                rssh_core::TabId::new(2),
+            ),
+            (
+                "wezterm.action.SpawnTab({ DomainName = 'local' })",
+                rssh_core::TabId::new(3),
+            ),
+        ] {
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::SpawnTab(WindowSpawnTabDomain::DomainName("local".to_owned()));
             assert_eq!(
                 app.command_palette_filtered_commands(),
                 vec![expected_command.clone()]
@@ -42774,6 +43531,34 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SpawnCommandInNewTab { cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_in_new_tab_wezterm_action_parenthesized_table_query()
+     {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewTab({ cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } })"
                 .to_owned(),
         );
 
@@ -43386,6 +44171,44 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SpawnCommandInNewWindow { position = \"main:42,84\", cwd = \"C:/Spawn Dir\", args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SpawnWindow]
+        );
+        assert!(app.command_palette_execute(WindowCommand::SpawnWindow));
+
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("spawn command table query should request a pending detached window");
+        assert_eq!(
+            detached_app.initial_window_position(),
+            Some(crate::cli::WindowPosition {
+                origin: crate::cli::WindowPositionOrigin::Main,
+                x: 42,
+                y: 84,
+            })
+        );
+        let launch = detached_app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Spawn Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_in_new_window_wezterm_action_parenthesized_table_query()
+     {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewWindow({ position = \"main:42,84\", cwd = \"C:/Spawn Dir\", args = { \"top\", \"-d\", \"1\" } })"
                 .to_owned(),
         );
 
@@ -44761,6 +45584,26 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_char_select_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CharSelect({ copy_on_select = false, copy_to = 'PrimarySelection', group = 'PeopleAndBody' })"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::CharSelectArgs(WindowCharSelectOptions {
+                copy_on_select: false,
+                copy_to: WindowCopyDestination::PrimarySelection,
+                group: Some("PeopleAndBody".to_owned()),
+            })]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_char_select_args_equals_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -45033,6 +45876,42 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.EmitEvent { name = \"trigger-update\" }".to_owned(),
+        );
+
+        let expected = WindowCommand::EmitEvent(WindowEmitEvent {
+            name: "trigger-update".to_owned(),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeWindowEmitEvent {
+                window_id: rssh_core::WindowId::new(1),
+                pane: rssh_core::PaneId::new(1),
+                name: "trigger-update".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_emit_event_wezterm_action_parenthesized_table_query() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.emit_event_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(event.clone());
+            true
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.EmitEvent({ name = \"trigger-update\" })".to_owned(),
         );
 
         let expected = WindowCommand::EmitEvent(WindowEmitEvent {
@@ -45807,6 +46686,36 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_activate_key_table_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ActivateKeyTable({ name = \"resize_pane\", timeout_milliseconds = 1000, one_shot = false, replace_current = true, until_unknown = true, prevent_fallback = true })"
+                .to_owned(),
+        );
+        let command = WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
+            name: "resize_pane".to_owned(),
+            timeout_milliseconds: Some(1_000),
+            one_shot: false,
+            replace_current: true,
+            until_unknown: true,
+            prevent_fallback: true,
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+        assert!(
+            app.effective_window_title()
+                .contains("KeyTable: resize_pane")
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_activate_key_table_hyphenated_field_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -46518,6 +47427,37 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_confirmation_wezterm_action_parenthesized_table_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Confirmation({ message = \"Send command?\", action = \"sendstring yes\", cancel = \"sendstring no\" })"
+                .to_owned(),
+        );
+        let command = WindowCommand::Confirmation(WindowConfirmationOptions {
+            message: "Send command?".to_owned(),
+            action: Box::new(WindowCommand::SendString("yes".to_owned())),
+            cancel: Some(Box::new(WindowCommand::SendString("no".to_owned()))),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Send command? Enter/Y=yes Esc/N=no"
+        );
+
+        assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));
+        assert!(app.confirmation.is_none());
+        assert_eq!(written.lock().unwrap().as_slice(), b"yes");
+    }
+
+    #[test]
     fn window_app_dispatches_palette_confirmation_equals_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -46939,6 +47879,34 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_prompt_input_line_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine({ description = \"Rename tab\", prompt = \"name: \", initial_value = \"old name\" })"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+            description: "Rename tab".to_owned(),
+            prompt: Some("name: ".to_owned()),
+            initial_value: Some("old name".to_owned()),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Rename tab: name: old name"
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_prompt_input_line_hyphenated_initial_value_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -47271,6 +48239,46 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.InputSelector { title = \"Pick Reply\", choices = \"decline=No thanks ; lgtm=LGTM\", alphabet = \"ab\", description = \"Choose one:\", fuzzy_description = \"Filter replies:\", fuzzy = true }"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::InputSelector(WindowInputSelectorOptions {
+            title: "Pick Reply".to_owned(),
+            choices: vec![
+                WindowInputSelectorChoice {
+                    label: "No thanks".to_owned(),
+                    id: Some("decline".to_owned()),
+                },
+                WindowInputSelectorChoice {
+                    label: "LGTM".to_owned(),
+                    id: Some("lgtm".to_owned()),
+                },
+            ],
+            alphabet: Some("ab".to_owned()),
+            description: Some("Choose one:".to_owned()),
+            fuzzy_description: Some("Filter replies:".to_owned()),
+            fuzzy: true,
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+
+        assert!(app.command_palette.is_none());
+        assert!(
+            app.effective_window_title()
+                .contains("Pick Reply: Filter replies:")
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_input_selector_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector({ title = \"Pick Reply\", choices = \"decline=No thanks ; lgtm=LGTM\", alphabet = \"ab\", description = \"Choose one:\", fuzzy_description = \"Filter replies:\", fuzzy = true })"
                 .to_owned(),
         );
 
@@ -48148,6 +49156,48 @@ mod tests {
         ] {
             assert_eq!(
                 command_palette_basic_structured_query_command(query),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn parses_wezterm_zero_arg_function_action_queries() {
+        for (query, expected) in [
+            (
+                "wezterm.action.ActivateLastTab()",
+                WindowCommand::ActivateLastTab,
+            ),
+            (
+                "wezterm.action.ShowTabNavigator()",
+                WindowCommand::ShowTabNavigator,
+            ),
+            (
+                "wezterm.action.ToggleFullScreen()",
+                WindowCommand::ToggleFullScreen,
+            ),
+        ] {
+            assert_eq!(
+                super::command_palette_structured_query_command(query),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn parses_wezterm_parenthesized_table_action_queries() {
+        for (query, expected) in [
+            (
+                "wezterm.action.CloseCurrentPane({ confirm = false })",
+                WindowCommand::CloseCurrentPane { confirm: false },
+            ),
+            (
+                "wezterm.action.CloseCurrentTab({ confirm = true })",
+                WindowCommand::CloseCurrentTab { confirm: true },
+            ),
+        ] {
+            assert_eq!(
+                super::command_palette_structured_query_command(query),
                 Some(expected)
             );
         }
@@ -50925,6 +51975,32 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_multiple_wezterm_action_parenthesized_table_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Multiple({ wezterm.action.SendString(\"alpha\"), wezterm.action.SendString('beta') })"
+                .to_owned(),
+        );
+
+        let expected = WindowCommand::Multiple(vec![
+            WindowCommand::SendString("alpha".to_owned()),
+            WindowCommand::SendString("beta".to_owned()),
+        ]);
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+        assert_eq!(written.lock().unwrap().as_slice(), b"alphabeta");
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_multiple_mixed_case_nested_nop_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -53037,6 +54113,114 @@ mod tests {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-d", "1"]);
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_split_horizontal_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SplitHorizontal({ command = { args = { \"top\", \"-d\", \"1\" } } })"
+                .to_owned(),
+        );
+
+        let expected = WindowCommand::SplitPane(WindowSplitPaneOptions {
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            domain: None,
+            command: Some(WindowSpawnCommandQuery {
+                program: "top".to_owned(),
+                args: vec!["-d".to_owned(), "1".to_owned()],
+                cwd: None,
+                environment: BTreeMap::new(),
+                domain: None,
+                window_position: None,
+            }),
+            command_options: None,
+            size: None,
+            top_level: false,
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_split_vertical_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SplitVertical({ command = { args = { \"top\", \"-d\", \"1\" } } })"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SplitPane(WindowSplitPaneOptions {
+                direction: rssh_core::app_shell::SplitDirection::Down,
+                domain: None,
+                command: Some(WindowSpawnCommandQuery {
+                    program: "top".to_owned(),
+                    args: vec!["-d".to_owned(), "1".to_owned()],
+                    cwd: None,
+                    environment: BTreeMap::new(),
+                    domain: None,
+                    window_position: None,
+                }),
+                command_options: None,
+                size: None,
+                top_level: false,
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_split_pane_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SplitPane({ direction = \"Left\", size = { Cells = 20 }, command = { cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } } })"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SplitPane(WindowSplitPaneOptions {
+                direction: rssh_core::app_shell::SplitDirection::Left,
+                domain: None,
+                command: Some(WindowSpawnCommandQuery {
+                    program: "top".to_owned(),
+                    args: vec!["-d".to_owned(), "1".to_owned()],
+                    cwd: Some("C:/Project Dir".to_owned()),
+                    environment: BTreeMap::new(),
+                    domain: None,
+                    window_position: None,
+                }),
+                command_options: None,
+                size: Some(WindowSplitPaneSize::Cells(20)),
+                top_level: false,
+            })]
+        );
     }
 
     #[test]
@@ -56032,6 +57216,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_quick_select_args_wezterm_action_parenthesized_table_query() {
+        let query = "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = 'open-uri', alphabet = '12', label = 'open ticket', skip_action_on_paste = true, scope_lines = 2 })";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            alphabet: Some("12".to_owned()),
+            label: Some("open ticket".to_owned()),
+            action: Some(WindowQuickSelectAction::OpenUri),
+            skip_action_on_paste: true,
+            scope_lines: Some(2),
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::EnterQuickSelect]
+        );
+        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(quick_select.labels.as_slice(), ["1"]);
+        assert_eq!(quick_select.action_label.as_deref(), Some("open ticket"));
+        assert_eq!(quick_select.action, WindowQuickSelectAction::OpenUri);
+        assert!(quick_select.skip_action_on_paste);
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+    }
+
+    #[test]
     fn window_app_dispatches_palette_quick_select_action_name_queries() {
         for (query, expected_options) in [
             (
@@ -57626,6 +58846,43 @@ mod tests {
             pane_select.mode,
             WindowPaneSelectMode::SwapWithActiveKeepFocus
         );
+        assert!(pane_select.show_pane_ids);
+        assert_eq!(pane_select.labels[0].label, "1");
+        assert_eq!(pane_select.labels[1].label, "2");
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_pane_select_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PaneSelect({ mode = 'SwapWithActive', show_pane_ids = true, alphabet = '12' })"
+                .to_owned(),
+        );
+
+        let expected = WindowCommand::PaneSelect(WindowPaneSelectOptions {
+            mode: WindowPaneSelectMode::SwapWithActive,
+            show_pane_ids: true,
+            alphabet: Some("12".to_owned()),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+        let pane_select = app
+            .pane_select
+            .as_ref()
+            .expect("pane select should be active");
+        assert_eq!(pane_select.mode, WindowPaneSelectMode::SwapWithActive);
         assert!(pane_select.show_pane_ids);
         assert_eq!(pane_select.labels[0].label, "1");
         assert_eq!(pane_select.labels[1].label, "2");
@@ -59766,6 +61023,23 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_clear_scrollback_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ClearScrollback({ mode = \"ScrollbackOnly\" })".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            [WindowCommand::ClearScrollback(
+                WindowClearScrollbackMode::ScrollbackOnly
+            )]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_clear_scrollback_and_viewport_command() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -60578,6 +61852,21 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_copy_to_wezterm_action_function_call_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.CopyTo('PrimarySelection')".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            [WindowCommand::CopyTo(
+                WindowCopyDestination::PrimarySelection
+            )]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_native_copy_to_clipboard_and_primary_selection_payload() {
         let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
         let recorded_clipboard = Arc::clone(&clipboard_copied);
@@ -61059,6 +62348,36 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_parenthesized_table_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SendString({ string = \"alpha beta\" })".to_owned(),
+        );
+
+        let expected = WindowCommand::SendString("alpha beta".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_native_send_key_payload() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -61192,6 +62511,24 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SendKey { key = \"LeftArrow\", mods = \"ALT\" }".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SendKey(WindowSendKey {
+                key: Key::Named(NamedKey::ArrowLeft),
+                modifiers: ModifiersState::ALT,
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_key_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SendKey({ key = \"LeftArrow\", mods = \"ALT\" })".to_owned(),
         );
 
         assert_eq!(
@@ -61626,6 +62963,37 @@ mod tests {
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action.AdjustPaneSize { 'Left', 4 }".to_owned());
+
+        let expected = WindowCommand::AdjustPaneSize {
+            direction: rssh_core::app_shell::ResizeDirection::Left,
+            amount: 4,
+        };
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        let split = app.app_shell.active_tab().panes()[1]
+            .split()
+            .expect("split should be present");
+        assert_eq!(split.source_size_delta, -4);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_adjust_pane_size_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.AdjustPaneSize({ 'Left', 4 })".to_owned());
 
         let expected = WindowCommand::AdjustPaneSize {
             direction: rssh_core::app_shell::ResizeDirection::Left,
@@ -62255,6 +63623,35 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_switch_workspace_relative_wezterm_action_function_call_query()
+    {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewWorkspace {
+            name: "zeta".to_owned(),
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::NewWorkspace {
+            name: "alpha".to_owned(),
+            launch: None,
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SwitchWorkspace {
+            workspace: rssh_core::WorkspaceId::new(1),
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.SwitchWorkspaceRelative(2)".to_owned());
+        let commands = app.command_palette_filtered_commands();
+        assert_eq!(commands, [WindowCommand::SwitchWorkspaceRelative(2)]);
+        app.command_palette_execute(commands[0].clone());
+
+        assert_eq!(app.app_shell.active_workspace().name(), "alpha");
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn command_palette_switch_to_workspace_query_creates_named_workspace() {
         let mut app = NativeWindowApp::new(None);
 
@@ -62318,6 +63715,53 @@ mod tests {
         assert_eq!(app.app_shell.active_workspace().name(), "monitoring");
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-d", "1"]);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn command_palette_switch_to_workspace_wezterm_action_parenthesized_table_query_can_spawn_command()
+     {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SwitchToWorkspace({ name = \"monitoring\", spawn = { args = { \"top\", \"-d\", \"1\" }, cwd = \"C:/Mon\" } })"
+                .to_owned(),
+        );
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Switch To Workspace");
+        assert!(app.command_palette_execute(WindowCommand::SwitchToWorkspace));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.app_shell.workspaces().len(), 2);
+        assert_eq!(app.app_shell.active_workspace().name(), "monitoring");
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Mon"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn command_palette_switch_to_workspace_wezterm_action_table_query_can_spawn_command() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SwitchToWorkspace { name = \"monitoring\", spawn = { args = { \"top\", \"-d\", \"1\" }, cwd = \"C:/Mon\" } }"
+                .to_owned(),
+        );
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Switch To Workspace");
+        assert!(app.command_palette_execute(WindowCommand::SwitchToWorkspace));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.app_shell.workspaces().len(), 2);
+        assert_eq!(app.app_shell.active_workspace().name(), "monitoring");
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Mon"));
         assert!(app.command_palette.is_none());
     }
 
@@ -62483,6 +63927,23 @@ mod tests {
         let mut app = NativeWindowApp::new(None);
 
         app.enter_command_palette_mode();
+        assert!(app.command_palette_execute(WindowCommand::SwitchToWorkspace));
+
+        assert_eq!(app.app_shell.workspaces().len(), 2);
+        assert_ne!(app.app_shell.active_workspace().name(), "workspace-2");
+        assert_eq!(app.active_workspace_id(), rssh_core::WorkspaceId::new(2));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn command_palette_switch_to_workspace_wezterm_action_no_arg_query_creates_random_workspace() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.SwitchToWorkspace".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Switch To Workspace");
         assert!(app.command_palette_execute(WindowCommand::SwitchToWorkspace));
 
         assert_eq!(app.app_shell.workspaces().len(), 2);
@@ -63071,6 +64532,58 @@ mod tests {
             vec![WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
                 flags: WindowShowLauncherFlags::tabs(),
                 title: Some("Pick".to_owned()),
+                alphabet: Some("ab".to_owned()),
+                help_text: None,
+                fuzzy_help_text: None,
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_show_launcher_args_wezterm_action_parenthesized_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ShowLauncherArgs({ flags = \"TABS|WORKSPACES\", title = \"Jump\", alphabet = \"ab\" })"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags {
+                    tabs: true,
+                    workspaces: true,
+                    ..WindowShowLauncherFlags::default()
+                },
+                title: Some("Jump".to_owned()),
+                alphabet: Some("ab".to_owned()),
+                help_text: None,
+                fuzzy_help_text: None,
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_show_launcher_args_wezterm_action_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ShowLauncherArgs { flags = \"TABS|WORKSPACES\", title = \"Jump\", alphabet = \"ab\" }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags {
+                    tabs: true,
+                    workspaces: true,
+                    ..WindowShowLauncherFlags::default()
+                },
+                title: Some("Jump".to_owned()),
                 alphabet: Some("ab".to_owned()),
                 help_text: None,
                 fuzzy_help_text: None,
