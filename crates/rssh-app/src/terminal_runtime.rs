@@ -1,6 +1,8 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{DamageRegion, TerminalSize};
-use rssh_terminal::{Cell, Color, CursorShape, Terminal, UnderlineStyle, VerticalAlign};
+use rssh_terminal::{
+    Cell, Color, CursorShape, CursorStyle, Terminal, UnderlineStyle, VerticalAlign,
+};
 
 use crate::{
     terminal_modes::{
@@ -15,11 +17,15 @@ use crate::{
     visible_output::TerminalVisibleOutputFilter,
 };
 
+const DEFAULT_TERMINAL_NAME: &str = "xterm-256color";
+
 pub struct TerminalRuntime {
     terminal: Terminal,
     output_filter: TerminalOutputFilter,
     visible_output_filter: TerminalVisibleOutputFilter,
     mode_tracker: TerminalModeTracker,
+    enable_kitty_keyboard: bool,
+    allow_win32_input_mode: bool,
     clipboard_tracker: TerminalClipboardTracker,
     notification_tracker: TerminalNotificationTracker,
 }
@@ -44,6 +50,7 @@ pub(crate) struct TerminalRuntimeOutput {
     pub(crate) display: Vec<u8>,
     pub(crate) damage: Vec<DamageRegion>,
     pub(crate) bells: u64,
+    pub(crate) unknown_escape_sequences: Vec<String>,
 }
 
 impl TerminalRuntime {
@@ -54,9 +61,15 @@ impl TerminalRuntime {
             output_filter: TerminalOutputFilter::new(size),
             visible_output_filter: TerminalVisibleOutputFilter::default(),
             mode_tracker: TerminalModeTracker::default(),
+            enable_kitty_keyboard: false,
+            allow_win32_input_mode: true,
             clipboard_tracker: TerminalClipboardTracker::default(),
             notification_tracker: TerminalNotificationTracker::default(),
         }
+    }
+
+    pub(crate) fn set_terminal_name(&mut self, terminal_name: impl Into<String>) {
+        self.output_filter.set_terminal_name(terminal_name);
     }
 
     #[cfg(test)]
@@ -73,11 +86,18 @@ impl TerminalRuntime {
         let mut display_bytes = Vec::new();
         let mut damage = Vec::new();
         let mut bells = 0_u64;
+        let mut unknown_escape_sequences = Vec::new();
         for event in output.events {
             match event {
                 FilteredOutputEvent::Display(display) => {
                     self.mode_tracker.process_without_emitting(&display);
                     self.terminal.feed(&display);
+                    unknown_escape_sequences.extend(
+                        self.terminal
+                            .take_unknown_escape_sequences()
+                            .into_iter()
+                            .map(|sequence| sequence.sequence),
+                    );
                     responses.extend(self.terminal.take_kitty_graphics_responses());
                     bells = bells.saturating_add(self.terminal.take_bell_count());
                     display_bytes.extend(self.visible_output_filter.process(&display));
@@ -87,11 +107,15 @@ impl TerminalRuntime {
                     damage.extend(self.terminal.take_damage());
                 }
                 FilteredOutputEvent::Response(response) => {
-                    responses.push(self.output_filter.response_bytes(
-                        response,
-                        &self.terminal,
-                        &self.mode_tracker,
-                    ));
+                    if !matches!(&response, TerminalResponse::KittyKeyboardFlags)
+                        || self.enable_kitty_keyboard
+                    {
+                        responses.push(self.output_filter.response_bytes(
+                            response,
+                            &self.terminal,
+                            &self.mode_tracker,
+                        ));
+                    }
                 }
                 FilteredOutputEvent::ResponseBytes(bytes) => {
                     responses.push(bytes);
@@ -102,8 +126,12 @@ impl TerminalRuntime {
                         damage.extend(self.terminal.take_damage());
                     }
                 }
-                FilteredOutputEvent::KittyKeyboardMode { bytes }
-                | FilteredOutputEvent::KeyModifierOptions { bytes } => {
+                FilteredOutputEvent::KittyKeyboardMode { bytes } => {
+                    if self.enable_kitty_keyboard {
+                        self.mode_tracker.process_without_emitting(&bytes);
+                    }
+                }
+                FilteredOutputEvent::KeyModifierOptions { bytes } => {
                     self.mode_tracker.process_without_emitting(&bytes);
                 }
             }
@@ -114,6 +142,7 @@ impl TerminalRuntime {
             display: display_bytes,
             damage,
             bells,
+            unknown_escape_sequences,
         }
     }
 
@@ -137,6 +166,19 @@ impl TerminalRuntime {
     pub fn resize(&mut self, size: TerminalSize) {
         self.terminal.resize(size);
         self.output_filter.resize(size);
+    }
+
+    pub fn set_scrollback_limit(&mut self, limit: usize) {
+        self.terminal.set_scrollback_limit(limit);
+    }
+
+    pub fn set_default_cursor_style(&mut self, default_cursor_style: CursorStyle) {
+        self.terminal.set_default_cursor_style(default_cursor_style);
+    }
+
+    #[must_use]
+    pub(crate) fn cursor_color_override(&self) -> Option<Color> {
+        self.output_filter.cursor_color_override()
     }
 
     pub(crate) fn erase_scrollback_and_viewport(&mut self) -> Vec<DamageRegion> {
@@ -177,7 +219,11 @@ impl TerminalRuntime {
 
     #[must_use]
     pub(crate) fn kitty_keyboard_flags(&self) -> u16 {
-        self.mode_tracker.kitty_keyboard_flags()
+        if self.enable_kitty_keyboard {
+            self.mode_tracker.kitty_keyboard_flags()
+        } else {
+            0
+        }
     }
 
     #[must_use]
@@ -186,14 +232,32 @@ impl TerminalRuntime {
     }
 
     #[must_use]
+    pub(crate) fn win32_input_mode(&self) -> bool {
+        self.allow_win32_input_mode && self.mode_tracker.win32_input_mode()
+    }
+
+    #[must_use]
     pub fn mouse_input_mode(&self) -> MouseInputMode {
         self.mode_tracker.mouse_input_mode()
+    }
+
+    pub(crate) fn set_enable_kitty_keyboard(&mut self, enabled: bool) {
+        self.enable_kitty_keyboard = enabled;
+        if !enabled {
+            self.mode_tracker.clear_kitty_keyboard_flags();
+        }
+    }
+
+    pub(crate) fn set_allow_win32_input_mode(&mut self, allowed: bool) {
+        self.allow_win32_input_mode = allowed;
+        self.mode_tracker.set_allow_win32_input_mode(allowed);
     }
 }
 
 struct TerminalOutputFilter {
     pending: Vec<u8>,
     size: TerminalSize,
+    terminal_name: String,
     color_state: TerminalColorState,
 }
 
@@ -213,6 +277,11 @@ enum FilteredOutputEvent {
 impl TerminalOutputFilter {
     const CELL_HEIGHT_PIXELS: u16 = 16;
     const CELL_WIDTH_PIXELS: u16 = 8;
+    const PRIMARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1b[?65;4;6;18;22;52c";
+    const SECONDARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1b[>1;277;0c";
+    const TERTIARY_DEVICE_ATTRIBUTES: &'static [u8] = b"\x1bP!|00000000\x1b\\";
+    const TERMINAL_PARAMETERS_0: &'static [u8] = b"\x1b[2;1;1;128;128;1;0x";
+    const TERMINAL_PARAMETERS_1: &'static [u8] = b"\x1b[3;1;1;128;128;1;0x";
     const RESPONSES: &'static [TerminalQueryResponse] = &[
         TerminalQueryResponse {
             query: b"\x1b[6n",
@@ -223,28 +292,116 @@ impl TerminalOutputFilter {
             response: TerminalResponse::CursorPosition { private: false },
         },
         TerminalQueryResponse {
-            query: b"\x1b[?6n",
-            response: TerminalResponse::CursorPosition { private: true },
-        },
-        TerminalQueryResponse {
-            query: b"\x9b?6n",
-            response: TerminalResponse::CursorPosition { private: true },
+            query: b"\xc2\x9b6n",
+            response: TerminalResponse::CursorPosition { private: false },
         },
         TerminalQueryResponse {
             query: b"\x1b[c",
-            response: TerminalResponse::Static(b"\x1b[?1;2c"),
+            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[0c",
+            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
         },
         TerminalQueryResponse {
             query: b"\x9bc",
-            response: TerminalResponse::Static(b"\x1b[?1;2c"),
+            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9bc",
+            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b0c",
+            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b0c",
+            response: TerminalResponse::Static(Self::PRIMARY_DEVICE_ATTRIBUTES),
         },
         TerminalQueryResponse {
             query: b"\x1b[>c",
-            response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
+            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[>0c",
+            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
         },
         TerminalQueryResponse {
             query: b"\x9b>c",
-            response: TerminalResponse::Static(b"\x1b[>0;0;0c"),
+            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b>0c",
+            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b>c",
+            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b>0c",
+            response: TerminalResponse::Static(Self::SECONDARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[=c",
+            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[=0c",
+            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b=c",
+            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b=0c",
+            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b=c",
+            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b=0c",
+            response: TerminalResponse::Static(Self::TERTIARY_DEVICE_ATTRIBUTES),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[x",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[0x",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
+        },
+        TerminalQueryResponse {
+            query: b"\x1b[1x",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1),
+        },
+        TerminalQueryResponse {
+            query: b"\x9bx",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b0x",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
+        },
+        TerminalQueryResponse {
+            query: b"\x9b1x",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9bx",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b0x",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_0),
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b1x",
+            response: TerminalResponse::Static(Self::TERMINAL_PARAMETERS_1),
         },
         TerminalQueryResponse {
             query: b"\x1b[>q",
@@ -259,7 +416,15 @@ impl TerminalOutputFilter {
             response: TerminalResponse::XtVersion,
         },
         TerminalQueryResponse {
+            query: b"\xc2\x9b>q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
             query: b"\x9b>0q",
+            response: TerminalResponse::XtVersion,
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b>0q",
             response: TerminalResponse::XtVersion,
         },
         TerminalQueryResponse {
@@ -271,12 +436,8 @@ impl TerminalOutputFilter {
             response: TerminalResponse::Static(b"\x1b[0n"),
         },
         TerminalQueryResponse {
-            query: b"\x1b[11t",
-            response: TerminalResponse::WindowState,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b11t",
-            response: TerminalResponse::WindowState,
+            query: b"\xc2\x9b5n",
+            response: TerminalResponse::Static(b"\x1b[0n"),
         },
         TerminalQueryResponse {
             query: b"\x1b[14t",
@@ -287,20 +448,8 @@ impl TerminalOutputFilter {
             response: TerminalResponse::WindowPixelSize,
         },
         TerminalQueryResponse {
-            query: b"\x1b[13t",
-            response: TerminalResponse::WindowPosition,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b13t",
-            response: TerminalResponse::WindowPosition,
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[15t",
-            response: TerminalResponse::ScreenPixelSize,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b15t",
-            response: TerminalResponse::ScreenPixelSize,
+            query: b"\xc2\x9b14t",
+            response: TerminalResponse::WindowPixelSize,
         },
         TerminalQueryResponse {
             query: b"\x1b[16t",
@@ -308,6 +457,10 @@ impl TerminalOutputFilter {
         },
         TerminalQueryResponse {
             query: b"\x9b16t",
+            response: TerminalResponse::CharacterCellSize,
+        },
+        TerminalQueryResponse {
+            query: b"\xc2\x9b16t",
             response: TerminalResponse::CharacterCellSize,
         },
         TerminalQueryResponse {
@@ -319,37 +472,27 @@ impl TerminalOutputFilter {
             response: TerminalResponse::TextAreaSize,
         },
         TerminalQueryResponse {
-            query: b"\x1b[19t",
-            response: TerminalResponse::ScreenSize,
+            query: b"\xc2\x9b18t",
+            response: TerminalResponse::TextAreaSize,
         },
-        TerminalQueryResponse {
-            query: b"\x9b19t",
-            response: TerminalResponse::ScreenSize,
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[20t",
-            response: TerminalResponse::IconLabel,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b20t",
-            response: TerminalResponse::IconLabel,
-        },
-        TerminalQueryResponse {
-            query: b"\x1b[21t",
-            response: TerminalResponse::WindowTitle,
-        },
-        TerminalQueryResponse {
-            query: b"\x9b21t",
-            response: TerminalResponse::WindowTitle,
-        },
+    ];
+    const IGNORED_QUERIES: &'static [&'static [u8]] = &[
+        b"\x1b[?6n".as_slice(),
+        b"\x9b?6n".as_slice(),
+        b"\xc2\x9b?6n".as_slice(),
     ];
 
     fn new(size: TerminalSize) -> Self {
         Self {
             pending: Vec::new(),
             size,
+            terminal_name: DEFAULT_TERMINAL_NAME.to_owned(),
             color_state: TerminalColorState::default(),
         }
+    }
+
+    fn set_terminal_name(&mut self, terminal_name: impl Into<String>) {
+        self.terminal_name = terminal_name.into();
     }
 
     fn resize(&mut self, size: TerminalSize) {
@@ -368,25 +511,31 @@ impl TerminalOutputFilter {
                 events.push(FilteredOutputEvent::Display(display));
             }
             let consumed_end = index + event.consumed;
-            events.push(match event.event {
-                MatchedTerminalEventKind::Response(response) => self.filtered_response(response),
+            let output_event = match event.event {
+                MatchedTerminalEventKind::Response(response) => {
+                    Some(self.filtered_response(response))
+                }
                 MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
-                    FilteredOutputEvent::SynchronizedOutputMode {
+                    Some(FilteredOutputEvent::SynchronizedOutputMode {
                         bytes: self.pending[index..consumed_end].to_vec(),
                         enabled,
-                    }
+                    })
                 }
                 MatchedTerminalEventKind::KittyKeyboardMode => {
-                    FilteredOutputEvent::KittyKeyboardMode {
+                    Some(FilteredOutputEvent::KittyKeyboardMode {
                         bytes: self.pending[index..consumed_end].to_vec(),
-                    }
+                    })
                 }
                 MatchedTerminalEventKind::KeyModifierOptions => {
-                    FilteredOutputEvent::KeyModifierOptions {
+                    Some(FilteredOutputEvent::KeyModifierOptions {
                         bytes: self.pending[index..consumed_end].to_vec(),
-                    }
+                    })
                 }
-            });
+                MatchedTerminalEventKind::IgnoredControl => None,
+            };
+            if let Some(output_event) = output_event {
+                events.push(output_event);
+            }
             self.pending.drain(..consumed_end);
         }
 
@@ -452,12 +601,48 @@ impl TerminalOutputFilter {
                 )
             },
         );
+        let ignored_window_query = find_ignored_wezterm_window_query(&self.pending)
+            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
+            .map(|control| {
+                (
+                    control.index,
+                    MatchedTerminalEvent {
+                        consumed: control.consumed,
+                        event: MatchedTerminalEventKind::IgnoredControl,
+                    },
+                )
+            });
+        let ignored_static_query = find_ignored_static_query(&self.pending, Self::IGNORED_QUERIES)
+            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
+            .map(|control| {
+                (
+                    control.index,
+                    MatchedTerminalEvent {
+                        consumed: control.consumed,
+                        event: MatchedTerminalEventKind::IgnoredControl,
+                    },
+                )
+            });
+        let st_control = find_st_control(&self.pending)
+            .filter(|control| !is_inside_osc_or_st_control_string(&self.pending, control.index))
+            .map(|control| {
+                (
+                    control.index,
+                    MatchedTerminalEvent {
+                        consumed: control.consumed,
+                        event: MatchedTerminalEventKind::IgnoredControl,
+                    },
+                )
+            });
 
         response
             .into_iter()
             .chain(synchronized_output)
             .chain(kitty_keyboard_mode)
             .chain(key_modifier_options)
+            .chain(ignored_window_query)
+            .chain(ignored_static_query)
+            .chain(st_control)
             .min_by_key(|(index, _)| *index)
     }
 
@@ -477,6 +662,13 @@ impl TerminalOutputFilter {
                 })
             })
             .min_by_key(|(index, _)| *index);
+        let window_report_response = find_wezterm_window_report_query(&self.pending).map(
+            |WindowReportQuery {
+                 index,
+                 consumed,
+                 response,
+             }| { (index, MatchedTerminalResponse { consumed, response }) },
+        );
         let mode_response = find_private_mode_status_query(&self.pending).map(
             |PrivateModeStatusQuery {
                  index,
@@ -548,17 +740,33 @@ impl TerminalOutputFilter {
                 )
             },
         );
-        let xtgettcap_response = find_xtgettcap_query(&self.pending, self.size).map(
-            |XtGetTcapQuery {
+        let xtgettcap_response =
+            find_xtgettcap_query(&self.pending, self.size, &self.terminal_name).map(
+                |XtGetTcapQuery {
+                     index,
+                     consumed,
+                     response,
+                 }| {
+                    (
+                        index,
+                        MatchedTerminalResponse {
+                            consumed,
+                            response: TerminalResponse::XtGetTcap(response),
+                        },
+                    )
+                },
+            );
+        let xtsmgraphics_response = find_xtsmgraphics_query(&self.pending).map(
+            |XtSmGraphicsQuery {
                  index,
                  consumed,
-                 response,
+                 request,
              }| {
                 (
                     index,
                     MatchedTerminalResponse {
                         consumed,
-                        response: TerminalResponse::XtGetTcap(response),
+                        response: TerminalResponse::XtSmGraphics(request),
                     },
                 )
             },
@@ -592,12 +800,14 @@ impl TerminalOutputFilter {
 
         static_response
             .into_iter()
+            .chain(window_report_response)
             .chain(mode_response)
             .chain(ansi_mode_response)
             .chain(osc_color_response)
             .chain(iterm_report_cell_size_response)
             .chain(decrqss_response)
             .chain(xtgettcap_response)
+            .chain(xtsmgraphics_response)
             .chain(kitty_keyboard_flags_response)
             .chain(key_modifier_options_response)
             .filter(|(index, _)| !is_inside_osc_or_st_control_string(&self.pending, *index))
@@ -617,10 +827,12 @@ impl TerminalOutputFilter {
             .max(osc_color_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
+            .max(xtsmgraphics_query_suffix_len(pending))
             .max(kitty_keyboard_flags_query_suffix_len(pending))
             .max(kitty_keyboard_mode_sequence_suffix_len(pending))
             .max(key_modifier_options_query_suffix_len(pending))
             .max(key_modifier_options_sequence_suffix_len(pending))
+            .max(st_control_suffix_len(pending))
             .max(incomplete_osc_control_sequence_suffix_len(pending))
             .max(incomplete_st_control_sequence_suffix_len(pending))
     }
@@ -633,6 +845,12 @@ impl TerminalOutputFilter {
     ) -> Vec<u8> {
         response.response_bytes(self.size, terminal, modes, &self.color_state)
     }
+
+    fn cursor_color_override(&self) -> Option<Color> {
+        self.color_state
+            .cursor_override()
+            .map(DynamicColor::to_color)
+    }
 }
 
 struct TerminalQueryResponse {
@@ -641,6 +859,12 @@ struct TerminalQueryResponse {
 }
 
 struct MatchedTerminalResponse {
+    consumed: usize,
+    response: TerminalResponse,
+}
+
+struct WindowReportQuery {
+    index: usize,
     consumed: usize,
     response: TerminalResponse,
 }
@@ -655,6 +879,7 @@ enum MatchedTerminalEventKind {
     SynchronizedOutputMode { enabled: bool },
     KittyKeyboardMode,
     KeyModifierOptions,
+    IgnoredControl,
 }
 
 impl From<MatchedTerminalResponse> for MatchedTerminalEvent {
@@ -670,21 +895,16 @@ impl From<MatchedTerminalResponse> for MatchedTerminalEvent {
 enum TerminalResponse {
     Static(&'static [u8]),
     CursorPosition { private: bool },
-    WindowState,
     WindowPixelSize,
-    WindowPosition,
-    ScreenPixelSize,
     CharacterCellSize,
     TextAreaSize,
-    ScreenSize,
-    IconLabel,
-    WindowTitle,
     PrivateModeStatus(u16),
     AnsiModeStatus(u16),
     OscColor(OscColorResponse),
     ItermReportCellSize,
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
+    XtSmGraphics(XtSmGraphicsRequest),
     XtVersion,
     KittyKeyboardFlags,
     KeyModifierOptions(u16),
@@ -718,16 +938,8 @@ impl TerminalResponse {
                     .into_bytes()
                 }
             }
-            TerminalResponse::WindowState => b"\x1b[1t".to_vec(),
             TerminalResponse::WindowPixelSize => format!(
                 "\x1b[4;{};{}t",
-                u32::from(size.rows) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
-                u32::from(size.columns) * u32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS)
-            )
-            .into_bytes(),
-            TerminalResponse::WindowPosition => b"\x1b[3;0;0t".to_vec(),
-            TerminalResponse::ScreenPixelSize => format!(
-                "\x1b[5;{};{}t",
                 u32::from(size.rows) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
                 u32::from(size.columns) * u32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS)
             )
@@ -741,11 +953,6 @@ impl TerminalResponse {
             TerminalResponse::TextAreaSize => {
                 format!("\x1b[8;{};{}t", size.rows, size.columns).into_bytes()
             }
-            TerminalResponse::ScreenSize => {
-                format!("\x1b[9;{};{}t", size.rows, size.columns).into_bytes()
-            }
-            TerminalResponse::IconLabel => osc_title_response(b'L', terminal.title()),
-            TerminalResponse::WindowTitle => osc_title_response(b'l', terminal.title()),
             TerminalResponse::PrivateModeStatus(mode) => {
                 format!("\x1b[?{};{}$y", mode, modes.private_mode_report_value(mode)).into_bytes()
             }
@@ -761,6 +968,7 @@ impl TerminalResponse {
             .into_bytes(),
             TerminalResponse::Decrqss(query) => query.response(terminal),
             TerminalResponse::XtGetTcap(query) => query.response(),
+            TerminalResponse::XtSmGraphics(request) => request.response(size),
             TerminalResponse::XtVersion => xtversion_response(),
             TerminalResponse::KittyKeyboardFlags => {
                 format!("\x1b[?{}u", modes.kitty_keyboard_flags()).into_bytes()
@@ -781,18 +989,6 @@ fn xtversion_response() -> Vec<u8> {
     format!("\x1bP>|R-SSH {}\x1b\\", env!("CARGO_PKG_VERSION")).into_bytes()
 }
 
-fn osc_title_response(kind: u8, title: Option<&str>) -> Vec<u8> {
-    let mut response = Vec::from([0x1b, b']', kind]);
-    response.extend(
-        title
-            .unwrap_or_default()
-            .bytes()
-            .filter(|byte| !matches!(byte, 0x00..=0x1f | 0x7f)),
-    );
-    response.extend_from_slice(b"\x1b\\");
-    response
-}
-
 fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
@@ -800,16 +996,209 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
     haystack
         .windows(needle.len())
-        .position(|window| window == needle)
+        .enumerate()
+        .find_map(|(index, window)| {
+            (window == needle && !raw_c1_prefix_is_utf8_continuation(haystack, index, needle))
+                .then_some(index)
+        })
+}
+
+fn raw_c1_prefix_is_utf8_continuation(bytes: &[u8], index: usize, prefix: &[u8]) -> bool {
+    prefix
+        .first()
+        .is_some_and(|byte| is_raw_c1_control_byte(*byte))
+        && is_utf8_continuation_in_potential_sequence(bytes, index)
+}
+
+fn is_raw_c1_control_byte(byte: u8) -> bool {
+    (0x80..=0x9f).contains(&byte)
+}
+
+fn is_utf8_continuation_in_potential_sequence(bytes: &[u8], index: usize) -> bool {
+    if index == 0
+        || bytes
+            .get(index)
+            .is_none_or(|byte| !is_utf8_continuation(*byte))
+    {
+        return false;
+    }
+
+    let mut start = index;
+    while start > 0 && is_utf8_continuation(bytes[start]) {
+        start -= 1;
+    }
+    if start == index {
+        return false;
+    }
+
+    let Some(expected_len) = utf8_sequence_len(bytes[start]) else {
+        return false;
+    };
+
+    index < start + expected_len
+        && bytes[start + 1..=index]
+            .iter()
+            .all(|byte| is_utf8_continuation(*byte))
+}
+
+fn utf8_sequence_len(byte: u8) -> Option<usize> {
+    match byte {
+        0x00..=0x7f => Some(1),
+        0xc2..=0xdf => Some(2),
+        0xe0..=0xef => Some(3),
+        0xf0..=0xf4 => Some(4),
+        _ => None,
+    }
+}
+
+fn is_utf8_continuation(byte: u8) -> bool {
+    byte & 0b1100_0000 == 0b1000_0000
+}
+
+fn dcs_start_prefixes() -> [(&'static [u8], usize); 3] {
+    [
+        (b"\x1bP".as_slice(), 2),
+        (UTF8_C1_DCS, UTF8_C1_DCS.len()),
+        (b"\x90".as_slice(), 1),
+    ]
+}
+
+fn csi_start_prefixes() -> [(&'static [u8], usize); 3] {
+    [
+        (b"\x1b[".as_slice(), 2),
+        (b"\x9b".as_slice(), 1),
+        (UTF8_C1_CSI, UTF8_C1_CSI.len()),
+    ]
+}
+
+fn find_ignored_static_query(bytes: &[u8], queries: &[&[u8]]) -> Option<StControl> {
+    queries
+        .iter()
+        .filter_map(|query| {
+            find_subslice(bytes, query).map(|index| StControl {
+                index,
+                consumed: query.len(),
+            })
+        })
+        .min_by_key(|control| control.index)
+}
+
+fn find_wezterm_window_report_query(bytes: &[u8]) -> Option<WindowReportQuery> {
+    csi_start_prefixes()
+        .into_iter()
+        .filter_map(|(prefix, prefix_len)| {
+            let index = find_subslice(bytes, prefix)?;
+            let body_start = index + prefix_len;
+            let body = &bytes[body_start..];
+            let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
+            if body[final_index] != b't' {
+                return None;
+            }
+            let response = wezterm_window_report_response(&body[..final_index])?;
+            Some(WindowReportQuery {
+                index,
+                consumed: prefix_len + final_index + 1,
+                response,
+            })
+        })
+        .min_by_key(|query| query.index)
+}
+
+fn wezterm_window_report_response(params: &[u8]) -> Option<TerminalResponse> {
+    let (first, second) = parse_wezterm_window_params(params)?;
+    match first {
+        14 if second.is_none() => Some(TerminalResponse::WindowPixelSize),
+        16 => Some(TerminalResponse::CharacterCellSize),
+        18 => Some(TerminalResponse::TextAreaSize),
+        _ => None,
+    }
+}
+
+fn find_ignored_wezterm_window_query(bytes: &[u8]) -> Option<StControl> {
+    csi_start_prefixes()
+        .into_iter()
+        .filter_map(|(prefix, prefix_len)| {
+            let index = find_subslice(bytes, prefix)?;
+            let body_start = index + prefix_len;
+            let body = &bytes[body_start..];
+            let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
+            if body[final_index] != b't' {
+                return None;
+            }
+            if !is_wezterm_ignored_window_query(&body[..final_index]) {
+                return None;
+            }
+            Some(StControl {
+                index,
+                consumed: prefix_len + final_index + 1,
+            })
+        })
+        .min_by_key(|control| control.index)
+}
+
+fn is_wezterm_ignored_window_query(params: &[u8]) -> bool {
+    wezterm_window_report_response(params).is_none()
+}
+
+fn parse_wezterm_window_params(params: &[u8]) -> Option<(i64, Option<i64>)> {
+    let mut parts = params.split(|byte| *byte == b';');
+    let first = parts.next().and_then(parse_ascii_i64)?;
+    let second = match parts.next() {
+        Some([]) | None => None,
+        Some(part) => Some(parse_ascii_i64(part)?),
+    };
+    if parts.any(|part| !part.is_empty() && parse_ascii_i64(part).is_none()) {
+        return None;
+    }
+    Some((first, second))
+}
+
+fn parse_ascii_i64(bytes: &[u8]) -> Option<i64> {
+    if bytes.is_empty() || !bytes.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    std::str::from_utf8(bytes).ok()?.parse().ok()
 }
 
 const UTF8_C1_OSC: &[u8] = b"\xc2\x9d";
+const UTF8_C1_CSI: &[u8] = b"\xc2\x9b";
+const UTF8_C1_PRIVATE_CSI: &[u8] = b"\xc2\x9b?";
+const UTF8_C1_DCS: &[u8] = b"\xc2\x90";
 const UTF8_C1_ST: &[u8] = b"\xc2\x9c";
 const OSC_START_PREFIXES: &[(&[u8], usize)] = &[
     (b"\x1b]".as_slice(), 2),
     (b"\x9d".as_slice(), 1),
     (UTF8_C1_OSC, UTF8_C1_OSC.len()),
 ];
+
+struct StControl {
+    index: usize,
+    consumed: usize,
+}
+
+fn find_st_control(bytes: &[u8]) -> Option<StControl> {
+    st_control_sequences()
+        .into_iter()
+        .filter_map(|sequence| {
+            find_subslice(bytes, sequence).map(|index| StControl {
+                index,
+                consumed: sequence.len(),
+            })
+        })
+        .min_by_key(|control| control.index)
+}
+
+fn st_control_suffix_len(bytes: &[u8]) -> usize {
+    st_control_sequences()
+        .into_iter()
+        .map(|sequence| suffix_prefix_len(bytes, sequence))
+        .max()
+        .unwrap_or(0)
+}
+
+fn st_control_sequences() -> [&'static [u8]; 3] {
+    [b"\x1b\\".as_slice(), b"\x9c".as_slice(), UTF8_C1_ST]
+}
 
 fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
     is_inside_control_string(bytes, index, find_next_osc_start, find_osc_color_terminator)
@@ -949,7 +1338,7 @@ impl DecrqssResponse {
 
 fn find_decrqss_query(bytes: &[u8]) -> Option<DecrqssQuery> {
     let mut match_query = None;
-    for (prefix, prefix_len) in [(b"\x1bP".as_slice(), 2), (b"\x90".as_slice(), 1)] {
+    for (prefix, prefix_len) in dcs_start_prefixes() {
         let mut offset = 0;
         while offset < bytes.len() {
             let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
@@ -1109,18 +1498,18 @@ fn append_left_right_margin_state((left, right): (u16, u16), bytes: &mut Vec<u8>
 }
 
 fn decrqss_query_suffix_len(bytes: &[u8]) -> usize {
-    (1..=bytes.len())
-        .rev()
-        .find(|&length| is_decrqss_query_prefix(&bytes[bytes.len() - length..]))
-        .unwrap_or(0)
+    suffix_len_matching_query_prefix(bytes, is_decrqss_query_prefix)
 }
 
 fn is_decrqss_query_prefix(bytes: &[u8]) -> bool {
     let Some(rest) = bytes
         .strip_prefix(b"\x1bP")
+        .or_else(|| bytes.strip_prefix(UTF8_C1_DCS))
         .or_else(|| bytes.strip_prefix(b"\x90"))
     else {
-        return b"\x1bP".starts_with(bytes) || b"\x90".starts_with(bytes);
+        return b"\x1bP".starts_with(bytes)
+            || UTF8_C1_DCS.starts_with(bytes)
+            || b"\x90".starts_with(bytes);
     };
     if !b"$q".starts_with(rest) && !rest.starts_with(b"$q") {
         return false;
@@ -1142,46 +1531,54 @@ struct XtGetTcapQuery {
 #[derive(Clone)]
 struct XtGetTcapResponse {
     entries: Vec<XtGetTcapEntry>,
-    terminator: OscResponseTerminator,
 }
 
 #[derive(Clone)]
 struct XtGetTcapEntry {
     name_hex: Vec<u8>,
-    value_hex: Vec<u8>,
+    value_hex: Option<Vec<u8>>,
 }
 
 impl XtGetTcapResponse {
     fn response(&self) -> Vec<u8> {
-        let mut response = if self.entries.is_empty() {
-            b"\x1bP0+r".to_vec()
-        } else {
-            let mut bytes = b"\x1bP1+r".to_vec();
-            for (index, entry) in self.entries.iter().enumerate() {
-                if index > 0 {
-                    bytes.push(b';');
-                }
-                bytes.extend_from_slice(&entry.name_hex);
-                bytes.push(b'=');
-                bytes.extend_from_slice(&entry.value_hex);
+        let mut response = Vec::new();
+        if self.entries.is_empty() {
+            response.extend_from_slice(b"\x1bP0+r\x1b\\");
+            return response;
+        }
+
+        for entry in &self.entries {
+            if let Some(value_hex) = &entry.value_hex {
+                response.extend_from_slice(b"\x1bP1+r");
+                extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
+                response.push(b'=');
+                extend_ascii_hex_uppercase(&mut response, value_hex);
+            } else {
+                response.extend_from_slice(b"\x1bP0+r");
+                extend_ascii_hex_uppercase(&mut response, &entry.name_hex);
             }
-            bytes
-        };
-        response.extend_from_slice(self.terminator.bytes());
+            response.extend_from_slice(b"\x1b\\");
+        }
         response
     }
 }
 
-fn find_xtgettcap_query(bytes: &[u8], size: TerminalSize) -> Option<XtGetTcapQuery> {
+fn find_xtgettcap_query(
+    bytes: &[u8],
+    size: TerminalSize,
+    terminal_name: &str,
+) -> Option<XtGetTcapQuery> {
     let mut match_query = None;
-    for (prefix, prefix_len) in [(b"\x1bP".as_slice(), 2), (b"\x90".as_slice(), 1)] {
+    for (prefix, prefix_len) in dcs_start_prefixes() {
         let mut offset = 0;
         while offset < bytes.len() {
             let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
                 break;
             };
             let index = offset + relative_index;
-            if let Some(query) = parse_xtgettcap_query(bytes, index, prefix_len, size) {
+            if let Some(query) =
+                parse_xtgettcap_query(bytes, index, prefix_len, size, terminal_name)
+            {
                 if match_query
                     .as_ref()
                     .is_none_or(|current: &XtGetTcapQuery| query.index < current.index)
@@ -1200,6 +1597,7 @@ fn parse_xtgettcap_query(
     index: usize,
     prefix_len: usize,
     size: TerminalSize,
+    terminal_name: &str,
 ) -> Option<XtGetTcapQuery> {
     let content_start = index + prefix_len;
     let rest = bytes.get(content_start..)?;
@@ -1208,16 +1606,13 @@ fn parse_xtgettcap_query(
     let content = &body[..terminator.index];
     let entries = content
         .split(|byte| *byte == b';')
-        .filter_map(|entry| parse_xtgettcap_entry(entry, size))
+        .map(|entry| parse_xtgettcap_entry(entry, size, terminal_name))
         .collect();
 
     Some(XtGetTcapQuery {
         index,
         consumed: prefix_len + b"+q".len() + terminator.index + terminator.length,
-        response: XtGetTcapResponse {
-            entries,
-            terminator: terminator.response_terminator,
-        },
+        response: XtGetTcapResponse { entries },
     })
 }
 
@@ -1235,28 +1630,39 @@ fn find_xtgettcap_terminator(bytes: &[u8]) -> Option<OscColorTerminator> {
             length: 1,
             response_terminator: OscResponseTerminator::C1St,
         });
+    let utf8_c1_st = find_subslice(bytes, UTF8_C1_ST).map(|index| OscColorTerminator {
+        index,
+        length: UTF8_C1_ST.len(),
+        response_terminator: OscResponseTerminator::C1St,
+    });
 
-    [st, c1_st]
+    [st, c1_st, utf8_c1_st]
         .into_iter()
         .flatten()
         .min_by_key(|terminator| terminator.index)
 }
 
-fn parse_xtgettcap_entry(name_hex: &[u8], size: TerminalSize) -> Option<XtGetTcapEntry> {
-    let name = decode_ascii_hex(name_hex)?;
-    let value_hex = xtgettcap_value_hex(&name, size)?;
-    Some(XtGetTcapEntry {
-        name_hex: name_hex.to_vec(),
+fn parse_xtgettcap_entry(
+    name_hex: &[u8],
+    size: TerminalSize,
+    terminal_name: &str,
+) -> XtGetTcapEntry {
+    let name = decode_ascii_hex(name_hex).map_or_else(
+        || String::from_utf8_lossy(name_hex).into_owned().into_bytes(),
+        |bytes| String::from_utf8_lossy(&bytes).into_owned().into_bytes(),
+    );
+    let value_hex = xtgettcap_value_hex(&name, size, terminal_name);
+    XtGetTcapEntry {
+        name_hex: encode_ascii_hex(&name),
         value_hex,
-    })
+    }
 }
-
 #[allow(clippy::match_same_arms, clippy::too_many_lines)]
-fn xtgettcap_value_hex(name: &[u8], size: TerminalSize) -> Option<Vec<u8>> {
+fn xtgettcap_value_hex(name: &[u8], size: TerminalSize, terminal_name: &str) -> Option<Vec<u8>> {
     match name {
         b"Co" | b"colors" => Some(b"323536".to_vec()),
-        b"TN" => Some(b"787465726d2d323536636f6c6f72".to_vec()),
-        b"RGB" => Some(b"524742".to_vec()),
+        b"TN" | b"name" => Some(encode_ascii_hex(terminal_name.as_bytes())),
+        b"RGB" => Some(b"382f382f38".to_vec()),
         b"Tc" => Some(b"31".to_vec()),
         b"am" => Some(b"31".to_vec()),
         b"bce" => Some(b"31".to_vec()),
@@ -1281,8 +1687,8 @@ fn xtgettcap_value_hex(name: &[u8], size: TerminalSize) -> Option<Vec<u8>> {
             b"1b5b35383a323a3a257031257b36353533367d252f25643a257031257b3235367d252f257b3235357d252625643a257031257b3235357d25262564253b6d"
                 .to_vec(),
         ),
-        b"Cr" => Some(encode_ascii_hex(b"\x1b]112\x1b\\")),
-        b"Cs" => Some(encode_ascii_hex(b"\x1b]12;%p1%s\x1b\\")),
+        b"Cr" => Some(encode_ascii_hex(b"\x1b]112\x07")),
+        b"Cs" => Some(encode_ascii_hex(b"\x1b]12;%p1%s\x07")),
         b"Se" => Some(encode_ascii_hex(b"\x1b[2 q")),
         b"Ss" => Some(encode_ascii_hex(b"\x1b[%p1%d q")),
         b"Sync" => Some(encode_ascii_hex(b"\x1b[?2026%?%p1%{1}%-%tl%eh%;")),
@@ -1479,6 +1885,21 @@ fn parse_ascii_decimal_u8(bytes: &[u8]) -> Option<u8> {
     Some(value)
 }
 
+fn parse_ascii_decimal_u64(bytes: &[u8]) -> Option<u64> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let mut value = 0u64;
+    for &byte in bytes {
+        if !byte.is_ascii_digit() {
+            return None;
+        }
+        value = value.checked_mul(10)?.checked_add(u64::from(byte - b'0'))?;
+    }
+    Some(value)
+}
+
 fn decimal_value_hex(value: u16) -> Vec<u8> {
     encode_ascii_hex(value.to_string().as_bytes())
 }
@@ -1493,6 +1914,10 @@ fn encode_ascii_hex(bytes: &[u8]) -> Vec<u8> {
     encoded
 }
 
+fn extend_ascii_hex_uppercase(output: &mut Vec<u8>, hex: &[u8]) {
+    output.extend(hex.iter().map(u8::to_ascii_uppercase));
+}
+
 fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
     if bytes.is_empty() || bytes.len() % 2 != 0 {
         return None;
@@ -1504,18 +1929,18 @@ fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn xtgettcap_query_suffix_len(bytes: &[u8]) -> usize {
-    (1..=bytes.len())
-        .rev()
-        .find(|&length| is_xtgettcap_query_prefix(&bytes[bytes.len() - length..]))
-        .unwrap_or(0)
+    suffix_len_matching_query_prefix(bytes, is_xtgettcap_query_prefix)
 }
 
 fn is_xtgettcap_query_prefix(bytes: &[u8]) -> bool {
     let Some(rest) = bytes
         .strip_prefix(b"\x1bP")
+        .or_else(|| bytes.strip_prefix(UTF8_C1_DCS))
         .or_else(|| bytes.strip_prefix(b"\x90"))
     else {
-        return b"\x1bP".starts_with(bytes) || b"\x90".starts_with(bytes);
+        return b"\x1bP".starts_with(bytes)
+            || UTF8_C1_DCS.starts_with(bytes)
+            || b"\x90".starts_with(bytes);
     };
     if !b"+q".starts_with(rest) && !rest.starts_with(b"+q") {
         return false;
@@ -1526,6 +1951,144 @@ fn is_xtgettcap_query_prefix(bytes: &[u8]) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() || *byte == b';');
     }
     true
+}
+
+struct XtSmGraphicsQuery {
+    index: usize,
+    consumed: usize,
+    request: XtSmGraphicsRequest,
+}
+
+#[derive(Clone, Copy)]
+struct XtSmGraphicsRequest {
+    item: u64,
+    action: u64,
+}
+
+impl XtSmGraphicsRequest {
+    const ACTION_READ_ATTRIBUTE: u64 = 1;
+    const ACTION_RESET_TO_DEFAULT: u64 = 2;
+    const ACTION_READ_MAXIMUM_ALLOWED_VALUE: u64 = 4;
+    const ITEM_NUMBER_OF_COLOR_REGISTERS: u64 = 1;
+    const ITEM_SIXEL_GRAPHICS_GEOMETRY: u64 = 2;
+    const ITEM_REGIS_GRAPHICS_GEOMETRY: u64 = 3;
+    const STATUS_SUCCESS: u64 = 0;
+    const STATUS_INVALID_ITEM: u64 = 1;
+    const STATUS_INVALID_ACTION: u64 = 2;
+
+    fn response(self, size: TerminalSize) -> Vec<u8> {
+        let (status, values) = self.status_and_values(size);
+        let mut response = format!("\x1b[?{};{}", self.item, status);
+        for value in values {
+            response.push(';');
+            response.push_str(&value.to_string());
+        }
+        response.push('S');
+        response.into_bytes()
+    }
+
+    fn status_and_values(self, size: TerminalSize) -> (u64, Vec<u32>) {
+        if !matches!(
+            self.item,
+            Self::ITEM_NUMBER_OF_COLOR_REGISTERS
+                | Self::ITEM_SIXEL_GRAPHICS_GEOMETRY
+                | Self::ITEM_REGIS_GRAPHICS_GEOMETRY
+        ) {
+            return (Self::STATUS_INVALID_ITEM, Vec::new());
+        }
+
+        match self.action {
+            Self::ACTION_READ_ATTRIBUTE | Self::ACTION_READ_MAXIMUM_ALLOWED_VALUE => {
+                (Self::STATUS_SUCCESS, self.values(size))
+            }
+            Self::ACTION_RESET_TO_DEFAULT => (Self::STATUS_SUCCESS, Vec::new()),
+            _ => (Self::STATUS_INVALID_ACTION, Vec::new()),
+        }
+    }
+
+    fn values(self, size: TerminalSize) -> Vec<u32> {
+        match self.item {
+            Self::ITEM_NUMBER_OF_COLOR_REGISTERS => vec![65_536],
+            Self::ITEM_SIXEL_GRAPHICS_GEOMETRY | Self::ITEM_REGIS_GRAPHICS_GEOMETRY => vec![
+                u32::from(size.columns) * u32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS),
+                u32::from(size.rows) * u32::from(TerminalOutputFilter::CELL_HEIGHT_PIXELS),
+            ],
+            _ => Vec::new(),
+        }
+    }
+}
+
+fn find_xtsmgraphics_query(bytes: &[u8]) -> Option<XtSmGraphicsQuery> {
+    let mut match_query = None;
+    for (prefix, prefix_len) in csi_start_prefixes() {
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let Some(relative_index) = find_subslice(&bytes[offset..], prefix) else {
+                break;
+            };
+            let index = offset + relative_index;
+            if let Some(query) = parse_xtsmgraphics_query(bytes, index, prefix_len) {
+                if match_query
+                    .as_ref()
+                    .is_none_or(|current: &XtSmGraphicsQuery| query.index < current.index)
+                {
+                    match_query = Some(query);
+                }
+            }
+            offset = index.saturating_add(1);
+        }
+    }
+    match_query
+}
+
+fn parse_xtsmgraphics_query(
+    bytes: &[u8],
+    index: usize,
+    prefix_len: usize,
+) -> Option<XtSmGraphicsQuery> {
+    let content_start = index + prefix_len;
+    let body = bytes.get(content_start..)?.strip_prefix(b"?")?;
+    let final_index = body.iter().position(|byte| *byte == b'S')?;
+    let content = &body[..final_index];
+    let mut parameters = content.split(|byte| *byte == b';');
+    let item = parse_ascii_decimal_u64(parameters.next()?)?;
+    let action = parse_ascii_decimal_u64(parameters.next()?)?;
+    for parameter in parameters {
+        parse_ascii_decimal_u64(parameter)?;
+    }
+
+    Some(XtSmGraphicsQuery {
+        index,
+        consumed: prefix_len + b"?".len() + final_index + b"S".len(),
+        request: XtSmGraphicsRequest { item, action },
+    })
+}
+
+fn xtsmgraphics_query_suffix_len(bytes: &[u8]) -> usize {
+    suffix_len_matching_query_prefix(bytes, is_xtsmgraphics_query_prefix)
+}
+
+fn is_xtsmgraphics_query_prefix(bytes: &[u8]) -> bool {
+    let Some(rest) = bytes
+        .strip_prefix(b"\x1b[")
+        .or_else(|| bytes.strip_prefix(b"\x9b"))
+        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
+    else {
+        return b"\x1b[".starts_with(bytes)
+            || b"\x9b".starts_with(bytes)
+            || UTF8_C1_CSI.starts_with(bytes);
+    };
+
+    if !b"?".starts_with(rest) && !rest.starts_with(b"?") {
+        return false;
+    }
+    let Some(body) = rest.strip_prefix(b"?") else {
+        return true;
+    };
+    !body.contains(&b'S')
+        && body
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || *byte == b';')
 }
 
 struct OscColorQuery {
@@ -1676,10 +2239,7 @@ fn parse_u8_decimal(bytes: &[u8]) -> Option<u8> {
 }
 
 fn osc_color_query_suffix_len(bytes: &[u8]) -> usize {
-    (1..=bytes.len())
-        .rev()
-        .find(|&length| is_osc_color_query_prefix(&bytes[bytes.len() - length..]))
-        .unwrap_or(0)
+    suffix_len_matching_query_prefix(bytes, is_osc_color_query_prefix)
 }
 
 fn is_osc_color_query_prefix(bytes: &[u8]) -> bool {
@@ -1786,7 +2346,7 @@ fn parse_iterm_report_cell_size_query(
 struct TerminalColorState {
     foreground: DynamicColor,
     background: DynamicColor,
-    cursor: DynamicColor,
+    cursor_override: Option<DynamicColor>,
     palette_overrides: Vec<(u8, [u8; 3])>,
     pending: Vec<u8>,
 }
@@ -1796,7 +2356,7 @@ impl Default for TerminalColorState {
         Self {
             foreground: DynamicColor::rgb8(DEFAULT_FOREGROUND),
             background: DynamicColor::rgb8(DEFAULT_BACKGROUND),
-            cursor: DynamicColor::rgb8(DEFAULT_CURSOR),
+            cursor_override: None,
             palette_overrides: Vec::new(),
             pending: Vec::new(),
         }
@@ -1850,7 +2410,7 @@ impl TerminalColorState {
                     format!("\x1b]11;{}", color_response(self.background)).into_bytes()
                 }
                 OscColorKind::Cursor => {
-                    format!("\x1b]12;{}", color_response(self.cursor)).into_bytes()
+                    format!("\x1b]12;{}", color_response(self.cursor_color())).into_bytes()
                 }
                 OscColorKind::Palette(index) => format!(
                     "\x1b]4;{};{}",
@@ -1869,14 +2429,14 @@ impl TerminalColorState {
         match change {
             OscColorChange::DefaultForeground(color) => self.foreground = color,
             OscColorChange::DefaultBackground(color) => self.background = color,
-            OscColorChange::Cursor(color) => self.cursor = color,
+            OscColorChange::Cursor(color) => self.cursor_override = Some(color),
             OscColorChange::ResetDefaultForeground => {
                 self.foreground = DynamicColor::rgb8(DEFAULT_FOREGROUND);
             }
             OscColorChange::ResetDefaultBackground => {
                 self.background = DynamicColor::rgb8(DEFAULT_BACKGROUND);
             }
-            OscColorChange::ResetCursor => self.cursor = DynamicColor::rgb8(DEFAULT_CURSOR),
+            OscColorChange::ResetCursor => self.cursor_override = None,
             OscColorChange::ResetPalette(indices) => self
                 .palette_overrides
                 .retain(|(palette_index, _)| !indices.contains(palette_index)),
@@ -1902,6 +2462,15 @@ impl TerminalColorState {
             .iter()
             .find_map(|(palette_index, color)| (*palette_index == index).then_some(*color))
             .unwrap_or_else(|| indexed_color(index))
+    }
+
+    fn cursor_color(&self) -> DynamicColor {
+        self.cursor_override
+            .unwrap_or_else(|| DynamicColor::rgb8(DEFAULT_CURSOR))
+    }
+
+    fn cursor_override(&self) -> Option<DynamicColor> {
+        self.cursor_override
     }
 
     fn retain_possible_prefix(&mut self) {
@@ -1949,6 +2518,7 @@ fn find_next_st_control_string_start(bytes: &[u8]) -> Option<(usize, usize)> {
         (b"\x1bX".as_slice(), 2),
         (b"\x1b^".as_slice(), 2),
         (b"\x1b_".as_slice(), 2),
+        (UTF8_C1_DCS, UTF8_C1_DCS.len()),
         (b"\x90".as_slice(), 1),
         (b"\x98".as_slice(), 1),
         (b"\x9e".as_slice(), 1),
@@ -2194,6 +2764,16 @@ impl DynamicColor {
             (self.blue >> 8) as u8,
         ]
     }
+
+    const fn to_color(self) -> Color {
+        let red = (self.red >> 8) as u8;
+        let green = (self.green >> 8) as u8;
+        let blue = (self.blue >> 8) as u8;
+        match self.alpha {
+            Some(alpha) => Color::Rgba(red, green, blue, (alpha >> 8) as u8),
+            None => Color::Rgb(red, green, blue),
+        }
+    }
 }
 
 fn color_response(color: DynamicColor) -> String {
@@ -2271,6 +2851,7 @@ fn find_private_mode_status_query(bytes: &[u8]) -> Option<PrivateModeStatusQuery
     for (prefix, prefix_len) in [
         (b"\x1b[?".as_slice(), b"\x1b[?".len()),
         (b"\x9b?".as_slice(), b"\x9b?".len()),
+        (UTF8_C1_PRIVATE_CSI, UTF8_C1_PRIVATE_CSI.len()),
     ] {
         let mut offset = 0;
         while offset < bytes.len() {
@@ -2297,6 +2878,7 @@ fn find_ansi_mode_status_query(bytes: &[u8]) -> Option<AnsiModeStatusQuery> {
     for (prefix, prefix_len) in [
         (b"\x1b[".as_slice(), b"\x1b[".len()),
         (b"\x9b".as_slice(), b"\x9b".len()),
+        (UTF8_C1_CSI, UTF8_C1_CSI.len()),
     ] {
         let mut offset = 0;
         while offset < bytes.len() {
@@ -2367,27 +2949,23 @@ fn parse_ansi_mode_status_query(
 }
 
 fn private_mode_status_query_suffix_len(bytes: &[u8]) -> usize {
-    (1..=bytes.len())
-        .rev()
-        .find(|&length| is_private_mode_status_query_prefix(&bytes[bytes.len() - length..]))
-        .unwrap_or(0)
+    suffix_len_matching_query_prefix(bytes, is_private_mode_status_query_prefix)
 }
 
 fn ansi_mode_status_query_suffix_len(bytes: &[u8]) -> usize {
-    (1..=bytes.len())
-        .rev()
-        .find(|&length| is_ansi_mode_status_query_prefix(&bytes[bytes.len() - length..]))
-        .unwrap_or(0)
+    suffix_len_matching_query_prefix(bytes, is_ansi_mode_status_query_prefix)
 }
 
 fn is_private_mode_status_query_prefix(bytes: &[u8]) -> bool {
     let Some(rest) = bytes
         .strip_prefix(b"\x1b[?")
         .or_else(|| bytes.strip_prefix(b"\x9b?"))
+        .or_else(|| bytes.strip_prefix(UTF8_C1_PRIVATE_CSI))
     else {
         return b"\x1b[".starts_with(bytes)
             || b"\x1b[?".starts_with(bytes)
-            || b"\x9b?".starts_with(bytes);
+            || b"\x9b?".starts_with(bytes)
+            || UTF8_C1_PRIVATE_CSI.starts_with(bytes);
     };
 
     let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
@@ -2402,8 +2980,11 @@ fn is_ansi_mode_status_query_prefix(bytes: &[u8]) -> bool {
     let Some(rest) = bytes
         .strip_prefix(b"\x1b[")
         .or_else(|| bytes.strip_prefix(b"\x9b"))
+        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
     else {
-        return b"\x1b[".starts_with(bytes);
+        return b"\x1b[".starts_with(bytes)
+            || b"\x9b".starts_with(bytes)
+            || UTF8_C1_CSI.starts_with(bytes);
     };
 
     let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
@@ -2419,7 +3000,26 @@ fn suffix_prefix_len(bytes: &[u8], prefix: &[u8]) -> usize {
 
     (1..=max_len)
         .rev()
-        .find(|&length| bytes[bytes.len() - length..] == prefix[..length])
+        .find(|&length| {
+            let suffix_start = bytes.len() - length;
+            bytes[suffix_start..] == prefix[..length]
+                && !raw_c1_prefix_is_utf8_continuation(bytes, suffix_start, &prefix[..length])
+        })
+        .unwrap_or(0)
+}
+
+fn suffix_len_matching_query_prefix(
+    bytes: &[u8],
+    mut is_query_prefix: impl FnMut(&[u8]) -> bool,
+) -> usize {
+    (1..=bytes.len())
+        .rev()
+        .find(|&length| {
+            let suffix_start = bytes.len() - length;
+            let suffix = &bytes[suffix_start..];
+            is_query_prefix(suffix)
+                && !raw_c1_prefix_is_utf8_continuation(bytes, suffix_start, suffix)
+        })
         .unwrap_or(0)
 }
 
@@ -2749,6 +3349,13 @@ fn parse_rxvt_notify_content(content: &[u8]) -> Option<TerminalNotification> {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     use rssh_core::TerminalSize;
 
     use crate::terminal_modes::{MouseInputMode, MouseProtocolMode, MouseReportingMode};
@@ -2765,6 +3372,43 @@ mod tests {
         assert_eq!(runtime.terminal().grid().get(0, 0).unwrap().ch, 'a');
         assert_eq!(runtime.terminal().grid().get(0, 1).unwrap().ch, 'b');
         assert_eq!(runtime.terminal().grid().get(0, 2).unwrap().ch, 'c');
+    }
+
+    #[test]
+    fn feeds_emoji_prefixed_pty_output_into_terminal_grid() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(24, 2));
+
+        let output = runtime.feed_pty_output_with_display("👍 Process".as_bytes());
+
+        assert!(output.responses.is_empty());
+        assert!(
+            terminal_text(&runtime).contains("Process"),
+            "display={:?} text={:?}",
+            String::from_utf8_lossy(&output.display),
+            terminal_text(&runtime)
+        );
+    }
+
+    #[test]
+    fn does_not_match_raw_c1_inside_utf8_text() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(24, 2));
+
+        let output = runtime.feed_pty_output_with_display(b"before \xc3\x9b6n after");
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.display, b"before \xc3\x9b6n after");
+        assert!(terminal_text(&runtime).contains("before Û6n after"));
+    }
+
+    #[test]
+    fn does_not_retain_raw_c1_prefix_inside_utf8_text() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(24, 2));
+
+        let output = runtime.feed_pty_output_with_display(b"before \xc3\x9b");
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.display, b"before \xc3\x9b");
+        assert!(terminal_text(&runtime).contains("before Û"));
     }
 
     #[test]
@@ -2817,6 +3461,34 @@ mod tests {
     }
 
     #[test]
+    fn consumes_wezterm_no_response_window_title_stack_controls_without_side_effects() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"before\x1b]0;main\x07\x1b[22;0t middle\x1b]0;alternate\x07\x1b[23;2tafter",
+        );
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.display, b"before middleafter");
+        assert_eq!(runtime.terminal().title(), Some("alternate"));
+        assert!(terminal_text(&runtime).contains("before middleafter"));
+    }
+
+    #[test]
+    fn malformed_window_title_stack_controls_do_not_fall_through_to_terminal_parser() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let output = runtime.feed_pty_output_with_display(
+            b"before\x1b]0;main\x07\x1b[22;?t middle\x1b]0;alternate\x07\x1b[23;?tafter",
+        );
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.display, b"before middleafter");
+        assert_eq!(runtime.terminal().title(), Some("alternate"));
+        assert!(terminal_text(&runtime).contains("before middleafter"));
+    }
+
+    #[test]
     fn tracks_c1_osc8_hyperlinks_without_displaying_control_bytes() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
@@ -2847,6 +3519,26 @@ mod tests {
         );
         assert_eq!(runtime.terminal().grid().get(0, 0).unwrap().hyperlink, None);
         assert_eq!(runtime.terminal().grid().get(0, 3).unwrap().hyperlink, None);
+    }
+
+    #[test]
+    fn omits_st_controls_without_displaying_control_bytes() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let first = runtime.feed_pty_output_with_display(b"ab\x1b\\cd\x9cef");
+        let second = runtime.feed_pty_output_with_display("gh\u{9c}ij".as_bytes());
+        let third = runtime.feed_pty_output_with_display(b"kl\x1b");
+        let fourth = runtime.feed_pty_output_with_display(b"\\mn");
+
+        assert!(first.responses.is_empty());
+        assert_eq!(first.display, b"abcdef");
+        assert!(second.responses.is_empty());
+        assert_eq!(second.display, b"ghij");
+        assert!(third.responses.is_empty());
+        assert_eq!(third.display, b"kl");
+        assert!(fourth.responses.is_empty());
+        assert_eq!(fourth.display, b"mn");
+        assert!(terminal_text(&runtime).contains("abcdefghijklmn"));
     }
 
     #[test]
@@ -2922,33 +3614,48 @@ mod tests {
     }
 
     #[test]
-    fn answers_private_cursor_position_query_with_current_cursor() {
+    fn consumes_private_cursor_position_queries_like_wezterm() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        let csi = '\u{9b}';
+        let mut input = b"abc\x1b[?6n def".to_vec();
+        input.extend_from_slice(b"\x9b?6n ghi");
+        input.extend_from_slice(format!("{csi}?6n").as_bytes());
 
-        let responses = runtime.feed_pty_output(b"abc\x1b[?6n");
+        let responses = runtime.feed_pty_output(&input);
 
-        assert_eq!(responses, vec![b"\x1b[?1;4R".to_vec()]);
-        assert!(terminal_text(&runtime).contains("abc"));
+        assert!(responses.is_empty());
+        let text = terminal_text(&runtime);
+        assert!(text.contains("abc def ghi"));
+        assert!(!text.contains("?6n"));
     }
 
     #[test]
     fn answers_device_and_status_queries_without_feeding_them_to_terminal() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
-        let responses = runtime.feed_pty_output(b"a\x1b[c b\x1b[>c c\x1b[5n d");
+        let responses = runtime
+            .feed_pty_output(b"a\x1b[c b\x1b[0c c\x1b[>c d\x1b[>0c e\x1b[=c f\x1b[=0c g\x1b[5n h");
 
         assert_eq!(
             responses,
             vec![
-                b"\x1b[?1;2c".to_vec(),
-                b"\x1b[>0;0;0c".to_vec(),
+                b"\x1b[?65;4;6;18;22;52c".to_vec(),
+                b"\x1b[?65;4;6;18;22;52c".to_vec(),
+                b"\x1b[>1;277;0c".to_vec(),
+                b"\x1b[>1;277;0c".to_vec(),
+                b"\x1bP!|00000000\x1b\\".to_vec(),
+                b"\x1bP!|00000000\x1b\\".to_vec(),
                 b"\x1b[0n".to_vec()
             ]
         );
 
         let text = terminal_text(&runtime);
-        assert!(text.contains("a b c d"));
+        assert!(text.contains("a b c d e f g h"));
+        assert!(!text.contains("[0c"));
         assert!(!text.contains("[>c"));
+        assert!(!text.contains("[>0c"));
+        assert!(!text.contains("[=c"));
+        assert!(!text.contains("[=0c"));
         assert!(!text.contains("[5n"));
     }
 
@@ -2956,17 +3663,210 @@ mod tests {
     fn answers_c1_device_and_status_queries_without_feeding_them_to_terminal() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
-        let responses = runtime.feed_pty_output(b"a\x9bc b\x9b>c c\x9b5n d");
+        let responses =
+            runtime.feed_pty_output(b"a\x9bc b\x9b0c c\x9b>c d\x9b>0c e\x9b=c f\x9b=0c g\x9b5n h");
 
         assert_eq!(
             responses,
             vec![
-                b"\x1b[?1;2c".to_vec(),
-                b"\x1b[>0;0;0c".to_vec(),
+                b"\x1b[?65;4;6;18;22;52c".to_vec(),
+                b"\x1b[?65;4;6;18;22;52c".to_vec(),
+                b"\x1b[>1;277;0c".to_vec(),
+                b"\x1b[>1;277;0c".to_vec(),
+                b"\x1bP!|00000000\x1b\\".to_vec(),
+                b"\x1bP!|00000000\x1b\\".to_vec(),
                 b"\x1b[0n".to_vec()
             ]
         );
-        assert!(terminal_text(&runtime).contains("a b c d"));
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d e f g h"));
+        assert!(!text.contains("0c"));
+        assert!(!text.contains("=c"));
+    }
+
+    #[test]
+    fn answers_utf8_c1_device_and_status_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        let csi = '\u{9b}';
+        let input = format!("a{csi}c b{csi}0c c{csi}>c d{csi}>0c e{csi}=c f{csi}=0c g{csi}5n h");
+
+        let responses = runtime.feed_pty_output(input.as_bytes());
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?65;4;6;18;22;52c".to_vec(),
+                b"\x1b[?65;4;6;18;22;52c".to_vec(),
+                b"\x1b[>1;277;0c".to_vec(),
+                b"\x1b[>1;277;0c".to_vec(),
+                b"\x1bP!|00000000\x1b\\".to_vec(),
+                b"\x1bP!|00000000\x1b\\".to_vec(),
+                b"\x1b[0n".to_vec()
+            ]
+        );
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d e f g h"));
+        assert!(!text.contains("0c"));
+        assert!(!text.contains("=c"));
+    }
+
+    #[test]
+    fn answers_terminal_parameter_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let responses = runtime.feed_pty_output(b"a\x1b[x b\x1b[0x c\x1b[1x d");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[2;1;1;128;128;1;0x".to_vec(),
+                b"\x1b[2;1;1;128;128;1;0x".to_vec(),
+                b"\x1b[3;1;1;128;128;1;0x".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d"));
+        assert!(!text.contains("[x"));
+        assert!(!text.contains("[0x"));
+        assert!(!text.contains("[1x"));
+    }
+
+    #[test]
+    fn answers_c1_terminal_parameter_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        let responses = runtime.feed_pty_output(b"a\x9bx b\x9b0x c\x9b1x d");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[2;1;1;128;128;1;0x".to_vec(),
+                b"\x1b[2;1;1;128;128;1;0x".to_vec(),
+                b"\x1b[3;1;1;128;128;1;0x".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d"));
+        assert!(!text.contains("0x"));
+        assert!(!text.contains("1x"));
+    }
+
+    #[test]
+    fn answers_utf8_c1_terminal_parameter_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        let csi = '\u{9b}';
+        let input = format!("a{csi}x b{csi}0x c{csi}1x d");
+
+        let responses = runtime.feed_pty_output(input.as_bytes());
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[2;1;1;128;128;1;0x".to_vec(),
+                b"\x1b[2;1;1;128;128;1;0x".to_vec(),
+                b"\x1b[3;1;1;128;128;1;0x".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d"));
+        assert!(!text.contains("0x"));
+        assert!(!text.contains("1x"));
+    }
+
+    #[test]
+    fn answers_xtsmgraphics_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(
+            b"a\x1b[?1;1S b\x1b[?1;4S c\x1b[?2;1S d\x1b[?2;4S e\x1b[?3;1S f\x1b[?3;4S g\x1b[?2;2S h\x1b[?9;1S i\x1b[?1;3;10S j",
+        );
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?1;0;65536S".to_vec(),
+                b"\x1b[?1;0;65536S".to_vec(),
+                b"\x1b[?2;0;1056;688S".to_vec(),
+                b"\x1b[?2;0;1056;688S".to_vec(),
+                b"\x1b[?3;0;1056;688S".to_vec(),
+                b"\x1b[?3;0;1056;688S".to_vec(),
+                b"\x1b[?2;0S".to_vec(),
+                b"\x1b[?9;1S".to_vec(),
+                b"\x1b[?1;2S".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d e f g h i j"));
+        assert!(!text.contains("?1;1S"));
+        assert!(!text.contains("?2;4S"));
+        assert!(!text.contains("?9;1S"));
+    }
+
+    #[test]
+    fn answers_xtsmgraphics_large_numeric_parameters_like_wezterm() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses =
+            runtime.feed_pty_output(b"a\x1b[?70000;1S b\x1b[?1;70000S c\x1b[?1;1;70000S d");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?70000;1S".to_vec(),
+                b"\x1b[?1;2S".to_vec(),
+                b"\x1b[?1;0;65536S".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d"));
+        assert!(!text.contains("70000"));
+    }
+
+    #[test]
+    fn answers_c1_xtsmgraphics_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses = runtime.feed_pty_output(b"a\x9b?1;1S b\x9b?2;4S c\x9b?9;1S d");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?1;0;65536S".to_vec(),
+                b"\x1b[?2;0;1056;688S".to_vec(),
+                b"\x1b[?9;1S".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d"));
+        assert!(!text.contains("?1;1S"));
+    }
+
+    #[test]
+    fn answers_utf8_c1_xtsmgraphics_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+        let csi = '\u{9b}';
+        let input = format!("a{csi}?1;1S b{csi}?2;4S c{csi}?9;1S d");
+
+        let responses = runtime.feed_pty_output(input.as_bytes());
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?1;0;65536S".to_vec(),
+                b"\x1b[?2;0;1056;688S".to_vec(),
+                b"\x1b[?9;1S".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("a b c d"));
+        assert!(!text.contains("?1;1S"));
     }
 
     #[test]
@@ -2996,12 +3896,12 @@ mod tests {
     }
 
     #[test]
-    fn answers_window_position_query() {
+    fn consumes_window_position_query_without_response() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
         let responses = runtime.feed_pty_output(b"before\x1b[13tafter");
 
-        assert_eq!(responses, vec![b"\x1b[3;0;0t".to_vec()]);
+        assert!(responses.is_empty());
 
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
@@ -3009,12 +3909,12 @@ mod tests {
     }
 
     #[test]
-    fn answers_screen_pixel_size_query() {
+    fn consumes_screen_pixel_size_query_without_response() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
         let responses = runtime.feed_pty_output(b"before\x1b[15tafter");
 
-        assert_eq!(responses, vec![b"\x1b[5;688;1056t".to_vec()]);
+        assert!(responses.is_empty());
 
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
@@ -3035,6 +3935,29 @@ mod tests {
     }
 
     #[test]
+    fn answers_wezterm_window_reports_with_empty_and_extra_parameters() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+
+        let responses =
+            runtime.feed_pty_output(b"before\x1b[14;t middle\x1b[16;0;99t after\x1b[18;1t");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[4;688;1056t".to_vec(),
+                b"\x1b[6;16;8t".to_vec(),
+                b"\x1b[8;43;132t".to_vec()
+            ]
+        );
+
+        let text = terminal_text(&runtime);
+        assert!(text.contains("before middle after"));
+        assert!(!text.contains("[14;"));
+        assert!(!text.contains("[16;"));
+        assert!(!text.contains("[18;"));
+    }
+
+    #[test]
     fn answers_iterm_report_cell_size_query() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
@@ -3051,12 +3974,12 @@ mod tests {
     }
 
     #[test]
-    fn answers_screen_size_query() {
+    fn consumes_screen_size_query_without_response() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
         let responses = runtime.feed_pty_output(b"before\x1b[19tafter");
 
-        assert_eq!(responses, vec![b"\x1b[9;43;132t".to_vec()]);
+        assert!(responses.is_empty());
 
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
@@ -3064,12 +3987,12 @@ mod tests {
     }
 
     #[test]
-    fn answers_window_state_query() {
+    fn consumes_window_state_query_without_response() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
         let responses = runtime.feed_pty_output(b"before\x1b[11tafter");
 
-        assert_eq!(responses, vec![b"\x1b[1t".to_vec()]);
+        assert!(responses.is_empty());
 
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
@@ -3077,16 +4000,13 @@ mod tests {
     }
 
     #[test]
-    fn answers_window_title_queries() {
+    fn consumes_window_title_queries_without_response_by_default() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
         let responses =
             runtime.feed_pty_output(b"\x1b]0;ops\x07before\x1b[20t middle\x1b[21tafter");
 
-        assert_eq!(
-            responses,
-            vec![b"\x1b]Lops\x1b\\".to_vec(), b"\x1b]lops\x1b\\".to_vec()]
-        );
+        assert!(responses.is_empty());
 
         let text = terminal_text(&runtime);
         assert!(text.contains("before middleafter"));
@@ -3102,7 +4022,7 @@ mod tests {
         let screen = runtime.feed_pty_output(b"\x9b19t");
 
         assert_eq!(text_area, vec![b"\x1b[8;43;132t".to_vec()]);
-        assert_eq!(screen, vec![b"\x1b[9;43;132t".to_vec()]);
+        assert!(screen.is_empty());
     }
 
     #[test]
@@ -3117,18 +4037,18 @@ mod tests {
     }
 
     #[test]
-    fn answers_c1_window_position_and_screen_pixel_size_queries() {
+    fn consumes_c1_window_position_and_screen_pixel_size_queries_without_response() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
         let window_position = runtime.feed_pty_output(b"\x9b13t");
         let screen_pixels = runtime.feed_pty_output(b"\x9b15t");
 
-        assert_eq!(window_position, vec![b"\x1b[3;0;0t".to_vec()]);
-        assert_eq!(screen_pixels, vec![b"\x1b[5;688;1056t".to_vec()]);
+        assert!(window_position.is_empty());
+        assert!(screen_pixels.is_empty());
     }
 
     #[test]
-    fn answers_c1_window_state_and_title_queries() {
+    fn consumes_c1_window_state_and_title_queries_without_response_by_default() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
         runtime.feed_pty_output(b"\x1b]0;ops\x07");
@@ -3136,9 +4056,9 @@ mod tests {
         let icon = runtime.feed_pty_output(b"\x9b20t");
         let title = runtime.feed_pty_output(b"\x9b21t");
 
-        assert_eq!(state, vec![b"\x1b[1t".to_vec()]);
-        assert_eq!(icon, vec![b"\x1b]Lops\x1b\\".to_vec()]);
-        assert_eq!(title, vec![b"\x1b]lops\x1b\\".to_vec()]);
+        assert!(state.is_empty());
+        assert!(icon.is_empty());
+        assert!(title.is_empty());
     }
 
     #[test]
@@ -3171,8 +4091,10 @@ mod tests {
               \x1b[?12$p \x1b[?12h\x1b[?12$p\x1b[?12l\x1b[?12$p \
               \x1b[?7$p \x1b[?7l\x1b[?7$p \
               \x1b[?25$p \x1b[?25l\x1b[?25$p \
+              \x1b[?45$p \x1b[?45h\x1b[?45$p\x1b[?45l\x1b[?45$p \
               \x1b[?6$p \x1b[?6h\x1b[?6$p \
-              \x1b[?80$p \x1b[?80l\x1b[?80$p\x1b[?80h\x1b[?80$p \
+              \x1b[?80$p \x1b[?80h\x1b[?80$p\x1b[?80l\x1b[?80$p \
+              \x1b[?8452$p \x1b[?8452h\x1b[?8452$p\x1b[?8452l\x1b[?8452$p \
               \x1b[?47$p \x1b[?47h\x1b[?47$p\x1b[?47l\x1b[?47$p \
               \x1b[?1048$p \x1b[?1048h\x1b[?1048$p\x1b[?1048l\x1b[?1048$p \
               \x1b[?1047$p \x1b[?1047h\x1b[?1047$p\x1b[?1047l\x1b[?1047$p \
@@ -3192,23 +4114,55 @@ mod tests {
                 b"\x1b[?7;2$y".to_vec(),
                 b"\x1b[?25;1$y".to_vec(),
                 b"\x1b[?25;2$y".to_vec(),
+                b"\x1b[?45;2$y".to_vec(),
+                b"\x1b[?45;1$y".to_vec(),
+                b"\x1b[?45;2$y".to_vec(),
                 b"\x1b[?6;2$y".to_vec(),
                 b"\x1b[?6;1$y".to_vec(),
-                b"\x1b[?80;1$y".to_vec(),
                 b"\x1b[?80;2$y".to_vec(),
                 b"\x1b[?80;1$y".to_vec(),
-                b"\x1b[?47;2$y".to_vec(),
-                b"\x1b[?47;1$y".to_vec(),
-                b"\x1b[?47;2$y".to_vec(),
-                b"\x1b[?1048;2$y".to_vec(),
-                b"\x1b[?1048;1$y".to_vec(),
-                b"\x1b[?1048;2$y".to_vec(),
-                b"\x1b[?1047;2$y".to_vec(),
-                b"\x1b[?1047;1$y".to_vec(),
-                b"\x1b[?1047;2$y".to_vec(),
-                b"\x1b[?1049;2$y".to_vec(),
-                b"\x1b[?1049;1$y".to_vec(),
-                b"\x1b[?1049;2$y".to_vec(),
+                b"\x1b[?80;2$y".to_vec(),
+                b"\x1b[?8452;2$y".to_vec(),
+                b"\x1b[?8452;1$y".to_vec(),
+                b"\x1b[?8452;2$y".to_vec(),
+                b"\x1b[?47;0$y".to_vec(),
+                b"\x1b[?47;0$y".to_vec(),
+                b"\x1b[?47;0$y".to_vec(),
+                b"\x1b[?1048;0$y".to_vec(),
+                b"\x1b[?1048;0$y".to_vec(),
+                b"\x1b[?1048;0$y".to_vec(),
+                b"\x1b[?1047;0$y".to_vec(),
+                b"\x1b[?1047;0$y".to_vec(),
+                b"\x1b[?1047;0$y".to_vec(),
+                b"\x1b[?1049;0$y".to_vec(),
+                b"\x1b[?1049;0$y".to_vec(),
+                b"\x1b[?1049;0$y".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_wezterm_unknown_alternate_screen_private_mode_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(
+            b"\x1b[?47$p\x1b[?47h\x1b[?47$p\
+              \x1b[?1047$p\x1b[?1047h\x1b[?1047$p\
+              \x1b[?1048$p\x1b[?1048h\x1b[?1048$p\
+              \x1b[?1049$p\x1b[?1049h\x1b[?1049$p",
+        );
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?47;0$y".to_vec(),
+                b"\x1b[?47;0$y".to_vec(),
+                b"\x1b[?1047;0$y".to_vec(),
+                b"\x1b[?1047;0$y".to_vec(),
+                b"\x1b[?1048;0$y".to_vec(),
+                b"\x1b[?1048;0$y".to_vec(),
+                b"\x1b[?1049;0$y".to_vec(),
+                b"\x1b[?1049;0$y".to_vec(),
             ]
         );
     }
@@ -3231,6 +4185,62 @@ mod tests {
     }
 
     #[test]
+    fn answers_wezterm_private_mode_reports() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(
+            b"\x1b[?3$p \x1b[?2027$p \x1b[?2027l\x1b[?2027$p \
+              \x1b[?1070$p \x1b[?1070h\x1b[?1070$p\x1b[?1070l\x1b[?1070$p",
+        );
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?3;2$y".to_vec(),
+                b"\x1b[?2027;3$y".to_vec(),
+                b"\x1b[?2027;3$y".to_vec(),
+                b"\x1b[?1070;2$y".to_vec(),
+                b"\x1b[?1070;1$y".to_vec(),
+                b"\x1b[?1070;2$y".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn answers_dec_ansi_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(b"\x1b[?2$p\x1b[?2h\x1b[?2$p\x1b[?2l\x1b[?2$p");
+
+        assert_eq!(
+            responses,
+            vec![
+                b"\x1b[?2;2$y".to_vec(),
+                b"\x1b[?2;1$y".to_vec(),
+                b"\x1b[?2;2$y".to_vec(),
+            ]
+        );
+    }
+
+    #[test]
+    fn answers_screen_reverse_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output =
+            runtime.feed_pty_output_with_display(b"\x1b[?5$p\x1b[?5h\x1b[?5$p\x1b[?5l\x1b[?5$p");
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1b[?5;2$y".to_vec(),
+                b"\x1b[?5;1$y".to_vec(),
+                b"\x1b[?5;2$y".to_vec(),
+            ]
+        );
+        assert!(output.display.is_empty());
+    }
+
+    #[test]
     fn answers_private_mode_status_defaults_after_terminal_reset() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
@@ -3247,9 +4257,9 @@ mod tests {
                 b"\x1b[?6;2$y".to_vec(),
                 b"\x1b[?7;1$y".to_vec(),
                 b"\x1b[?25;1$y".to_vec(),
-                b"\x1b[?47;2$y".to_vec(),
-                b"\x1b[?1048;2$y".to_vec(),
-                b"\x1b[?1049;2$y".to_vec(),
+                b"\x1b[?47;0$y".to_vec(),
+                b"\x1b[?1048;0$y".to_vec(),
+                b"\x1b[?1049;0$y".to_vec(),
                 b"\x1b[?1000;2$y".to_vec(),
                 b"\x1b[?1006;2$y".to_vec(),
                 b"\x1b[?1004;2$y".to_vec(),
@@ -3281,6 +4291,44 @@ mod tests {
     }
 
     #[test]
+    fn answers_automatic_newline_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime
+            .feed_pty_output_with_display(b"before\x1b[20$p \x1b[20h\x1b[20$p \x1b[20l\x1b[20$p");
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1b[20;2$y".to_vec(),
+                b"\x1b[20;1$y".to_vec(),
+                b"\x1b[20;2$y".to_vec(),
+            ]
+        );
+        assert_eq!(output.display, b"before  ");
+        assert!(!terminal_text(&runtime).contains("$p"));
+    }
+
+    #[test]
+    fn answers_bidirectional_support_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output =
+            runtime.feed_pty_output_with_display(b"before\x1b[8$p \x1b[8h\x1b[8$p \x1b[8l\x1b[8$p");
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1b[8;2$y".to_vec(),
+                b"\x1b[8;1$y".to_vec(),
+                b"\x1b[8;2$y".to_vec(),
+            ]
+        );
+        assert_eq!(output.display, b"before  ");
+        assert!(!terminal_text(&runtime).contains("$p"));
+    }
+
+    #[test]
     fn answers_mode_status_after_soft_terminal_reset() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
@@ -3295,6 +4343,86 @@ mod tests {
                 b"\x1b[?6;2$y".to_vec(),
                 b"\x1b[4;2$y".to_vec(),
             ]
+        );
+    }
+
+    #[test]
+    fn answers_bidirectional_support_mode_status_after_soft_terminal_reset() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(b"\x1b[8h\x1b[8$p\x1b[!p\x1b[8$p");
+
+        assert_eq!(
+            responses,
+            vec![b"\x1b[8;1$y".to_vec(), b"\x1b[8;2$y".to_vec()]
+        );
+    }
+
+    #[test]
+    fn answers_auto_wrap_mode_status_after_soft_terminal_reset() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(b"\x1b[?7l\x1b[?7$p\x1b[!p\x1b[?7$p");
+
+        assert_eq!(
+            responses,
+            vec![b"\x1b[?7;2$y".to_vec(), b"\x1b[?7;1$y".to_vec()]
+        );
+    }
+
+    #[test]
+    fn answers_cursor_visibility_status_after_soft_terminal_reset() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(b"\x1b[?25l\x1b[?25$p\x1b[!p\x1b[?25$p");
+
+        assert_eq!(
+            responses,
+            vec![b"\x1b[?25;2$y".to_vec(), b"\x1b[?25;1$y".to_vec()]
+        );
+    }
+
+    #[test]
+    fn answers_reverse_wrap_mode_status_after_soft_terminal_reset() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(b"\x1b[?45h\x1b[?45$p\x1b[!p\x1b[?45$p");
+
+        assert_eq!(
+            responses,
+            vec![b"\x1b[?45;1$y".to_vec(), b"\x1b[?45;2$y".to_vec()]
+        );
+    }
+
+    #[test]
+    fn answers_screen_reverse_mode_status_after_soft_terminal_reset() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(b"\x1b[?5h\x1b[?5$p\x1b[!p\x1b[?5$p");
+
+        assert_eq!(
+            responses,
+            vec![b"\x1b[?5;1$y".to_vec(), b"\x1b[?5;2$y".to_vec()]
+        );
+    }
+
+    #[test]
+    fn restores_wezterm_input_modes_after_soft_terminal_reset() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        runtime.feed_pty_output(b"\x1b[?1h\x1b=\x1b[>4;2m");
+        assert!(runtime.application_cursor_keys());
+        assert!(runtime.application_keypad());
+        assert_eq!(runtime.modify_other_keys(), 2);
+
+        runtime.feed_pty_output(b"\x1b[!p");
+
+        assert!(!runtime.application_cursor_keys());
+        assert!(!runtime.application_keypad());
+        assert_eq!(runtime.modify_other_keys(), 0);
+        assert_eq!(
+            runtime.feed_pty_output(b"\x1b[?1$p\x1b[?4m"),
+            vec![b"\x1b[?1;2$y".to_vec(), b"\x1b[>4;0m".to_vec()]
         );
     }
 
@@ -3342,6 +4470,26 @@ mod tests {
         let responses = runtime.feed_pty_output(b"\x9b4$p");
 
         assert_eq!(responses, vec![b"\x1b[4;1$y".to_vec()]);
+    }
+
+    #[test]
+    fn answers_c1_automatic_newline_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        runtime.feed_pty_output(b"\x9b20h");
+        let responses = runtime.feed_pty_output(b"\x9b20$p");
+
+        assert_eq!(responses, vec![b"\x1b[20;1$y".to_vec()]);
+    }
+
+    #[test]
+    fn answers_c1_bidirectional_support_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        runtime.feed_pty_output(b"\x9b8h");
+        let responses = runtime.feed_pty_output(b"\x9b8$p");
+
+        assert_eq!(responses, vec![b"\x1b[8;1$y".to_vec()]);
     }
 
     #[test]
@@ -3621,15 +4769,15 @@ mod tests {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
         let output = runtime.feed_pty_output_with_display(
-            b"before\x1bP+q436f\x1b\\ middle\x90+q544e;524742\x9c after\x1bP+q626164\x1b\\done",
+            b"before\x1bP+q436f\x1b\\ middle\x90+q544e;524742;6e616d65\x9c after\x1bP+q666f6f\x1b\\done",
         );
 
         assert_eq!(
             output.responses,
             vec![
-                b"\x1bP1+r436f=323536\x1b\\".to_vec(),
-                b"\x1bP1+r544e=787465726d2d323536636f6c6f72;524742=524742\x9c".to_vec(),
-                b"\x1bP0+r\x1b\\".to_vec(),
+                b"\x1bP1+r436F=323536\x1b\\".to_vec(),
+                b"\x1bP1+r544E=787465726D2D323536636F6C6F72\x1b\\\x1bP1+r524742=382F382F38\x1b\\\x1bP1+r6E616D65=787465726D2D323536636F6C6F72\x1b\\".to_vec(),
+                b"\x1bP0+r666F6F\x1b\\".to_vec(),
             ]
         );
         assert_eq!(output.display, b"before middle afterdone");
@@ -3640,6 +4788,54 @@ mod tests {
     }
 
     #[test]
+    fn answers_xtgettcap_invalid_hex_names_like_wezterm() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let first = runtime.feed_pty_output_with_display(b"before\x1bP+qZZ;544e");
+        let second = runtime.feed_pty_output_with_display(b";5\x1b\\after");
+
+        assert!(first.responses.is_empty());
+        assert_eq!(first.display, b"before");
+        assert_eq!(
+            second.responses,
+            vec![
+                b"\x1bP0+r5A5A\x1b\\\x1bP1+r544E=787465726D2D323536636F6C6F72\x1b\\\x1bP0+r35\x1b\\"
+                    .to_vec()
+            ]
+        );
+        assert_eq!(second.display, b"after");
+    }
+
+    #[test]
+    fn answers_xtgettcap_non_utf8_hex_names_like_wezterm() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let output = runtime.feed_pty_output_with_display(b"before\x1bP+qff;436f\x1b\\after");
+
+        assert_eq!(
+            output.responses,
+            vec![b"\x1bP0+rEFBFBD\x1b\\\x1bP1+r436F=323536\x1b\\".to_vec()]
+        );
+        assert_eq!(output.display, b"beforeafter");
+    }
+
+    #[test]
+    fn answers_utf8_c1_dcs_xtgettcap_queries_without_feeding_them_to_terminal() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+        let dcs = '\u{90}';
+        let st = '\u{9c}';
+        let input = format!("before{dcs}+q436f{st}after");
+
+        let output = runtime.feed_pty_output_with_display(input.as_bytes());
+
+        assert_eq!(
+            output.responses,
+            vec![b"\x1bP1+r436F=323536\x1b\\".to_vec()]
+        );
+        assert_eq!(output.display, b"beforeafter");
+    }
+
+    #[test]
     fn answers_xtgettcap_size_queries_from_current_terminal_size() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
 
@@ -3647,7 +4843,7 @@ mod tests {
 
         assert_eq!(
             output.responses,
-            vec![b"\x1bP1+r636f=313332;6c69=3433\x1b\\".to_vec()]
+            vec![b"\x1bP1+r636F=313332\x1b\\\x1bP1+r6C69=3433\x1b\\".to_vec()]
         );
         assert_eq!(output.display, b"beforeafter");
     }
@@ -3841,8 +5037,8 @@ mod tests {
         assert_eq!(
             output.responses,
             vec![xtgettcap_response(&[
-                (b"Cr".as_slice(), b"\x1b]112\x1b\\".as_slice()),
-                (b"Cs".as_slice(), b"\x1b]12;%p1%s\x1b\\".as_slice()),
+                (b"Cr".as_slice(), b"\x1b]112\x07".as_slice()),
+                (b"Cs".as_slice(), b"\x1b]12;%p1%s\x07".as_slice()),
                 (b"Se".as_slice(), b"\x1b[2 q".as_slice()),
                 (b"Ss".as_slice(), b"\x1b[%p1%d q".as_slice()),
             ])]
@@ -4406,6 +5602,54 @@ mod tests {
     }
 
     #[test]
+    fn answers_utf8_c1_dcs_decrqss_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+        let dcs = '\u{90}';
+        let st = '\u{9c}';
+        let input = format!("before{dcs}$q\"p{st} middle{dcs}$qs{st} after");
+
+        let output = runtime.feed_pty_output_with_display(input.as_bytes());
+
+        assert_eq!(
+            output.responses,
+            vec![
+                b"\x1bP1$r61;1\"p\x9c".to_vec(),
+                b"\x1bP1$r1;80s\x9c".to_vec(),
+            ]
+        );
+        assert_eq!(output.display, b"before middle after");
+    }
+
+    #[test]
+    fn answers_split_utf8_c1_dcs_decrqss_query() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let first = runtime.feed_pty_output_with_display(b"before\xc2");
+        let second = runtime.feed_pty_output_with_display(b"\x90$q\"p\xc2");
+        let third = runtime.feed_pty_output_with_display(b"\x9cafter");
+
+        assert!(first.responses.is_empty());
+        assert_eq!(first.display, b"before");
+        assert!(second.responses.is_empty());
+        assert!(second.display.is_empty());
+        assert_eq!(third.responses, vec![b"\x1bP1$r61;1\"p\x9c".to_vec()]);
+        assert_eq!(third.display, b"after");
+    }
+
+    #[test]
+    fn ignores_queries_inside_utf8_c1_dcs_payload() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+        let dcs = '\u{90}';
+        let st = '\u{9c}';
+        let input = format!("before{dcs}payload \x1b[6n{st}after");
+
+        let output = runtime.feed_pty_output_with_display(input.as_bytes());
+
+        assert!(output.responses.is_empty());
+        assert_eq!(output.display, b"beforeafter");
+    }
+
+    #[test]
     fn answers_split_wezterm_decrqss_conformance_and_left_right_margin_queries() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
 
@@ -4464,6 +5708,41 @@ mod tests {
         assert_eq!(sgr_mouse, vec![b"\x1b[?1006;1$y".to_vec()]);
         assert_eq!(bracketed_paste, vec![b"\x1b[?2004;1$y".to_vec()]);
         assert_eq!(synchronized_output, vec![b"\x1b[?2026;1$y".to_vec()]);
+    }
+
+    #[test]
+    fn answers_c1_wezterm_private_mode_reports() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        let responses = runtime.feed_pty_output(b"\x9b?2027$p\x9b?1070h\x9b?1070$p");
+
+        assert_eq!(
+            responses,
+            vec![b"\x1b[?2027;3$y".to_vec(), b"\x1b[?1070;1$y".to_vec()]
+        );
+    }
+
+    #[test]
+    fn answers_c1_dec_ansi_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+
+        runtime.feed_pty_output(b"\x9b?2h");
+        let responses = runtime.feed_pty_output(b"\x9b?2$p");
+
+        assert_eq!(responses, vec![b"\x1b[?2;1$y".to_vec()]);
+    }
+
+    #[test]
+    fn answers_utf8_c1_private_mode_status_queries() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(80, 24));
+        let csi = '\u{9b}';
+
+        let initial = runtime.feed_pty_output(format!("{csi}?45$p").as_bytes());
+        runtime.feed_pty_output(format!("{csi}?45h").as_bytes());
+        let enabled = runtime.feed_pty_output(format!("{csi}?45$p").as_bytes());
+
+        assert_eq!(initial, vec![b"\x1b[?45;2$y".to_vec()]);
+        assert_eq!(enabled, vec![b"\x1b[?45;1$y".to_vec()]);
     }
 
     #[test]
@@ -4852,28 +6131,28 @@ mod tests {
     }
 
     #[test]
-    fn tracks_extended_mouse_protocol_fallback_from_pty_output() {
+    fn resets_extended_mouse_protocols_to_x10_from_pty_output() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
-        runtime.feed_pty_output(b"\x1b[?1000;1005;1015;1006h");
+        runtime.feed_pty_output(b"\x1b[?1000;1005;1015;1006;1016h");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::SgrPixels)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1016l");
+        assert_eq!(
+            runtime.mouse_input_mode(),
+            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::X10)
+        );
+
+        runtime.feed_pty_output(b"\x1b[?1006h");
         assert_eq!(
             runtime.mouse_input_mode(),
             MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Sgr)
         );
 
         runtime.feed_pty_output(b"\x1b[?1006l");
-        assert_eq!(
-            runtime.mouse_input_mode(),
-            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Urxvt)
-        );
-
-        runtime.feed_pty_output(b"\x1b[?1015l");
-        assert_eq!(
-            runtime.mouse_input_mode(),
-            MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::Utf8)
-        );
-
-        runtime.feed_pty_output(b"\x1b[?1005l");
         assert_eq!(
             runtime.mouse_input_mode(),
             MouseInputMode::new(MouseReportingMode::Normal, MouseProtocolMode::X10)
@@ -4884,22 +6163,26 @@ mod tests {
     fn answers_extended_mouse_protocol_status_queries() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
-        runtime.feed_pty_output(b"\x1b[?1005;1015h");
+        runtime.feed_pty_output(b"\x1b[?1005;1015;1016h");
 
         assert_eq!(
             runtime.feed_pty_output(b"\x1b[?1005$p\x1b[?1015$p\x1b[?1016$p"),
             vec![
-                b"\x1b[?1005;1$y".to_vec(),
-                b"\x1b[?1015;1$y".to_vec(),
-                b"\x1b[?1016;0$y".to_vec(),
+                b"\x1b[?1005;2$y".to_vec(),
+                b"\x1b[?1015;2$y".to_vec(),
+                b"\x1b[?1016;1$y".to_vec(),
             ]
         );
 
-        runtime.feed_pty_output(b"\x1b[?1005;1015l");
+        runtime.feed_pty_output(b"\x1b[?1005;1015;1016l");
 
         assert_eq!(
-            runtime.feed_pty_output(b"\x1b[?1005$p\x1b[?1015$p"),
-            vec![b"\x1b[?1005;2$y".to_vec(), b"\x1b[?1015;2$y".to_vec(),]
+            runtime.feed_pty_output(b"\x1b[?1005$p\x1b[?1015$p\x1b[?1016$p"),
+            vec![
+                b"\x1b[?1005;2$y".to_vec(),
+                b"\x1b[?1015;2$y".to_vec(),
+                b"\x1b[?1016;2$y".to_vec(),
+            ]
         );
     }
 
@@ -4930,6 +6213,7 @@ mod tests {
     #[test]
     fn answers_kitty_keyboard_protocol_flags_queries_and_tracks_push_pop() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        runtime.set_enable_kitty_keyboard(true);
 
         let output = runtime.feed_pty_output_with_display(b"before\x1b[?u");
 
@@ -4970,6 +6254,7 @@ mod tests {
     #[test]
     fn answers_kitty_keyboard_protocol_flags_queries_and_tracks_set_reset() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        runtime.set_enable_kitty_keyboard(true);
 
         runtime.feed_pty_output(b"\x1b[=1u");
         assert_eq!(
@@ -4994,6 +6279,40 @@ mod tests {
     }
 
     #[test]
+    fn ignores_kitty_keyboard_protocol_when_disabled() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        runtime.feed_pty_output(b"\x1b[=1u");
+        let output = runtime.feed_pty_output_with_display(b"\x1b[?u");
+
+        assert!(output.responses.is_empty());
+        assert_eq!(runtime.kitty_keyboard_flags(), 0);
+    }
+
+    #[test]
+    fn tracks_win32_input_mode_when_allowed() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+
+        assert!(!runtime.win32_input_mode());
+
+        runtime.feed_pty_output(b"\x1b[?9001h");
+        assert!(runtime.win32_input_mode());
+
+        runtime.feed_pty_output(b"\x1b[?9001l");
+        assert!(!runtime.win32_input_mode());
+    }
+
+    #[test]
+    fn ignores_win32_input_mode_when_disallowed() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        runtime.set_allow_win32_input_mode(false);
+
+        runtime.feed_pty_output(b"\x1b[?9001h");
+
+        assert!(!runtime.win32_input_mode());
+    }
+
+    #[test]
     fn answers_kitty_graphics_query_for_supported_direct_rgb_payload() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
 
@@ -5002,6 +6321,22 @@ mod tests {
 
         assert_eq!(output.display, b"beforeafter");
         assert_eq!(output.responses, vec![b"\x1b_Gi=31;OK\x1b\\".to_vec()]);
+        assert!(runtime.terminal().inline_images().is_empty());
+        assert!(!terminal_text(&runtime).contains("_G"));
+    }
+
+    #[test]
+    fn answers_kitty_graphics_query_for_supported_file_rgb_payload() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        let file = KittyTestFile::new(&[255, 0, 0]);
+        let encoded_path = STANDARD.encode(file.path.as_os_str().to_string_lossy().as_bytes());
+        let query =
+            format!("before\x1b_Ga=q,i=32,t=f,f=24,s=1,v=1,c=1,r=1;{encoded_path}\x1b\\after");
+
+        let output = runtime.feed_pty_output_with_display(query.as_bytes());
+
+        assert_eq!(output.display, b"beforeafter");
+        assert_eq!(output.responses, vec![b"\x1b_Gi=32;OK\x1b\\".to_vec()]);
         assert!(runtime.terminal().inline_images().is_empty());
         assert!(!terminal_text(&runtime).contains("_G"));
     }
@@ -5062,7 +6397,7 @@ mod tests {
     #[test]
     fn resize_updates_terminal_grid_and_size_query_response() {
         let mut runtime = TerminalRuntime::new(TerminalSize::new(4, 2));
-        runtime.feed_pty_output(b"abcd\nef");
+        runtime.feed_pty_output(b"abcd\r\nef");
 
         runtime.resize(TerminalSize::new(6, 3));
         let responses = runtime.feed_pty_output(b"\x1b[18t");
@@ -5079,7 +6414,7 @@ mod tests {
         let second = runtime.feed_pty_output(b">cafter");
 
         assert!(first.is_empty());
-        assert_eq!(second, vec![b"\x1b[>0;0;0c".to_vec()]);
+        assert_eq!(second, vec![b"\x1b[>1;277;0c".to_vec()]);
 
         let text = terminal_text(&runtime);
         assert!(text.contains("beforeafter"));
@@ -5113,16 +6448,49 @@ mod tests {
     }
 
     fn xtgettcap_response(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
-        let mut response = b"\x1bP1+r".to_vec();
-        for (index, (name, value)) in entries.iter().enumerate() {
-            if index > 0 {
-                response.push(b';');
-            }
-            response.extend_from_slice(&super::encode_ascii_hex(name));
+        let mut response = Vec::new();
+        for (name, value) in entries {
+            response.extend_from_slice(b"\x1bP1+r");
+            response.extend_from_slice(&encode_ascii_hex_upper(name));
             response.push(b'=');
-            response.extend_from_slice(&super::encode_ascii_hex(value));
+            response.extend_from_slice(&encode_ascii_hex_upper(value));
+            response.extend_from_slice(b"\x1b\\");
         }
-        response.extend_from_slice(b"\x1b\\");
         response
+    }
+
+    fn encode_ascii_hex_upper(bytes: &[u8]) -> Vec<u8> {
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        let mut encoded = Vec::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            encoded.push(HEX[usize::from(byte >> 4)]);
+            encoded.push(HEX[usize::from(byte & 0x0f)]);
+        }
+        encoded
+    }
+
+    struct KittyTestFile {
+        path: PathBuf,
+    }
+
+    impl KittyTestFile {
+        fn new(data: &[u8]) -> Self {
+            static NEXT_TEST_FILE_ID: AtomicUsize = AtomicUsize::new(0);
+
+            let suffix = NEXT_TEST_FILE_ID.fetch_add(1, Ordering::Relaxed);
+            let mut path = std::env::temp_dir();
+            path.push(format!(
+                "rssh-runtime-kitty-file-query-{}-{suffix}.rgb",
+                std::process::id()
+            ));
+            fs::write(&path, data).expect("write runtime kitty query test image file");
+            Self { path }
+        }
+    }
+
+    impl Drop for KittyTestFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+        }
     }
 }

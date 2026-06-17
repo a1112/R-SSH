@@ -59,10 +59,11 @@ The copy-mode search path keeps copy mode active with `/`/`?` search input,
 WezTerm-style next/prior match navigation via Down/`Ctrl+N` and
 Up/Enter/CR/`Ctrl+P`, page-wise match navigation via PageDown/PageUp, and
 `Ctrl+R` match-type cycling across case-sensitive, case-insensitive, and regex
-search. Ordinary `Ctrl+F` search uses the same WezTerm-style search navigation
-bindings for Down/Up, `Ctrl+N`/`Ctrl+P`, PageDown/PageUp, `Ctrl+R` match-type
-cycling, `Ctrl+U` clear-pattern, character ESC close, and initial query
-prefill from the current selection's first line.
+search. Default `Ctrl+Shift+F`/`Super+F` search uses the same WezTerm-style
+search navigation bindings for Down/Up, `Ctrl+N`/`Ctrl+P`, PageDown/PageUp,
+`Ctrl+R` match-type cycling, `Ctrl+U` clear-pattern, character ESC close, and
+initial query prefill from the current selection's first line, while plain
+`Ctrl+F` remains available to the active PTY.
 The default startup maps to workspace `1`, tab `1`, and pane `1`, with
 `rssh-app` window title exposing the current state.
 
@@ -187,8 +188,11 @@ cargo run -p rssh-app -- profile prod-upload --file examples/rssh-profiles.toml
 cargo test -p rssh-ssh
 ```
 
-`window -- <program> [args...]` starts a custom command inside the native
-window; without `--`, the native window starts the platform default shell.
+`start` is a WezTerm-style alias for the native-window startup path exposed as
+`window`. `window <program> [args...]`, `window -- <program> [args...]`,
+`window -e <program> [args...]`, `start <program> [args...]`, or
+`start -e <program> [args...]` starts a custom command inside the native window;
+without an explicit program, the native window starts the platform default shell.
 Use `window --log PATH` to write visible native-window terminal output to a
 session log file.
 `console` is the explicit console-hosted startup path; `local` remains a
@@ -206,24 +210,32 @@ DECRQM status queries, including private input, cursor visibility, auto-wrap,
 origin, alternate-screen, private cursor save modes, cursor blinking (`?12`),
 Meta-key mode (`?1034`), and ANSI insert/replace mode (`CSI 4 $ p`). `RIS`
 (`ESC c`) resets tracked mode state and releases synchronized-output buffers.
-`DECSTR` (`CSI ! p`, including the C1 CSI form) soft-resets tracked origin and
-insert/replace modes without treating the stream as a full terminal reset.
+`DECSTR` (`CSI ! p`, including the C1 CSI form) soft-resets tracked origin,
+cursor visibility, and insert/replace modes without treating the stream as a
+full terminal reset.
 Kitty keyboard progressive-enhancement negotiation is tracked from PTY output:
 `CSI = flags ; mode u` applies replace/set/reset flag updates, `CSI > flags u`
 / `CSI < n u` update the active flags stack, `CSI ? u` is answered with the
 current flags, and Ctrl/Alt ASCII character keys are encoded as kitty `CSI-u`
 events when the disambiguate flag is active. When the kitty report-all flag is
 active, plain text keys plus Enter/Tab/Backspace are also encoded as canonical
-`CSI-u` events. Navigation/editing keys, F1-F12, and F13-F35 use kitty
-canonical functional-key forms under disambiguate/report-all modes, and keypad
-keys use kitty KP_* private-use codepoints when kitty keyboard flags request
-CSI-u reporting. Kitty private-use functional codes also cover CapsLock,
-ScrollLock, NumLock, PrintScreen, Pause, and Menu/ContextMenu in console and
-native-window paths, plus media transport, track, record, and volume keys where
-the input backend exposes them. Kitty
+`CSI-u` events, and `Ctrl+Shift+Tab` uses canonical `CSI 9;6u` under
+disambiguate mode rather than treating Shift+Tab as a separate key.
+Navigation/editing keys, F1-F12, and F13-F35 use kitty canonical
+functional-key forms under disambiguate/report-all modes, and keypad keys use
+kitty KP_* private-use codepoints when kitty keyboard flags request
+CSI-u reporting. The default console and native-window input paths encode
+Menu/ContextMenu using the legacy `CSI 29~` functional sequence. Kitty
+private-use functional codes also cover CapsLock, ScrollLock, NumLock,
+PrintScreen, Pause, and Menu/ContextMenu in console and native-window paths,
+plus media transport, track, record, and volume keys where the input backend
+exposes them. Kitty
 event-type reporting is supported for repeat/release events using
-`modifier:event` subfields, and report-all input includes kitty associated-text
-third fields when flag 16 is active. Console and native-window text-key input
+`modifier:event` subfields, including text-key repeat/release when only flag 2
+is active, and report-all input includes kitty associated-text
+third fields when flag 16 is active, including modified Enter sequences such as
+`Ctrl+Enter` -> `CSI 13;5;13u` and `Ctrl+Shift+Enter` -> `CSI 13;6;13u`.
+Console and native-window text-key input
 also reports kitty alternate shifted key subfields when flag 4 is active, with
 console kitty modifier encoding including crossterm-provided Super/Hyper/Meta
 and CapsLock/NumLock state bits plus modifier-key private-use codepoints for
@@ -255,13 +267,33 @@ color, and indexed palette queries, including multi-index `OSC 4` query
 sequences, WezTerm-style RGBA dynamic color specs for `OSC 10`/`11`/`12`,
 `OSC 110`/`OSC 111` foreground/background reset, `OSC 112` cursor-color reset,
 and `OSC 104` indexed-palette reset.
-OSC 52 clipboard writes and read queries are handled in the console path so
-local and OpenSSH-backed terminal programs can use terminal clipboard
-integration. Use `--osc52 off|write|read-write` on `console`/`local`, `ssh`,
-or `window` to control whether PTY-side OSC 52 clipboard writes and read
-queries are allowed.
+OSC 52 clipboard writes are handled in the console path so local and
+OpenSSH-backed terminal programs can use terminal clipboard integration. The
+default OSC 52 policy is WezTerm-style write-only: PTY-side read queries are
+ignored unless `--osc52 read-write` is selected explicitly. Use
+`--osc52 off|write|read-write` on `console`/`local`, `ssh`, or `window` to
+control whether PTY-side OSC 52 clipboard writes and read queries are allowed.
 PTY-backed local, window, and OpenSSH child processes receive
 `TERM=xterm-256color` and `COLORTERM=truecolor` by default.
+Use `--cwd PATH` on `console`/`local`, `window`, or `start` to set the initial
+child process working directory.
+Use `--workspace NAME` on `window`/`start` to name the initial app-shell
+workspace instead of the default `default` workspace.
+Use `--class CLASS` on `window`/`start` to request the native window class name
+on Windows. X11/Wayland class/app-id application remains future parity work.
+Use `--position X,Y`, `--position screen:X,Y`, `--position main:X,Y`,
+`--position active:X,Y`, or `--position <monitor>:X,Y` on `window`/`start` to
+request an initial native window screen position. `main:` is relative to the
+primary monitor origin, `active:` is relative to the active monitor when the
+platform exposes one and otherwise falls back to the primary monitor origin,
+and named monitor forms such as `HDMI-1:10,20` are relative to the matching
+monitor origin.
+`window`/`start` also accepts WezTerm startup compatibility flags
+`--no-auto-connect`, `--always-new-process`, and `--new-tab`; they are no-ops
+until R-SSH grows a GUI daemon and auto-connected mux domains. `window`/`start`
+accepts `--domain local` for the current local PTY domain and accepts
+`--attach` as a no-op until mux domain attachment exists; remote or named mux
+domains remain future parity work.
 Use `--log PATH` on `console`/`local`, `ssh`, `sftp`, or `scp` to tee visible
 terminal output to a session log file.
 Use `doctor` before launching console sessions to report the selected PTY

@@ -23,6 +23,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
 - `rssh-app local --cols N --rows N` starts with an explicit PTY size.
 - `rssh-app local -- <program> [args...]` starts a custom program in the same
   PTY path.
+- `rssh-app local --cwd PATH` and `rssh-app console --cwd PATH` set the initial
+  child process working directory for the default shell or custom program.
 - Keyboard input is encoded for common terminal keys:
   - UTF-8 text
   - Enter, Backspace, Tab, Escape
@@ -36,21 +38,28 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   - application cursor key mode from PTY-side `ESC[?1h` and `ESC[?1l`
   - application keypad mode from PTY-side `ESC=` and `ESC>` for keypad-tagged
     number/operator keys
+- The mirrored terminal core also consumes PTY-side `ESC=`/`ESC>` so DEC
+  keypad mode changes do not appear as rendered text.
+- The mirrored terminal core and local/native output filters consume standalone
+  ST controls (`ESC \`, UTF-8 C1 `U+009C`, and legacy raw C1 `0x9C`) as
+  no-effect string terminators, so they do not appear as rendered text or
+  visible output when emitted outside an active control string.
 - Paste events are forwarded to the PTY as UTF-8 bytes by default. When the
   PTY-side application enables xterm bracketed paste with `ESC[?2004h`, paste
   events are wrapped as `ESC[200~...ESC[201~` until `ESC[?2004l`.
 - PTY-side input modes are tracked through the shared app mode tracker, so the
-  console path recognizes both 7-bit CSI (`ESC[?…h/l`) and 8-bit C1 CSI
-  (`0x9b ? … h/l`) private mode toggles. Mode-like bytes embedded inside
-  unrelated OSC or ST-terminated control-string payloads are ignored, including
-  when the payload is split across PTY chunks.
+  console path recognizes 7-bit CSI (`ESC[?…h/l`), UTF-8 C1 CSI
+  (`U+009B ? … h/l`), and legacy raw C1 CSI (`0x9b ? … h/l`) private mode
+  toggles. Mode-like bytes embedded inside unrelated OSC or ST-terminated
+  control-string payloads are ignored, including when the payload is split
+  across PTY chunks.
 - The same mode tracker recognizes ANSI insert/replace mode (`CSI 4 h/l`),
-  including the 8-bit C1 CSI form.
+  including UTF-8 C1 CSI and legacy raw C1 CSI forms.
 - The console path answers DECRQM private-mode status queries
   (`CSI ? <mode> $ p`) for tracked terminal modes, including application cursor
-  keys (`1`), origin mode (`6`), auto-wrap (`7`), cursor blinking (`12`),
-  cursor visibility (`25`), left-right margin mode (`69`),
-  alternate-screen modes (`47`/`1047`/`1049`),
+  keys (`1`), screen reverse-video mode (`5`), origin mode (`6`), auto-wrap
+  (`7`), cursor blinking (`12`), cursor visibility (`25`), reverse-wrap (`45`),
+  left-right margin mode (`69`), alternate-screen modes (`47`/`1047`/`1049`),
   private cursor save/restore (`1048`), Meta-key mode (`1034`), mouse reporting
   (`1000`/`1002`/`1003`), extended mouse protocols (`1005`/`1006`/`1015`),
   focus reporting (`1004`), bracketed paste (`2004`), and synchronized output
@@ -62,8 +71,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   (`CSI <mode> $ p`) for insert/replace mode (`4`), including the C1 CSI form;
   unknown ANSI modes return an xterm-style unknown status.
 - `DECSTR` (`CSI ! p`, including the C1 CSI form) soft-resets the shared mode
-  tracker for origin, left-right margin, and insert/replace mode status without
-  emitting full `RIS` mode-change side effects.
+  tracker for cursor visibility, origin, left-right margin, and insert/replace
+  mode status without emitting full `RIS` mode-change side effects.
 - The console output filter handles xterm synchronized output
   (`ESC[?2026h/l`) by consuming the mode markers, buffering visible host-console
   writes while the mode is enabled, continuing to update its mirror terminal and
@@ -98,11 +107,16 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   host console before their ST terminator arrives.
 - The app answers standard and DEC private cursor-position queries (`ESC[6n`
   and `ESC[?6n`) with the current mirrored terminal cursor position so shells
-  and TUI programs can complete position handshakes. Equivalent 8-bit C1 CSI
-  query forms (`0x9b 6n` and `0x9b ? 6n`) are handled the same way.
-- The app also answers primary device attributes `ESC[c`, secondary device
-  attributes `ESC[>c`, and terminal status `ESC[5n` instead of leaking those
-  queries to the host console; equivalent C1 CSI forms are also answered.
+  and TUI programs can complete position handshakes. Equivalent UTF-8 C1 CSI
+  query forms (`U+009B 6n` and `U+009B ? 6n`) and legacy raw C1 CSI forms are
+  handled the same way.
+- The app also answers primary device attributes `ESC[c` and `ESC[0c` with the
+  WezTerm-style VT500/Sixel/selective-erase/windowing/color/clipboard response
+  `ESC[?65;4;6;18;22;52c`, secondary device attributes `ESC[>c`, and terminal
+  status `ESC[5n` instead of leaking those queries to the host console;
+  equivalent UTF-8 C1 CSI and legacy raw C1 CSI forms are also answered.
+  The terminal core backs the advertised selective-erase capability by tracking
+  `DECSCA` protected cells and preserving them for `DECSED`/`DECSEL`.
 - The app answers text-area size query `ESC[18t` with
   `ESC[8;<rows>;<columns>t` and screen character-size query `ESC[19t` with
   `ESC[9;<rows>;<columns>t`, including equivalent C1 CSI query forms.
@@ -130,17 +144,23 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   bytes embedded inside unrelated OSC or ST-terminated control-string payloads
   are ignored by the color tracker, including when the payload is split across
   PTY chunks.
-- The console path handles OSC 52 clipboard writes and read queries, decoding
-  PTY-side base64 clipboard payloads into the system clipboard and answering
-  `?` queries with base64-encoded clipboard content. 7-bit OSC 52
-  (`ESC]52;...`), UTF-8 C1 OSC/ST (`U+009D`/`U+009C`, bytes `C2 9D`/`C2 9C`),
-  and legacy raw C1 OSC 52 (`0x9d52;...`) forms are recognized, including BEL
-  and ST terminators. OSC 52 control sequences are removed from console display
-  output. If PTY output ends in an incomplete OSC 52 sequence or partial OSC 52
-  prefix, the pending control bytes are dropped during flush instead of leaking
-  to the host console. OSC 52-like bytes embedded inside
+- The console path handles OSC 52 clipboard writes and iTerm2
+  `OSC 1337;Copy=;base64` writes by default, decoding PTY-side base64
+  clipboard payloads into the system clipboard while ignoring PTY-side `?`
+  read queries in the default WezTerm-style write-only policy.
+  Explicit `--osc52 read-write` enables query responses with base64-encoded
+  clipboard content for compatibility. 7-bit OSC (`ESC]...`), UTF-8 C1 OSC/ST
+  (`U+009D`/`U+009C`, bytes `C2 9D`/`C2 9C`), and legacy raw C1 OSC (`0x9d...`)
+  forms are recognized, including BEL and ST terminators. Clipboard control
+  sequences are removed from console display output. If PTY output ends in an
+  incomplete OSC 52 or iTerm2 copy sequence or partial prefix, the pending
+  control bytes are dropped during flush instead of leaking to the host console.
+  OSC 52-like bytes embedded inside
   split ST-terminated control-string payloads are not treated as clipboard
   operations.
+- The console output filter consumes WezTerm/iTerm2 `OSC 9` notification and
+  ConEmu-style `OSC 9;4` progress control strings plus rxvt
+  `OSC 777;notify` notifications so they do not leak to the host console.
 - OSC 8 hyperlink sequences are consumed by the console output filter and fed
   into the mirrored terminal state, so hyperlink metadata is preserved without
   writing OSC 8 control bytes to the host console. 7-bit OSC 8, UTF-8 C1
@@ -149,12 +169,13 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   8 prefix, the pending control bytes are dropped during flush instead of
   leaking to the host console.
 - `rssh-app local --osc52 off|write|read-write` controls whether PTY-side OSC
-  52 clipboard writes and read queries are allowed. SSH sessions that use the
-  OpenSSH-backed console runtime inherit the same policy through
+  52 clipboard writes and read queries are allowed; the default is `write`.
+  SSH sessions that use the OpenSSH-backed console runtime inherit the same policy through
   `rssh-app ssh --osc52 ...`.
 - The app answers xterm XTGETTCAP terminal-capability queries
   (`DCS + q <hex-cap> ST`) for common compatibility probes, including
-  `Co`/`colors = 256`, `TN = xterm-256color`, `RGB = RGB`, `Tc = 1`,
+  `Co`/`colors = 256`, `TN`/`name` from the active `TERM`
+  (`xterm-256color` by default), `RGB = RGB`, `Tc = 1`,
   official WezTerm booleans (`am`, `bce`, `ccc`, `hs`, `km`, `mc5i`, `mir`,
   `msgr`, `npc`, `Su`, `xenl`), `smm`/`rmm` Meta-key mode templates, `Ms` OSC
   52 clipboard template support, `sitm`/`ritm` italic style templates, `Smulx`
@@ -184,7 +205,8 @@ critical runtime chain: app input -> PTY -> local shell -> terminal byte stream
   WezTerm ACS metadata (`enacs`, `smacs`, `rmacs`, `acsc`), dynamic `co`/`li`
   plus official `cols`/`lines` column and row counts from the current PTY size,
   `it=8` tab interval, and `pairs=32767`. Unsupported
-  capabilities return `DCS 0+r ST`, and C1 DCS/ST forms are handled too.
+  capabilities return `DCS 0+r ST`; 7-bit DCS, UTF-8 C1 DCS/ST, and legacy raw
+  C1 DCS/ST query framing are handled.
 - The app answers DEC request status string queries (`DECRQSS`,
   `DCS $ q <selector> ST`) for current SGR style (`m`), including bold, faint,
   italic, blink, underline, double underline, colon-separated underline styles,
@@ -327,20 +349,25 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   reset with `OSC 104`, stream-ordered color response state, and color-setting
   bytes embedded inside ST-terminated control-string payloads split across PTY
   chunks.
-- OSC 52 clipboard: unit tests cover console-path clipboard writes and
-  clipboard query responses without writing OSC 52 control bytes to console
-  output, including UTF-8 C1 OSC/ST forms, legacy raw C1 OSC 52 write/query
-  forms, and split C1 OSC 52 payloads, plus `off` and `write` policy
-  enforcement. Unit tests also cover OSC 52-like bytes embedded inside unrelated
-  control-string payloads. EOF flushing is covered for incomplete OSC 52
-  sequences and partial prefixes.
+- OSC 52/iTerm2 clipboard: unit tests cover console-path clipboard writes and
+  explicit read-write OSC 52 query responses without writing clipboard control
+  bytes to console output, including iTerm2 `OSC 1337;Copy=;base64`, UTF-8 C1
+  OSC/ST forms, legacy raw C1 OSC write/query forms, and split C1 OSC 52
+  payloads, plus default `write`, `off`, and explicit `write` policy
+  enforcement. Unit tests also cover OSC 52-like bytes embedded inside
+  unrelated control-string payloads. EOF flushing is covered for incomplete OSC
+  52 sequences and partial prefixes.
+- OSC 9/777 notifications: unit tests cover local console filtering of OSC 9
+  notifications, OSC 9;4 progress forms, and rxvt OSC 777 notify controls
+  without emitting those bytes to console output.
 - OSC 8 hyperlinks: unit tests cover full and split OSC 8 sequences, including
   UTF-8 C1 and legacy raw C1 OSC 8 forms, verifying that console output omits
   the control bytes while the mirrored terminal keeps hyperlink metadata on
   linked cells. EOF flushing is covered for incomplete OSC 8 sequences and
   partial prefixes so half-written control bytes do not reach the host console.
-- XTGETTCAP response: unit tests cover DCS and C1 DCS terminal-capability
-  queries for colors, terminal name, true-color markers, OSC 52 clipboard
+- XTGETTCAP response: unit tests cover 7-bit DCS, UTF-8 C1 DCS/ST, split UTF-8
+  C1 DCS starts, and legacy raw C1 DCS terminal-capability queries for colors,
+  terminal name, true-color markers, OSC 52 clipboard
   template, italic style templates, styled/colored underline templates,
   tmux/xterm cursor style and cursor color templates, current columns/rows
   through `co`/`li` and official `cols`/`lines` plus `it=8` and
@@ -355,7 +382,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
 - DECRQSS response: unit tests cover current SGR, including faint, italic,
   blink, double underline, colon-separated underline style, underline color, and
   concealed text plus overline, cursor-shape, scroll-region, conformance-level,
-  and left/right-margin status queries in both DCS and C1 DCS forms.
+  and left/right-margin status queries in 7-bit DCS, UTF-8 C1 DCS/ST, split
+  UTF-8 C1 DCS starts, and legacy raw C1 DCS forms.
 - XTVERSION response: unit tests cover 7-bit and C1 CSI version queries and
   verify the query bytes are not written to visible output.
 - Session logging: unit tests cover teeing visible terminal output to a log
@@ -377,8 +405,8 @@ cargo run -p rssh-app -- local -- cmd.exe /C exit 7
   toggling, deterministic protocol fallback, and C1 CSI private mode input
   toggles. Unit tests also cover mode-like bytes inside OSC and
   ST-terminated control-string payloads, plus DECRQM private-mode status
-  queries for tracked input, display, alternate-screen/private-cursor, reset,
-  and unknown modes.
+  queries for tracked input, display, screen reverse-video,
+  alternate-screen/private-cursor, reset, and unknown modes.
 - ANSI mode negotiation: unit tests cover insert/replace (`CSI 4 h/l`) tracking
   and ordinary DECRQM status queries (`CSI 4 $ p`) in both 7-bit and C1 CSI
   forms.

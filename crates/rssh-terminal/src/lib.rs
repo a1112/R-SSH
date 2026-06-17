@@ -2,7 +2,7 @@ use rssh_core::TerminalSize;
 
 mod parser;
 
-pub use parser::Terminal;
+pub use parser::{DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
@@ -17,6 +17,36 @@ pub enum CursorShape {
     Block,
     Underline,
     Bar,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CursorStyle {
+    #[default]
+    SteadyBlock,
+    BlinkingBlock,
+    SteadyUnderline,
+    BlinkingUnderline,
+    SteadyBar,
+    BlinkingBar,
+}
+
+impl CursorStyle {
+    #[must_use]
+    pub const fn shape(self) -> CursorShape {
+        match self {
+            Self::SteadyBlock | Self::BlinkingBlock => CursorShape::Block,
+            Self::SteadyUnderline | Self::BlinkingUnderline => CursorShape::Underline,
+            Self::SteadyBar | Self::BlinkingBar => CursorShape::Bar,
+        }
+    }
+
+    #[must_use]
+    pub const fn blinking(self) -> bool {
+        matches!(
+            self,
+            Self::BlinkingBlock | Self::BlinkingUnderline | Self::BlinkingBar
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +167,7 @@ pub struct Cell {
     pub faint: bool,
     pub italic: bool,
     pub blink: bool,
+    pub rapid_blink: bool,
     pub underline: bool,
     pub double_underline: bool,
     pub conceal: bool,
@@ -144,6 +175,7 @@ pub struct Cell {
     pub overline: bool,
     pub vertical_align: VerticalAlign,
     pub inverse: bool,
+    pub protected: bool,
     pub hyperlink: Option<String>,
     pub semantic_type: SemanticType,
 }
@@ -160,6 +192,7 @@ impl Default for Cell {
             faint: false,
             italic: false,
             blink: false,
+            rapid_blink: false,
             underline: false,
             double_underline: false,
             conceal: false,
@@ -167,6 +200,7 @@ impl Default for Cell {
             overline: false,
             vertical_align: VerticalAlign::default(),
             inverse: false,
+            protected: false,
             hyperlink: None,
             semantic_type: SemanticType::default(),
         }
@@ -309,11 +343,19 @@ impl ScrollbackLine {
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs,
+        path::PathBuf,
+        sync::atomic::{AtomicUsize, Ordering},
+    };
+
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     use rssh_core::{DamageRegion, TerminalSize};
 
     use super::{
-        Cell, Color, CursorShape, InlineImageFormat, ItermInlineImage, SemanticCommandExit,
-        SemanticType, SemanticZone, Terminal, TerminalGrid, UnderlineStyle, VerticalAlign,
+        Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage,
+        SemanticCommandExit, SemanticType, SemanticZone, Terminal, TerminalGrid, UnderlineStyle,
+        VerticalAlign,
     };
 
     #[test]
@@ -345,6 +387,7 @@ mod tests {
         assert!(!cell.overline);
         assert_eq!(cell.vertical_align, VerticalAlign::Baseline);
         assert!(!cell.inverse);
+        assert!(!cell.protected);
         assert_eq!(cell.hyperlink, None);
         assert_eq!(cell.semantic_type, SemanticType::Output);
     }
@@ -371,6 +414,7 @@ mod tests {
             inverse: false,
             hyperlink: None,
             semantic_type: SemanticType::Output,
+            ..Cell::default()
         };
 
         assert!(grid.set(1, 2, cell.clone()));
@@ -414,9 +458,24 @@ mod tests {
 
         assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'a');
         assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'b');
-        assert_eq!(terminal.grid().get(1, 0).unwrap().ch, 'c');
-        assert_eq!(terminal.grid().get(1, 1).unwrap().ch, 'd');
-        assert_eq!(terminal.cursor(), (1, 2));
+        assert_eq!(terminal.grid().get(1, 2).unwrap().ch, 'c');
+        assert_eq!(terminal.grid().get(1, 3).unwrap().ch, 'd');
+        assert_eq!(terminal.cursor(), (1, 4));
+    }
+
+    #[test]
+    fn terminal_vertical_tab_and_form_feed_preserve_column() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 3));
+
+        terminal.feed(b"ab\x0bcd\x0cef");
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'a');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'b');
+        assert_eq!(terminal.grid().get(1, 2).unwrap().ch, 'c');
+        assert_eq!(terminal.grid().get(1, 3).unwrap().ch, 'd');
+        assert_eq!(terminal.grid().get(2, 4).unwrap().ch, 'e');
+        assert_eq!(terminal.grid().get(2, 5).unwrap().ch, 'f');
+        assert_eq!(terminal.cursor(), (2, 6));
     }
 
     #[test]
@@ -432,6 +491,22 @@ mod tests {
     }
 
     #[test]
+    fn terminal_records_unknown_escape_sequences_without_rendering_them() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"ab\x1bzcd\x1b[?999zef");
+
+        let unknown = terminal.take_unknown_escape_sequences();
+        let sequences = unknown
+            .iter()
+            .map(|sequence| sequence.sequence.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(sequences, ["ESC z", "CSI ?999z"]);
+        assert_eq!(row_text(&terminal, 0), "abcdef  ");
+        assert!(terminal.take_unknown_escape_sequences().is_empty());
+    }
+
+    #[test]
     fn terminal_ignores_non_printing_c0_controls() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 1));
 
@@ -442,18 +517,6 @@ mod tests {
 
         assert_eq!(row_text(&terminal, 0), "ab    ");
         assert_eq!(terminal.cursor(), (0, 2));
-    }
-
-    #[test]
-    fn terminal_vertical_tab_and_form_feed_move_to_next_row() {
-        let mut terminal = Terminal::new(TerminalSize::new(5, 3));
-
-        terminal.feed(b"ab\x0bcd\x0cef");
-
-        assert_eq!(row_text(&terminal, 0), "ab   ");
-        assert_eq!(row_text(&terminal, 1), "cd   ");
-        assert_eq!(row_text(&terminal, 2), "ef   ");
-        assert_eq!(terminal.cursor(), (2, 2));
     }
 
     #[test]
@@ -645,7 +708,7 @@ mod tests {
     fn terminal_scrolls_when_newline_reaches_bottom_row() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 
-        terminal.feed(b"ab\ncd\nef");
+        terminal.feed(b"ab\r\ncd\r\nef");
 
         assert_eq!(row_text(&terminal, 0), "cd  ");
         assert_eq!(row_text(&terminal, 1), "ef  ");
@@ -656,7 +719,7 @@ mod tests {
     fn terminal_records_full_screen_scrolled_lines_in_scrollback() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 
-        terminal.feed(b"ab\ncd\nef");
+        terminal.feed(b"ab\r\ncd\r\nef");
 
         assert_eq!(terminal.scrollback().len(), 1);
         assert_eq!(scrollback_text(&terminal, 0), "ab  ");
@@ -665,10 +728,24 @@ mod tests {
     }
 
     #[test]
+    fn terminal_honors_configured_scrollback_limit() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+        terminal.set_scrollback_limit(2);
+
+        terminal.feed(b"aa\r\nbb\r\ncc\r\ndd\r\nee");
+
+        assert_eq!(terminal.scrollback().len(), 2);
+        assert_eq!(scrollback_text(&terminal, 0), "bb  ");
+        assert_eq!(scrollback_text(&terminal, 1), "cc  ");
+        assert_eq!(row_text(&terminal, 0), "dd  ");
+        assert_eq!(row_text(&terminal, 1), "ee  ");
+    }
+
+    #[test]
     fn terminal_erase_display_mode_3_clears_scrollback_only() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 
-        terminal.feed(b"ab\ncd\nef");
+        terminal.feed(b"ab\r\ncd\r\nef");
         assert_eq!(terminal.scrollback().len(), 1);
 
         terminal.feed(b"\x1b[3J");
@@ -711,10 +788,48 @@ mod tests {
     }
 
     #[test]
+    fn terminal_selective_erase_display_mode_2_clears_visible_grid() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"abcd\x1b[2;1Hefgh\x1b[1;2H\x1b[?2J");
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+        assert_eq!(row_text(&terminal, 1), "    ");
+    }
+
+    #[test]
+    fn terminal_selective_erase_display_preserves_protected_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"\x1b[1\"qab\x1b[0\"qcd\x1b[2;1Hefgh\x1b[1;1H\x1b[?2J");
+
+        assert_eq!(row_text(&terminal, 0), "ab  ");
+        assert_eq!(row_text(&terminal, 1), "    ");
+    }
+
+    #[test]
+    fn terminal_selective_erase_line_mode_2_clears_current_line() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"abcd\x1b[1;2H\x1b[?2K");
+
+        assert_eq!(row_text(&terminal, 0), "    ");
+    }
+
+    #[test]
+    fn terminal_selective_erase_line_preserves_protected_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"\x1b[1\"qab\x1b[2\"qcd\x1b[1;1H\x1b[?2K");
+
+        assert_eq!(row_text(&terminal, 0), "ab  ");
+    }
+
+    #[test]
     fn terminal_tracks_osc133_prompt_rows_across_scrollback() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 2));
 
-        terminal.feed(b"\x1b]133;A\x07> one\noutput\n\x1b]133;A\x07> two\nnext");
+        terminal.feed(b"\x1b]133;A\x07> one\r\noutput\r\n\x1b]133;A\x07> two\r\nnext");
 
         assert_eq!(terminal.scrollback().len(), 2);
         assert_eq!(scrollback_text(&terminal, 0), "> one   ");
@@ -728,7 +843,7 @@ mod tests {
     fn terminal_tracks_osc133_semantic_zones() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 4));
 
-        terminal.feed(b"ready\n\x1b]133;A\x07> \x1b]133;B\x07ls -l\n\x1b]133;C\x07file.txt");
+        terminal.feed(b"ready\r\n\x1b]133;A\x07> \x1b]133;B\x07ls -l\r\n\x1b]133;C\x07file.txt");
 
         assert_eq!(row_text(&terminal, 0), "ready       ");
         assert_eq!(row_text(&terminal, 1), "> ls -l     ");
@@ -776,7 +891,7 @@ mod tests {
     fn terminal_resets_osc133_line_input_after_newline() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 3));
 
-        terminal.feed(b"\x1b]133;A\x07> \x1b]133;I\x07one\noutput");
+        terminal.feed(b"\x1b]133;A\x07> \x1b]133;I\x07one\r\noutput");
 
         assert_eq!(row_text(&terminal, 0), "> one       ");
         assert_eq!(row_text(&terminal, 1), "output      ");
@@ -794,7 +909,7 @@ mod tests {
     fn terminal_extracts_text_from_semantic_zone() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 4));
 
-        terminal.feed(b"\x1b]133;A\x07> \x1b]133;B\x07cargo test\n\x1b]133;C\x07ok");
+        terminal.feed(b"\x1b]133;A\x07> \x1b]133;B\x07cargo test\r\n\x1b]133;C\x07ok");
 
         let input_zone = terminal.semantic_zone_at(3, 0).expect("input zone");
         assert_eq!(input_zone.semantic_type, SemanticType::Input);
@@ -815,7 +930,7 @@ mod tests {
     fn terminal_extracts_multiline_semantic_zone_from_scrollback() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 2));
 
-        terminal.feed(b"\x1b]133;C\x07alpha\nbeta\ngamma");
+        terminal.feed(b"\x1b]133;C\x07alpha\r\nbeta\r\ngamma");
 
         assert_eq!(terminal.scrollback().len(), 1);
         let output_zone = terminal.semantic_zone_at(0, 0).expect("output zone");
@@ -832,7 +947,7 @@ mod tests {
     fn terminal_text_from_region_unwraps_soft_wrapped_lines_across_scrollback() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 
-        terminal.feed(b"abc defghij\nz");
+        terminal.feed(b"abc defghij\r\nz");
 
         assert_eq!(terminal.scrollback().len(), 2);
         assert_eq!(scrollback_text(&terminal, 0), "abc ");
@@ -1359,6 +1474,52 @@ mod tests {
     }
 
     #[test]
+    fn terminal_soft_reset_restores_default_style_for_subsequent_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"\x1b[1;31mA\x1b[!pB");
+
+        let styled = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(styled.foreground, Color::Indexed(1));
+        assert!(styled.bold);
+
+        let reset = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(reset.ch, 'B');
+        assert_eq!(reset.foreground, Color::Default);
+        assert!(!reset.bold);
+    }
+
+    #[test]
+    fn terminal_soft_reset_removes_kitty_placements_and_data() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=p,i=7,C=1\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        assert_eq!(terminal.inline_images().len(), 1);
+
+        terminal.feed(b"\x1b[!p");
+
+        assert!(terminal.inline_images().is_empty());
+
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2\x1b\\");
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;ENOENT:No image with id 7\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
+    fn terminal_soft_reset_exits_alternate_screen() {
+        let mut terminal = Terminal::new(TerminalSize::new(6, 1));
+
+        terminal.feed(b"main\x1b[?1049halt\x1b[!p!");
+
+        assert_eq!(row_text(&terminal, 0), "main! ");
+        assert_eq!(terminal.cursor(), (0, 5));
+    }
+
+    #[test]
     fn terminal_tracks_decscusr_cursor_shape() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
 
@@ -1372,6 +1533,38 @@ mod tests {
 
         terminal.feed(b"\x1b[0 q");
         assert_eq!(terminal.cursor_shape(), CursorShape::Block);
+    }
+
+    #[test]
+    fn terminal_uses_configured_default_cursor_style_for_decscusr_reset() {
+        let mut terminal = Terminal::new_with_default_cursor_style(
+            TerminalSize::new(4, 1),
+            CursorStyle::BlinkingUnderline,
+        );
+
+        assert_eq!(terminal.cursor_shape(), CursorShape::Underline);
+        assert!(terminal.cursor_blinking());
+
+        terminal.feed(b"\x1b[6 q");
+        assert_eq!(terminal.cursor_shape(), CursorShape::Bar);
+        assert!(!terminal.cursor_blinking());
+
+        terminal.feed(b"\x1b[0 q");
+        assert_eq!(terminal.cursor_shape(), CursorShape::Underline);
+        assert!(terminal.cursor_blinking());
+    }
+
+    #[test]
+    fn terminal_full_reset_restores_configured_default_cursor_style() {
+        let mut terminal = Terminal::new_with_default_cursor_style(
+            TerminalSize::new(4, 1),
+            CursorStyle::SteadyBar,
+        );
+
+        terminal.feed(b"\x1b[3 q\x1bc");
+
+        assert_eq!(terminal.cursor_shape(), CursorShape::Bar);
+        assert!(!terminal.cursor_blinking());
     }
 
     #[test]
@@ -1422,6 +1615,71 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "abce");
         assert_eq!(row_text(&terminal, 1), "f   ");
         assert_eq!(terminal.cursor(), (1, 1));
+    }
+
+    #[test]
+    fn terminal_soft_reset_reenables_auto_wrap_at_right_edge() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"ab\x1b[?7lcd\x1b[!pef");
+
+        assert_eq!(row_text(&terminal, 0), "abce");
+        assert_eq!(row_text(&terminal, 1), "f   ");
+        assert_eq!(terminal.cursor(), (1, 1));
+    }
+
+    #[test]
+    fn terminal_reverse_wrap_mode_wraps_backspace_to_previous_line() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 3));
+
+        terminal.feed(b"abcd\x1b[2;1H\x1b[?45h\x08Z");
+
+        assert_eq!(row_text(&terminal, 0), "abcZ");
+        assert_eq!(row_text(&terminal, 1), "    ");
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_soft_reset_disables_reverse_wrap_at_left_edge() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 2));
+
+        terminal.feed(b"abcd\x1b[2;1H\x1b[?45h\x1b[!p\x08Z");
+
+        assert_eq!(row_text(&terminal, 0), "abcd");
+        assert_eq!(row_text(&terminal, 1), "Z   ");
+        assert_eq!(terminal.cursor(), (1, 1));
+    }
+
+    #[test]
+    fn terminal_soft_reset_disables_screen_reverse_video() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"\x1b[?5h");
+        assert!(terminal.screen_reverse_video());
+
+        terminal.feed(b"\x1b[!p");
+        assert!(!terminal.screen_reverse_video());
+    }
+
+    #[test]
+    fn terminal_soft_reset_restores_cursor_visibility() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"\x1b[?25l");
+        assert!(!terminal.cursor_visible());
+
+        terminal.feed(b"\x1b[!p");
+        assert!(terminal.cursor_visible());
+    }
+
+    #[test]
+    fn terminal_consumes_application_keypad_escape_sequences() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"ab\x1b=cd\x1b>ef");
+
+        assert_eq!(row_text(&terminal, 0), "abcdef  ");
+        assert_eq!(terminal.cursor(), (0, 6));
     }
 
     #[test]
@@ -1597,6 +1855,39 @@ mod tests {
     }
 
     #[test]
+    fn terminal_applies_sgr_rapid_blink_as_blink() {
+        let mut terminal = Terminal::new(TerminalSize::new(3, 1));
+
+        terminal.feed(b"\x1b[6mA\x1b[25mB");
+
+        let blinking = terminal.grid().get(0, 0).unwrap();
+        assert_eq!(blinking.ch, 'A');
+        assert!(blinking.blink);
+
+        let normal = terminal.grid().get(0, 1).unwrap();
+        assert_eq!(normal.ch, 'B');
+        assert!(!normal.blink);
+    }
+
+    #[test]
+    fn terminal_preserves_sgr_rapid_blink_attribute() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"\x1b[5mA\x1b[6mB\x1b[25mC");
+
+        let normal_blink = terminal.grid().get(0, 0).unwrap();
+        let rapid_blink = terminal.grid().get(0, 1).unwrap();
+        let plain = terminal.grid().get(0, 2).unwrap();
+
+        assert!(normal_blink.blink);
+        assert!(!normal_blink.rapid_blink);
+        assert!(rapid_blink.blink);
+        assert!(rapid_blink.rapid_blink);
+        assert!(!plain.blink);
+        assert!(!plain.rapid_blink);
+    }
+
+    #[test]
     fn terminal_applies_sgr_double_underline() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
 
@@ -1703,7 +1994,7 @@ mod tests {
     #[test]
     fn terminal_resize_expands_grid_and_preserves_visible_cells() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
-        terminal.feed(b"abcd\nef");
+        terminal.feed(b"abcd\r\nef");
         terminal.take_damage();
 
         terminal.resize(TerminalSize::new(6, 3));
@@ -1765,7 +2056,7 @@ mod tests {
     fn terminal_moves_cursor_with_relative_csi_commands() {
         let mut terminal = Terminal::new(TerminalSize::new(6, 3));
 
-        terminal.feed(b"ab\ncd\x1b[A\x1b[CX\x1b[B\x1b[DY");
+        terminal.feed(b"ab\r\ncd\x1b[A\x1b[CX\x1b[B\x1b[DY");
 
         assert_eq!(terminal.grid().get(0, 3).unwrap().ch, 'X');
         assert_eq!(terminal.grid().get(1, 3).unwrap().ch, 'Y');
@@ -1878,7 +2169,7 @@ mod tests {
     fn terminal_scrolling_uses_current_background_color_for_new_rows() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 
-        terminal.feed(b"\x1b[44mab\ncd\n");
+        terminal.feed(b"\x1b[44mab\r\ncd\r\n");
 
         assert_eq!(row_text(&terminal, 0), "cd  ");
         assert_eq!(row_text(&terminal, 1), "    ");
@@ -1990,7 +2281,7 @@ mod tests {
     fn terminal_erases_entire_display() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
 
-        terminal.feed(b"abcd\nef\x1b[2J");
+        terminal.feed(b"abcd\r\nef\x1b[2J");
 
         assert_eq!(row_text(&terminal, 0), "    ");
         assert_eq!(row_text(&terminal, 1), "    ");
@@ -2052,6 +2343,17 @@ mod tests {
         assert_eq!(row_text(&terminal, 0), "abcd        ");
         assert_eq!(terminal.cursor(), (0, 4));
         assert_eq!(terminal.title(), Some("tab-title"));
+    }
+
+    #[test]
+    fn terminal_tracks_icon_and_window_titles_separately() {
+        let mut terminal = Terminal::new(TerminalSize::new(12, 1));
+
+        terminal.feed(b"\x1b]1;icon-name\x07\x1b]2;window-name\x07");
+
+        assert_eq!(terminal.icon_title(), Some("icon-name"));
+        assert_eq!(terminal.window_title(), Some("window-name"));
+        assert_eq!(terminal.title(), Some("window-name"));
     }
 
     #[test]
@@ -2950,6 +3252,58 @@ mod tests {
     }
 
     #[test]
+    fn terminal_queries_kitty_file_payload_without_storing_or_replacing_image() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+        let file = KittyTestFile::new(&[0, 255, 0]);
+        let encoded_path = STANDARD.encode(file.path.as_os_str().to_string_lossy().as_bytes());
+
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.take_kitty_graphics_responses();
+
+        let query = format!("\x1b_Ga=q,t=f,i=7,f=24,s=1,v=1,c=1,r=1;{encoded_path}\x1b\\");
+        terminal.feed(query.as_bytes());
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7;OK\x1b\\".to_vec()]
+        );
+
+        terminal.feed(b"\x1b_Ga=p,i=7\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].data, vec![255, 0, 0]);
+    }
+
+    #[test]
+    fn terminal_queries_kitty_temporary_file_payload_and_deletes_safe_file() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+        let file = KittyTestFile::new_with_prefix("tty-graphics-protocol-rssh-query", &[0, 255, 0]);
+        let encoded_path = STANDARD.encode(file.path.as_os_str().to_string_lossy().as_bytes());
+
+        let query = format!("\x1b_Ga=q,t=t,i=40,f=24,s=1,v=1,c=1,r=1;{encoded_path}\x1b\\");
+        terminal.feed(query.as_bytes());
+
+        assert!(terminal.inline_images().is_empty());
+        assert!(
+            !file.path.exists(),
+            "safe kitty temporary query file should be deleted after reading"
+        );
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=40;OK\x1b\\".to_vec()]
+        );
+
+        terminal.feed(b"\x1b_Ga=p,i=40\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=40;ENOENT:No image with id 40\x1b\\".to_vec()]
+        );
+    }
+
+    #[test]
     fn terminal_reports_missing_kitty_image_query_by_id() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
@@ -3052,6 +3406,34 @@ mod tests {
         terminal.feed(b"X");
 
         assert_eq!(terminal.grid().get(0, 0).unwrap().ch, 'X');
+    }
+
+    #[test]
+    fn terminal_places_kitty_image_relative_to_virtual_parent_placeholder_bounds() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 4));
+
+        terminal.feed(b"\x1b_Ga=T,U=1,q=1,i=30,p=4,f=24,s=1,v=1,c=1,r=1;/wAA\x1b\\");
+        terminal.feed(b"\x1b_Ga=t,i=7,f=24,s=1,v=1,c=1,r=1;AP8A\x1b\\");
+        terminal.take_kitty_graphics_responses();
+        terminal.feed(b"\x1b[1;3H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+        terminal.feed(b"\x1b[3;8H\x1b[38;5;30m\x1b[58;5;4m");
+        terminal.feed("\u{10eeee}\u{0305}\u{0305}".as_bytes());
+
+        terminal.feed(b"\x1b_Ga=p,i=7,p=2,P=30,Q=4,H=2,V=1,c=1,r=1\x1b\\");
+
+        let child = terminal
+            .inline_images()
+            .iter()
+            .find(|image| image.kitty_image_id == Some(7))
+            .unwrap();
+        assert_eq!(child.kitty_placement_id, Some(2));
+        assert_eq!(child.row, 1);
+        assert_eq!(child.column, 4);
+        assert_eq!(
+            terminal.take_kitty_graphics_responses(),
+            vec![b"\x1b_Gi=7,p=2;OK\x1b\\".to_vec()]
+        );
     }
 
     #[test]
@@ -3294,12 +3676,12 @@ mod tests {
         assert_eq!(terminal.inline_images().len(), 1);
         assert_eq!(terminal.inline_images()[0].row, 0);
         assert_eq!(terminal.inline_images()[0].column, 2);
-        assert_eq!(terminal.cursor(), (1, 0));
+        assert_eq!(terminal.cursor(), (1, 2));
 
         terminal.feed(b"cd");
 
         assert_eq!(row_text(&terminal, 0), "ab                      ");
-        assert_eq!(row_text(&terminal, 1), "cd                      ");
+        assert_eq!(row_text(&terminal, 1), "  cd                    ");
     }
 
     #[test]
@@ -3318,6 +3700,40 @@ mod tests {
 
         assert_eq!(row_text(&terminal, 0), "abcd                    ");
         assert_eq!(row_text(&terminal, 1), "                        ");
+    }
+
+    #[test]
+    fn terminal_sixel_scrolls_right_mode_moves_cursor_below_right_edge() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 3));
+
+        terminal.feed(b"ab\x1b[?8452h");
+        terminal.feed(b"\x1bP0;1q\"1;1;2;6#1;2;100;0;0#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].row, 0);
+        assert_eq!(terminal.inline_images()[0].column, 2);
+        assert_eq!(terminal.cursor(), (1, 3));
+
+        terminal.feed(b"cd");
+
+        assert_eq!(row_text(&terminal, 0), "ab                      ");
+        assert_eq!(row_text(&terminal, 1), "   cd                   ");
+    }
+
+    #[test]
+    fn terminal_sixel_scrolls_right_uses_rendered_pixel_width() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 3));
+
+        terminal.feed(b"ab\x1b[?8452h");
+        terminal.feed(b"\x1bP0;1q\"1;1;24;6#1;2;100;0;0#1~\x1b\\");
+
+        assert_eq!(terminal.inline_images().len(), 1);
+        assert_eq!(terminal.inline_images()[0].width.as_deref(), Some("24px"));
+        assert_eq!(terminal.cursor(), (1, 5));
+
+        terminal.feed(b"cd");
+
+        assert_eq!(row_text(&terminal, 1), "     cd                 ");
     }
 
     #[test]
@@ -3452,6 +3868,16 @@ mod tests {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 
         terminal.feed(b"\x1bP$qm\x1b\\");
+
+        assert!(terminal.inline_images().is_empty());
+        assert!(terminal.take_damage().is_empty());
+    }
+
+    #[test]
+    fn terminal_does_not_treat_tmux_control_dcs_as_sixel_image() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1bP1000q~\x1b\\");
 
         assert!(terminal.inline_images().is_empty());
         assert!(terminal.take_damage().is_empty());
@@ -4009,6 +4435,16 @@ mod tests {
     }
 
     #[test]
+    fn terminal_ignores_st_controls_without_rendering() {
+        let mut terminal = Terminal::new(TerminalSize::new(8, 1));
+
+        terminal.feed(b"ab\x1b\\cd\x9cef");
+
+        assert_eq!(row_text(&terminal, 0), "abcdef  ");
+        assert_eq!(terminal.cursor(), (0, 6));
+    }
+
+    #[test]
     fn terminal_ignores_split_sos_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(12, 1));
 
@@ -4114,5 +4550,31 @@ mod tests {
             .iter()
             .map(|cell| cell.ch)
             .collect()
+    }
+
+    struct KittyTestFile {
+        path: PathBuf,
+    }
+
+    impl KittyTestFile {
+        fn new(data: &[u8]) -> Self {
+            Self::new_with_prefix("rssh-kitty-file-query", data)
+        }
+
+        fn new_with_prefix(prefix: &str, data: &[u8]) -> Self {
+            static NEXT_TEST_FILE_ID: AtomicUsize = AtomicUsize::new(0);
+
+            let suffix = NEXT_TEST_FILE_ID.fetch_add(1, Ordering::Relaxed);
+            let mut path = std::env::temp_dir();
+            path.push(format!("{prefix}-{}-{suffix}.rgb", std::process::id()));
+            fs::write(&path, data).expect("write kitty query test image file");
+            Self { path }
+        }
+    }
+
+    impl Drop for KittyTestFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.path);
+        }
     }
 }

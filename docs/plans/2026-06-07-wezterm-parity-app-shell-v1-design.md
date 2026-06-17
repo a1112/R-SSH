@@ -84,7 +84,7 @@ The parts relevant to parity are:
   - Split pane resize actions are routed from `Ctrl+Shift+Alt+Arrow` and the
     command palette into app-shell split size deltas.
   - App-shell state exposes WezTerm-style `ActivatePaneByIndex`, and the command
-    palette includes Activate Pane 1..4 entries.
+    palette includes Activate Pane By Index 1..8 entries.
   - App-shell state exposes WezTerm-style `RotatePanes`, and the command palette
     includes clockwise/counter-clockwise pane rotation while preserving split
     positions and size deltas.

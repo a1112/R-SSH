@@ -8,6 +8,7 @@ use crate::cli::{
 };
 
 const PROFILE_TEMPLATE: &str = include_str!("../../../examples/rssh-profiles.toml");
+const PROFILE_NAME_ENV: &str = "RSSH_PROFILE";
 
 #[derive(Deserialize)]
 struct ProfileDocument {
@@ -83,7 +84,9 @@ struct ProfileCheckJsonEntry {
 
 pub fn load_command(options: &ProfileOptions) -> Result<AppCommand, Box<dyn Error>> {
     let contents = fs::read_to_string(&options.file)?;
-    command_from_toml(&options.name, &contents).map_err(profile_error)
+    command_from_toml(&options.name, &contents)
+        .map(|command| command_with_profile_name(command, &options.name))
+        .map_err(profile_error)
 }
 
 pub fn profile_command_line(options: &ProfileShowOptions) -> Result<String, Box<dyn Error>> {
@@ -253,6 +256,16 @@ pub fn profile_list_lines(options: &ProfileListOptions) -> Result<Vec<String>, B
 
 fn command_from_toml(name: &str, contents: &str) -> Result<AppCommand, String> {
     cli::parse_args(args_from_toml(name, contents)?)
+}
+
+fn command_with_profile_name(command: AppCommand, name: &str) -> AppCommand {
+    match command {
+        AppCommand::Window(mut options) => {
+            options.command = options.command.with_env(PROFILE_NAME_ENV, name);
+            AppCommand::Window(options)
+        }
+        command => command,
+    }
 }
 
 fn args_from_toml(name: &str, contents: &str) -> Result<Vec<String>, String> {
@@ -973,16 +986,46 @@ command = ["cmd.exe", "/K", "echo", "window-profile-smoke"]
             command,
             AppCommand::Window(WindowOptions {
                 frame_limit: Some(120),
+                workspace: None,
+                window_class: None,
+                position: None,
                 osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 metrics: true,
                 metrics_json: false,
-                command: rssh_pty::PtyCommand::new("cmd.exe").with_args([
-                    "/K",
-                    "echo",
-                    "window-profile-smoke"
-                ]),
+                command: rssh_pty::PtyCommand::new("cmd.exe")
+                    .with_args(["/K", "echo", "window-profile-smoke"])
+                    .with_env("RSSH_PROFILE", "ops-window"),
                 log: Some(PathBuf::from("window.log")),
             })
+        );
+    }
+
+    #[test]
+    fn window_profile_command_carries_profile_name_environment() {
+        let file = temp_profile_file(
+            "window-profile-env",
+            r#"
+[profiles.ops-window]
+kind = "window"
+command = ["cmd.exe", "/K", "echo", "window-profile-smoke"]
+"#,
+        );
+
+        let command = super::load_command(&ProfileOptions {
+            name: "ops-window".to_owned(),
+            file: file.clone(),
+        })
+        .unwrap();
+
+        remove_file(&file);
+
+        let AppCommand::Window(options) = command else {
+            panic!("expected window profile command");
+        };
+
+        assert_eq!(
+            options.command.env_value("RSSH_PROFILE"),
+            Some("ops-window")
         );
     }
 
@@ -1010,10 +1053,14 @@ metrics = "json"
             command,
             AppCommand::Window(WindowOptions {
                 frame_limit: Some(3),
-                osc52_policy: crate::cli::Osc52Policy::ReadWrite,
+                workspace: None,
+                window_class: None,
+                position: None,
+                osc52_policy: crate::cli::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: true,
-                command: rssh_pty::PtyCommand::default_shell(),
+                command: rssh_pty::PtyCommand::default_shell()
+                    .with_env("RSSH_PROFILE", "ops-window"),
                 log: None,
             })
         );

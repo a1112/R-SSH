@@ -222,6 +222,9 @@ struct SshParseState {
 #[derive(Debug, PartialEq, Eq)]
 pub struct WindowOptions {
     pub frame_limit: Option<u64>,
+    pub workspace: Option<String>,
+    pub window_class: Option<String>,
+    pub position: Option<WindowPosition>,
     pub osc52_policy: Osc52Policy,
     pub metrics: bool,
     pub metrics_json: bool,
@@ -229,11 +232,26 @@ pub struct WindowOptions {
     pub log: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowPosition {
+    pub origin: WindowPositionOrigin,
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowPositionOrigin {
+    Screen,
+    Main,
+    Active,
+    Monitor(String),
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Osc52Policy {
     Off,
-    WriteOnly,
     #[default]
+    WriteOnly,
     ReadWrite,
 }
 
@@ -257,6 +275,9 @@ where
     let Some(command) = args.next() else {
         return Ok(AppCommand::Window(WindowOptions {
             frame_limit: None,
+            workspace: None,
+            window_class: None,
+            position: None,
             osc52_policy: Osc52Policy::default(),
             metrics: false,
             metrics_json: false,
@@ -329,7 +350,7 @@ where
             }
             parse_sftp(&sftp_args)
         }
-        "window" => {
+        "window" | "start" => {
             let window_args = args.collect::<Vec<_>>();
             if subcommand_help_requested(&window_args) {
                 return Ok(AppCommand::Help);
@@ -350,9 +371,10 @@ Usage:
   rssh-app version [--json]
   rssh-app self-test [--json]
   rssh-app bench [--json] [--bytes N] [--chunk-size N] [--render-frames N] [--idle-ms N] [--min-throughput-bytes-per-sec N] [--max-chunk-p95-us N] [--max-render-frame-p95-us N] [--max-idle-cpu-percent N] [--max-process-memory-bytes N] [--cols N --rows N]
-  rssh-app window [--frames N] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-- <program> [args...]]
-  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
-  rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
+  rssh-app window [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
+  rssh-app start [--frames N] [--cwd CWD] [--workspace WORKSPACE] [--class CLASS] [--position POSITION] [--domain DOMAIN] [--attach] [--no-auto-connect] [--always-new-process] [--new-tab] [--osc52 off|write|read-write] [--metrics | --metrics-json] [--log PATH] [-e <program> [args...] | -- <program> [args...] | <program> [args...]]
+  rssh-app local [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--cwd CWD] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
+  rssh-app console [--preflight] [--metrics | --metrics-json] [--cols N] [--rows N] [--cwd CWD] [--mouse] [--osc52 off|write|read-write] [--log PATH] [-- <program> [args...]]
   rssh-app ssh ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [--native] [--accept-unknown-host-key | --trust-on-first-use] [-l USER | --user USER] [-p N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-B IFACE] [-b ADDR] [-c CIPHER] [-E LOG] [-e CHAR] [-I PKCS11] [-m MAC] [-O CTL] [-P TAG] [-Q QUERY] [-S CTL_PATH] [-W HOST:PORT] [-w TUN] [-f] [-G] [-g] [-K | -k] [-M] [-n] [-s] [-T | -t | -tt] [-X | -x | -Y | -y] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [-L SPEC | --local-forward SPEC] [-R SPEC | --remote-forward SPEC] [-D SPEC | --dynamic-forward SPEC] [-N | --no-shell] [--osc52 off|write|read-write] [--log PATH] [COMMAND [ARGS...]]
   rssh-app sftp ([USER@]HOST | --host HOST --user USER | --target NAME) [--preflight] [--metrics | --metrics-json] [-l LIMIT | --user USER] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-b FILE] [-B N] [-R N] [-D COMMAND] [-S PROGRAM] [-s SUBSYSTEM] [-X OPTION] [-c CIPHER] [--cols N --rows N] [--agent | --password | -i PATH | --key PATH] [--log PATH]
   rssh-app scp [--preflight] [--metrics | --metrics-json] [-l LIMIT] [-P N | --port N] [-J DEST] [-F PATH] [-o OPTION] [-4 | -6] [-A | -a] [-C] [-q] [-v | -vv | -vvv] [-3] [-O] [-T] [-B] [-p] [-R] [-s] [-D PATH] [-S PROGRAM] [-X OPTION] [-c CIPHER] [-i PATH | --key PATH] [-r | --recursive] [--log PATH] LOCAL... [USER@]HOST:REMOTE
@@ -509,6 +531,7 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
     let mut metrics_json = false;
     let mut osc52_policy = Osc52Policy::default();
     let mut log = None;
+    let mut cwd = None;
     let mut command_args = Vec::new();
     let mut index = 0;
 
@@ -545,6 +568,13 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
                     "--log",
                 )?));
             }
+            "--cwd" => {
+                index += 1;
+                cwd = Some(PathBuf::from(required_option_value(
+                    args.get(index),
+                    "--cwd",
+                )?));
+            }
             "--" => {
                 command_args.extend(args[index + 1..].iter().cloned());
                 break;
@@ -560,6 +590,10 @@ fn parse_local(args: &[String]) -> Result<AppCommand, String> {
         let mut iter = command_args.into_iter();
         let program = iter.next().expect("command_args is not empty");
         PtyCommand::new(program).with_args(iter)
+    };
+    let command = match cwd {
+        Some(cwd) => command.with_cwd(cwd),
+        None => command,
     };
 
     let size = match (columns, rows) {
@@ -1315,10 +1349,14 @@ fn ssh_options_from_state(state: SshParseState) -> Result<SshOptions, String> {
 
 fn parse_window(args: &[String]) -> Result<AppCommand, String> {
     let mut frame_limit = None;
+    let mut workspace = None;
+    let mut window_class = None;
+    let mut position = None;
     let mut osc52_policy = Osc52Policy::default();
     let mut metrics = false;
     let mut metrics_json = false;
     let mut log = None;
+    let mut cwd = None;
     let mut command_args = Vec::new();
     let mut index = 0;
 
@@ -1345,8 +1383,46 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
                     "--log",
                 )?));
             }
+            "--cwd" => {
+                index += 1;
+                cwd = Some(PathBuf::from(required_option_value(
+                    args.get(index),
+                    "--cwd",
+                )?));
+            }
+            "--workspace" => {
+                index += 1;
+                workspace = Some(required_option_value(args.get(index), "--workspace")?.to_owned());
+            }
+            "--class" => {
+                index += 1;
+                window_class = Some(parse_window_class(required_option_value(
+                    args.get(index),
+                    "--class",
+                )?)?);
+            }
+            "--position" => {
+                index += 1;
+                position = Some(parse_window_position(required_option_value(
+                    args.get(index),
+                    "--position",
+                )?)?);
+            }
+            "--domain" => {
+                index += 1;
+                parse_window_domain(required_option_value(args.get(index), "--domain")?)?;
+            }
+            "--attach" | "--no-auto-connect" | "--always-new-process" | "--new-tab" => {}
+            "-e" => {
+                command_args = parse_window_exec_alias_command(args, index)?;
+                break;
+            }
             "--" => {
                 command_args.extend(args[index + 1..].iter().cloned());
+                break;
+            }
+            value if !value.starts_with('-') => {
+                command_args.extend(args[index..].iter().cloned());
                 break;
             }
             value => return Err(format!("unexpected window option: {value}")),
@@ -1354,6 +1430,22 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
         index += 1;
     }
 
+    let command = window_command_from_args(command_args, cwd);
+
+    Ok(AppCommand::Window(WindowOptions {
+        frame_limit,
+        workspace,
+        window_class,
+        position,
+        osc52_policy,
+        metrics,
+        metrics_json,
+        command,
+        log,
+    }))
+}
+
+fn window_command_from_args(command_args: Vec<String>, cwd: Option<PathBuf>) -> PtyCommand {
     let command = if command_args.is_empty() {
         PtyCommand::default_shell()
     } else {
@@ -1362,14 +1454,85 @@ fn parse_window(args: &[String]) -> Result<AppCommand, String> {
         PtyCommand::new(program).with_args(iter)
     };
 
-    Ok(AppCommand::Window(WindowOptions {
-        frame_limit,
-        osc52_policy,
-        metrics,
-        metrics_json,
-        command,
-        log,
-    }))
+    match cwd {
+        Some(cwd) => command.with_cwd(cwd),
+        None => command,
+    }
+}
+
+fn parse_window_exec_alias_command(args: &[String], index: usize) -> Result<Vec<String>, String> {
+    if index + 1 >= args.len() {
+        return Err("missing program for -e".to_owned());
+    }
+
+    Ok(args[index + 1..].to_vec())
+}
+
+fn parse_window_class(value: &str) -> Result<String, String> {
+    if value.is_empty() {
+        return Err("invalid value for --class: expected non-empty CLASS".to_owned());
+    }
+
+    Ok(value.to_owned())
+}
+
+fn parse_window_domain(value: &str) -> Result<(), String> {
+    if value.eq_ignore_ascii_case("local") {
+        return Ok(());
+    }
+
+    Err(format!(
+        "unsupported --domain value: {value}; only the local domain is currently supported"
+    ))
+}
+
+fn parse_window_position(value: &str) -> Result<WindowPosition, String> {
+    let original_value = value;
+    let (origin, value) = if let Some(value) = value.strip_prefix("screen:") {
+        (WindowPositionOrigin::Screen, value)
+    } else if let Some(value) = value.strip_prefix("main:") {
+        (WindowPositionOrigin::Main, value)
+    } else if let Some(value) = value.strip_prefix("active:") {
+        (WindowPositionOrigin::Active, value)
+    } else if let Some((monitor, coordinates)) = value.split_once(':') {
+        if monitor.is_empty() {
+            return Err(format!(
+                "unsupported --position value: {original_value}; expected X,Y, screen:X,Y, main:X,Y, active:X,Y, or <monitor>:X,Y"
+            ));
+        }
+        (
+            WindowPositionOrigin::Monitor(monitor.to_owned()),
+            coordinates,
+        )
+    } else {
+        (WindowPositionOrigin::Screen, value)
+    };
+
+    if value.contains(':') {
+        return Err(format!(
+            "unsupported --position value: {original_value}; expected X,Y, screen:X,Y, main:X,Y, active:X,Y, or <monitor>:X,Y"
+        ));
+    }
+
+    let Some((x, y)) = value.split_once(',') else {
+        return Err(format!(
+            "invalid value for --position: {original_value}; expected X,Y, screen:X,Y, main:X,Y, active:X,Y, or <monitor>:X,Y"
+        ));
+    };
+    if y.contains(',') {
+        return Err(format!(
+            "invalid value for --position: {original_value}; expected X,Y, screen:X,Y, main:X,Y, active:X,Y, or <monitor>:X,Y"
+        ));
+    }
+
+    let x = x
+        .parse::<i32>()
+        .map_err(|_| format!("invalid X coordinate for --position: {x}"))?;
+    let y = y
+        .parse::<i32>()
+        .map_err(|_| format!("invalid Y coordinate for --position: {y}"))?;
+
+    Ok(WindowPosition { origin, x, y })
 }
 
 fn parse_osc52_policy(value: Option<&String>) -> Result<Osc52Policy, String> {
@@ -1510,7 +1673,10 @@ mod tests {
             parse_args(["rssh-app"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::ReadWrite,
+                workspace: None,
+                window_class: None,
+                position: None,
+                osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
@@ -1525,12 +1691,94 @@ mod tests {
             parse_args(["rssh-app", "window"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::ReadWrite,
+                workspace: None,
+                window_class: None,
+                position: None,
+                osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
                 log: None
             })
+        );
+    }
+
+    #[test]
+    fn parses_start_alias_as_window_command() {
+        assert_eq!(
+            parse_args(["rssh-app", "start"]).unwrap(),
+            AppCommand::Window(super::WindowOptions {
+                frame_limit: None,
+                workspace: None,
+                window_class: None,
+                position: None,
+                osc52_policy: super::Osc52Policy::WriteOnly,
+                metrics: false,
+                metrics_json: false,
+                command: rssh_pty::PtyCommand::default_shell(),
+                log: None,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_start_alias_exec_command() {
+        let parsed = parse_args([
+            "rssh-app",
+            "start",
+            "-e",
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Write-Output start-smoke",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(options.command.program(), "powershell");
+        assert_eq!(
+            options.command.args(),
+            ["-NoProfile", "-Command", "Write-Output start-smoke"]
+        );
+    }
+
+    #[test]
+    fn parses_start_alias_bare_program_arguments() {
+        let parsed = parse_args([
+            "rssh-app",
+            "start",
+            "--cwd",
+            "E:\\project",
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Write-Output start-bare-smoke",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.command.cwd(),
+            Some(std::path::Path::new("E:\\project"))
+        );
+        assert_eq!(options.command.program(), "powershell");
+        assert_eq!(
+            options.command.args(),
+            ["-NoProfile", "-Command", "Write-Output start-bare-smoke"]
+        );
+    }
+
+    #[test]
+    fn parses_start_alias_help() {
+        assert_eq!(
+            parse_args(["rssh-app", "start", "--help"]).unwrap(),
+            AppCommand::Help
         );
     }
 
@@ -1741,7 +1989,10 @@ mod tests {
             parse_args(["rssh-app", "window", "--frames", "1"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: Some(1),
-                osc52_policy: super::Osc52Policy::ReadWrite,
+                workspace: None,
+                window_class: None,
+                position: None,
+                osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
@@ -1756,7 +2007,10 @@ mod tests {
             parse_args(["rssh-app", "window", "--metrics"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::ReadWrite,
+                workspace: None,
+                window_class: None,
+                position: None,
+                osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: true,
                 metrics_json: false,
                 command: rssh_pty::PtyCommand::default_shell(),
@@ -1771,7 +2025,10 @@ mod tests {
             parse_args(["rssh-app", "window", "--metrics-json"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
-                osc52_policy: super::Osc52Policy::ReadWrite,
+                workspace: None,
+                window_class: None,
+                position: None,
+                osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: true,
                 command: rssh_pty::PtyCommand::default_shell(),
@@ -1805,6 +2062,229 @@ mod tests {
     }
 
     #[test]
+    fn parses_window_exec_alias_for_initial_command() {
+        let parsed = parse_args([
+            "rssh-app",
+            "window",
+            "-e",
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            "Write-Output window-smoke",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(options.command.program(), "powershell");
+        assert_eq!(
+            options.command.args(),
+            ["-NoProfile", "-Command", "Write-Output window-smoke"]
+        );
+    }
+
+    #[test]
+    fn rejects_window_exec_alias_without_program() {
+        let error =
+            parse_args(["rssh-app", "window", "-e"]).expect_err("exec alias requires a program");
+
+        assert_eq!(error, "missing program for -e");
+    }
+
+    #[test]
+    fn parses_window_cwd_for_initial_command() {
+        let parsed = parse_args([
+            "rssh-app",
+            "window",
+            "--cwd",
+            "E:\\project",
+            "--",
+            "powershell",
+            "-NoProfile",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.command.cwd(),
+            Some(std::path::Path::new("E:\\project"))
+        );
+        assert_eq!(options.command.program(), "powershell");
+        assert_eq!(options.command.args(), ["-NoProfile"]);
+    }
+
+    #[test]
+    fn parses_window_workspace_for_initial_window() {
+        let parsed = parse_args(["rssh-app", "window", "--workspace", "ops"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(options.workspace.as_deref(), Some("ops"));
+    }
+
+    #[test]
+    fn parses_window_position_for_initial_window() {
+        let parsed = parse_args(["rssh-app", "window", "--position", "10,20"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.position,
+            Some(super::WindowPosition {
+                origin: super::WindowPositionOrigin::Screen,
+                x: 10,
+                y: 20
+            })
+        );
+    }
+
+    #[test]
+    fn parses_window_screen_position_for_initial_window() {
+        let parsed = parse_args(["rssh-app", "window", "--position", "screen:10,20"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.position,
+            Some(super::WindowPosition {
+                origin: super::WindowPositionOrigin::Screen,
+                x: 10,
+                y: 20
+            })
+        );
+    }
+
+    #[test]
+    fn parses_window_main_monitor_position_for_initial_window() {
+        let parsed = parse_args(["rssh-app", "window", "--position", "main:10,20"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.position,
+            Some(super::WindowPosition {
+                origin: super::WindowPositionOrigin::Main,
+                x: 10,
+                y: 20
+            })
+        );
+    }
+
+    #[test]
+    fn parses_window_active_monitor_position_for_initial_window() {
+        let parsed = parse_args(["rssh-app", "window", "--position", "active:10,20"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        let position = options.position.expect("expected initial window position");
+        assert_eq!(position.origin, super::WindowPositionOrigin::Active);
+        assert_eq!(position.x, 10);
+        assert_eq!(position.y, 20);
+    }
+
+    #[test]
+    fn parses_window_named_monitor_position_for_initial_window() {
+        let parsed = parse_args(["rssh-app", "window", "--position", "HDMI-1:10,20"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(
+            options.position,
+            Some(super::WindowPosition {
+                origin: super::WindowPositionOrigin::Monitor("HDMI-1".to_owned()),
+                x: 10,
+                y: 20
+            })
+        );
+    }
+
+    #[test]
+    fn parses_window_class_for_initial_window() {
+        let parsed = parse_args(["rssh-app", "window", "--class", "org.example.RSsh"]).unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(options.window_class.as_deref(), Some("org.example.RSsh"));
+    }
+
+    #[test]
+    fn accepts_wezterm_startup_compatibility_flags_for_window() {
+        let parsed = parse_args([
+            "rssh-app",
+            "window",
+            "--no-auto-connect",
+            "--always-new-process",
+            "--new-tab",
+            "--workspace",
+            "ops",
+            "--",
+            "powershell",
+            "-NoProfile",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(options.workspace.as_deref(), Some("ops"));
+        assert_eq!(options.command.program(), "powershell");
+        assert_eq!(options.command.args(), ["-NoProfile"]);
+    }
+
+    #[test]
+    fn accepts_local_domain_and_attach_for_window_startup() {
+        let parsed = parse_args([
+            "rssh-app",
+            "window",
+            "--domain",
+            "local",
+            "--attach",
+            "--",
+            "powershell",
+            "-NoProfile",
+        ])
+        .unwrap();
+
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+
+        assert_eq!(options.command.program(), "powershell");
+        assert_eq!(options.command.args(), ["-NoProfile"]);
+    }
+
+    #[test]
+    fn rejects_remote_domain_for_window_startup() {
+        let error = parse_args(["rssh-app", "window", "--domain", "ssh-prod"])
+            .expect_err("remote domains are not implemented");
+
+        assert_eq!(
+            error,
+            "unsupported --domain value: ssh-prod; only the local domain is currently supported"
+        );
+    }
+
+    #[test]
     fn parses_window_log_path() {
         let parsed = parse_args(["rssh-app", "window", "--log", "window.log"]).unwrap();
 
@@ -1821,6 +2301,9 @@ mod tests {
             parse_args(["rssh-app", "window", "--osc52", "off"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
+                workspace: None,
+                window_class: None,
+                position: None,
                 osc52_policy: super::Osc52Policy::Off,
                 metrics: false,
                 metrics_json: false,
@@ -1832,6 +2315,9 @@ mod tests {
             parse_args(["rssh-app", "window", "--osc52", "write"]).unwrap(),
             AppCommand::Window(super::WindowOptions {
                 frame_limit: None,
+                workspace: None,
+                window_class: None,
+                position: None,
                 osc52_policy: super::Osc52Policy::WriteOnly,
                 metrics: false,
                 metrics_json: false,
@@ -1840,6 +2326,37 @@ mod tests {
             })
         );
         assert!(parse_args(["rssh-app", "window", "--osc52", "bad"]).is_err());
+    }
+
+    #[test]
+    fn defaults_osc52_policy_to_wezterm_write_only() {
+        assert_eq!(super::Osc52Policy::default(), super::Osc52Policy::WriteOnly);
+        assert!(super::Osc52Policy::default().allows_write());
+        assert!(!super::Osc52Policy::default().allows_query());
+
+        let parsed = parse_args(["rssh-app"]).unwrap();
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected default window command");
+        };
+        assert_eq!(options.osc52_policy, super::Osc52Policy::WriteOnly);
+
+        let parsed = parse_args(["rssh-app", "window"]).unwrap();
+        let AppCommand::Window(options) = parsed else {
+            panic!("expected window command");
+        };
+        assert_eq!(options.osc52_policy, super::Osc52Policy::WriteOnly);
+
+        let parsed = parse_args(["rssh-app", "local"]).unwrap();
+        let AppCommand::Local(options) = parsed else {
+            panic!("expected local command");
+        };
+        assert_eq!(options.osc52_policy, super::Osc52Policy::WriteOnly);
+
+        let parsed = parse_args(["rssh-app", "ssh", "example.com"]).unwrap();
+        let AppCommand::Ssh(options) = parsed else {
+            panic!("expected ssh command");
+        };
+        assert_eq!(options.osc52_policy, super::Osc52Policy::WriteOnly);
     }
 
     #[test]
@@ -1986,6 +2503,31 @@ mod tests {
         assert_eq!(options.command.args(), ["/K"]);
         assert_eq!(options.size, None);
         assert!(!options.mouse);
+    }
+
+    #[test]
+    fn parses_local_cwd_for_initial_command() {
+        let parsed = parse_args([
+            "rssh-app",
+            "local",
+            "--cwd",
+            "E:\\project",
+            "--",
+            "cmd.exe",
+            "/K",
+        ])
+        .unwrap();
+
+        let AppCommand::Local(options) = parsed else {
+            panic!("expected local command");
+        };
+
+        assert_eq!(
+            options.command.cwd(),
+            Some(std::path::Path::new("E:\\project"))
+        );
+        assert_eq!(options.command.program(), "cmd.exe");
+        assert_eq!(options.command.args(), ["/K"]);
     }
 
     #[test]
@@ -3560,6 +4102,12 @@ mod tests {
         assert!(help.contains("--accept-unknown-host-key"));
         assert!(help.contains("--target"));
         assert!(help.contains("rssh-app console"));
+        assert!(help.contains("--cwd CWD"));
+        assert!(help.contains("--workspace WORKSPACE"));
+        assert!(help.contains("--class CLASS"));
+        assert!(help.contains("--no-auto-connect"));
+        assert!(help.contains("--always-new-process"));
+        assert!(help.contains("--new-tab"));
         assert!(help.contains("rssh-app <command> --help"));
         assert!(!help.contains("PASSWORD"));
         assert!(!help.contains("PASSPHRASE"));

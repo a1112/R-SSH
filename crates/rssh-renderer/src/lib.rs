@@ -22,6 +22,7 @@ pub struct RenderCell {
     pub faint: bool,
     pub italic: bool,
     pub blink: bool,
+    pub rapid_blink: bool,
     pub underline: bool,
     pub double_underline: bool,
     pub conceal: bool,
@@ -37,6 +38,14 @@ pub struct RenderCursor {
     pub row: u16,
     pub column: u16,
     pub shape: CursorShape,
+    pub blinking: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderCellColorRole {
+    Foreground,
+    Background,
+    Underline,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +78,7 @@ const KITTY_NON_DEFAULT_BACKGROUND_Z_CUTOFF: i32 = i32::MIN / 2;
 pub struct TerminalRenderSnapshot {
     cells: Vec<RenderCell>,
     cursor: Option<RenderCursor>,
+    cursor_color: Option<Color>,
     inline_images: Vec<RenderInlineImage>,
 }
 
@@ -100,14 +110,22 @@ impl RenderGeometry {
 pub const SCROLLBAR_TRACK_COLOR: [u8; 4] = [46, 46, 46, 255];
 pub const SCROLLBAR_THUMB_COLOR: [u8; 4] = [172, 172, 172, 255];
 pub const SCROLLBAR_WIDTH: u32 = 4;
-
-const MIN_SCROLLBAR_THUMB_HEIGHT: u32 = 8;
+const DEFAULT_DPI: u32 = 96;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScrollbackScrollbar {
     pub scrollback_lines: usize,
     pub viewport_rows: u16,
     pub scrollback_offset: usize,
+    pub min_thumb_height: Option<RenderScrollbarThumbSize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderScrollbarThumbSize {
+    Pixels(u32),
+    Points(u32),
+    CellFractionPerMille(u32),
+    Percent(u32),
 }
 
 impl ScrollbackScrollbar {
@@ -125,16 +143,60 @@ impl ScrollbackScrollbar {
             scrollback_lines,
             viewport_rows,
             scrollback_offset: scrollback_offset.min(scrollback_lines),
+            min_thumb_height: None,
         })
     }
 
     #[must_use]
+    pub const fn with_min_thumb_height_px(mut self, min_thumb_height_px: u32) -> Self {
+        self.min_thumb_height = Some(RenderScrollbarThumbSize::Pixels(min_thumb_height_px));
+        self
+    }
+
+    #[must_use]
+    pub const fn with_min_thumb_height(
+        mut self,
+        min_thumb_height: RenderScrollbarThumbSize,
+    ) -> Self {
+        self.min_thumb_height = Some(min_thumb_height);
+        self
+    }
+
+    #[must_use]
+    pub const fn with_min_thumb_height_points(mut self, points: u32) -> Self {
+        self.min_thumb_height = Some(RenderScrollbarThumbSize::Points(points));
+        self
+    }
+
+    #[must_use]
+    pub const fn with_min_thumb_height_cell_fraction_per_mille(mut self, per_mille: u32) -> Self {
+        self.min_thumb_height = Some(RenderScrollbarThumbSize::CellFractionPerMille(per_mille));
+        self
+    }
+
+    #[must_use]
+    pub const fn with_min_thumb_height_percent(mut self, percent: u32) -> Self {
+        self.min_thumb_height = Some(RenderScrollbarThumbSize::Percent(percent));
+        self
+    }
+
+    #[must_use]
     pub fn offset_from_pixel_y(self, y: u32, geometry: RenderGeometry) -> usize {
+        self.offset_from_pixel_y_with_dpi(y, geometry, DEFAULT_DPI)
+    }
+
+    #[must_use]
+    pub fn offset_from_pixel_y_with_dpi(
+        self,
+        y: u32,
+        geometry: RenderGeometry,
+        window_dpi: u32,
+    ) -> usize {
         if geometry.target_height == 0 {
             return self.scrollback_offset;
         }
 
-        let thumb_height = scrollbar_thumb_height(self, geometry.target_height);
+        let thumb_height = scrollbar_thumb_height(self, geometry, window_dpi);
         let travel = geometry.target_height.saturating_sub(thumb_height);
         if travel == 0 {
             return 0;
@@ -154,8 +216,58 @@ impl ScrollbackScrollbar {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PixelRenderer {
     blink_visible: bool,
+    cursor_opacity_alpha: u8,
+    text_blink_opacity_alpha: u8,
+    rapid_text_blink_opacity_alpha: u8,
+    bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    cursor_thickness: Option<RenderCursorThickness>,
+    underline_thickness: Option<RenderUnderlineThickness>,
+    underline_position: Option<RenderUnderlinePosition>,
+    strikethrough_position: Option<RenderStrikethroughPosition>,
+    force_reverse_video_cursor: bool,
+    window_dpi: u32,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RenderBoldBrightensAnsiColors {
+    No,
+    #[default]
+    BrightAndBold,
+    BrightOnly,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderCursorThickness {
+    Pixels(u32),
+    Points(u32),
+    Percent(u32),
+    CellFractionPerMille(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderUnderlineThickness {
+    Pixels(u32),
+    Points(u32),
+    Percent(u32),
+    CellFractionPerMille(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderUnderlinePosition {
+    Pixels(i32),
+    Points(i32),
+    Percent(i32),
+    CellFractionPerMille(i32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderStrikethroughPosition {
+    Pixels(u32),
+    Points(u32),
+    Percent(u32),
+    CellFractionPerMille(u32),
 }
 
 impl PixelRenderer {
@@ -163,6 +275,16 @@ impl PixelRenderer {
     pub const fn new() -> Self {
         Self {
             blink_visible: true,
+            cursor_opacity_alpha: u8::MAX,
+            text_blink_opacity_alpha: u8::MAX,
+            rapid_text_blink_opacity_alpha: u8::MAX,
+            bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
+            cursor_thickness: None,
+            underline_thickness: None,
+            underline_position: None,
+            strikethrough_position: None,
+            force_reverse_video_cursor: false,
+            window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
         }
@@ -172,15 +294,262 @@ impl PixelRenderer {
     pub const fn with_blink_visible(blink_visible: bool) -> Self {
         Self {
             blink_visible,
+            cursor_opacity_alpha: if blink_visible { u8::MAX } else { 0 },
+            text_blink_opacity_alpha: if blink_visible { u8::MAX } else { 0 },
+            rapid_text_blink_opacity_alpha: if blink_visible { u8::MAX } else { 0 },
+            bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
+            cursor_thickness: None,
+            underline_thickness: None,
+            underline_position: None,
+            strikethrough_position: None,
+            force_reverse_video_cursor: false,
+            window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
         }
     }
 
     #[must_use]
+    pub fn with_cursor_opacity(opacity: f32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_cursor_opacity(opacity);
+        renderer
+    }
+
+    pub fn set_cursor_opacity(&mut self, opacity: f32) {
+        let alpha = opacity_alpha(opacity);
+        self.blink_visible = alpha > 0;
+        self.cursor_opacity_alpha = alpha;
+    }
+
+    #[must_use]
+    pub fn with_text_blink_opacity(opacity: f32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_text_blink_opacity(opacity);
+        renderer
+    }
+
+    pub fn set_text_blink_opacity(&mut self, opacity: f32) {
+        self.text_blink_opacity_alpha = opacity_alpha(opacity);
+    }
+
+    #[must_use]
+    pub fn with_rapid_text_blink_opacity(opacity: f32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_rapid_text_blink_opacity(opacity);
+        renderer
+    }
+
+    pub fn set_rapid_text_blink_opacity(&mut self, opacity: f32) {
+        self.rapid_text_blink_opacity_alpha = opacity_alpha(opacity);
+    }
+
+    #[must_use]
+    pub fn with_bold_brightens_ansi_colors(
+        bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    ) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_bold_brightens_ansi_colors(bold_brightens_ansi_colors);
+        renderer
+    }
+
+    pub fn set_bold_brightens_ansi_colors(
+        &mut self,
+        bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    ) {
+        self.bold_brightens_ansi_colors = bold_brightens_ansi_colors;
+    }
+
+    #[must_use]
+    pub fn with_cursor_thickness_px(cursor_thickness_px: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_cursor_thickness(Some(RenderCursorThickness::Pixels(cursor_thickness_px)));
+        renderer
+    }
+
+    pub fn set_cursor_thickness_px(&mut self, cursor_thickness_px: Option<u32>) {
+        self.set_cursor_thickness(cursor_thickness_px.map(RenderCursorThickness::Pixels));
+    }
+
+    #[must_use]
+    pub fn with_cursor_thickness_points(points: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_cursor_thickness(Some(RenderCursorThickness::Points(points)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_cursor_thickness_percent(percent: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_cursor_thickness(Some(RenderCursorThickness::Percent(percent)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_cursor_thickness_cell_fraction_per_mille(per_mille: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_cursor_thickness(Some(RenderCursorThickness::CellFractionPerMille(per_mille)));
+        renderer
+    }
+
+    pub fn set_cursor_thickness(&mut self, cursor_thickness: Option<RenderCursorThickness>) {
+        self.cursor_thickness = cursor_thickness;
+    }
+
+    #[must_use]
+    pub fn with_underline_thickness_px(underline_thickness_px: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_underline_thickness(Some(RenderUnderlineThickness::Pixels(
+            underline_thickness_px,
+        )));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_underline_thickness_points(points: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_underline_thickness(Some(RenderUnderlineThickness::Points(points)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_underline_thickness_percent(percent: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_underline_thickness(Some(RenderUnderlineThickness::Percent(percent)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_underline_thickness_cell_fraction_per_mille(per_mille: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_underline_thickness(Some(RenderUnderlineThickness::CellFractionPerMille(
+            per_mille,
+        )));
+        renderer
+    }
+
+    pub fn set_underline_thickness(
+        &mut self,
+        underline_thickness: Option<RenderUnderlineThickness>,
+    ) {
+        self.underline_thickness = underline_thickness;
+    }
+
+    #[must_use]
+    pub fn with_underline_position_px(underline_position_px: i32) -> Self {
+        let mut renderer = Self::new();
+        renderer
+            .set_underline_position(Some(RenderUnderlinePosition::Pixels(underline_position_px)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_underline_position_points(points: i32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_underline_position(Some(RenderUnderlinePosition::Points(points)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_underline_position_percent(percent: i32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_underline_position(Some(RenderUnderlinePosition::Percent(percent)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_underline_position_cell_fraction_per_mille(per_mille: i32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_underline_position(Some(RenderUnderlinePosition::CellFractionPerMille(
+            per_mille,
+        )));
+        renderer
+    }
+
+    pub fn set_underline_position(&mut self, underline_position: Option<RenderUnderlinePosition>) {
+        self.underline_position = underline_position;
+    }
+
+    #[must_use]
+    pub fn with_strikethrough_position_px(strikethrough_position_px: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_strikethrough_position(Some(RenderStrikethroughPosition::Pixels(
+            strikethrough_position_px,
+        )));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_strikethrough_position_points(points: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_strikethrough_position(Some(RenderStrikethroughPosition::Points(points)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_strikethrough_position_percent(percent: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_strikethrough_position(Some(RenderStrikethroughPosition::Percent(percent)));
+        renderer
+    }
+
+    #[must_use]
+    pub fn with_strikethrough_position_cell_fraction_per_mille(per_mille: u32) -> Self {
+        let mut renderer = Self::new();
+        renderer.set_strikethrough_position(Some(
+            RenderStrikethroughPosition::CellFractionPerMille(per_mille),
+        ));
+        renderer
+    }
+
+    pub fn set_strikethrough_position(
+        &mut self,
+        strikethrough_position: Option<RenderStrikethroughPosition>,
+    ) {
+        self.strikethrough_position = strikethrough_position;
+    }
+
+    pub fn set_window_dpi(&mut self, dpi: u32) {
+        self.window_dpi = dpi.max(1);
+    }
+
+    #[must_use]
+    pub const fn with_force_reverse_video_cursor(force_reverse_video_cursor: bool) -> Self {
+        Self {
+            blink_visible: true,
+            cursor_opacity_alpha: u8::MAX,
+            text_blink_opacity_alpha: u8::MAX,
+            rapid_text_blink_opacity_alpha: u8::MAX,
+            bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
+            cursor_thickness: None,
+            underline_thickness: None,
+            underline_position: None,
+            strikethrough_position: None,
+            force_reverse_video_cursor,
+            window_dpi: DEFAULT_DPI,
+            animation_frame: 0,
+            animation_elapsed_ms: None,
+        }
+    }
+
+    pub fn set_force_reverse_video_cursor(&mut self, force_reverse_video_cursor: bool) {
+        self.force_reverse_video_cursor = force_reverse_video_cursor;
+    }
+
+    #[must_use]
     pub const fn with_animation_frame(animation_frame: usize) -> Self {
         Self {
             blink_visible: true,
+            cursor_opacity_alpha: u8::MAX,
+            text_blink_opacity_alpha: u8::MAX,
+            rapid_text_blink_opacity_alpha: u8::MAX,
+            bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
+            cursor_thickness: None,
+            underline_thickness: None,
+            underline_position: None,
+            strikethrough_position: None,
+            force_reverse_video_cursor: false,
+            window_dpi: DEFAULT_DPI,
             animation_frame,
             animation_elapsed_ms: None,
         }
@@ -190,9 +559,23 @@ impl PixelRenderer {
     pub const fn with_animation_elapsed_ms(animation_elapsed_ms: u64) -> Self {
         Self {
             blink_visible: true,
+            cursor_opacity_alpha: u8::MAX,
+            text_blink_opacity_alpha: u8::MAX,
+            rapid_text_blink_opacity_alpha: u8::MAX,
+            bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
+            cursor_thickness: None,
+            underline_thickness: None,
+            underline_position: None,
+            strikethrough_position: None,
+            force_reverse_video_cursor: false,
+            window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: Some(animation_elapsed_ms),
         }
+    }
+
+    pub fn set_animation_elapsed_ms(&mut self, animation_elapsed_ms: u64) {
+        self.animation_elapsed_ms = Some(animation_elapsed_ms);
     }
 
     pub fn render(
@@ -229,7 +612,13 @@ impl PixelRenderer {
         );
 
         for cell in snapshot.cells() {
-            render_cell_background(&mut surface, cell, cell_width, cell_height);
+            render_cell_background(
+                &mut surface,
+                cell,
+                cell_width,
+                cell_height,
+                self.bold_brightens_ansi_colors,
+            );
         }
 
         render_inline_images_in_z_order(
@@ -249,7 +638,13 @@ impl PixelRenderer {
                 cell,
                 cell_width,
                 cell_height,
-                self.blink_visible,
+                self.text_blink_opacity_alpha,
+                self.rapid_text_blink_opacity_alpha,
+                self.underline_thickness,
+                self.underline_position,
+                self.strikethrough_position,
+                self.window_dpi,
+                self.bold_brightens_ansi_colors,
             );
         }
 
@@ -266,7 +661,24 @@ impl PixelRenderer {
         );
 
         if let Some(cursor) = snapshot.cursor() {
-            render_cursor(&mut surface, cursor, cell_width, cell_height);
+            render_cursor(
+                &mut surface,
+                cursor,
+                cell_width,
+                cell_height,
+                CursorRenderStyle {
+                    blink_visible: self.blink_visible,
+                    opacity_alpha: self.cursor_opacity_alpha,
+                    thickness: self.cursor_thickness,
+                    window_dpi: self.window_dpi,
+                    color: cursor_color(
+                        snapshot,
+                        cursor,
+                        self.force_reverse_video_cursor,
+                        self.bold_brightens_ansi_colors,
+                    ),
+                },
+            );
         }
     }
 
@@ -294,7 +706,7 @@ impl PixelRenderer {
         };
         surface.fill_rect(track, SCROLLBAR_TRACK_COLOR);
         surface.fill_rect(
-            scrollbar_thumb_rect(scrollbar, geometry, track_width),
+            scrollbar_thumb_rect(scrollbar, geometry, track_width, self.window_dpi),
             SCROLLBAR_THUMB_COLOR,
         );
     }
@@ -352,6 +764,7 @@ impl PixelRenderer {
                 cell,
                 geometry.cell_width,
                 geometry.cell_height,
+                self.bold_brightens_ansi_colors,
             );
         }
 
@@ -372,7 +785,13 @@ impl PixelRenderer {
                 cell,
                 geometry.cell_width,
                 geometry.cell_height,
-                self.blink_visible,
+                self.text_blink_opacity_alpha,
+                self.rapid_text_blink_opacity_alpha,
+                self.underline_thickness,
+                self.underline_position,
+                self.strikethrough_position,
+                self.window_dpi,
+                self.bold_brightens_ansi_colors,
             );
         }
 
@@ -397,6 +816,18 @@ impl PixelRenderer {
                 cursor,
                 geometry.cell_width,
                 geometry.cell_height,
+                CursorRenderStyle {
+                    blink_visible: self.blink_visible,
+                    opacity_alpha: self.cursor_opacity_alpha,
+                    thickness: self.cursor_thickness,
+                    window_dpi: self.window_dpi,
+                    color: cursor_color(
+                        snapshot,
+                        cursor,
+                        self.force_reverse_video_cursor,
+                        self.bold_brightens_ansi_colors,
+                    ),
+                },
             );
         }
     }
@@ -429,6 +860,15 @@ struct Rect {
     height: u32,
 }
 
+#[derive(Clone, Copy)]
+struct CursorRenderStyle {
+    blink_visible: bool,
+    opacity_alpha: u8,
+    thickness: Option<RenderCursorThickness>,
+    window_dpi: u32,
+    color: [u8; 4],
+}
+
 impl Surface<'_> {
     fn fill(&mut self, color: [u8; 4]) {
         for pixel in self.target.chunks_exact_mut(4) {
@@ -450,6 +890,33 @@ impl Surface<'_> {
         }
     }
 
+    fn fill_rect_alpha(&mut self, rect: Rect, color: [u8; 4], alpha: u8) {
+        if alpha == u8::MAX {
+            self.fill_rect(rect, color);
+            return;
+        }
+        if alpha == 0 {
+            return;
+        }
+
+        let max_y = rect.y.saturating_add(rect.height).min(self.height);
+        let max_x = rect.x.saturating_add(rect.width).min(self.width);
+        let alpha = u16::from(alpha);
+        let inverse_alpha = u16::from(u8::MAX).saturating_sub(alpha);
+
+        for row in rect.y..max_y {
+            for column in rect.x..max_x {
+                let index = ((row * self.width + column) * 4) as usize;
+                if let Some(pixel) = self.target.get_mut(index..index + 4) {
+                    pixel[0] = blend_channel(color[0], pixel[0], alpha, inverse_alpha);
+                    pixel[1] = blend_channel(color[1], pixel[1], alpha, inverse_alpha);
+                    pixel[2] = blend_channel(color[2], pixel[2], alpha, inverse_alpha);
+                    pixel[3] = u8::MAX;
+                }
+            }
+        }
+    }
+
     fn put_pixel(&mut self, x: u32, y: u32, color: [u8; 4]) {
         if x >= self.width || y >= self.height {
             return;
@@ -460,6 +927,19 @@ impl Surface<'_> {
             pixel.copy_from_slice(&color);
         }
     }
+}
+
+fn blend_channel(foreground: u8, background: u8, alpha: u16, inverse_alpha: u16) -> u8 {
+    let blended = u16::from(foreground)
+        .saturating_mul(alpha)
+        .saturating_add(u16::from(background).saturating_mul(inverse_alpha))
+        / u16::from(u8::MAX);
+    u8::try_from(blended).unwrap_or(u8::MAX)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn opacity_alpha(opacity: f32) -> u8 {
+    (opacity.clamp(0.0, 1.0) * f32::from(u8::MAX)) as u8
 }
 
 fn render_inline_image(
@@ -776,10 +1256,11 @@ fn render_cell_background(
     cell: &RenderCell,
     cell_width: u32,
     cell_height: u32,
+    bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
 ) {
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
-    let (_, background) = effective_cell_colors(cell);
+    let (_, background) = effective_cell_colors(cell, bold_brightens_ansi_colors);
     if background == default_background() {
         return;
     }
@@ -800,13 +1281,24 @@ fn render_cell_foreground(
     cell: &RenderCell,
     cell_width: u32,
     cell_height: u32,
-    blink_visible: bool,
+    text_blink_opacity_alpha: u8,
+    rapid_text_blink_opacity_alpha: u8,
+    underline_thickness: Option<RenderUnderlineThickness>,
+    underline_position: Option<RenderUnderlinePosition>,
+    strikethrough_position: Option<RenderStrikethroughPosition>,
+    window_dpi: u32,
+    bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
 ) {
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
-    let (foreground, _) = effective_cell_colors(cell);
+    let (foreground, _) = effective_cell_colors(cell, bold_brightens_ansi_colors);
+    let foreground_alpha = text_foreground_alpha(
+        cell,
+        text_blink_opacity_alpha,
+        rapid_text_blink_opacity_alpha,
+    );
 
-    if cell.conceal || (cell.blink && !blink_visible) {
+    if cell.conceal || foreground_alpha == 0 {
         return;
     }
 
@@ -836,7 +1328,7 @@ fn render_cell_foreground(
             let Some(width) = clipped_cell_width(draw_x, origin_x, cell_width, scale_x) else {
                 continue;
             };
-            surface.fill_rect(
+            surface.fill_rect_alpha(
                 Rect {
                     x: draw_x,
                     y: draw_y,
@@ -844,10 +1336,13 @@ fn render_cell_foreground(
                     height: scale_y,
                 },
                 foreground,
+                foreground_alpha,
             );
             let bold_x = draw_x.saturating_add(scale_x);
-            if cell.bold && bold_x < origin_x.saturating_add(cell_width) {
-                surface.fill_rect(
+            if cell_draws_bold(cell, bold_brightens_ansi_colors)
+                && bold_x < origin_x.saturating_add(cell_width)
+            {
+                surface.fill_rect_alpha(
                     Rect {
                         x: bold_x,
                         y: draw_y,
@@ -855,6 +1350,7 @@ fn render_cell_foreground(
                         height: scale_y,
                     },
                     foreground,
+                    foreground_alpha,
                 );
             }
         }
@@ -871,11 +1367,38 @@ fn render_cell_foreground(
         },
         foreground,
         color_to_rgba(cell.underline_color, foreground),
+        foreground_alpha,
+        underline_thickness,
+        underline_position,
+        strikethrough_position,
+        window_dpi,
     );
 }
 
-fn effective_cell_colors(cell: &RenderCell) -> ([u8; 4], [u8; 4]) {
-    let foreground = color_to_rgba(cell.foreground, default_foreground());
+fn text_foreground_alpha(
+    cell: &RenderCell,
+    text_blink_opacity_alpha: u8,
+    rapid_text_blink_opacity_alpha: u8,
+) -> u8 {
+    if !cell.blink {
+        return u8::MAX;
+    }
+
+    if cell.rapid_blink {
+        rapid_text_blink_opacity_alpha
+    } else {
+        text_blink_opacity_alpha
+    }
+}
+
+fn effective_cell_colors(
+    cell: &RenderCell,
+    bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+) -> ([u8; 4], [u8; 4]) {
+    let foreground = color_to_rgba(
+        effective_cell_foreground(cell, bold_brightens_ansi_colors),
+        default_foreground(),
+    );
     let background = color_to_rgba(cell.background, default_background());
     let (foreground, background) = if cell.inverse {
         (background, foreground)
@@ -889,6 +1412,36 @@ fn effective_cell_colors(cell: &RenderCell) -> ([u8; 4], [u8; 4]) {
     };
 
     (foreground, background)
+}
+
+fn effective_cell_foreground(
+    cell: &RenderCell,
+    bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+) -> Color {
+    let Color::Indexed(index @ 0..=7) = cell.foreground else {
+        return cell.foreground;
+    };
+
+    if cell.bold && bold_brightens_ansi_colors != RenderBoldBrightensAnsiColors::No {
+        Color::Indexed(index.saturating_add(8))
+    } else {
+        cell.foreground
+    }
+}
+
+fn cell_draws_bold(
+    cell: &RenderCell,
+    bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+) -> bool {
+    if !cell.bold {
+        return false;
+    }
+
+    if bold_brightens_ansi_colors != RenderBoldBrightensAnsiColors::BrightOnly {
+        return true;
+    }
+
+    !matches!(cell.foreground, Color::Indexed(0..=7))
 }
 
 fn italic_row_offset(glyph_y: usize, scale_x: u32, italic: bool) -> u32 {
@@ -934,12 +1487,26 @@ fn render_text_decorations(
     cell_rect: Rect,
     foreground: [u8; 4],
     underline_color: [u8; 4],
+    foreground_alpha: u8,
+    underline_thickness: Option<RenderUnderlineThickness>,
+    underline_position: Option<RenderUnderlinePosition>,
+    strikethrough_position: Option<RenderStrikethroughPosition>,
+    window_dpi: u32,
 ) {
-    render_underline_style(surface, cell, cell_rect, underline_color);
+    render_underline_style(
+        surface,
+        cell,
+        cell_rect,
+        underline_color,
+        foreground_alpha,
+        underline_thickness,
+        underline_position,
+        window_dpi,
+    );
 
     if cell.overline {
         let overline_height = (cell_rect.height / 8).max(1);
-        surface.fill_rect(
+        surface.fill_rect_alpha(
             Rect {
                 x: cell_rect.x,
                 y: cell_rect.y,
@@ -947,16 +1514,19 @@ fn render_text_decorations(
                 height: overline_height,
             },
             foreground,
+            foreground_alpha,
         );
     }
 
     if cell.strikethrough {
         let strike_height = (cell_rect.height / 8).max(1);
-        let strike_y = cell_rect
-            .y
-            .saturating_add(cell_rect.height / 2)
-            .saturating_sub(strike_height / 2);
-        surface.fill_rect(
+        let strike_y = cell_rect.y.saturating_add(strikethrough_position_px(
+            strikethrough_position,
+            cell_rect.height,
+            strike_height,
+            window_dpi,
+        ));
+        surface.fill_rect_alpha(
             Rect {
                 x: cell_rect.x,
                 y: strike_y,
@@ -964,6 +1534,7 @@ fn render_text_decorations(
                 height: strike_height,
             },
             foreground,
+            foreground_alpha,
         );
     }
 }
@@ -973,14 +1544,24 @@ fn render_underline_style(
     cell: &RenderCell,
     cell_rect: Rect,
     underline_color: [u8; 4],
+    foreground_alpha: u8,
+    underline_thickness: Option<RenderUnderlineThickness>,
+    underline_position: Option<RenderUnderlinePosition>,
+    window_dpi: u32,
 ) {
     let style = effective_underline_style(cell);
     if style == UnderlineStyle::None {
         return;
     }
 
-    let underline_height = (cell_rect.height / 8).max(1);
-    let lower_y = cell_rect.y + cell_rect.height.saturating_sub(underline_height);
+    let underline_height =
+        underline_thickness_px(underline_thickness, cell_rect.height, window_dpi);
+    let lower_y = cell_rect.y.saturating_add(underline_position_px(
+        underline_position,
+        cell_rect.height,
+        underline_height,
+        window_dpi,
+    ));
     let lower_rect = Rect {
         x: cell_rect.x,
         y: lower_y,
@@ -990,23 +1571,42 @@ fn render_underline_style(
 
     match style {
         UnderlineStyle::None => {}
-        UnderlineStyle::Single => surface.fill_rect(lower_rect, underline_color),
+        UnderlineStyle::Single => {
+            surface.fill_rect_alpha(lower_rect, underline_color, foreground_alpha);
+        }
         UnderlineStyle::Double => {
-            surface.fill_rect(lower_rect, underline_color);
-            surface.fill_rect(
+            surface.fill_rect_alpha(lower_rect, underline_color, foreground_alpha);
+            surface.fill_rect_alpha(
                 Rect {
                     y: lower_y.saturating_sub(underline_height.saturating_mul(2)),
                     ..lower_rect
                 },
                 underline_color,
+                foreground_alpha,
             );
         }
-        UnderlineStyle::Curly => render_curly_underline(surface, lower_rect, underline_color),
+        UnderlineStyle::Curly => {
+            render_curly_underline(surface, lower_rect, underline_color, foreground_alpha);
+        }
         UnderlineStyle::Dotted => {
-            render_patterned_underline(surface, lower_rect, underline_color, 1, 1);
+            render_patterned_underline(
+                surface,
+                lower_rect,
+                underline_color,
+                foreground_alpha,
+                1,
+                1,
+            );
         }
         UnderlineStyle::Dashed => {
-            render_patterned_underline(surface, lower_rect, underline_color, 3, 2);
+            render_patterned_underline(
+                surface,
+                lower_rect,
+                underline_color,
+                foreground_alpha,
+                3,
+                2,
+            );
         }
     }
 }
@@ -1023,6 +1623,7 @@ fn render_patterned_underline(
     surface: &mut Surface<'_>,
     rect: Rect,
     color: [u8; 4],
+    alpha: u8,
     stroke_width: u32,
     gap_width: u32,
 ) {
@@ -1030,19 +1631,20 @@ fn render_patterned_underline(
     let mut offset = 0;
     while offset < rect.width {
         let segment_width = stroke_width.min(rect.width - offset);
-        surface.fill_rect(
+        surface.fill_rect_alpha(
             Rect {
                 x: rect.x + offset,
                 width: segment_width,
                 ..rect
             },
             color,
+            alpha,
         );
         offset = offset.saturating_add(cycle);
     }
 }
 
-fn render_curly_underline(surface: &mut Surface<'_>, rect: Rect, color: [u8; 4]) {
+fn render_curly_underline(surface: &mut Surface<'_>, rect: Rect, color: [u8; 4], alpha: u8) {
     let upper_y = rect.y.saturating_sub(rect.height);
     for offset in 0..rect.width {
         let y = if (offset / 2) % 2 == 0 {
@@ -1050,7 +1652,7 @@ fn render_curly_underline(surface: &mut Surface<'_>, rect: Rect, color: [u8; 4])
         } else {
             rect.y
         };
-        surface.fill_rect(
+        surface.fill_rect_alpha(
             Rect {
                 x: rect.x + offset,
                 y,
@@ -1058,6 +1660,7 @@ fn render_curly_underline(surface: &mut Surface<'_>, rect: Rect, color: [u8; 4])
                 height: rect.height,
             },
             color,
+            alpha,
         );
     }
 }
@@ -1067,11 +1670,51 @@ fn render_cursor(
     cursor: RenderCursor,
     cell_width: u32,
     cell_height: u32,
+    style: CursorRenderStyle,
 ) {
+    if cursor.blinking && !style.blink_visible {
+        return;
+    }
+
     let origin_x = u32::from(cursor.column).saturating_mul(cell_width);
     let origin_y = u32::from(cursor.row).saturating_mul(cell_height);
-    let rect = cursor_rect(cursor.shape, origin_x, origin_y, cell_width, cell_height);
-    surface.fill_rect(rect, default_foreground());
+    let rect = cursor_rect(
+        cursor.shape,
+        origin_x,
+        origin_y,
+        cell_width,
+        cell_height,
+        style.thickness,
+        style.window_dpi,
+    );
+    if cursor.blinking && style.opacity_alpha < u8::MAX {
+        surface.fill_rect_alpha(rect, style.color, style.opacity_alpha);
+    } else {
+        surface.fill_rect(rect, style.color);
+    }
+}
+
+fn cursor_color(
+    snapshot: &TerminalRenderSnapshot,
+    cursor: RenderCursor,
+    force_reverse_video_cursor: bool,
+    bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+) -> [u8; 4] {
+    if let Some(color) = snapshot.cursor_color() {
+        return color_to_rgba(color, default_foreground());
+    }
+
+    if force_reverse_video_cursor {
+        snapshot
+            .cells()
+            .iter()
+            .find(|cell| cell.row == cursor.row && cell.column == cursor.column)
+            .map_or(default_foreground(), |cell| {
+                effective_cell_colors(cell, bold_brightens_ansi_colors).0
+            })
+    } else {
+        default_foreground()
+    }
 }
 
 fn damage_rect(region: DamageRegion, cell_width: u32, cell_height: u32) -> Rect {
@@ -1119,8 +1762,9 @@ fn scrollbar_thumb_rect(
     scrollbar: ScrollbackScrollbar,
     geometry: RenderGeometry,
     track_width: u32,
+    window_dpi: u32,
 ) -> Rect {
-    let thumb_height = scrollbar_thumb_height(scrollbar, geometry.target_height);
+    let thumb_height = scrollbar_thumb_height(scrollbar, geometry, window_dpi);
     let travel = geometry.target_height.saturating_sub(thumb_height);
     let scrollback_lines = scrollbar.scrollback_lines as u64;
     let live_distance = scrollbar
@@ -1141,23 +1785,49 @@ fn scrollbar_thumb_rect(
     }
 }
 
-fn scrollbar_thumb_height(scrollbar: ScrollbackScrollbar, target_height: u32) -> u32 {
+fn scrollbar_thumb_height(
+    scrollbar: ScrollbackScrollbar,
+    geometry: RenderGeometry,
+    window_dpi: u32,
+) -> u32 {
     let viewport_rows = u64::from(scrollbar.viewport_rows);
     let total_rows = viewport_rows.saturating_add(scrollbar.scrollback_lines as u64);
+    let target_height = geometry.target_height;
     let target_height_u64 = u64::from(target_height);
     let proportional_height = if total_rows == 0 {
         target_height_u64
     } else {
         target_height_u64.saturating_mul(viewport_rows) / total_rows
     };
+    let min_thumb_height =
+        scrollbar_min_thumb_height(scrollbar.min_thumb_height, geometry, window_dpi).max(1);
 
     u32::try_from(proportional_height)
         .unwrap_or(target_height)
-        .max(MIN_SCROLLBAR_THUMB_HEIGHT)
+        .max(min_thumb_height)
         .min(target_height)
 }
 
-fn color_to_rgba(color: Color, default: [u8; 4]) -> [u8; 4] {
+fn scrollbar_min_thumb_height(
+    min_thumb_height: Option<RenderScrollbarThumbSize>,
+    geometry: RenderGeometry,
+    window_dpi: u32,
+) -> u32 {
+    match min_thumb_height {
+        Some(RenderScrollbarThumbSize::Pixels(pixels)) => pixels,
+        Some(RenderScrollbarThumbSize::Points(points)) => points_to_pixels(points, window_dpi),
+        Some(RenderScrollbarThumbSize::CellFractionPerMille(per_mille)) => {
+            geometry.cell_height.saturating_mul(per_mille) / 1_000
+        }
+        Some(RenderScrollbarThumbSize::Percent(percent)) => {
+            geometry.target_height.saturating_mul(percent) / 100
+        }
+        None => geometry.cell_height.div_ceil(2),
+    }
+}
+
+#[must_use]
+pub fn color_to_rgba(color: Color, default: [u8; 4]) -> [u8; 4] {
     match color {
         Color::Default => default,
         Color::Indexed(index) => indexed_color(index),
@@ -1247,10 +1917,18 @@ impl TerminalRenderSnapshot {
                     viewport_row,
                     scrollback[source_row].cells(),
                     size.columns,
+                    terminal.screen_reverse_video(),
                 );
             } else {
                 let grid_row = source_row - scrollback.len();
-                append_grid_row(&mut cells, grid, viewport_row, grid_row, size.columns);
+                append_grid_row(
+                    &mut cells,
+                    grid,
+                    viewport_row,
+                    grid_row,
+                    size.columns,
+                    terminal.screen_reverse_video(),
+                );
             }
         }
 
@@ -1260,6 +1938,7 @@ impl TerminalRenderSnapshot {
         Self {
             cells,
             cursor,
+            cursor_color: None,
             inline_images,
         }
     }
@@ -1290,6 +1969,7 @@ impl TerminalRenderSnapshot {
                     faint: cell.faint,
                     italic: cell.italic,
                     blink: cell.blink,
+                    rapid_blink: cell.rapid_blink,
                     underline: cell.underline,
                     double_underline: cell.double_underline,
                     conceal: cell.conceal,
@@ -1305,6 +1985,7 @@ impl TerminalRenderSnapshot {
         Self {
             cells,
             cursor,
+            cursor_color: None,
             inline_images: Vec::new(),
         }
     }
@@ -1315,6 +1996,17 @@ impl TerminalRenderSnapshot {
     }
 
     #[must_use]
+    pub fn missing_glyphs(&self) -> Vec<char> {
+        let mut missing = Vec::new();
+        for cell in &self.cells {
+            if BASIC_FONTS.get(cell.ch).is_none() && !missing.contains(&cell.ch) {
+                missing.push(cell.ch);
+            }
+        }
+        missing
+    }
+
+    #[must_use]
     pub fn inline_images(&self) -> &[RenderInlineImage] {
         &self.inline_images
     }
@@ -1322,6 +2014,21 @@ impl TerminalRenderSnapshot {
     #[must_use]
     pub const fn cursor(&self) -> Option<RenderCursor> {
         self.cursor
+    }
+
+    #[must_use]
+    pub const fn cursor_color(&self) -> Option<Color> {
+        self.cursor_color
+    }
+
+    #[must_use]
+    pub const fn with_cursor_color(mut self, cursor_color: Option<Color>) -> Self {
+        self.cursor_color = cursor_color;
+        self
+    }
+
+    pub fn set_cursor_color(&mut self, cursor_color: Option<Color>) {
+        self.cursor_color = cursor_color;
     }
 
     #[must_use]
@@ -1393,6 +2100,25 @@ impl TerminalRenderSnapshot {
         self
     }
 
+    #[must_use]
+    pub fn with_cells_mapped(mut self, mut map_cell: impl FnMut(RenderCell) -> RenderCell) -> Self {
+        self.cells = self.cells.into_iter().map(&mut map_cell).collect();
+        self
+    }
+
+    #[must_use]
+    pub fn with_cell_colors_mapped(
+        mut self,
+        mut map_color: impl FnMut(RenderCellColorRole, Color) -> Color,
+    ) -> Self {
+        for cell in &mut self.cells {
+            cell.foreground = map_color(RenderCellColorRole::Foreground, cell.foreground);
+            cell.background = map_color(RenderCellColorRole::Background, cell.background);
+            cell.underline_color = map_color(RenderCellColorRole::Underline, cell.underline_color);
+        }
+        self
+    }
+
     pub fn update_from_terminal_damage(&mut self, terminal: &Terminal, damage: &[DamageRegion]) {
         let grid = terminal.grid();
         let size = grid.size();
@@ -1417,7 +2143,13 @@ impl TerminalRenderSnapshot {
                     let Some(cell) = grid.get(row, column) else {
                         continue;
                     };
-                    append_render_cell(&mut self.cells, row, column, cell);
+                    append_render_cell(
+                        &mut self.cells,
+                        row,
+                        column,
+                        cell,
+                        terminal.screen_reverse_video(),
+                    );
                 }
             }
         }
@@ -1426,6 +2158,10 @@ impl TerminalRenderSnapshot {
         self.inline_images =
             render_inline_images_from_terminal(terminal, 0, size.rows, size.columns);
         self.cursor = render_cursor_from_terminal(terminal, 0);
+    }
+
+    pub fn update_cursor_from_terminal(&mut self, terminal: &Terminal, scrollback_offset: usize) {
+        self.cursor = render_cursor_from_terminal(terminal, scrollback_offset);
     }
 
     #[must_use]
@@ -1506,6 +2242,7 @@ fn render_cursor_from_terminal(
         row,
         column,
         shape: terminal.cursor_shape(),
+        blinking: terminal.cursor_blinking(),
     })
 }
 
@@ -1515,6 +2252,8 @@ fn cursor_rect(
     origin_y: u32,
     cell_width: u32,
     cell_height: u32,
+    cursor_thickness: Option<RenderCursorThickness>,
+    window_dpi: u32,
 ) -> Rect {
     match shape {
         CursorShape::Block => Rect {
@@ -1524,7 +2263,8 @@ fn cursor_rect(
             height: cell_height,
         },
         CursorShape::Underline => {
-            let height = (cell_height / 6).max(1);
+            let height =
+                cursor_thickness_px(cursor_thickness, cell_height, cell_height, window_dpi);
             Rect {
                 x: origin_x,
                 y: origin_y + cell_height.saturating_sub(height),
@@ -1535,10 +2275,140 @@ fn cursor_rect(
         CursorShape::Bar => Rect {
             x: origin_x,
             y: origin_y,
-            width: (cell_width / 4).max(1),
+            width: cursor_thickness_px(cursor_thickness, cell_width, cell_height, window_dpi),
             height: cell_height,
         },
     }
+}
+
+fn cursor_thickness_px(
+    cursor_thickness: Option<RenderCursorThickness>,
+    max_thickness: u32,
+    cell_height: u32,
+    window_dpi: u32,
+) -> u32 {
+    let default_thickness = (cell_height / 6).max(1);
+    let thickness = match cursor_thickness {
+        Some(RenderCursorThickness::Pixels(pixels)) => pixels,
+        Some(RenderCursorThickness::Points(points)) => points_to_pixels(points, window_dpi),
+        Some(RenderCursorThickness::Percent(percent)) => {
+            default_thickness.saturating_mul(percent) / 100
+        }
+        Some(RenderCursorThickness::CellFractionPerMille(per_mille)) => {
+            cell_height.saturating_mul(per_mille) / 1_000
+        }
+        None => default_thickness,
+    };
+
+    thickness.max(1).min(max_thickness)
+}
+
+fn underline_thickness_px(
+    underline_thickness: Option<RenderUnderlineThickness>,
+    cell_height: u32,
+    window_dpi: u32,
+) -> u32 {
+    let default_thickness = (cell_height / 8).max(1);
+    let thickness = match underline_thickness {
+        Some(RenderUnderlineThickness::Pixels(pixels)) => pixels,
+        Some(RenderUnderlineThickness::Points(points)) => points_to_pixels(points, window_dpi),
+        Some(RenderUnderlineThickness::Percent(percent)) => {
+            default_thickness.saturating_mul(percent) / 100
+        }
+        Some(RenderUnderlineThickness::CellFractionPerMille(per_mille)) => {
+            cell_height.saturating_mul(per_mille) / 1_000
+        }
+        None => default_thickness,
+    };
+
+    thickness.max(1).min(cell_height)
+}
+
+fn underline_position_px(
+    underline_position: Option<RenderUnderlinePosition>,
+    cell_height: u32,
+    underline_height: u32,
+    window_dpi: u32,
+) -> u32 {
+    let default_position = cell_height.saturating_sub(underline_height);
+    let offset = match underline_position {
+        Some(RenderUnderlinePosition::Pixels(pixels)) => pixels,
+        Some(RenderUnderlinePosition::Points(points)) => {
+            signed_points_to_pixels(points, window_dpi)
+        }
+        Some(RenderUnderlinePosition::Percent(percent)) => {
+            signed_scaled(default_position, percent.saturating_sub(100), 100)
+        }
+        Some(RenderUnderlinePosition::CellFractionPerMille(per_mille)) => {
+            signed_scaled(cell_height, per_mille, 1_000)
+        }
+        None => return default_position,
+    };
+
+    shifted_line_position(default_position, offset, cell_height, underline_height)
+}
+
+fn strikethrough_position_px(
+    strikethrough_position: Option<RenderStrikethroughPosition>,
+    cell_height: u32,
+    strike_height: u32,
+    window_dpi: u32,
+) -> u32 {
+    let default_position = cell_height
+        .saturating_div(2)
+        .saturating_sub(strike_height.saturating_div(2));
+    let position = match strikethrough_position {
+        Some(RenderStrikethroughPosition::Pixels(pixels)) => pixels,
+        Some(RenderStrikethroughPosition::Points(points)) => points_to_pixels(points, window_dpi),
+        Some(RenderStrikethroughPosition::Percent(percent)) => {
+            default_position.saturating_mul(percent) / 100
+        }
+        Some(RenderStrikethroughPosition::CellFractionPerMille(per_mille)) => {
+            cell_height.saturating_mul(per_mille) / 1_000
+        }
+        None => default_position,
+    };
+
+    position.min(cell_height.saturating_sub(strike_height.min(cell_height)))
+}
+
+fn shifted_line_position(
+    default_position: u32,
+    offset: i32,
+    cell_height: u32,
+    line_height: u32,
+) -> u32 {
+    let max_position = i64::from(cell_height.saturating_sub(line_height.min(cell_height)));
+    let position = i64::from(default_position).saturating_add(i64::from(offset));
+    u32::try_from(position.clamp(0, max_position)).unwrap_or(0)
+}
+
+fn signed_scaled(value: u32, factor: i32, divisor: i32) -> i32 {
+    let scaled = i64::from(value).saturating_mul(i64::from(factor)) / i64::from(divisor.max(1));
+    i32::try_from(scaled).unwrap_or(if scaled.is_negative() {
+        i32::MIN
+    } else {
+        i32::MAX
+    })
+}
+
+fn signed_points_to_pixels(points: i32, dpi: u32) -> i32 {
+    let numerator = i64::from(points).saturating_mul(i64::from(dpi));
+    let rounded = if numerator.is_negative() {
+        numerator.saturating_sub(36) / 72
+    } else {
+        numerator.saturating_add(36) / 72
+    };
+    i32::try_from(rounded).unwrap_or(if rounded.is_negative() {
+        i32::MIN
+    } else {
+        i32::MAX
+    })
+}
+
+fn points_to_pixels(points: u32, dpi: u32) -> u32 {
+    let numerator = u64::from(points).saturating_mul(u64::from(dpi));
+    u32::try_from((numerator + 36) / 72).unwrap_or(u32::MAX)
 }
 
 fn append_grid_row(
@@ -1547,6 +2417,7 @@ fn append_grid_row(
     viewport_row: u16,
     grid_row: usize,
     columns: u16,
+    screen_reverse: bool,
 ) {
     let Ok(grid_row) = u16::try_from(grid_row) else {
         return;
@@ -1560,7 +2431,7 @@ fn append_grid_row(
         let Some(cell) = grid.get(grid_row, column) else {
             continue;
         };
-        append_render_cell(cells, viewport_row, column, cell);
+        append_render_cell(cells, viewport_row, column, cell, screen_reverse);
     }
 }
 
@@ -1569,20 +2440,28 @@ fn append_render_cells(
     viewport_row: u16,
     source_cells: &[Cell],
     columns: u16,
+    screen_reverse: bool,
 ) {
     for (column, cell) in source_cells.iter().take(usize::from(columns)).enumerate() {
         let Ok(column) = u16::try_from(column) else {
             continue;
         };
-        append_render_cell(cells, viewport_row, column, cell);
+        append_render_cell(cells, viewport_row, column, cell, screen_reverse);
     }
 }
 
-fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: &Cell) {
-    if !cell_has_renderable_content(cell) {
+fn append_render_cell(
+    cells: &mut Vec<RenderCell>,
+    row: u16,
+    column: u16,
+    cell: &Cell,
+    screen_reverse: bool,
+) {
+    if !screen_reverse && !cell_has_renderable_content(cell) {
         return;
     }
 
+    let inverse = cell.inverse ^ screen_reverse;
     cells.push(RenderCell {
         row,
         column,
@@ -1595,13 +2474,14 @@ fn append_render_cell(cells: &mut Vec<RenderCell>, row: u16, column: u16, cell: 
         faint: cell.faint,
         italic: cell.italic,
         blink: cell.blink,
+        rapid_blink: cell.rapid_blink,
         underline: cell.underline,
         double_underline: cell.double_underline,
         conceal: cell.conceal,
         strikethrough: cell.strikethrough,
         overline: cell.overline,
         vertical_align: cell.vertical_align,
-        inverse: cell.inverse,
+        inverse,
         hyperlink: cell.hyperlink.clone(),
     });
 }
@@ -1631,8 +2511,9 @@ mod tests {
     };
 
     use super::{
-        DamageRegion, PixelRenderer, RenderCell, RenderGeometry, RenderInlineImage,
-        SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
+        DamageRegion, PixelRenderer, RenderBoldBrightensAnsiColors, RenderCell, RenderGeometry,
+        RenderInlineImage, SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar,
+        TerminalRenderSnapshot,
     };
 
     #[test]
@@ -1656,6 +2537,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: true,
                 double_underline: false,
                 conceal: false,
@@ -1663,6 +2545,7 @@ mod tests {
                 overline: false,
                 vertical_align: VerticalAlign::Baseline,
                 inverse: false,
+                protected: false,
                 hyperlink: None,
                 semantic_type: SemanticType::Output,
             },
@@ -1682,6 +2565,43 @@ mod tests {
     }
 
     #[test]
+    fn render_snapshot_reports_missing_glyph_codepoints_once() {
+        let mut grid = TerminalGrid::new(TerminalSize::new(3, 1));
+        for (column, ch) in [(0, 'R'), (1, '中'), (2, '中')] {
+            grid.set(
+                0,
+                column,
+                Cell {
+                    ch,
+                    foreground: Color::Default,
+                    background: Color::Default,
+                    underline_color: Color::Default,
+                    underline_style: UnderlineStyle::None,
+                    bold: false,
+                    faint: false,
+                    italic: false,
+                    blink: false,
+                    rapid_blink: false,
+                    underline: false,
+                    double_underline: false,
+                    conceal: false,
+                    strikethrough: false,
+                    overline: false,
+                    vertical_align: VerticalAlign::Baseline,
+                    inverse: false,
+                    protected: false,
+                    hyperlink: None,
+                    semantic_type: SemanticType::Output,
+                },
+            );
+        }
+
+        let snapshot = TerminalRenderSnapshot::from_grid(&grid);
+
+        assert_eq!(snapshot.missing_glyphs(), vec!['中']);
+    }
+
+    #[test]
     fn render_snapshot_preserves_inverse_style() {
         let mut grid = TerminalGrid::new(TerminalSize::new(1, 1));
         grid.set(
@@ -1697,6 +2617,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: false,
                 double_underline: false,
                 conceal: false,
@@ -1704,6 +2625,7 @@ mod tests {
                 overline: false,
                 vertical_align: VerticalAlign::Baseline,
                 inverse: true,
+                protected: false,
                 hyperlink: None,
                 semantic_type: SemanticType::Output,
             },
@@ -1712,6 +2634,29 @@ mod tests {
         let snapshot = TerminalRenderSnapshot::from_grid(&grid);
 
         assert!(snapshot.cells()[0].inverse);
+    }
+
+    #[test]
+    fn render_snapshot_applies_screen_reverse_video_mode() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+
+        terminal.feed(b"A\x1b[?5hB");
+        let reversed = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert_eq!(snapshot_char(&reversed, 0, 0), Some('A'));
+        assert_eq!(snapshot_char(&reversed, 0, 1), Some('B'));
+        assert!(reversed.cells().iter().all(|cell| cell.inverse));
+        assert_eq!(
+            reversed.cells().len(),
+            4,
+            "reverse video should render the full visible screen"
+        );
+
+        terminal.feed(b"\x1b[?5lC");
+        let normal = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(normal.cells().iter().all(|cell| !cell.inverse));
+        assert!(normal.cells().len() < 4);
     }
 
     #[test]
@@ -1853,7 +2798,7 @@ mod tests {
     #[test]
     fn render_snapshot_places_inline_images_after_scrollback_exists() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 2));
-        terminal.feed(b"one\ntwo\n");
+        terminal.feed(b"one\r\ntwo\r\n");
         terminal.feed(b"\x1b]1337;File=inline=1:QQ==\x07");
 
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
@@ -1866,7 +2811,7 @@ mod tests {
     #[test]
     fn render_snapshot_can_view_inline_images_in_scrollback() {
         let mut terminal = Terminal::new(TerminalSize::new(8, 2));
-        terminal.feed(b"\x1b]1337;File=inline=1:QQ==\x07one\ntwo\n");
+        terminal.feed(b"\x1b]1337;File=inline=1:QQ==\x07one\r\ntwo\r\n");
 
         let live_snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
         let scrolled_snapshot = TerminalRenderSnapshot::from_terminal_viewport(&terminal, 1);
@@ -1908,6 +2853,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: false,
                 double_underline: false,
                 conceal: false,
@@ -2003,6 +2949,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: false,
                 double_underline: false,
                 conceal: false,
@@ -2010,6 +2957,7 @@ mod tests {
                 overline: false,
                 vertical_align: VerticalAlign::Baseline,
                 inverse: false,
+                protected: false,
                 hyperlink: None,
                 semantic_type: SemanticType::Output,
             },
@@ -2531,6 +3479,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: false,
                 double_underline: false,
                 conceal: false,
@@ -2538,6 +3487,7 @@ mod tests {
                 overline: false,
                 vertical_align: VerticalAlign::Baseline,
                 inverse: false,
+                protected: false,
                 hyperlink: None,
                 semantic_type: SemanticType::Output,
             },
@@ -2555,6 +3505,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: false,
                 double_underline: false,
                 conceal: false,
@@ -2562,6 +3513,7 @@ mod tests {
                 overline: false,
                 vertical_align: VerticalAlign::Baseline,
                 inverse: false,
+                protected: false,
                 hyperlink: None,
                 semantic_type: SemanticType::Output,
             },
@@ -2592,6 +3544,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: false,
                 double_underline: false,
                 conceal: false,
@@ -2599,6 +3552,7 @@ mod tests {
                 overline: false,
                 vertical_align: VerticalAlign::Baseline,
                 inverse: false,
+                protected: false,
                 hyperlink: None,
                 semantic_type: SemanticType::Output,
             },
@@ -2643,6 +3597,59 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 16, 15, 0), SCROLLBAR_THUMB_COLOR);
         assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_TRACK_COLOR);
+    }
+
+    #[test]
+    fn pixel_renderer_uses_half_cell_default_minimum_scrollbar_thumb_height() {
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 32 * 4];
+
+        renderer.render_scrollbar(
+            ScrollbackScrollbar::new(1_000, 1, 0).unwrap(),
+            &mut target,
+            RenderGeometry::new(16, 32, 8, 8),
+        );
+
+        assert_eq!(pixel_at(&target, 16, 15, 27), SCROLLBAR_TRACK_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 28), SCROLLBAR_THUMB_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_THUMB_COLOR);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_percent_minimum_scrollbar_thumb_height() {
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 32 * 4];
+
+        renderer.render_scrollbar(
+            ScrollbackScrollbar::new(1_000, 1, 0)
+                .unwrap()
+                .with_min_thumb_height_percent(50),
+            &mut target,
+            RenderGeometry::new(16, 32, 8, 8),
+        );
+
+        assert_eq!(pixel_at(&target, 16, 15, 15), SCROLLBAR_TRACK_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 16), SCROLLBAR_THUMB_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_THUMB_COLOR);
+    }
+
+    #[test]
+    fn pixel_renderer_scales_point_minimum_scrollbar_thumb_height_by_window_dpi() {
+        let mut renderer = PixelRenderer::new();
+        renderer.set_window_dpi(144);
+        let mut target = vec![0; 16 * 32 * 4];
+
+        renderer.render_scrollbar(
+            ScrollbackScrollbar::new(1_000, 1, 0)
+                .unwrap()
+                .with_min_thumb_height_points(3),
+            &mut target,
+            RenderGeometry::new(16, 32, 8, 8),
+        );
+
+        assert_eq!(pixel_at(&target, 16, 15, 25), SCROLLBAR_TRACK_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 26), SCROLLBAR_THUMB_COLOR);
+        assert_eq!(pixel_at(&target, 16, 15, 31), SCROLLBAR_THUMB_COLOR);
     }
 
     #[test]
@@ -2735,6 +3742,54 @@ mod tests {
                 .any(|pixel| pixel == [255, 0, 0, 255]),
             "glyph foreground should still use the foreground color"
         );
+    }
+
+    #[test]
+    fn pixel_renderer_applies_underline_thickness_override() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[4;38;2;255;0;0m ");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].underline);
+        let renderer = PixelRenderer::with_underline_thickness_px(3);
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 5), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 5), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 0, 4), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_underline_position_override() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[4;38;2;255;0;0m ");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].underline);
+        let renderer = PixelRenderer::with_underline_position_px(-3);
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 4), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 4), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 0, 7), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_strikethrough_position_override() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[9;38;2;255;0;0m ");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].strikethrough);
+        let renderer = PixelRenderer::with_strikethrough_position_cell_fraction_per_mille(250);
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 16, 0, 2), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 7, 2), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 16, 0, 4), [12, 12, 12, 255]);
     }
 
     #[test]
@@ -2851,6 +3906,37 @@ mod tests {
     }
 
     #[test]
+    fn pixel_renderer_fades_blinking_foreground_toward_background() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[5;38;2;255;0;0;48;2;3;4;5m.");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].blink);
+        let renderer = PixelRenderer::with_text_blink_opacity(0.5);
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert!(count_pixels(&target, [128, 2, 2, 255]) > 0);
+        assert_eq!(count_pixels(&target, [255, 0, 0, 255]), 0);
+    }
+
+    #[test]
+    fn pixel_renderer_uses_rapid_text_blink_opacity_for_sgr6_cells() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[6;38;2;255;0;0;48;2;3;4;5m.");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].blink);
+        assert!(snapshot.cells()[0].rapid_blink);
+        let renderer = PixelRenderer::with_rapid_text_blink_opacity(0.0);
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert_eq!(count_pixels(&target, [255, 0, 0, 255]), 0);
+        assert_eq!(count_pixels(&target, [128, 2, 2, 255]), 0);
+    }
+
+    #[test]
     fn pixel_renderer_draws_bold_text_with_more_foreground_pixels() {
         let renderer = PixelRenderer::new();
         let mut normal = Terminal::new(TerminalSize::new(2, 1));
@@ -2872,6 +3958,66 @@ mod tests {
             count_pixels(&bold_target, [255, 0, 0, 255])
                 > count_pixels(&normal_target, [255, 0, 0, 255])
         );
+    }
+
+    #[test]
+    fn pixel_renderer_brightens_bold_ansi_foreground_by_default() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[1;31mA");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        assert!(snapshot.cells()[0].bold);
+        assert_eq!(snapshot.cells()[0].foreground, Color::Indexed(1));
+        let renderer = PixelRenderer::new();
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert!(count_pixels(&target, [241, 76, 76, 255]) > 0);
+        assert_eq!(count_pixels(&target, [205, 49, 49, 255]), 0);
+    }
+
+    #[test]
+    fn pixel_renderer_can_disable_bold_ansi_brightening() {
+        let mut terminal = Terminal::new(TerminalSize::new(2, 1));
+        terminal.feed(b"\x1b[1;31mA");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer =
+            PixelRenderer::with_bold_brightens_ansi_colors(RenderBoldBrightensAnsiColors::No);
+        let mut target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 16, 8, 8, 8);
+
+        assert!(count_pixels(&target, [205, 49, 49, 255]) > 0);
+        assert_eq!(count_pixels(&target, [241, 76, 76, 255]), 0);
+    }
+
+    #[test]
+    fn pixel_renderer_bright_only_ansi_bold_uses_bright_color_without_bold_weight() {
+        let renderer = PixelRenderer::with_bold_brightens_ansi_colors(
+            RenderBoldBrightensAnsiColors::BrightOnly,
+        );
+        let mut normal = Terminal::new(TerminalSize::new(2, 1));
+        normal.feed(b"\x1b[91mA");
+        let normal_snapshot = TerminalRenderSnapshot::from_terminal(&normal);
+        let mut normal_target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&normal_snapshot, &mut normal_target, 16, 8, 8, 8);
+
+        let mut bold = Terminal::new(TerminalSize::new(2, 1));
+        bold.feed(b"\x1b[1;31mA");
+        let bold_snapshot = TerminalRenderSnapshot::from_terminal(&bold);
+        assert!(bold_snapshot.cells()[0].bold);
+        let mut bold_target = vec![0; 16 * 8 * 4];
+
+        renderer.render(&bold_snapshot, &mut bold_target, 16, 8, 8, 8);
+
+        let normal_bright_pixels = count_pixels(&normal_target, [241, 76, 76, 255]);
+        assert!(normal_bright_pixels > 0);
+        assert_eq!(
+            count_pixels(&bold_target, [241, 76, 76, 255]),
+            normal_bright_pixels
+        );
+        assert_eq!(count_pixels(&bold_target, [205, 49, 49, 255]), 0);
     }
 
     #[test]
@@ -2946,6 +4092,7 @@ mod tests {
                 faint: false,
                 italic: false,
                 blink: false,
+                rapid_blink: false,
                 underline: false,
                 double_underline: false,
                 conceal: false,
@@ -2953,6 +4100,7 @@ mod tests {
                 overline: false,
                 vertical_align: VerticalAlign::Baseline,
                 inverse: true,
+                protected: false,
                 hyperlink: None,
                 semantic_type: SemanticType::Output,
             },
@@ -2980,19 +4128,81 @@ mod tests {
     #[test]
     fn render_snapshot_exposes_terminal_cursor() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
-        terminal.feed(b"ab\nc");
+        terminal.feed(b"ab\r\nc");
 
         let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
 
         let cursor = snapshot.cursor().expect("cursor should be visible");
         assert_eq!(cursor.row, 1);
         assert_eq!(cursor.column, 1);
+        assert!(!cursor.blinking);
+    }
+
+    #[test]
+    fn render_snapshot_marks_blinking_terminal_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[?12h");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+
+        assert!(
+            snapshot
+                .cursor()
+                .expect("cursor should be visible")
+                .blinking
+        );
+    }
+
+    #[test]
+    fn pixel_renderer_hides_blinking_cursor_when_phase_is_hidden() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[?12h");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::with_blink_visible(false);
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert!(
+            !target
+                .chunks_exact(4)
+                .any(|pixel| pixel == [229, 229, 229, 255]),
+            "renderer drew a cursor during the hidden blink phase"
+        );
+    }
+
+    #[test]
+    fn pixel_renderer_applies_blinking_cursor_opacity() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[?12h");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::with_cursor_opacity(0.5);
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(&target[0..4], &[120, 120, 120, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_cursor_opacity_preserves_animation_frame() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        feed_red_green_inline_gif(&mut terminal, "width=1;height=1");
+        terminal.feed(b"\r\x1b[?25h\x1b[?12h");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut renderer = PixelRenderer::with_animation_frame(1);
+        renderer.set_cursor_opacity(0.5);
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(&target[0..4], &[114, 242, 114, 255]);
     }
 
     #[test]
     fn render_snapshot_can_show_scrollback_viewport() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 2));
-        terminal.feed(b"ab\ncd\nef");
+        terminal.feed(b"ab\r\ncd\r\nef");
 
         let snapshot = TerminalRenderSnapshot::from_terminal_viewport(&terminal, 1);
 
@@ -3062,6 +4272,116 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 8, 0, 7), [229, 229, 229, 255]);
         assert_eq!(pixel_at(&target, 8, 0, 0), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_cursor_thickness_override_to_line_cursors() {
+        let mut bar_terminal = Terminal::new(TerminalSize::new(1, 1));
+        bar_terminal.feed(b"\x1b[6 q");
+        let bar_snapshot = TerminalRenderSnapshot::from_terminal(&bar_terminal);
+        let renderer = PixelRenderer::with_cursor_thickness_px(3);
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&bar_snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 2, 0), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 3, 0), [12, 12, 12, 255]);
+
+        let mut underline_terminal = Terminal::new(TerminalSize::new(1, 1));
+        underline_terminal.feed(b"\x1b[4 q");
+        let underline_snapshot = TerminalRenderSnapshot::from_terminal(&underline_terminal);
+        target.fill(0);
+
+        renderer.render(&underline_snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 5), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 0, 4), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_cursor_thickness_percent_to_line_cursors() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[4 q");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::with_cursor_thickness_percent(200);
+        let mut target = vec![0; 8 * 12 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 12, 8, 12);
+
+        assert_eq!(pixel_at(&target, 8, 0, 8), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 0, 7), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_cursor_thickness_cell_fraction_to_line_cursors() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[6 q");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::with_cursor_thickness_cell_fraction_per_mille(250);
+        let mut target = vec![0; 8 * 12 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 12, 8, 12);
+
+        assert_eq!(pixel_at(&target, 8, 2, 0), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 3, 0), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_cursor_thickness_points_to_line_cursors() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[6 q");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::with_cursor_thickness_points(2);
+        let mut target = vec![0; 8 * 12 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 12, 8, 12);
+
+        assert_eq!(pixel_at(&target, 8, 2, 0), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 3, 0), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_scales_cursor_thickness_points_by_window_dpi() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[6 q");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut renderer = PixelRenderer::with_cursor_thickness_points(2);
+        renderer.set_window_dpi(144);
+        let mut target = vec![0; 8 * 12 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 12, 8, 12);
+
+        assert_eq!(pixel_at(&target, 8, 3, 0), [229, 229, 229, 255]);
+        assert_eq!(pixel_at(&target, 8, 4, 0), [12, 12, 12, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_force_reverse_video_cursor_uses_cell_foreground() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[38;2;255;0;0;48;2;0;0;255mA\x1b[1;1H");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let renderer = PixelRenderer::with_force_reverse_video_cursor(true);
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [255, 0, 0, 255]);
+        assert_eq!(pixel_at(&target, 8, 7, 7), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_cursor_color_overrides_force_reverse_video_cursor() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[38;2;255;0;0;48;2;0;0;255mA\x1b[1;1H");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal)
+            .with_cursor_color(Some(Color::Rgb(0, 255, 0)));
+        let renderer = PixelRenderer::with_force_reverse_video_cursor(true);
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 8, 7, 7), [0, 255, 0, 255]);
     }
 
     fn snapshot_char(snapshot: &TerminalRenderSnapshot, row: u16, column: u16) -> Option<char> {

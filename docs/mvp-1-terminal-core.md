@@ -12,10 +12,11 @@ support the next PTY and SSH milestones.
   underline, conceal, strikethrough, overline, and inverse-video attributes.
 - `TerminalGrid` allocation, bounds-checked reads, and bounds-checked writes.
 - `Terminal::feed` for printable UTF-8 text.
-- Newline and carriage-return handling.
+- Line feed and carriage-return handling: bare `LF`, `VT`, and `FF` move down
+  while preserving the active column, while `CR` returns to the left margin and
+  `CRLF`/`NEL` express a next-line-at-left-margin transition.
 - C0 `NUL` is ignored without advancing the cursor; `BEL` records a pending
-  bell event without writing a cell or moving the cursor; `VT` and `FF` follow
-  the existing newline behavior.
+  bell event without writing a cell or moving the cursor.
 - Basic ESC line movement:
   - index (`IND`, `ESC D`)
   - next line (`NEL`, `ESC E`)
@@ -29,16 +30,21 @@ support the next PTY and SSH milestones.
   - clear current/all tab stops (`TBC`, `ESC[g` / `ESC[3g`)
   - cursor forward/backward tabulation (`CHT`/`CBT`, `ESC[I` / `ESC[Z`)
 - C1 byte-form `HTS` (`0x88`) sets the active column as a tab stop.
+- Application-keypad mode escapes (`ESC =` and `ESC >`) are consumed as
+  non-printing DEC mode sequences so they do not enter the terminal grid.
 - Full terminal reset with `RIS` (`ESC c`), restoring the grid, cursor, modes,
   style, scroll region, character set, and tab stops to defaults.
 - Soft terminal reset with `DECSTR` (`CSI ! p`), restoring insert/replace mode,
-  origin mode, scroll region, G0 character set, and saved-cursor state without
-  clearing visible cells or scrollback.
+  cursor visibility, origin mode, scroll region, G0 character set, and
+  saved-cursor state without clearing visible cells or scrollback.
 - Basic main-screen linefeed scrolling when output reaches the bottom row.
 - Delayed auto-wrap at the right edge, including bottom-row scroll on the next
   printable character.
 - Auto-wrap mode tracking with `DECSET ?7` and `DECRST ?7`; disabled auto-wrap
   keeps the cursor at the right edge and overwrites the last column.
+- Reverse-wrap mode tracking with `DECSET ?45` and `DECRST ?45`; when both
+  reverse-wrap and auto-wrap are enabled, BS at the left boundary wraps to the
+  previous row's right boundary.
 - Basic `DECSTBM` scroll-region handling with `ESC[<top>;<bottom>r`; linefeed
   at the bottom margin scrolls only the configured region, and `ESC[r` restores
   full-screen scrolling.
@@ -65,8 +71,12 @@ support the next PTY and SSH milestones.
   mode.
 - Cursor visibility tracking for `DECSET ?25` and `DECRST ?25`, plus cursor
   blinking tracking for `DECSET ?12` and `DECRST ?12`.
+- Screen reverse-video tracking for `DECSET ?5` and `DECRST ?5`; toggling the
+  mode damages the full visible screen so renderer snapshots can redraw the
+  viewport with global inverse video.
 - Cursor shape and blinking tracking for `DECSCUSR` (`CSI Ps SP q`) with block,
-  underline, and bar shapes.
+  underline, and bar shapes. `DECSCUSR 0` and full terminal reset restore the
+  configured default cursor style.
 - Xterm title-stack window operations save and restore the tracked terminal
   title through `CSI 22;0;0t` and `CSI 23;0;0t`.
 - G0 character-set switching for DEC Special Graphics (`ESC(0` / `ESC(B`),
@@ -81,6 +91,8 @@ support the next PTY and SSH milestones.
 - Basic erase handling:
   - erase in display (`ED`, `ESC[J`)
   - erase in line (`EL`, `ESC[K`)
+  - DEC selective erase in display/line (`DECSED`/`DECSEL`, `ESC[?...J/K`)
+    preserves cells marked protected by `DECSCA` (`ESC[..."q`)
 - Background color erase behavior uses the active SGR background for blank
   cells created by display/line/character erase, character insertion/deletion,
   and scrolling.
@@ -104,12 +116,13 @@ support the next PTY and SSH milestones.
   without appearing as terminal text.
 - OSC 8 hyperlink sequences terminated by ST update cell hyperlink metadata
   without appearing as terminal text; equivalent C1 OSC/ST forms are handled
-  too. SGR reset preserves the active hyperlink until an empty OSC 8 URI clears
-  it.
+  too. SGR reset clears the active hyperlink, matching WezTerm's reset
+  behavior; an empty OSC 8 URI also clears it.
 - DCS, SOS, PM, and non-Kitty APC control strings terminated by ST are ignored
   so unsupported terminal capability probes do not appear as terminal text.
-- C1 byte-form OSC (`0x9D`) and C1 ST (`0x9C`) are recognized for OSC and
-  ST-terminated control strings.
+- Standalone ST controls (`ESC \` and C1 `0x9C`) are consumed as no-effect
+  controls, and C1 byte-form OSC (`0x9D`) plus C1 ST (`0x9C`) are recognized
+  for OSC and ST-terminated control strings.
 - iTerm2/WezTerm `OSC 1337;File=...:<base64>` inline image metadata is parsed
   without appearing as terminal text; base64 `name` and payload data, cursor
   row/column, size, width, height, and preserve-aspect-ratio fields are retained
@@ -127,11 +140,11 @@ support the next PTY and SSH milestones.
   `x`/`y`/`w`/`h` source rectangles are retained for renderer cropping,
   `X`/`Y` target pixel offsets are retained for renderer placement, and image
   bytes are recorded in retained-history coordinates for renderer snapshots.
-  Basic direct `a=q` support queries validate supported direct/local file
-  payloads, including `m=1`/`m=0` chunked direct payloads without storing or
-  displaying the queried image, and queue Kitty `OK`/`EINVAL` responses for PTY
-  writeback, honoring Kitty `q=1` OK-response suppression and `q=2`
-  error-response suppression.
+  Basic `a=q` support queries validate supported direct, regular-file, and
+  temporary-file payloads, including `m=1`/`m=0` chunked direct payloads and
+  guarded temporary-file deletion, without storing or displaying the queried
+  image, and queue Kitty `OK`/`EINVAL` responses for PTY writeback, honoring
+  Kitty `q=1` OK-response suppression and `q=2` error-response suppression.
 - Kitty Graphics Protocol stored-image flow is supported for the direct
   `a=t,i=<id>` transmit path, including Kitty's default `a=t` behavior when
   the action key is omitted, terminal-assigned image numbers through
@@ -213,13 +226,15 @@ support the next PTY and SSH milestones.
   dimensions, DCS `P1` macro pixel aspect, DECGRA `Pan`/`Pad` aspect override,
   DCS `P2` transparent/opaque background mode, sixel data bytes, repeat
   introducers, carriage return, and sixel newline. By default and after
-  `?80l`, Sixel output advances the cursor from the text cursor position; when
-  DECSDM `?80h` is set, output is placed at the active graphics-page origin and
-  the text cursor is preserved.
+  `?80l`, Sixel output advances below the image while preserving the text
+  cursor's left-edge column; xterm/WezTerm `?8452h` moves that post-Sixel
+  cursor to the right edge. When DECSDM `?80h` is set, output is placed at the
+  active graphics-page origin and the text cursor is preserved. WezTerm's
+  tmux-control `DCS 1000 q` is ignored instead of being classified as Sixel.
 - Basic SGR handling:
   - reset
-  - bold, faint, italic, blink, underline, double underline, conceal,
-    strikethrough, overline, inverse video
+  - bold, faint, italic, normal and rapid blink, underline, double underline,
+    conceal, strikethrough, overline, inverse video
   - colon-separated underline style forms `4:0` through `4:5`, including reset,
     single, double, curly, dotted, and dashed underline styles
   - 8-color and bright 8-color foreground/background
@@ -244,7 +259,8 @@ support the next PTY and SSH milestones.
 - Hyperlink activation UI and OSC clipboard handling inside terminal core.
 - Full Kitty graphics protocol coverage beyond the direct and local-file
   `t=f`/`t=t` subset, including shared-memory transfers, richer placement
-  controls, broader query-response variants, and animation.
+  controls, query-response variants beyond current payload validation and
+  stored-image existence checks, and animation.
 - Full Sixel protocol coverage beyond the basic DCS `q`
   color/raster-size/background-mode/repeat/newline bitmap subset.
 - GPU rendering.
@@ -265,8 +281,8 @@ cover:
 - styled default cells
 - grid get/set bounds behavior
 - plain text parsing
-- newline parsing
-- C0 `NUL` filtering, `BEL` event tracking, and `VT`/`FF` newline handling
+- line-feed parsing with `LF`/`VT`/`FF` preserving the active column
+- C0 `NUL` filtering and `BEL` event tracking
 - ESC `IND`/`NEL`/`RI` movement and scroll-region boundary scrolling
 - C1 byte-form `IND`/`NEL`/`RI` line movement
 - backspace and horizontal tab control handling
@@ -274,11 +290,14 @@ cover:
   movement
 - `RIS` full terminal reset for grid, cursor, modes, style, character set, and
   tab stops
-- `DECSTR` soft terminal reset for insert/replace mode, origin mode, scroll
-  region, G0 character set, and saved-cursor state without clearing cells
+- `DECSTR` soft terminal reset for insert/replace mode, cursor visibility,
+  origin mode, scroll region, G0 character set, and saved-cursor state without
+  clearing cells
 - bottom-row linefeed scrolling
 - delayed auto-wrap and bottom-row auto-wrap scrolling
 - `?7h/l` auto-wrap mode tracking at the right edge
+- `?45h/l` reverse-wrap mode for BS at the left boundary when auto-wrap is
+  enabled
 - `DECSTBM` scroll-region setup, reset, and region-limited linefeed scrolling
 - `?6h/l` origin-mode cursor positioning relative to scroll regions
 - `?47`, `?1047`, and `?1049` alternate-screen enter/exit with main screen
@@ -288,17 +307,21 @@ cover:
 - `?1048h/l` private cursor save/restore without switching screens
 - CSI cursor positioning, line movement, and relative cursor movement
 - C1 byte-form CSI parsing and split-sequence buffering
+- `?5h/l` screen reverse-video mode tracking and full-viewport damage
 - `?25h/l` cursor visibility tracking and `?12h/l` cursor blinking tracking
 - `DECSCUSR` cursor shape/blinking tracking for block, underline, and bar
-  cursors
+  cursors, including configurable default-style reset behavior
 - `ESC7`/`ESC8` and CSI `s`/`u` cursor save/restore, including style,
   character set, and origin-mode restoration
 - DEC Special Graphics line drawing and split `ESC(` sequence handling
+- `ESC=`/`ESC>` application-keypad mode escapes are filtered from rendered text
 - split CSI, OSC title, DCS/SOS/PM/APC, and `ESC7`/`ESC8` sequences across
   `feed` calls
 - `CAN`/`SUB` cancellation for CSI, OSC, and ST-terminated control strings
 - split UTF-8 characters across `feed` calls
 - CSI display and line erase handling
+- DEC selective display/line erase honors `DECSCA` protected cells while
+  ordinary `ED`/`EL` still clears the addressed range
 - background color erase for display/line/character erase, insert/delete
   character blanks, and newly exposed scroll rows
 - CSI `3J` scrollback clearing without visible grid erasure
@@ -310,10 +333,11 @@ cover:
   drops placements scrolled out of the affected region
 - CSI scroll up/down handling with scroll-region limits
 - OSC title metadata tracking and text filtering for BEL and ST terminators
-- OSC 8 hyperlink metadata tracking, including C1 OSC/ST forms, and SGR reset
-  preservation
+- OSC 8 hyperlink metadata tracking, including C1 OSC/ST forms, SGR reset
+  clearing, and explicit empty-URI clearing
 - DCS/SOS/PM/APC control-string filtering with split-sequence buffering
-- C1 byte-form OSC/ST control-string filtering
+- standalone ST filtering for both `ESC \` and C1 `0x9C`, plus C1 byte-form
+  OSC/ST control-string filtering
 - iTerm2/WezTerm `OSC 1337;File` inline image metadata and payload capture
 - Kitty direct `a=T` RGB inline image metadata, zlib decompression, and chunked
   payload capture
@@ -337,9 +361,10 @@ cover:
   propagation for renderer placement
 - Kitty direct and stored-placement cursor movement, including `C=1`
   no-cursor-movement suppression
-- Kitty direct `a=q` support query responses, including chunked direct query
-  payloads, plus stored-image query and stored-placement `OK`/`ENOENT`
-  responses for PTY writeback
+- Kitty `a=q` support query responses for direct, regular-file, and
+  temporary-file payloads, including chunked direct query payloads, plus
+  stored-image query and stored-placement `OK`/`ENOENT` responses for PTY
+  writeback
 - Kitty Graphics Protocol `q=1` OK-response and `q=2` error-response
   suppression
 - Kitty `a=d` visible-placement deletion, image-id deletion, image-number
@@ -370,10 +395,13 @@ cover:
   definitions, raster-attribute `Ph`/`Pv` minimum background dimensions, repeat
   introducers, DCS `P1` macro pixel aspect, DECGRA `Pan`/`Pad` aspect override,
   DCS `P2` transparent/opaque background mode, carriage returns, sixel
-  newlines, and DECSDM-controlled image origin plus cursor advancement
-- SGR color/style parsing, including inverse video, faint, blink, double
-  underline, colon-separated underline styles, underline color, conceal,
-  strikethrough, overline, and colon-separated extended color parameters
+  newlines, DECSDM-controlled image origin, and `?8452` right-edge cursor
+  advancement, while excluding WezTerm tmux-control `DCS 1000 q` from Sixel
+  classification
+- SGR color/style parsing, including inverse video, faint, normal and rapid
+  blink, double underline, colon-separated underline styles, underline color,
+  conceal, strikethrough, overline, and colon-separated extended color
+  parameters
 - CJK wide-character layout
 - terminal grid resize growth/shrink, cursor clamping, and resize damage
 - merged damage tracking

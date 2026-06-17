@@ -154,6 +154,30 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "spawns a real platform PTY"]
+    fn local_pty_exposes_child_process_metadata() {
+        let command = PtyCommand::default_shell();
+        let mut session = PtySession::spawn(&command, PtySize::try_new(80, 24).unwrap()).unwrap();
+
+        assert!(
+            session
+                .process_id()
+                .is_some_and(|process_id| process_id > 0),
+            "PTY session should expose a positive child process id"
+        );
+        #[cfg(unix)]
+        assert!(
+            session.tty_name().is_some(),
+            "Unix PTY session should expose its tty name"
+        );
+        #[cfg(windows)]
+        assert_eq!(session.tty_name(), None);
+
+        let _ = session.kill();
+        let _ = session.wait();
+    }
+
+    #[test]
     #[ignore = "spawns a real platform shell"]
     fn local_pty_supports_interactive_shell_roundtrip() {
         let marker = "rssh-pty-interactive-smoke";
@@ -727,6 +751,27 @@ impl PtySession {
         self.master
             .resize(size.to_portable())
             .map_err(|error| PtyError::Backend(error.to_string()))
+    }
+
+    /// Return the child process identifier when the backend exposes one.
+    #[must_use]
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
+    /// Return the platform tty name when the backend exposes one.
+    #[must_use]
+    pub fn tty_name(&self) -> Option<String> {
+        #[cfg(unix)]
+        {
+            self.master
+                .tty_name()
+                .map(|path| path.to_string_lossy().into_owned())
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
     }
 
     /// Read one blocking chunk from the PTY reader.

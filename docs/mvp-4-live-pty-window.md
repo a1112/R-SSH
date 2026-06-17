@@ -14,7 +14,9 @@ in the native `winit` window.
   text-area size, screen character-size, icon-label, window-title, and OSC color
   queries, plus xterm XTGETTCAP terminal-capability and DECRQSS state queries,
   plus XTVERSION queries, then returns responses that are written back to the
-  PTY. XTGETTCAP responses include modern style/color templates, dynamic
+  PTY. XTGETTCAP and DECRQSS responses handle 7-bit DCS, UTF-8 C1 DCS/ST, and
+  legacy raw C1 DCS/ST query framing. XTGETTCAP responses include modern
+  style/color templates, dynamic
   `co`/`li` plus official `cols`/`lines` column and row counts from the current
   runtime size, `it=8` tab interval, and `pairs=32767`,
   tmux/xterm cursor style and cursor color templates, and
@@ -25,7 +27,8 @@ in the native `winit` window.
   mouse templates (`kmous`/`XM`/`xm`). Standard and DEC private
   cursor-position responses use the
   current terminal grid cursor.
-  Equivalent 8-bit C1 CSI query forms are handled through the same runtime path.
+  Equivalent UTF-8 C1 CSI query forms are handled through the same runtime path,
+  with legacy raw C1 CSI compatibility retained.
   Runtime query matching does not inspect
   inside OSC or ST-terminated control-string payloads, so query-like bytes
   embedded in title, DCS, SOS, PM, or APC content are not answered as standalone
@@ -34,19 +37,47 @@ in the native `winit` window.
 - `rssh-app::terminal_input` owns terminal key encoding for text, control keys,
   navigation keys, and common editing keys.
 - `rssh-app::terminal_modes` owns shared PTY-side input mode tracking for the
-  console and native-window runtimes, including 7-bit CSI and 8-bit C1 CSI
-  private mode toggles, ANSI insert/replace mode (`CSI 4 h/l`), DECRQM
-  private-mode status query reporting for tracked input, cursor visibility,
-  cursor blinking, Meta-key, auto-wrap, origin, alternate-screen, and private
-  cursor save modes, plus ANSI mode status query reporting for insert/replace
-  mode (`CSI 4 $ p`). `RIS` resets tracked mode state to defaults.
+  console and native-window runtimes, including 7-bit CSI, UTF-8 C1 CSI, and
+  legacy raw C1 CSI private mode toggles, ANSI insert/replace mode
+  (`CSI 4 h/l`), DECRQM
+  private-mode status query reporting for tracked input, screen reverse-video,
+  cursor visibility, cursor blinking, Meta-key, auto-wrap, origin,
+  alternate-screen, and private cursor save modes, plus ANSI mode status query
+  reporting for insert/replace mode (`CSI 4 $ p`). `RIS` resets tracked mode
+  state to defaults.
   Mode-like bytes embedded inside unrelated OSC or ST-terminated control-string
   payloads are ignored, including split payloads.
 - `rssh-app local` reuses the shared key encoder instead of maintaining a
   separate input mapping.
-- `rssh-app window` starts the platform default shell in a local PTY, and
-  `rssh-app window -- <program> [args...]` starts a custom command in the same
-  native window runtime.
+- `rssh-app window` starts the platform default shell in a local PTY,
+  `rssh-app start` is a WezTerm-style alias for the same native-window startup
+  path, and
+  `rssh-app window <program> [args...]`,
+  `rssh-app window -- <program> [args...]`, `rssh-app window -e <program>
+  [args...]`, or `rssh-app start <program> [args...]` starts a custom command
+  in the same native window runtime.
+- `rssh-app window --cwd PATH` and `rssh-app start --cwd PATH` set the initial
+  child process working directory for the default shell or custom command.
+- `rssh-app window --workspace NAME` and `rssh-app start --workspace NAME` name
+  the initial app-shell workspace
+  instead of using the default `default` workspace.
+- `rssh-app window --class CLASS` and `rssh-app start --class CLASS` request the
+  native window class name on Windows. X11/Wayland class/app-id application
+  remains future parity work.
+- `rssh-app window --position X,Y`, `--position screen:X,Y`,
+  `--position main:X,Y`, `--position active:X,Y`, and
+  `--position <monitor>:X,Y` request an initial native window screen position.
+  `main:` is relative to the primary monitor origin, `active:` is relative to
+  the active monitor when the platform exposes one and otherwise falls back to
+  the primary monitor origin, and named monitor forms such as `HDMI-1:10,20`
+  are relative to the matching monitor origin.
+- `rssh-app window` and `rssh-app start` accept WezTerm startup compatibility flags
+  `--no-auto-connect`, `--always-new-process`, and `--new-tab` as no-ops while
+  R-SSH has no GUI daemon or auto-connected mux domains.
+- `rssh-app window --domain local` and `rssh-app start --domain local` select
+  the current local PTY domain, and `--attach` is accepted as a no-op while
+  R-SSH has no mux domain attachment yet. Remote or named mux domains remain
+  future parity work.
 - Native-window PTY child processes inherit the shared `PtyCommand` terminal
   environment defaults: `TERM=xterm-256color` and `COLORTERM=truecolor`.
 - PTY output is read on a background thread and delivered to the UI thread with
@@ -59,35 +90,46 @@ in the native `winit` window.
 - The native window can activate OSC 8 hyperlink cells with `Ctrl` + left
   click when PTY mouse reporting is inactive, opening the URL through the
   platform default handler.
+- The command palette exposes WezTerm-style `CompleteSelection`,
+  `OpenLinkAtMouseCursor`, and `CompleteSelectionOrOpenLinkAtMouseCursor`: an
+  active mouse selection is completed into ClipboardAndPrimarySelection,
+  otherwise the OSC 8 hyperlink under the mouse cursor is opened through the
+  same open-uri hook/default opener path used by ctrl-click.
 - Native window title follows OSC `0`/`2` title updates from the active shell.
 - `winit` keyboard events are encoded and written to the active PTY writer,
   including Alt-prefixed text and Shift/Alt/Ctrl-modified navigation,
   editing, and function keys.
-- The native window supports clipboard paste through `Ctrl+V`,
-  `Ctrl+Shift+V`, and `Shift+Insert`; pasted text is wrapped with bracketed
-  paste markers while the PTY has enabled `ESC[?2004h`.
-- The native window handles PTY-side OSC 52 clipboard writes and queries,
-  decoding base64 payloads into the system clipboard and answering `?` queries
-  with base64-encoded clipboard content. The shared runtime recognizes 7-bit OSC
+- The native window supports clipboard paste through WezTerm-style `Super+V`,
+  `Ctrl+Shift+V`, the dedicated `Paste` key, and `Shift+Insert`; pasted text is
+  wrapped with bracketed paste markers while the PTY has enabled `ESC[?2004h`.
+  Plain `Ctrl+V` remains available to the active PTY application.
+- The native window handles PTY-side OSC 52 clipboard writes by default,
+  decoding base64 payloads into the system clipboard while ignoring `?` read
+  queries in the default WezTerm-style write-only policy. Explicit
+  `--osc52 read-write` enables query responses with base64-encoded clipboard
+  content for compatibility. The shared runtime recognizes 7-bit OSC
   52 (`ESC]52;...`), UTF-8 C1 OSC/ST (`U+009D`/`U+009C`), and legacy raw C1 OSC
   52 (`0x9d52;...`) forms. OSC 52-like bytes embedded inside unrelated OSC or
   ST-terminated control-string payloads are ignored by the clipboard tracker,
   including split payloads.
 - `rssh-app window --osc52 off|write|read-write` controls whether PTY-side
-  OSC 52 clipboard writes and read queries are allowed.
+  OSC 52 clipboard writes and read queries are allowed; the default is `write`.
 - The native window supports basic local text selection when PTY mouse
   reporting is inactive; selected text is highlighted and can be copied with
   `Ctrl+Shift+C` or `Ctrl+Insert`. A double click selects the contiguous
   non-whitespace word under the cursor, and a triple click selects the whole
   visual line.
-- The native window supports scrollback search with `Ctrl+F`, `Enter`/`F3` for
-  the next match, `Shift+F3` for the previous match, and `Esc` to exit search
-  mode. Search is literal by default; use `literal:<text>` when the text itself
-  starts with a reserved search prefix, or `regex:<pattern>` to run a regular
-  expression search, where invalid regex input and zero-width regex matches
-  behave as no match. Matches can span visual row boundaries across scrollback
-  and the live grid, scroll the viewport into history, and use the selection
-  highlight.
+- The native window supports scrollback search with WezTerm-style `Super+F` and
+  `Ctrl+Shift+F`; plain `Ctrl+F` remains available to the active PTY
+  application. Search navigation follows the WezTerm search table with
+  `Enter`/Down/`Ctrl+N` for the next match, Up/`Ctrl+P` for the previous match,
+  PageDown/PageUp page-wise match movement, `Ctrl+R` match-type cycling, and
+  `Esc` to exit search mode. Search is literal by default; use
+  `literal:<text>` when the text itself starts with a reserved search prefix, or
+  `regex:<pattern>` to run a regular expression search, where invalid regex
+  input and zero-width regex matches behave as no match. Matches can span visual
+  row boundaries across scrollback and the live grid, scroll the viewport into
+  history, and use the selection highlight.
 - The native window tracks PTY-side application cursor key mode (`ESC[?1h/l`)
   and sends SS3 arrow-key sequences while it is enabled.
 - The native window tracks PTY-side application keypad mode (`ESC=` / `ESC>`)
@@ -103,9 +145,9 @@ in the native `winit` window.
   updated together.
 - The native window can render the terminal scrollback viewport and mouse-wheel
   events move that viewport up or down through available history.
-- `Shift+PageUp`, `Shift+PageDown`, `Shift+Home`, and `Shift+End` navigate the
-  native scrollback viewport while unmodified page/navigation keys remain
-  available to the active PTY application.
+- `Shift+PageUp` and `Shift+PageDown` navigate the native scrollback viewport
+  while unmodified page/navigation keys remain available to the active PTY
+  application.
 - The native window draws a right-edge scrollback scrollbar while history is
   available; users can click or drag it to move the viewport, and the thumb
   also moves with mouse-wheel, Shift page/navigation, and search-driven
@@ -128,7 +170,9 @@ in the native `winit` window.
   check.
 - `rssh-app profile NAME --file PATH` can start a `kind = "window"` TOML
   profile with the same custom command, OSC 52 policy, metrics, frame limit,
-  and log options as direct `window` startup.
+  and log options as direct `window` startup. Window profiles export their
+  loaded profile name as `RSSH_PROFILE` for `\(session.profileName)` badge
+  interpolation.
 
 ## Run
 
@@ -218,8 +262,9 @@ MVP 4 tests cover:
 - window text, control, navigation, Alt-text, and modified key encoding
 - native window clipboard paste encoding and paste shortcut detection
 - OSC 52 clipboard extraction from PTY output, native window clipboard writes,
-  and clipboard query responses, including UTF-8 C1 OSC/ST forms, legacy raw C1
-  OSC 52 write/query forms, and split C1 OSC 52 payloads; tests also cover OSC
+  and explicit read-write clipboard query responses, including UTF-8 C1 OSC/ST
+  forms, legacy raw C1 OSC 52 write/query forms, and split C1 OSC 52 payloads;
+  tests also cover OSC
   52-like bytes inside unrelated OSC and ST-terminated control-string payloads
 - C1 CSI cursor, device/status, window state/position, window/screen pixel-size,
   character-cell size, text-area/screen size, and title query responses in the
@@ -239,8 +284,9 @@ MVP 4 tests cover:
   UTF-8 C1 OSC/ST active/inactive pane output, with legacy raw C1 compatibility,
   dispatched through the native-window notification handler; native OS toast
   integration remains future work
-- XTGETTCAP terminal-capability query responses for colors, terminal name,
-  true-color markers, official WezTerm booleans, Meta-key boolean/templates
+- XTGETTCAP terminal-capability query responses for 7-bit DCS, UTF-8 C1 DCS/ST,
+  and legacy raw C1 DCS/ST queries covering colors, terminal name, true-color
+  markers, official WezTerm booleans, Meta-key boolean/templates
   (`km`/`smm`/`rmm`), OSC 52 template support, italic style templates,
   styled/colored underline templates, tmux/xterm cursor style and cursor color
   templates, WezTerm `Sync` synchronized-output template, overline,
@@ -257,17 +303,18 @@ MVP 4 tests cover:
   key capabilities, WezTerm ACS metadata, current columns/rows through `co`/`li`
   and official `cols`/`lines` plus `it=8` and `pairs=32767`, and unknown
   capability fallback
-- DECRQSS state query responses for current SGR style, including faint, italic,
+- DECRQSS state query responses for 7-bit DCS, UTF-8 C1 DCS/ST, and legacy raw
+  C1 DCS/ST queries covering current SGR style, including faint, italic,
   blink, double underline, colon-separated underline style, underline color,
   concealed text, and overline, cursor shape, scroll-region state,
   conformance-level state, and modeled DECSLRM left/right-margin state
 - XTVERSION query responses for `CSI > q`, `CSI > 0 q`, and C1 CSI forms
 - DECRQM private-mode status query responses for application cursor keys,
-  origin, auto-wrap, cursor blinking, Meta-key, cursor visibility, DECLRMM
-  left-right margin mode, alternate-screen modes, mouse reporting, extended
-  mouse protocols, focus, bracketed paste, synchronized output, private cursor save,
-  `RIS` defaults, and unknown modes, including mode-like bytes embedded inside
-  OSC or ST-terminated control-string payloads
+  screen reverse-video, origin, auto-wrap, cursor blinking, Meta-key, cursor
+  visibility, DECLRMM left-right margin mode, alternate-screen modes, mouse
+  reporting, extended mouse protocols, focus, bracketed paste, synchronized
+  output, private cursor save, `RIS` defaults, and unknown modes, including
+  mode-like bytes embedded inside OSC or ST-terminated control-string payloads
 - DECRQM ANSI-mode status query responses for insert/replace mode (`CSI 4 $ p`)
   and unknown ANSI modes, including C1 CSI forms
 - native window OSC 52 policy parsing and write/query enforcement

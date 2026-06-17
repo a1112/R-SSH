@@ -9,11 +9,11 @@ use rssh_core::{DamageRegion, TerminalSize};
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    Cell, Color, CursorShape, InlineImageFormat, ItermInlineImage, ScrollbackLine,
+    Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage, ScrollbackLine,
     SemanticCommandExit, SemanticType, SemanticZone, TerminalGrid, UnderlineStyle,
 };
 
-const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
+pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
 const ANONYMOUS_KITTY_IMAGE_ID: u32 = 0;
 const MAX_KITTY_RELATIVE_CHAIN_DEPTH: usize = 8;
 const KITTY_UNICODE_PLACEHOLDER: char = '\u{10eeee}';
@@ -54,6 +54,11 @@ const KITTY_PLACEHOLDER_DIACRITICS: [char; 256] = [
 type KittyPlacementKey = (u32, u32);
 type KittyPlaceholderRenderKey = (usize, u16, u32, Option<u32>);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalUnknownEscapeSequence {
+    pub sequence: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CharacterSet {
     Ascii,
@@ -72,8 +77,11 @@ struct TerminalModes {
     cursor_visible: bool,
     cursor_blinking: bool,
     cursor_shape: CursorShape,
+    screen_reverse: bool,
     auto_wrap: bool,
+    reverse_wrap: bool,
     sixel_display_mode: bool,
+    sixel_scrolls_right: bool,
     origin_mode: bool,
     left_right_margin_mode: bool,
     write_mode: CharacterWriteMode,
@@ -85,11 +93,24 @@ impl Default for TerminalModes {
             cursor_visible: true,
             cursor_blinking: false,
             cursor_shape: CursorShape::Block,
+            screen_reverse: false,
             auto_wrap: true,
+            reverse_wrap: false,
             sixel_display_mode: false,
+            sixel_scrolls_right: false,
             origin_mode: false,
             left_right_margin_mode: false,
             write_mode: CharacterWriteMode::Replace,
+        }
+    }
+}
+
+impl TerminalModes {
+    fn with_cursor_style(cursor_style: CursorStyle) -> Self {
+        Self {
+            cursor_shape: cursor_style.shape(),
+            cursor_blinking: cursor_style.blinking(),
+            ..Self::default()
         }
     }
 }
@@ -328,7 +349,10 @@ impl TabStops {
 pub struct Terminal {
     grid: TerminalGrid,
     scrollback: Vec<ScrollbackLine>,
+    scrollback_limit: usize,
     title: Option<String>,
+    icon_title: Option<String>,
+    window_title: Option<String>,
     title_stack: Vec<Option<String>>,
     current_working_dir: Option<String>,
     badge_format: Option<String>,
@@ -355,6 +379,7 @@ pub struct Terminal {
     last_printable: Option<char>,
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
+    default_cursor_style: CursorStyle,
     modes: TerminalModes,
     scroll_top: u16,
     scroll_bottom: u16,
@@ -365,6 +390,7 @@ pub struct Terminal {
     style: Cell,
     damage: Vec<DamageRegion>,
     bell_count: u64,
+    unknown_escape_sequences: Vec<TerminalUnknownEscapeSequence>,
 }
 
 #[derive(Debug, Clone)]
@@ -415,10 +441,21 @@ enum SequenceParse<T> {
 impl Terminal {
     #[must_use]
     pub fn new(size: TerminalSize) -> Self {
+        Self::new_with_default_cursor_style(size, CursorStyle::default())
+    }
+
+    #[must_use]
+    pub fn new_with_default_cursor_style(
+        size: TerminalSize,
+        default_cursor_style: CursorStyle,
+    ) -> Self {
         Self {
             grid: TerminalGrid::new(size),
             scrollback: Vec::new(),
+            scrollback_limit: DEFAULT_SCROLLBACK_LIMIT,
             title: None,
+            icon_title: None,
+            window_title: None,
             title_stack: Vec::new(),
             current_working_dir: None,
             badge_format: None,
@@ -445,7 +482,8 @@ impl Terminal {
             last_printable: None,
             saved_cursor: None,
             main_screen: None,
-            modes: TerminalModes::default(),
+            default_cursor_style,
+            modes: TerminalModes::with_cursor_style(default_cursor_style),
             scroll_top: 0,
             scroll_bottom: size.rows.saturating_sub(1),
             left_margin: 0,
@@ -455,6 +493,7 @@ impl Terminal {
             style: Cell::default(),
             damage: Vec::new(),
             bell_count: 0,
+            unknown_escape_sequences: Vec::new(),
         }
     }
 
@@ -492,6 +531,7 @@ impl Terminal {
         match chars[index] {
             '\u{1b}' => self.consume_escape_sequence(chars, index),
             '\u{9b}' => Some(next_or_pending(self.apply_csi_sequence(chars, index, 1))),
+            '\u{9c}' => Some(FeedAdvance::Next(index + 1)),
             '\u{90}' => Some(next_or_pending(self.apply_dcs_sequence(chars, index, 1))),
             '\u{9d}' => Some(next_or_pending(self.skip_c1_osc(chars, index))),
             ch if is_c1_st_control_string(ch) => Some(next_or_pending(
@@ -523,6 +563,7 @@ impl Terminal {
             Some(']') => Some(next_or_pending(self.skip_osc(chars, index))),
             Some('_') => Some(next_or_pending(self.apply_apc_sequence(chars, index, 2))),
             Some('P') => Some(next_or_pending(self.apply_dcs_sequence(chars, index, 2))),
+            Some('\\' | '=' | '>') => Some(FeedAdvance::Next(index + 2)),
             Some('X' | '^') => Some(next_or_pending(self.skip_st_control_string(chars, index))),
             Some('(') => Some(self.consume_g0_character_set_selection(chars, index)),
             Some('#') => Some(self.consume_hash_escape_sequence(chars, index)),
@@ -558,7 +599,10 @@ impl Terminal {
                 self.pending_control.extend_from_slice(&chars[index..]);
                 Some(FeedAdvance::Pending)
             }
-            Some(_) => None,
+            Some(command) => {
+                self.record_unknown_escape_sequence(format!("ESC {command}"));
+                Some(FeedAdvance::Next(index + 2))
+            }
         }
     }
 
@@ -612,7 +656,7 @@ impl Terminal {
             }
             '\n' | '\u{b}' | '\u{c}' => {
                 self.finish_pending_kitty_placeholder();
-                self.newline();
+                self.line_feed();
                 index + 1
             }
             '\r' => {
@@ -728,7 +772,12 @@ impl Terminal {
 
     fn apply_osc_content(&mut self, content: &[char]) {
         if let Some((&('L' | 'l'), title)) = content.split_first() {
-            self.title = Some(title.iter().collect());
+            let title = title.iter().collect::<String>();
+            if content.first() == Some(&'L') {
+                self.set_icon_title(title);
+            } else {
+                self.set_window_title(title);
+            }
             return;
         }
 
@@ -738,13 +787,31 @@ impl Terminal {
 
         let command = content[..separator].iter().collect::<String>();
         match command.as_str() {
-            "0" | "1" | "2" => self.title = Some(content[separator + 1..].iter().collect()),
+            "0" => self.set_icon_and_window_title(content[separator + 1..].iter().collect()),
+            "1" => self.set_icon_title(content[separator + 1..].iter().collect()),
+            "2" => self.set_window_title(content[separator + 1..].iter().collect()),
             "7" => self.current_working_dir = Some(content[separator + 1..].iter().collect()),
             "8" => self.apply_osc8_hyperlink(&content[separator + 1..]),
             "133" => self.apply_osc133_semantic_prompt(&content[separator + 1..]),
             "1337" => self.apply_osc1337_iterm_metadata(&content[separator + 1..]),
             _ => {}
         }
+    }
+
+    fn set_icon_and_window_title(&mut self, title: String) {
+        self.title = Some(title.clone());
+        self.icon_title = Some(title.clone());
+        self.window_title = Some(title);
+    }
+
+    fn set_icon_title(&mut self, title: String) {
+        self.title = Some(title.clone());
+        self.icon_title = Some(title);
+    }
+
+    fn set_window_title(&mut self, title: String) {
+        self.title = Some(title.clone());
+        self.window_title = Some(title);
     }
 
     fn apply_apc_content(&mut self, content: &[char]) {
@@ -1228,10 +1295,9 @@ impl Terminal {
             );
             return;
         };
-        let Some(parent) = self.inline_images.iter().find(|image| {
-            image.kitty_image_id == Some(parent_image_id)
-                && image.kitty_placement_id == Some(parent_placement_id)
-        }) else {
+        let Some((parent_row, parent_column)) =
+            self.kitty_relative_parent_origin(parent_image_id, parent_placement_id)
+        else {
             self.push_kitty_graphics_error_response(
                 Self::kitty_response_params_with_image_id(params, image_id),
                 "ENOPARENT",
@@ -1239,8 +1305,8 @@ impl Terminal {
             );
             return;
         };
-        let row = offset_kitty_history_row(parent.row, params.parent_offset_rows.unwrap_or(0));
-        let column = offset_kitty_column(parent.column, params.parent_offset_columns.unwrap_or(0));
+        let row = offset_kitty_history_row(parent_row, params.parent_offset_rows.unwrap_or(0));
+        let column = offset_kitty_column(parent_column, params.parent_offset_columns.unwrap_or(0));
         let child_placement = kitty_placement_key(Some(image_id), params.placement_id);
         if child_placement.is_some_and(|child_placement| {
             self.kitty_relative_placement_would_cycle(
@@ -1297,6 +1363,50 @@ impl Terminal {
         self.push_kitty_graphics_ok_response(Self::kitty_response_params_with_image_id(
             params, image_id,
         ));
+    }
+
+    fn kitty_relative_parent_origin(
+        &self,
+        parent_image_id: u32,
+        parent_placement_id: u32,
+    ) -> Option<(usize, u16)> {
+        if self
+            .kitty_virtual_placements
+            .contains_key(&(parent_image_id, parent_placement_id))
+        {
+            return self.kitty_virtual_parent_origin(parent_image_id, parent_placement_id);
+        }
+
+        self.inline_images
+            .iter()
+            .find(|image| {
+                image.kitty_image_id == Some(parent_image_id)
+                    && image.kitty_placement_id == Some(parent_placement_id)
+            })
+            .map(|image| (image.row, image.column))
+    }
+
+    fn kitty_virtual_parent_origin(
+        &self,
+        parent_image_id: u32,
+        parent_placement_id: u32,
+    ) -> Option<(usize, u16)> {
+        let mut min_row = None;
+        let mut min_column = None;
+        for (&(row, column), &placeholder) in &self.kitty_placeholder_cells {
+            let Some((origin_row, origin_column, image_id, placement_id)) =
+                self.kitty_placeholder_render_key(row, column, placeholder)
+            else {
+                continue;
+            };
+            if image_id == parent_image_id && placement_id == Some(parent_placement_id) {
+                min_row = Some(min_row.map_or(origin_row, |row: usize| row.min(origin_row)));
+                min_column =
+                    Some(min_column.map_or(origin_column, |column: u16| column.min(origin_column)));
+            }
+        }
+
+        Some((min_row?, min_column?))
     }
 
     fn kitty_relative_parent_depth(&self, parent: KittyPlacementKey) -> usize {
@@ -1516,6 +1626,7 @@ impl Terminal {
 
         let width = format!("{}px", image.width);
         let height = format!("{}px", image.height);
+        let cell_width = inline_image_width_cells(Some(&width));
         let (row, column) = if self.modes.sixel_display_mode {
             (self.visible_history_rows().0, 0)
         } else {
@@ -1545,7 +1656,10 @@ impl Terminal {
             data: image.data,
         });
         if !self.modes.sixel_display_mode {
-            self.next_line();
+            self.index_down(false);
+            if self.modes.sixel_scrolls_right {
+                self.move_cursor_forward(cell_width);
+            }
         }
     }
 
@@ -1832,8 +1946,8 @@ impl Terminal {
 
     fn place_kitty_image(&mut self, image: &StoredKittyImage, options: KittyPlacementOptions) {
         let (width, height) = kitty_display_dimensions(image, options);
-        let placement_columns = iterm_inline_image_cell_extent(width.as_deref()).max(1);
-        let placement_rows = iterm_inline_image_cell_extent(height.as_deref()).max(1);
+        let placement_columns = inline_image_width_cells(width.as_deref()).max(1);
+        let placement_rows = inline_image_height_cells(height.as_deref()).max(1);
         let row = options.row.unwrap_or_else(|| self.current_history_row());
         let column = options.column.unwrap_or(self.cursor_column);
 
@@ -1972,10 +2086,10 @@ impl Terminal {
             return;
         }
 
-        let width = iterm_inline_image_cell_extent(width)
+        let width = inline_image_width_cells(width)
             .min(size.columns.saturating_sub(column))
             .max(1);
-        let height = iterm_inline_image_cell_extent(height)
+        let height = inline_image_height_cells(height)
             .min(size.rows.saturating_sub(visible_row))
             .max(1);
         self.record_damage(DamageRegion::new(column, visible_row, width, height));
@@ -2108,6 +2222,11 @@ impl Terminal {
         &self.scrollback
     }
 
+    pub fn set_scrollback_limit(&mut self, limit: usize) {
+        self.scrollback_limit = limit;
+        self.trim_scrollback_to_limit();
+    }
+
     #[must_use]
     pub fn semantic_prompt_rows(&self) -> &[usize] {
         &self.semantic_prompt_rows
@@ -2221,6 +2340,16 @@ impl Terminal {
     }
 
     #[must_use]
+    pub fn icon_title(&self) -> Option<&str> {
+        self.icon_title.as_deref()
+    }
+
+    #[must_use]
+    pub fn window_title(&self) -> Option<&str> {
+        self.window_title.as_deref()
+    }
+
+    #[must_use]
     pub fn current_working_dir(&self) -> Option<&str> {
         self.current_working_dir.as_deref()
     }
@@ -2296,6 +2425,21 @@ impl Terminal {
         self.modes.cursor_shape
     }
 
+    pub fn set_default_cursor_style(&mut self, default_cursor_style: CursorStyle) {
+        self.default_cursor_style = default_cursor_style;
+        self.apply_default_cursor_style();
+    }
+
+    #[must_use]
+    pub const fn screen_reverse_video(&self) -> bool {
+        self.modes.screen_reverse
+    }
+
+    #[must_use]
+    pub const fn alternate_screen_active(&self) -> bool {
+        self.main_screen.is_some()
+    }
+
     #[must_use]
     pub const fn active_style(&self) -> &Cell {
         &self.style
@@ -2313,6 +2457,15 @@ impl Terminal {
 
     pub fn take_bell_count(&mut self) -> u64 {
         std::mem::take(&mut self.bell_count)
+    }
+
+    pub fn take_unknown_escape_sequences(&mut self) -> Vec<TerminalUnknownEscapeSequence> {
+        std::mem::take(&mut self.unknown_escape_sequences)
+    }
+
+    fn record_unknown_escape_sequence(&mut self, sequence: String) {
+        self.unknown_escape_sequences
+            .push(TerminalUnknownEscapeSequence { sequence });
     }
 
     pub fn erase_scrollback_and_viewport(&mut self) {
@@ -2412,7 +2565,7 @@ impl Terminal {
         self.last_printable = None;
         self.saved_cursor = None;
         self.main_screen = None;
-        self.modes = TerminalModes::default();
+        self.modes = TerminalModes::with_cursor_style(self.default_cursor_style);
         self.scroll_top = 0;
         self.scroll_bottom = size.rows.saturating_sub(1);
         self.left_margin = 0;
@@ -2424,10 +2577,17 @@ impl Terminal {
     }
 
     fn soft_reset_terminal(&mut self) {
+        self.set_alternate_screen(false);
         let size = self.grid.size();
         self.modes.write_mode = CharacterWriteMode::Replace;
         self.modes.origin_mode = false;
+        self.modes.auto_wrap = true;
         self.modes.left_right_margin_mode = false;
+        self.modes.reverse_wrap = false;
+        self.modes.screen_reverse = false;
+        self.modes.cursor_visible = true;
+        self.style = Cell::default();
+        self.clear_kitty_graphics();
         self.scroll_top = 0;
         self.scroll_bottom = size.rows.saturating_sub(1);
         self.left_margin = 0;
@@ -2438,6 +2598,19 @@ impl Terminal {
         self.clear_semantic_type_on_movement = false;
         self.last_printable = None;
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+    }
+
+    fn clear_kitty_graphics(&mut self) {
+        self.inline_images
+            .retain(|image| image.kitty_image_id.is_none());
+        self.pending_kitty_graphics = None;
+        self.kitty_images.clear();
+        self.kitty_image_numbers.clear();
+        self.kitty_relative_parents.clear();
+        self.kitty_virtual_placements.clear();
+        self.pending_kitty_placeholder = None;
+        self.last_kitty_placeholder = None;
+        self.kitty_placeholder_cells.clear();
     }
 
     fn screen_alignment_test(&mut self) {
@@ -2472,6 +2645,10 @@ impl Terminal {
 
     fn newline(&mut self) {
         self.carriage_return();
+        self.index_down(false);
+    }
+
+    fn line_feed(&mut self) {
         self.index_down(false);
     }
 
@@ -2523,13 +2700,36 @@ impl Terminal {
 
     fn backspace(&mut self) {
         self.pending_wrap = false;
-        let left_boundary =
-            if self.modes.left_right_margin_mode && self.cursor_column >= self.left_margin {
-                self.left_margin
+        let size = self.grid.size();
+        if size.columns == 0 || size.rows == 0 {
+            return;
+        }
+
+        let left_boundary = if self.modes.left_right_margin_mode
+            && self.cursor_column >= self.left_margin
+            && self.cursor_column <= self.right_margin
+        {
+            self.left_margin
+        } else {
+            0
+        };
+        if self.cursor_column > left_boundary {
+            self.cursor_column -= 1;
+            return;
+        }
+
+        if self.modes.reverse_wrap && self.modes.auto_wrap {
+            self.cursor_row = if self.cursor_row == 0 {
+                size.rows - 1
             } else {
-                0
+                self.cursor_row - 1
             };
-        self.cursor_column = self.cursor_column.saturating_sub(1).max(left_boundary);
+            self.cursor_column = if self.modes.left_right_margin_mode {
+                self.right_margin.min(size.columns - 1)
+            } else {
+                size.columns - 1
+            };
+        }
     }
 
     fn carriage_return(&mut self) {
@@ -2643,8 +2843,12 @@ impl Terminal {
 
         self.scrollback
             .push(ScrollbackLine::from_cells_wrapped(cells, wrapped));
-        if self.scrollback.len() > DEFAULT_SCROLLBACK_LIMIT {
-            let overflow = self.scrollback.len() - DEFAULT_SCROLLBACK_LIMIT;
+        self.trim_scrollback_to_limit();
+    }
+
+    fn trim_scrollback_to_limit(&mut self) {
+        if self.scrollback.len() > self.scrollback_limit {
+            let overflow = self.scrollback.len() - self.scrollback_limit;
             self.scrollback.drain(..overflow);
             self.semantic_prompt_rows = self
                 .semantic_prompt_rows
@@ -3033,8 +3237,8 @@ impl Terminal {
             'G' | '`' => self.position_cursor_column(params),
             'H' | 'f' => self.position_cursor(params),
             'I' => self.move_forward_tabs(csi_count(params)),
-            'J' => self.erase_display(csi_mode(params)),
-            'K' => self.erase_line(csi_mode(params)),
+            'J' => self.erase_display(csi_or_private_mode(params), csi_is_private(params)),
+            'K' => self.erase_line(csi_or_private_mode(params), csi_is_private(params)),
             'L' => self.insert_lines(csi_count(params)),
             'M' => self.delete_lines(csi_count(params)),
             'P' => self.delete_characters(csi_count(params)),
@@ -3046,6 +3250,7 @@ impl Terminal {
             'd' => self.position_cursor_row(params),
             'g' => self.clear_tab_stop(csi_mode(params)),
             'm' => self.apply_sgr(params),
+            'q' if params.ends_with(&['"']) => self.set_character_protection(params),
             'q' => self.set_cursor_shape(params),
             'p' if params == ['!'] => self.soft_reset_terminal(),
             'r' => self.set_scroll_region(params),
@@ -3055,7 +3260,10 @@ impl Terminal {
             's' if self.modes.left_right_margin_mode => self.set_left_right_margins(params),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
-            _ => {}
+            _ => self.record_unknown_escape_sequence(format!(
+                "CSI {}{command}",
+                params.iter().collect::<String>()
+            )),
         }
     }
 
@@ -3103,12 +3311,15 @@ impl Terminal {
 
         for value in values {
             match value {
+                5 => self.set_screen_reverse_video(enabled),
                 6 => self.set_origin_mode(enabled),
                 7 => self.set_auto_wrap(enabled),
                 12 => self.modes.cursor_blinking = enabled,
                 25 => self.modes.cursor_visible = enabled,
+                45 => self.modes.reverse_wrap = enabled,
                 69 => self.set_left_right_margin_mode(enabled),
                 80 => self.modes.sixel_display_mode = enabled,
+                8452 => self.modes.sixel_scrolls_right = enabled,
                 47 | 1047 | 1049 => self.set_alternate_screen(enabled),
                 1048 => {
                     if enabled {
@@ -3130,13 +3341,26 @@ impl Terminal {
         };
     }
 
+    fn set_screen_reverse_video(&mut self, enabled: bool) {
+        if self.modes.screen_reverse == enabled {
+            return;
+        }
+        self.modes.screen_reverse = enabled;
+        let size = self.grid.size();
+        self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
+    }
+
     fn set_cursor_shape(&mut self, params: &[char]) {
         let Some(params) = params.strip_suffix(&[' ']) else {
             return;
         };
         let value = parse_csi_params(params).first().copied().unwrap_or(0);
+        if value == 0 {
+            self.apply_default_cursor_style();
+            return;
+        }
         self.modes.cursor_shape = match value {
-            0..=2 => CursorShape::Block,
+            1 | 2 => CursorShape::Block,
             3 | 4 => CursorShape::Underline,
             5 | 6 => CursorShape::Bar,
             _ => self.modes.cursor_shape,
@@ -3146,6 +3370,19 @@ impl Terminal {
             0 | 2 | 4 | 6 => false,
             _ => self.modes.cursor_blinking,
         };
+    }
+
+    fn apply_default_cursor_style(&mut self) {
+        self.modes.cursor_shape = self.default_cursor_style.shape();
+        self.modes.cursor_blinking = self.default_cursor_style.blinking();
+    }
+
+    fn set_character_protection(&mut self, params: &[char]) {
+        let Some(params) = params.strip_suffix(&['"']) else {
+            return;
+        };
+        let value = parse_csi_params(params).first().copied().unwrap_or(0);
+        self.style.protected = value == 1;
     }
 
     fn set_origin_mode(&mut self, enabled: bool) {
@@ -3492,7 +3729,7 @@ impl Terminal {
         }
     }
 
-    fn erase_display(&mut self, mode: u16) {
+    fn erase_display(&mut self, mode: u16, selective: bool) {
         if mode == 3 {
             let removed_rows = self.scrollback.len();
             self.scrollback.clear();
@@ -3509,26 +3746,29 @@ impl Terminal {
 
         match mode {
             0 => {
-                self.clear_cells(self.cursor_row, self.cursor_column, size.columns);
+                self.clear_cells(self.cursor_row, self.cursor_column, size.columns, selective);
                 for row in self.cursor_row.saturating_add(1)..size.rows {
-                    self.clear_cells(row, 0, size.columns);
+                    self.clear_cells(row, 0, size.columns, selective);
                 }
             }
             1 => {
                 for row in 0..self.cursor_row {
-                    self.clear_cells(row, 0, size.columns);
+                    self.clear_cells(row, 0, size.columns, selective);
                 }
                 self.clear_cells(
                     self.cursor_row,
                     0,
                     self.cursor_column.saturating_add(1).min(size.columns),
+                    selective,
                 );
             }
             2 => {
                 for row in 0..size.rows {
-                    self.clear_cells(row, 0, size.columns);
+                    self.clear_cells(row, 0, size.columns, selective);
                 }
-                self.delete_visible_inline_images();
+                if !selective {
+                    self.delete_visible_inline_images();
+                }
             }
             _ => {}
         }
@@ -3577,20 +3817,21 @@ impl Terminal {
         self.delete_orphan_kitty_relative_children();
     }
 
-    fn erase_line(&mut self, mode: u16) {
+    fn erase_line(&mut self, mode: u16, selective: bool) {
         let columns = self.grid.size().columns;
         if self.cursor_row >= self.grid.size().rows || columns == 0 {
             return;
         }
 
         match mode {
-            0 => self.clear_cells(self.cursor_row, self.cursor_column, columns),
+            0 => self.clear_cells(self.cursor_row, self.cursor_column, columns, selective),
             1 => self.clear_cells(
                 self.cursor_row,
                 0,
                 self.cursor_column.saturating_add(1).min(columns),
+                selective,
             ),
-            2 => self.clear_cells(self.cursor_row, 0, columns),
+            2 => self.clear_cells(self.cursor_row, 0, columns, selective),
             _ => {}
         }
     }
@@ -3972,7 +4213,7 @@ impl Terminal {
         }
     }
 
-    fn clear_cells(&mut self, row: u16, start_column: u16, end_column: u16) {
+    fn clear_cells(&mut self, row: u16, start_column: u16, end_column: u16, selective: bool) {
         let columns = self.grid.size().columns;
         if row >= self.grid.size().rows || start_column >= columns {
             return;
@@ -3983,12 +4224,22 @@ impl Terminal {
             return;
         }
 
-        self.clear_kitty_placeholder_cells(
-            self.scrollback.len().saturating_add(usize::from(row)),
-            start_column,
-            end_column - start_column,
-        );
+        let source_row = self.scrollback.len().saturating_add(usize::from(row));
+        if !selective {
+            self.clear_kitty_placeholder_cells(source_row, start_column, end_column - start_column);
+        }
         for column in start_column..end_column {
+            if selective
+                && self
+                    .grid
+                    .get(row, column)
+                    .is_some_and(|cell| cell.protected)
+            {
+                continue;
+            }
+            if selective {
+                self.clear_kitty_placeholder_cells(source_row, column, 1);
+            }
             self.grid.set(row, column, self.blank_cell());
         }
         if start_column == 0 && end_column >= columns {
@@ -4017,12 +4268,19 @@ impl Terminal {
             match values[index] {
                 SgrParameter::UnderlineStyle(style) => self.apply_underline_style(style),
                 SgrParameter::Code(code) => match code {
-                    0 => self.reset_style_preserving_hyperlink(),
+                    0 => self.reset_style(),
                     1 => self.style.bold = true,
                     2 => self.style.faint = true,
                     3 => self.style.italic = true,
                     4 => self.apply_underline_style(UnderlineStyle::Single),
-                    5 => self.style.blink = true,
+                    5 => {
+                        self.style.blink = true;
+                        self.style.rapid_blink = false;
+                    }
+                    6 => {
+                        self.style.blink = true;
+                        self.style.rapid_blink = true;
+                    }
                     7 => self.style.inverse = true,
                     8 => self.style.conceal = true,
                     9 => self.style.strikethrough = true,
@@ -4033,7 +4291,10 @@ impl Terminal {
                     21 => self.apply_underline_style(UnderlineStyle::Double),
                     23 => self.style.italic = false,
                     24 => self.apply_underline_style(UnderlineStyle::None),
-                    25 => self.style.blink = false,
+                    25 => {
+                        self.style.blink = false;
+                        self.style.rapid_blink = false;
+                    }
                     27 => self.style.inverse = false,
                     28 => self.style.conceal = false,
                     29 => self.style.strikethrough = false,
@@ -4089,7 +4350,7 @@ impl Terminal {
         self.style.double_underline = style == UnderlineStyle::Double;
     }
 
-    fn reset_style_preserving_hyperlink(&mut self) {
+    fn reset_style(&mut self) {
         let hyperlink = self.style.hyperlink.take();
         let semantic_type = self.style.semantic_type;
         self.style = Cell::default();
@@ -4250,7 +4511,15 @@ fn is_c1_st_control_string(ch: char) -> bool {
 fn is_escape_or_c1_sequence_start(ch: char) -> bool {
     matches!(
         ch,
-        '\u{1b}' | '\u{84}' | '\u{85}' | '\u{88}' | '\u{8d}' | '\u{90}' | '\u{9b}' | '\u{9d}'
+        '\u{1b}'
+            | '\u{84}'
+            | '\u{85}'
+            | '\u{88}'
+            | '\u{8d}'
+            | '\u{90}'
+            | '\u{9b}'
+            | '\u{9c}'
+            | '\u{9d}'
     ) || is_c1_st_control_string(ch)
 }
 
@@ -4491,10 +4760,12 @@ fn parse_sixel_dcs_options(params: &str) -> SixelOptions {
 
 fn sixel_dcs_marker_index(content: &str) -> Option<usize> {
     let marker = content.find('q')?;
-    content[..marker]
-        .chars()
-        .all(|ch| ch.is_ascii_digit() || ch == ';')
-        .then_some(marker)
+    let params = &content[..marker];
+    if !params.chars().all(|ch| ch.is_ascii_digit() || ch == ';') {
+        return None;
+    }
+
+    (parse_sixel_numeric_params(params).first().copied() != Some(1000)).then_some(marker)
 }
 
 fn parse_sixel_image(options: SixelOptions, content: &str) -> Option<SixelImage> {
@@ -5129,7 +5400,7 @@ fn inline_image_intersects_region(
 }
 
 fn kitty_image_column_range(image: &ItermInlineImage) -> (u16, u16) {
-    let width = iterm_inline_image_cell_extent(image.width.as_deref()).max(1);
+    let width = inline_image_width_cells(image.width.as_deref()).max(1);
     (
         image.column,
         image
@@ -5140,7 +5411,7 @@ fn kitty_image_column_range(image: &ItermInlineImage) -> (u16, u16) {
 }
 
 fn kitty_image_row_range(image: &ItermInlineImage) -> (usize, usize) {
-    let height = usize::from(iterm_inline_image_cell_extent(image.height.as_deref()).max(1));
+    let height = usize::from(inline_image_height_cells(image.height.as_deref()).max(1));
     (
         image.row,
         image
@@ -5264,9 +5535,29 @@ fn parse_positive_u16(value: &str) -> Option<u16> {
     value.parse::<u16>().ok().filter(|value| *value > 0)
 }
 
-fn iterm_inline_image_cell_extent(value: Option<&str>) -> u16 {
+const DEFAULT_INLINE_IMAGE_CELL_WIDTH_PIXELS: u16 = 8;
+const DEFAULT_INLINE_IMAGE_CELL_HEIGHT_PIXELS: u16 = 16;
+
+fn inline_image_width_cells(value: Option<&str>) -> u16 {
+    inline_image_axis_cells(value, DEFAULT_INLINE_IMAGE_CELL_WIDTH_PIXELS)
+}
+
+fn inline_image_height_cells(value: Option<&str>) -> u16 {
+    inline_image_axis_cells(value, DEFAULT_INLINE_IMAGE_CELL_HEIGHT_PIXELS)
+}
+
+fn inline_image_axis_cells(value: Option<&str>, cell_pixels: u16) -> u16 {
+    let Some(value) = value else {
+        return 1;
+    };
+    if let Some(pixels) = value.strip_suffix("px").and_then(parse_positive_u32) {
+        let cell_pixels = u32::from(cell_pixels.max(1));
+        let cells = pixels.saturating_add(cell_pixels - 1) / cell_pixels;
+        return u16::try_from(cells).unwrap_or(u16::MAX).max(1);
+    }
     value
-        .and_then(|value| value.parse::<u16>().ok())
+        .parse::<u16>()
+        .ok()
         .filter(|value| *value > 0)
         .unwrap_or(1)
 }
@@ -5284,6 +5575,18 @@ fn csi_count(params: &[char]) -> u16 {
 
 fn csi_mode(params: &[char]) -> u16 {
     parse_csi_params(params).first().copied().unwrap_or(0)
+}
+
+fn csi_or_private_mode(params: &[char]) -> u16 {
+    parse_private_csi_params(params)
+        .unwrap_or_else(|| parse_csi_params(params))
+        .first()
+        .copied()
+        .unwrap_or(0)
+}
+
+fn csi_is_private(params: &[char]) -> bool {
+    matches!(params, ['?', ..])
 }
 
 fn param_or_one(value: Option<u16>) -> u16 {

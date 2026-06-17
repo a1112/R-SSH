@@ -17,6 +17,7 @@ pub enum TerminalKey {
     PageUp,
     PageDown,
     BackTab,
+    Menu,
     Function(u8),
 }
 
@@ -44,6 +45,7 @@ pub fn encode_terminal_key(key: TerminalKey) -> Option<Vec<u8>> {
         TerminalKey::PageUp => Some(b"\x1b[5~".to_vec()),
         TerminalKey::PageDown => Some(b"\x1b[6~".to_vec()),
         TerminalKey::BackTab => Some(b"\x1b[Z".to_vec()),
+        TerminalKey::Menu => Some(b"\x1b[29~".to_vec()),
         TerminalKey::Function(key) => encode_function_key(key),
     }
 }
@@ -52,14 +54,17 @@ fn encode_control_char(character: char) -> Option<Vec<u8>> {
     let lower = character.to_ascii_lowercase();
 
     let byte = match lower {
-        ' ' | '@' => 0,
+        ' ' | '@' | '2' => 0,
         'a'..='z' => lower as u8 - b'a' + 1,
-        '[' => 0x1b,
-        '\\' => 0x1c,
-        ']' => 0x1d,
-        '^' => 0x1e,
-        '_' => 0x1f,
-        '?' => 0x7f,
+        '0' => b'0',
+        '1' => b'1',
+        '3' | '[' => 0x1b,
+        '4' | '\\' => 0x1c,
+        '5' | ']' => 0x1d,
+        '6' | '^' | '~' => 0x1e,
+        '7' | '/' | '_' => 0x1f,
+        '8' | '?' => 0x7f,
+        '9' => b'9',
         _ => return None,
     };
 
@@ -124,12 +129,44 @@ mod tests {
             vec![0]
         );
         assert_eq!(
+            encode_terminal_key(TerminalKey::Control('0')).unwrap(),
+            b"0"
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('1')).unwrap(),
+            b"1"
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('2')).unwrap(),
+            vec![0]
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('3')).unwrap(),
+            vec![0x1b]
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('8')).unwrap(),
+            vec![0x7f]
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('9')).unwrap(),
+            b"9"
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('/')).unwrap(),
+            vec![0x1f]
+        );
+        assert_eq!(
             encode_terminal_key(TerminalKey::Control('[')).unwrap(),
             vec![0x1b]
         );
         assert_eq!(
             encode_terminal_key(TerminalKey::Control('\\')).unwrap(),
             vec![0x1c]
+        );
+        assert_eq!(
+            encode_terminal_key(TerminalKey::Control('~')).unwrap(),
+            vec![0x1e]
         );
     }
 

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{PaneId, TabId, WindowId, WorkspaceId};
 
@@ -11,6 +12,7 @@ pub struct PaneLaunch {
     program: String,
     args: Vec<String>,
     cwd: Option<String>,
+    environment: HashMap<String, String>,
 }
 
 impl PaneLaunch {
@@ -20,6 +22,7 @@ impl PaneLaunch {
             program: program.into(),
             args: Vec::new(),
             cwd: None,
+            environment: HashMap::new(),
         }
     }
 
@@ -40,6 +43,21 @@ impl PaneLaunch {
     }
 
     #[must_use]
+    pub fn with_environment<I, K, V>(mut self, environment: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.environment.extend(
+            environment
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into())),
+        );
+        self
+    }
+
+    #[must_use]
     pub fn program(&self) -> &str {
         &self.program
     }
@@ -52,6 +70,11 @@ impl PaneLaunch {
     #[must_use]
     pub fn cwd(&self) -> Option<&str> {
         self.cwd.as_deref()
+    }
+
+    #[must_use]
+    pub fn environment(&self) -> &HashMap<String, String> {
+        &self.environment
     }
 
     fn set_cwd(&mut self, cwd: Option<String>) {
@@ -74,12 +97,20 @@ pub struct AppShell {
 impl AppShell {
     #[must_use]
     pub fn new(default_launch: PaneLaunch) -> Self {
+        Self::new_with_workspace_name(default_launch, DEFAULT_WORKSPACE_NAME)
+    }
+
+    #[must_use]
+    pub fn new_with_workspace_name(
+        default_launch: PaneLaunch,
+        workspace_name: impl Into<String>,
+    ) -> Self {
         let workspace_id = WorkspaceId::new(1);
         let tab_id = TabId::new(1);
         let pane_id = PaneId::new(1);
         let first_workspace = Workspace::new(
             workspace_id,
-            DEFAULT_WORKSPACE_NAME.to_owned(),
+            workspace_name.into(),
             vec![Tab::new(
                 tab_id,
                 vec![Pane::new(pane_id, default_launch.clone())],
@@ -161,6 +192,11 @@ impl AppShell {
     }
 
     #[must_use]
+    pub fn last_active_tab_id(&self) -> Option<TabId> {
+        self.active_workspace().last_active_tab_id()
+    }
+
+    #[must_use]
     pub fn active_pane_id(&self) -> PaneId {
         self.active_workspace().active_pane_id()
     }
@@ -233,9 +269,16 @@ impl AppShell {
     /// Returns an [`AppShellError`] when the action references an invalid ID or
     /// requests a forbidden operation (for example, closing the last tab/pane).
     pub fn apply_action(&mut self, action: AppAction) -> Result<(), AppShellError> {
-        match action {
+        let clears_active_pane_unseen_output = !matches!(&action, AppAction::Nop);
+        let result = match action {
+            AppAction::Nop => Ok(()),
+            AppAction::Multiple { actions } => self.apply_multiple(actions),
             AppAction::NewTab { launch } => {
                 self.apply_new_tab(launch);
+                Ok(())
+            }
+            AppAction::SpawnWindow { launch } => {
+                self.apply_spawn_window(launch);
                 Ok(())
             }
             AppAction::CloseTab {
@@ -259,11 +302,10 @@ impl AppShell {
             AppAction::MoveTab { index } => self.apply_move_tab(index),
             AppAction::MoveTabRelative { offset } => self.apply_move_tab_relative(offset),
             AppAction::RotatePanes { direction } => self.apply_rotate_panes(direction),
-            AppAction::SplitPane {
-                pane,
-                direction,
-                launch,
-            } => self.apply_split_pane(pane, direction, launch),
+            action @ (AppAction::SplitPane { .. }
+            | AppAction::SplitPaneWithSize { .. }
+            | AppAction::SplitTopLevelPane { .. }
+            | AppAction::SplitTopLevelPaneWithSize { .. }) => self.apply_split_action(action),
             AppAction::ClosePane { pane } => self.apply_close_pane(pane),
             AppAction::ActivatePane { pane } => self.apply_activate_pane(pane),
             AppAction::ActivatePaneByIndex { index } => self.apply_activate_pane_by_index(index),
@@ -295,6 +337,10 @@ impl AppShell {
             AppAction::SetPaneBadgeFormat { pane, badge_format } => {
                 self.apply_set_pane_badge_format(pane, badge_format)
             }
+            AppAction::SetPaneHasUnseenOutput {
+                pane,
+                has_unseen_output,
+            } => self.apply_set_pane_has_unseen_output(pane, has_unseen_output),
             AppAction::SetPaneProgress { pane, progress } => {
                 self.apply_set_pane_progress(pane, progress)
             }
@@ -304,6 +350,10 @@ impl AppShell {
             AppAction::SwitchWorkspaceRelative { offset } => {
                 self.apply_switch_workspace_relative(offset)
             }
+            AppAction::SwitchToWorkspace { name, launch } => {
+                self.apply_switch_to_workspace(name, launch);
+                Ok(())
+            }
             AppAction::CloseWorkspace { workspace } => self.apply_close_workspace(workspace),
             AppAction::RenameWorkspace { workspace, name } => {
                 self.apply_rename_workspace(workspace, name)
@@ -312,7 +362,32 @@ impl AppShell {
                 self.apply_new_workspace(name, launch);
                 Ok(())
             }
+        };
+
+        if result.is_ok() && clears_active_pane_unseen_output {
+            self.clear_active_pane_unseen_output();
         }
+
+        result
+    }
+
+    fn clear_active_pane_unseen_output(&mut self) {
+        let pane = self.active_pane_id();
+        for workspace in &mut self.workspaces {
+            for tab in &mut workspace.tabs {
+                if let Some(index) = tab.pane_position(pane) {
+                    tab.panes[index].set_has_unseen_output(false);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn apply_multiple(&mut self, actions: Vec<AppAction>) -> Result<(), AppShellError> {
+        for action in actions {
+            self.apply_action(action)?;
+        }
+        Ok(())
     }
 
     fn apply_new_tab(&mut self, launch: Option<PaneLaunch>) {
@@ -323,6 +398,22 @@ impl AppShell {
             .active_workspace_mut()
             .expect("active workspace must exist");
         active_workspace.add_tab(Tab::new(tab_id, vec![Pane::new(pane_id, launch)]));
+    }
+
+    fn apply_spawn_window(&mut self, launch: Option<PaneLaunch>) {
+        let launch = launch.unwrap_or_else(|| self.active_pane().launch.clone());
+        let window_id = self.next_window_id();
+        let tab_id = self.next_tab_id();
+        let pane_id = self.next_pane_id();
+        let active_workspace = self.active_workspace();
+        let workspace_id = active_workspace.id();
+        let workspace_name = active_workspace.name().to_owned();
+        self.pending_windows.push(PendingWindow::new(
+            window_id,
+            workspace_id,
+            workspace_name,
+            Tab::new(tab_id, vec![Pane::new(pane_id, launch)]),
+        ));
     }
 
     fn apply_close_tab(
@@ -410,13 +501,63 @@ impl AppShell {
         direction: SplitDirection,
         launch: Option<PaneLaunch>,
     ) -> Result<(), AppShellError> {
+        self.apply_split_pane_with_size(pane, direction, launch, 0)
+    }
+
+    fn apply_split_action(&mut self, action: AppAction) -> Result<(), AppShellError> {
+        match action {
+            AppAction::SplitPane {
+                pane,
+                direction,
+                launch,
+            } => self.apply_split_pane(pane, direction, launch),
+            AppAction::SplitPaneWithSize {
+                pane,
+                direction,
+                launch,
+                source_size_delta,
+            } => self.apply_split_pane_with_size(pane, direction, launch, source_size_delta),
+            AppAction::SplitTopLevelPane { direction, launch } => {
+                self.apply_split_top_level_pane_with_size(direction, launch, 0)
+            }
+            AppAction::SplitTopLevelPaneWithSize {
+                direction,
+                launch,
+                source_size_delta,
+            } => self.apply_split_top_level_pane_with_size(direction, launch, source_size_delta),
+            _ => unreachable!("split helper received non-split action"),
+        }
+    }
+
+    fn apply_split_pane_with_size(
+        &mut self,
+        pane: PaneId,
+        direction: SplitDirection,
+        launch: Option<PaneLaunch>,
+        source_size_delta: i16,
+    ) -> Result<(), AppShellError> {
         let new_pane_id = self.next_pane_id();
         let active_tab = self
             .active_workspace_mut()
             .expect("active workspace must exist")
             .active_tab_mut()?;
         let launch = launch.unwrap_or_else(|| active_tab.active_pane().launch.clone());
-        active_tab.split_pane(pane, new_pane_id, direction, launch)
+        active_tab.split_pane(pane, new_pane_id, direction, launch, source_size_delta)
+    }
+
+    fn apply_split_top_level_pane_with_size(
+        &mut self,
+        direction: SplitDirection,
+        launch: Option<PaneLaunch>,
+        source_size_delta: i16,
+    ) -> Result<(), AppShellError> {
+        let new_pane_id = self.next_pane_id();
+        let active_tab = self
+            .active_workspace_mut()
+            .expect("active workspace must exist")
+            .active_tab_mut()?;
+        let launch = launch.unwrap_or_else(|| active_tab.active_pane().launch.clone());
+        active_tab.split_top_level_pane(new_pane_id, direction, launch, source_size_delta)
     }
 
     fn apply_close_pane(&mut self, pane: PaneId) -> Result<(), AppShellError> {
@@ -594,6 +735,22 @@ impl AppShell {
         Err(AppShellError::InvalidPane(pane))
     }
 
+    fn apply_set_pane_has_unseen_output(
+        &mut self,
+        pane: PaneId,
+        has_unseen_output: bool,
+    ) -> Result<(), AppShellError> {
+        for workspace in &mut self.workspaces {
+            for tab in &mut workspace.tabs {
+                if tab.pane_position(pane).is_some() {
+                    return tab.set_pane_has_unseen_output(pane, has_unseen_output);
+                }
+            }
+        }
+
+        Err(AppShellError::InvalidPane(pane))
+    }
+
     fn apply_focus_next_pane(&mut self) -> Result<(), AppShellError> {
         let active_tab = self
             .active_workspace_mut()
@@ -640,6 +797,39 @@ impl AppShell {
         let next_pos = usize::try_from(next_pos).unwrap_or(0);
         self.active_workspace_id = workspace_order[next_pos];
         Ok(())
+    }
+
+    fn apply_switch_to_workspace(&mut self, name: Option<String>, launch: Option<PaneLaunch>) {
+        let name = name.unwrap_or_else(|| self.random_workspace_name());
+        if let Some(workspace) = self
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.name() == name)
+        {
+            self.active_workspace_id = workspace.id();
+            return;
+        }
+
+        self.apply_new_workspace(name, launch);
+    }
+
+    fn random_workspace_name(&self) -> String {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        let process = u128::from(std::process::id());
+        let mut seed = timestamp ^ (process << 64) ^ u128::from(self.next_workspace_id);
+        loop {
+            let candidate = format!("random-{seed:032x}");
+            if self
+                .workspaces
+                .iter()
+                .all(|workspace| workspace.name() != candidate)
+            {
+                return candidate;
+            }
+            seed = seed.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        }
     }
 
     fn apply_close_workspace(&mut self, workspace: WorkspaceId) -> Result<(), AppShellError> {
@@ -833,6 +1023,10 @@ impl Workspace {
 
     fn active_tab_id(&self) -> TabId {
         self.active_tab_id
+    }
+
+    fn last_active_tab_id(&self) -> Option<TabId> {
+        self.last_active_tab_id
     }
 
     fn active_tab(&self) -> &Tab {
@@ -1151,6 +1345,9 @@ impl Tab {
     fn set_active_pane(&mut self, pane_id: PaneId) {
         let switching_panes = self.active_pane_id != pane_id;
         self.active_pane_id = pane_id;
+        if let Some(index) = self.pane_position(pane_id) {
+            self.panes[index].set_has_unseen_output(false);
+        }
         self.record_pane_activation(pane_id);
         if switching_panes {
             self.zoomed_pane_id = None;
@@ -1339,6 +1536,18 @@ impl Tab {
         Ok(())
     }
 
+    fn set_pane_has_unseen_output(
+        &mut self,
+        pane_id: PaneId,
+        has_unseen_output: bool,
+    ) -> Result<(), AppShellError> {
+        let Some(index) = self.pane_position(pane_id) else {
+            return Err(AppShellError::InvalidPane(pane_id));
+        };
+        self.panes[index].set_has_unseen_output(has_unseen_output);
+        Ok(())
+    }
+
     fn focus_next_pane(&mut self) {
         if self.panes.len() <= 1 {
             return;
@@ -1378,6 +1587,7 @@ impl Tab {
         new_pane_id: PaneId,
         direction: SplitDirection,
         launch: PaneLaunch,
+        source_size_delta: i16,
     ) -> Result<(), AppShellError> {
         if self.pane_position(source).is_none() {
             return Err(AppShellError::InvalidPane(source));
@@ -1387,8 +1597,31 @@ impl Tab {
             .push(Pane::new(new_pane_id, launch).with_split(Some(PaneSplit {
                 source_pane: source,
                 direction,
-                source_size_delta: 0,
+                source_size_delta,
             })));
+        self.set_active_pane(new_pane_id);
+        Ok(())
+    }
+
+    fn split_top_level_pane(
+        &mut self,
+        new_pane_id: PaneId,
+        direction: SplitDirection,
+        launch: PaneLaunch,
+        source_size_delta: i16,
+    ) -> Result<(), AppShellError> {
+        let Some(source) = self.panes.first().map(Pane::id) else {
+            return Err(AppShellError::CannotCloseLastPane);
+        };
+
+        self.panes.insert(
+            1,
+            Pane::new(new_pane_id, launch).with_split(Some(PaneSplit {
+                source_pane: source,
+                direction,
+                source_size_delta,
+            })),
+        );
         self.set_active_pane(new_pane_id);
         Ok(())
     }
@@ -1630,64 +1863,133 @@ fn split_pane_direction_rect(
     split: PaneSplit,
 ) -> Option<(PaneDirectionRect, PaneDirectionRect)> {
     match split.direction {
-        SplitDirection::Right => {
-            if source.columns < 3 || source.rows <= 0 {
-                return None;
-            }
-            let source_columns = adjusted_direction_source_size(
-                source.columns,
-                source.columns.saturating_sub(1) / 2,
-                split.source_size_delta,
-            );
-            let new_columns = source
-                .columns
-                .saturating_sub(source_columns)
-                .saturating_sub(1);
-            if source_columns <= 0 || new_columns <= 0 {
-                return None;
-            }
-            Some((
-                PaneDirectionRect {
-                    columns: source_columns,
-                    ..source
-                },
-                PaneDirectionRect {
-                    pane_id: new_pane_id,
-                    row: source.row,
-                    column: source.column + source_columns + 1,
-                    rows: source.rows,
-                    columns: new_columns,
-                },
-            ))
-        }
-        SplitDirection::Down => {
-            if source.rows < 3 || source.columns <= 0 {
-                return None;
-            }
-            let source_rows = adjusted_direction_source_size(
-                source.rows,
-                source.rows.saturating_sub(1) / 2,
-                split.source_size_delta,
-            );
-            let new_rows = source.rows.saturating_sub(source_rows).saturating_sub(1);
-            if source_rows <= 0 || new_rows <= 0 {
-                return None;
-            }
-            Some((
-                PaneDirectionRect {
-                    rows: source_rows,
-                    ..source
-                },
-                PaneDirectionRect {
-                    pane_id: new_pane_id,
-                    row: source.row + source_rows + 1,
-                    column: source.column,
-                    rows: new_rows,
-                    columns: source.columns,
-                },
-            ))
-        }
+        SplitDirection::Right => split_pane_direction_rect_right(source, new_pane_id, split),
+        SplitDirection::Left => split_pane_direction_rect_left(source, new_pane_id, split),
+        SplitDirection::Down => split_pane_direction_rect_down(source, new_pane_id, split),
+        SplitDirection::Up => split_pane_direction_rect_up(source, new_pane_id, split),
     }
+}
+
+fn split_pane_direction_rect_right(
+    source: PaneDirectionRect,
+    new_pane_id: PaneId,
+    split: PaneSplit,
+) -> Option<(PaneDirectionRect, PaneDirectionRect)> {
+    let (source_columns, new_columns) =
+        split_pane_direction_columns(source.columns, split.source_size_delta, source.rows)?;
+    Some((
+        PaneDirectionRect {
+            columns: source_columns,
+            ..source
+        },
+        PaneDirectionRect {
+            pane_id: new_pane_id,
+            row: source.row,
+            column: source.column + source_columns + 1,
+            rows: source.rows,
+            columns: new_columns,
+        },
+    ))
+}
+
+fn split_pane_direction_rect_left(
+    source: PaneDirectionRect,
+    new_pane_id: PaneId,
+    split: PaneSplit,
+) -> Option<(PaneDirectionRect, PaneDirectionRect)> {
+    let (source_columns, new_columns) =
+        split_pane_direction_columns(source.columns, split.source_size_delta, source.rows)?;
+    Some((
+        PaneDirectionRect {
+            column: source.column + new_columns + 1,
+            columns: source_columns,
+            ..source
+        },
+        PaneDirectionRect {
+            pane_id: new_pane_id,
+            row: source.row,
+            column: source.column,
+            rows: source.rows,
+            columns: new_columns,
+        },
+    ))
+}
+
+fn split_pane_direction_rect_down(
+    source: PaneDirectionRect,
+    new_pane_id: PaneId,
+    split: PaneSplit,
+) -> Option<(PaneDirectionRect, PaneDirectionRect)> {
+    let (source_rows, new_rows) =
+        split_pane_direction_rows(source.rows, split.source_size_delta, source.columns)?;
+    Some((
+        PaneDirectionRect {
+            rows: source_rows,
+            ..source
+        },
+        PaneDirectionRect {
+            pane_id: new_pane_id,
+            row: source.row + source_rows + 1,
+            column: source.column,
+            rows: new_rows,
+            columns: source.columns,
+        },
+    ))
+}
+
+fn split_pane_direction_rect_up(
+    source: PaneDirectionRect,
+    new_pane_id: PaneId,
+    split: PaneSplit,
+) -> Option<(PaneDirectionRect, PaneDirectionRect)> {
+    let (source_rows, new_rows) =
+        split_pane_direction_rows(source.rows, split.source_size_delta, source.columns)?;
+    Some((
+        PaneDirectionRect {
+            row: source.row + new_rows + 1,
+            rows: source_rows,
+            ..source
+        },
+        PaneDirectionRect {
+            pane_id: new_pane_id,
+            row: source.row,
+            column: source.column,
+            rows: new_rows,
+            columns: source.columns,
+        },
+    ))
+}
+
+fn split_pane_direction_columns(
+    total_columns: i32,
+    source_size_delta: i16,
+    rows: i32,
+) -> Option<(i32, i32)> {
+    if total_columns < 3 || rows <= 0 {
+        return None;
+    }
+    split_pane_direction_sizes(total_columns, source_size_delta)
+}
+
+fn split_pane_direction_rows(
+    total_rows: i32,
+    source_size_delta: i16,
+    columns: i32,
+) -> Option<(i32, i32)> {
+    if total_rows < 3 || columns <= 0 {
+        return None;
+    }
+    split_pane_direction_sizes(total_rows, source_size_delta)
+}
+
+fn split_pane_direction_sizes(total_cells: i32, source_size_delta: i16) -> Option<(i32, i32)> {
+    let source_cells = adjusted_direction_source_size(
+        total_cells,
+        total_cells.saturating_sub(1) / 2,
+        source_size_delta,
+    );
+    let new_cells = total_cells.saturating_sub(source_cells).saturating_sub(1);
+    (source_cells > 0 && new_cells > 0).then_some((source_cells, new_cells))
 }
 
 fn adjusted_direction_source_size(total_cells: i32, default_source_cells: i32, delta: i16) -> i32 {
@@ -1717,6 +2019,16 @@ fn split_resize_source_delta(
             ResizeDirection::Right => Some(1),
             ResizeDirection::Up | ResizeDirection::Down => None,
         },
+        (SplitDirection::Left, true, false) => match direction {
+            ResizeDirection::Left => Some(1),
+            ResizeDirection::Right => Some(-1),
+            ResizeDirection::Up | ResizeDirection::Down => None,
+        },
+        (SplitDirection::Left, false, true) => match direction {
+            ResizeDirection::Right => Some(-1),
+            ResizeDirection::Left => Some(1),
+            ResizeDirection::Up | ResizeDirection::Down => None,
+        },
         (SplitDirection::Down, true, false) => match direction {
             ResizeDirection::Down => Some(1),
             ResizeDirection::Up => Some(-1),
@@ -1725,6 +2037,16 @@ fn split_resize_source_delta(
         (SplitDirection::Down, false, true) => match direction {
             ResizeDirection::Up => Some(-1),
             ResizeDirection::Down => Some(1),
+            ResizeDirection::Left | ResizeDirection::Right => None,
+        },
+        (SplitDirection::Up, true, false) => match direction {
+            ResizeDirection::Up => Some(1),
+            ResizeDirection::Down => Some(-1),
+            ResizeDirection::Left | ResizeDirection::Right => None,
+        },
+        (SplitDirection::Up, false, true) => match direction {
+            ResizeDirection::Down => Some(-1),
+            ResizeDirection::Up => Some(1),
             ResizeDirection::Left | ResizeDirection::Right => None,
         },
         _ => None,
@@ -1738,6 +2060,7 @@ pub struct Pane {
     user_vars: HashMap<String, String>,
     badge_format: Option<String>,
     progress: PaneProgress,
+    has_unseen_output: bool,
     split: Option<PaneSplit>,
 }
 
@@ -1758,6 +2081,7 @@ impl Pane {
             user_vars: HashMap::new(),
             badge_format: None,
             progress: PaneProgress::default(),
+            has_unseen_output: false,
             split: None,
         }
     }
@@ -1805,6 +2129,15 @@ impl Pane {
     }
 
     #[must_use]
+    pub const fn has_unseen_output(&self) -> bool {
+        self.has_unseen_output
+    }
+
+    fn set_has_unseen_output(&mut self, has_unseen_output: bool) {
+        self.has_unseen_output = has_unseen_output;
+    }
+
+    #[must_use]
     pub const fn split(&self) -> Option<PaneSplit> {
         self.split
     }
@@ -1819,7 +2152,9 @@ pub struct PaneSplit {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitDirection {
+    Left,
     Right,
+    Up,
     Down,
 }
 
@@ -1849,7 +2184,14 @@ pub enum PaneRotationDirection {
 
 #[derive(Debug, Clone)]
 pub enum AppAction {
+    Nop,
+    Multiple {
+        actions: Vec<AppAction>,
+    },
     NewTab {
+        launch: Option<PaneLaunch>,
+    },
+    SpawnWindow {
         launch: Option<PaneLaunch>,
     },
     CloseTab {
@@ -1886,6 +2228,21 @@ pub enum AppAction {
         pane: PaneId,
         direction: SplitDirection,
         launch: Option<PaneLaunch>,
+    },
+    SplitPaneWithSize {
+        pane: PaneId,
+        direction: SplitDirection,
+        launch: Option<PaneLaunch>,
+        source_size_delta: i16,
+    },
+    SplitTopLevelPane {
+        direction: SplitDirection,
+        launch: Option<PaneLaunch>,
+    },
+    SplitTopLevelPaneWithSize {
+        direction: SplitDirection,
+        launch: Option<PaneLaunch>,
+        source_size_delta: i16,
     },
     ClosePane {
         pane: PaneId,
@@ -1935,6 +2292,10 @@ pub enum AppAction {
         pane: PaneId,
         badge_format: Option<String>,
     },
+    SetPaneHasUnseenOutput {
+        pane: PaneId,
+        has_unseen_output: bool,
+    },
     SetPaneProgress {
         pane: PaneId,
         progress: PaneProgress,
@@ -1946,6 +2307,10 @@ pub enum AppAction {
     },
     SwitchWorkspaceRelative {
         offset: isize,
+    },
+    SwitchToWorkspace {
+        name: Option<String>,
+        launch: Option<PaneLaunch>,
     },
     CloseWorkspace {
         workspace: WorkspaceId,
@@ -2018,6 +2383,55 @@ mod tests {
         assert_eq!(shell.active_tab_id(), TabId::new(2));
         assert_eq!(shell.active_workspace().tabs().len(), 2);
         assert_eq!(shell.active_pane().launch().program(), "pwsh");
+    }
+
+    #[test]
+    fn action_multiple_applies_actions_in_sequence() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+
+        shell
+            .apply_action(AppAction::Multiple {
+                actions: vec![
+                    AppAction::NewTab { launch: None },
+                    AppAction::SetTabTitle {
+                        tab: TabId::new(2),
+                        title: "build".to_owned(),
+                    },
+                    AppAction::NewWorkspace {
+                        name: "ops".to_owned(),
+                        launch: None,
+                    },
+                ],
+            })
+            .unwrap();
+
+        assert_eq!(shell.workspaces().len(), 2);
+        assert_eq!(shell.active_workspace().name(), "ops");
+        assert_eq!(
+            shell.workspace(WorkspaceId::new(1)).unwrap().tabs()[1].title(),
+            Some("build")
+        );
+    }
+
+    #[test]
+    fn action_nop_leaves_shell_state_unchanged() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .active_workspace_mut()
+            .unwrap()
+            .active_tab_mut()
+            .unwrap()
+            .set_pane_has_unseen_output(PaneId::new(1), true)
+            .unwrap();
+
+        shell.apply_action(AppAction::Nop).unwrap();
+
+        assert_eq!(shell.active_workspace_id(), WorkspaceId::new(1));
+        assert_eq!(shell.active_tab_id(), TabId::new(1));
+        assert_eq!(shell.active_pane_id(), PaneId::new(1));
+        assert_eq!(shell.workspaces().len(), 1);
+        assert_eq!(shell.active_workspace().tabs().len(), 1);
+        assert!(shell.active_pane().has_unseen_output());
     }
 
     #[test]
@@ -2304,6 +2718,24 @@ mod tests {
 
         shell.apply_action(AppAction::ActivateLastTab).unwrap();
         assert_eq!(shell.active_tab_id(), TabId::new(3));
+    }
+
+    #[test]
+    fn action_activate_tab_exposes_last_active_tab_id() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        assert_eq!(shell.active_tab_id(), TabId::new(2));
+        assert_eq!(shell.last_active_tab_id(), Some(TabId::new(1)));
+
+        shell
+            .apply_action(AppAction::ActivateTab { tab: TabId::new(1) })
+            .unwrap();
+
+        assert_eq!(shell.active_tab_id(), TabId::new(1));
+        assert_eq!(shell.last_active_tab_id(), Some(TabId::new(2)));
     }
 
     #[test]
@@ -2762,6 +3194,42 @@ mod tests {
     }
 
     #[test]
+    fn action_activate_pane_direction_moves_to_left_and_up_splits() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Left,
+                launch: None,
+            })
+            .unwrap();
+        assert_eq!(shell.active_pane_id(), PaneId::new(2));
+
+        shell
+            .apply_action(AppAction::ActivatePaneDirection {
+                direction: PaneDirection::Right,
+            })
+            .unwrap();
+        assert_eq!(shell.active_pane_id(), PaneId::new(1));
+
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Up,
+                launch: None,
+            })
+            .unwrap();
+        assert_eq!(shell.active_pane_id(), PaneId::new(3));
+
+        shell
+            .apply_action(AppAction::ActivatePaneDirection {
+                direction: PaneDirection::Down,
+            })
+            .unwrap();
+        assert_eq!(shell.active_pane_id(), PaneId::new(1));
+    }
+
+    #[test]
     fn action_activate_pane_direction_without_neighbor_is_noop() {
         let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
         shell
@@ -2894,6 +3362,69 @@ mod tests {
             .split()
             .expect("split should be present");
         assert_eq!(split.source_size_delta, -3);
+    }
+
+    #[test]
+    fn action_split_pane_accepts_initial_source_size_delta() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+
+        shell
+            .apply_action(AppAction::SplitPaneWithSize {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+                source_size_delta: -12,
+            })
+            .unwrap();
+
+        let split = shell.active_tab().panes()[1]
+            .split()
+            .expect("split should be present");
+        assert_eq!(split.source_size_delta, -12);
+    }
+
+    #[test]
+    fn action_split_top_level_pane_splits_the_full_tab_region() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SplitPane {
+                pane: PaneId::new(1),
+                direction: SplitDirection::Right,
+                launch: None,
+            })
+            .unwrap();
+
+        shell
+            .apply_action(AppAction::SplitTopLevelPane {
+                direction: SplitDirection::Down,
+                launch: Some(PaneLaunch::local("top")),
+            })
+            .unwrap();
+
+        assert_eq!(shell.active_pane_id(), PaneId::new(3));
+        assert_eq!(
+            shell
+                .active_tab()
+                .panes()
+                .iter()
+                .map(Pane::id)
+                .collect::<Vec<_>>(),
+            vec![PaneId::new(1), PaneId::new(3), PaneId::new(2)]
+        );
+
+        shell
+            .apply_action(AppAction::ActivatePane {
+                pane: PaneId::new(1),
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::ActivatePaneDirection {
+                direction: PaneDirection::Down,
+            })
+            .unwrap();
+
+        assert_eq!(shell.active_pane_id(), PaneId::new(3));
+        assert_eq!(shell.active_pane().launch().program(), "top");
     }
 
     #[test]
@@ -3150,6 +3681,62 @@ mod tests {
     }
 
     #[test]
+    fn action_spawn_window_creates_pending_window_with_new_default_tab() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh").with_args(["-NoLogo"]));
+
+        shell
+            .apply_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+
+        assert_eq!(shell.active_workspace_id(), WorkspaceId::new(1));
+        assert_eq!(shell.active_tab_id(), TabId::new(1));
+        assert_eq!(shell.active_pane_id(), PaneId::new(1));
+        assert_eq!(shell.pane_ids(), vec![PaneId::new(1), PaneId::new(2)]);
+
+        let pending_window = shell
+            .pending_windows()
+            .first()
+            .expect("spawn window should request a new window");
+        assert_eq!(pending_window.id(), WindowId::new(2));
+        assert_eq!(pending_window.workspace_id(), WorkspaceId::new(1));
+        assert_eq!(pending_window.workspace_name(), "default");
+        assert_eq!(pending_window.tab().id(), TabId::new(2));
+        assert_eq!(pending_window.active_pane_id(), PaneId::new(2));
+        assert_eq!(pending_window.tab().panes().len(), 1);
+        assert_eq!(pending_window.tab().panes()[0].launch().program(), "pwsh");
+        assert_eq!(
+            pending_window.tab().panes()[0].launch().args(),
+            &["-NoLogo"]
+        );
+        assert!(pending_window.tab().panes()[0].split().is_none());
+    }
+
+    #[test]
+    fn action_spawn_window_inherits_active_pane_launch_cwd() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::SetPaneCurrentWorkingDir {
+                pane: PaneId::new(1),
+                cwd: Some("file://host/home/ops".to_owned()),
+            })
+            .unwrap();
+
+        shell
+            .apply_action(AppAction::SpawnWindow { launch: None })
+            .unwrap();
+
+        let pending_window = shell
+            .pending_windows()
+            .first()
+            .expect("spawn window should request a new window");
+
+        assert_eq!(
+            pending_window.tab().panes()[0].launch().cwd(),
+            Some("file://host/home/ops")
+        );
+    }
+
+    #[test]
     fn action_new_workspace_creates_and_selects_workspace() {
         let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
 
@@ -3182,6 +3769,88 @@ mod tests {
             .unwrap();
 
         assert_eq!(shell.active_workspace_id(), WorkspaceId::new(1));
+    }
+
+    #[test]
+    fn action_switch_to_workspace_selects_existing_named_workspace_without_creating() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+        shell
+            .apply_action(AppAction::NewWorkspace {
+                name: "ops".to_owned(),
+                launch: None,
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::NewWorkspace {
+                name: "monitoring".to_owned(),
+                launch: None,
+            })
+            .unwrap();
+        shell
+            .apply_action(AppAction::SwitchWorkspace {
+                workspace: WorkspaceId::new(1),
+            })
+            .unwrap();
+
+        shell
+            .apply_action(AppAction::SwitchToWorkspace {
+                name: Some("ops".to_owned()),
+                launch: Some(PaneLaunch::local("ignored")),
+            })
+            .unwrap();
+
+        assert_eq!(shell.workspaces().len(), 3);
+        assert_eq!(shell.active_workspace().name(), "ops");
+        assert_eq!(shell.active_workspace_id(), WorkspaceId::new(2));
+        assert_eq!(shell.active_pane().launch().program(), "pwsh");
+    }
+
+    #[test]
+    fn action_switch_to_workspace_creates_missing_named_workspace_with_spawn_command() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+
+        shell
+            .apply_action(AppAction::SwitchToWorkspace {
+                name: Some("monitoring".to_owned()),
+                launch: Some(PaneLaunch::local("top").with_args(["-d", "1"])),
+            })
+            .unwrap();
+
+        assert_eq!(shell.workspaces().len(), 2);
+        assert_eq!(shell.active_workspace().name(), "monitoring");
+        assert_eq!(shell.active_workspace_id(), WorkspaceId::new(2));
+        assert_eq!(shell.active_pane().launch().program(), "top");
+        assert_eq!(shell.active_pane().launch().args(), &["-d", "1"]);
+    }
+
+    #[test]
+    fn action_switch_to_workspace_without_name_creates_random_workspace_name() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+
+        shell
+            .apply_action(AppAction::SwitchToWorkspace {
+                name: None,
+                launch: None,
+            })
+            .unwrap();
+
+        let first_name = shell.active_workspace().name().to_owned();
+        assert_ne!(first_name, "workspace-2");
+        assert_eq!(shell.active_workspace_id(), WorkspaceId::new(2));
+        assert_eq!(shell.active_pane().launch().program(), "pwsh");
+
+        shell
+            .apply_action(AppAction::SwitchToWorkspace {
+                name: None,
+                launch: Some(PaneLaunch::local("top")),
+            })
+            .unwrap();
+
+        assert_eq!(shell.workspaces().len(), 3);
+        assert_ne!(shell.active_workspace().name(), first_name);
+        assert_ne!(shell.active_workspace().name(), "workspace-3");
+        assert_eq!(shell.active_workspace_id(), WorkspaceId::new(3));
+        assert_eq!(shell.active_pane().launch().program(), "top");
     }
 
     #[test]

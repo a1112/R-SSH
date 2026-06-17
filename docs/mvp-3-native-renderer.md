@@ -10,8 +10,11 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   `rssh-terminal::Terminal` into a `TerminalRenderSnapshot`.
 - `TerminalRenderSnapshot` keeps row, column, character, foreground,
   background, and basic style flags including inverse video for visible cells.
-- `TerminalRenderSnapshot` carries visible cursor row/column and shape when
-  built from a `Terminal`.
+  When terminal screen reverse-video mode is active, snapshots XOR the global
+  inverse state across the full visible viewport, including otherwise blank
+  cells.
+- `TerminalRenderSnapshot` carries visible cursor row/column, shape, and blink
+  state when built from a `Terminal`.
 - `TerminalRenderSnapshot` carries iTerm2/WezTerm inline image metadata and
   decoded payload bytes from `OSC 1337;File=...`, plus the supported Kitty
   direct/local-file image subset, translating retained-history image rows into
@@ -54,8 +57,11 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
   hue color definitions, DCS macro pixel aspect, DECGRA aspect override,
   raster-size, repeat, and newline bitmap payloads into raw RGBA inline image
   snapshot items. Default and `?80l` output starts at the text cursor and
-  advances it; DECSDM `?80h` output starts at the active graphics-page origin
-  while preserving the text cursor.
+  advances below the image while preserving the left-edge column; `?8452h`
+  moves the post-Sixel cursor to the right edge. DECSDM `?80h` output starts
+  at the active graphics-page origin while preserving the text cursor, and
+  WezTerm's tmux-control `DCS 1000 q` is ignored rather than emitted as a
+  Sixel snapshot item.
 - `PixelRenderer` maps the xterm 256-color indexed palette, including the
   6x6x6 color cube and grayscale ramp.
 - `PixelRenderer` draws bold text with an extra bitmap stroke, italic text with
@@ -70,7 +76,10 @@ terminal grid -> renderer cells -> RGBA framebuffer -> native `winit` window.
 - `PixelRenderer` hides concealed text foreground pixels while preserving cell
   background rendering.
 - `PixelRenderer` draws block, underline, and bar cursors for visible cursor
-  snapshots.
+  snapshots, supports configurable px, DPI-scaled pt, percent-of-default, and
+  cell-fraction thickness for underline/bar cursor glyphs, can force
+  reverse-video cursor fills from the cursor cell's effective foreground color,
+  and supports both hidden-phase and interpolated-opacity blinking cursors.
 - The renderer uses `font8x8` for a minimal built-in glyph path.
 - `rssh-app` starts a native `winit` window by default.
 - `pixels` presents the renderer framebuffer through a GPU-backed window
@@ -118,9 +127,10 @@ cargo run -p rssh-app -- window --frames 1
 Renderer-specific tests cover:
 
 - terminal grid to render snapshot conversion
-- terminal cursor position and shape to render snapshot conversion
+- terminal cursor position, shape, and blink state to render snapshot conversion
 - iTerm2/WezTerm inline image metadata/payload propagation into render
   snapshots, including scrollback viewports and overlaid pane snapshots
+- render snapshot cell color mapping used by inactive-pane styling
 - PNG, JPEG, GIF first-frame, selected animated GIF frame, and delay-aware
   elapsed-time animated GIF frame drawing for iTerm2/WezTerm inline image
   payloads, Kitty direct, local-file `t=f`/`t=t`, stored-placement,
@@ -132,6 +142,8 @@ Renderer-specific tests cover:
 - preservation of cell position and style metadata, including faint, italic,
   blinking, double-underlined, underline-styled, underline-colored, concealed,
   and overlined cells
+- blink-phase hiding for blinking text plus hidden/interpolated-opacity
+  blinking cursors
 - glyph foreground pixels drawn into an RGBA target
 - bold terminal text drawn with additional foreground pixels
 - italic terminal text drawn with shifted foreground pixels
@@ -142,7 +154,10 @@ Renderer-specific tests cover:
   strikethrough, and overlined terminal text drawn into an RGBA target
 - xterm 256-color indexed foreground output from terminal bytes to RGBA pixels
 - inverse-video foreground/background swapping
-- block, underline, and bar cursor pixels drawn into an RGBA target
+- full-viewport screen reverse-video snapshots for `DECSET ?5`
+- block, underline, and bar cursor pixels drawn into an RGBA target, including
+  px, DPI-scaled pt, percent-of-default, and cell-fraction thickness overrides for
+  underline/bar cursor glyphs
 
 ## Explicit Non-Scope
 
@@ -150,11 +165,10 @@ Renderer-specific tests cover:
 - Glyph atlas caching.
 - Scrollback rendering.
 - Selection and mouse interaction.
-- Automatic animated GIF refresh/invalidation scheduling beyond delay-aware
-  elapsed-time frame selection, high-quality image resampling, full Kitty image
-  protocol drawing beyond direct/local-file payload transfer/display, remaining
-  Kitty placement controls beyond source rectangles and target offsets, and
-  full Sixel protocol coverage beyond the basic bitmap subset.
+- High-quality image resampling, full Kitty image protocol drawing beyond
+  direct/local-file payload transfer/display, remaining Kitty placement controls
+  beyond source rectangles and target offsets, and full Sixel protocol coverage
+  beyond the basic bitmap subset.
 - Live PTY streaming into the native window.
 - SSH session rendering.
 - Terminal grid resizing from window size.

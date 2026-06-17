@@ -10,6 +10,7 @@ pub(crate) enum TerminalModeChange {
     SynchronizedOutput(bool),
     KittyKeyboardFlags(u16),
     ModifyOtherKeys(u8),
+    Win32InputMode(bool),
 }
 
 pub(crate) const KITTY_KEYBOARD_DISAMBIGUATE: u16 = 1;
@@ -25,6 +26,7 @@ pub(crate) enum MouseProtocolMode {
     Utf8,
     Sgr,
     Urxvt,
+    SgrPixels,
 }
 
 impl MouseProtocolMode {
@@ -34,6 +36,7 @@ impl MouseProtocolMode {
             Self::Utf8 => 1,
             Self::Sgr => 2,
             Self::Urxvt => 3,
+            Self::SgrPixels => 4,
         }
     }
 
@@ -42,6 +45,7 @@ impl MouseProtocolMode {
             1 => Self::Utf8,
             2 => Self::Sgr,
             3 => Self::Urxvt,
+            4 => Self::SgrPixels,
             _ => Self::X10,
         }
     }
@@ -105,6 +109,7 @@ pub(crate) struct MouseInputMode {
 
 impl MouseInputMode {
     const PROTOCOL_SHIFT: u8 = 2;
+    const PROTOCOL_MASK: u8 = 0b111;
 
     pub(crate) const fn new(reporting: MouseReportingMode, protocol: MouseProtocolMode) -> Self {
         Self {
@@ -120,7 +125,9 @@ impl MouseInputMode {
     pub(crate) const fn from_bits(bits: u8) -> Self {
         Self {
             reporting: MouseReportingMode::from_bits(bits & 0b11),
-            protocol: MouseProtocolMode::from_bits((bits >> Self::PROTOCOL_SHIFT) & 0b11),
+            protocol: MouseProtocolMode::from_bits(
+                (bits >> Self::PROTOCOL_SHIFT) & Self::PROTOCOL_MASK,
+            ),
         }
     }
 
@@ -145,13 +152,26 @@ impl MouseInputMode {
     }
 }
 
-#[derive(Default)]
 pub(crate) struct TerminalModeTracker {
     pending: Vec<u8>,
     mouse_modes: MouseModes,
     kitty_keyboard_modes: KittyKeyboardModes,
     modify_other_keys: u8,
+    allow_win32_input_mode: bool,
     tracked_modes: TrackedTerminalModes,
+}
+
+impl Default for TerminalModeTracker {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            mouse_modes: MouseModes::default(),
+            kitty_keyboard_modes: KittyKeyboardModes::default(),
+            modify_other_keys: 0,
+            allow_win32_input_mode: true,
+            tracked_modes: TrackedTerminalModes::default(),
+        }
+    }
 }
 
 pub(crate) struct SynchronizedOutputModeSequence {
@@ -193,10 +213,16 @@ impl TerminalModeTracker {
     const C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX: &'static [u8] = b"\x9b>";
     const C1_CSI_KITTY_KEYBOARD_POP_PREFIX: &'static [u8] = b"\x9b<";
     const C1_CSI_KITTY_KEYBOARD_SET_PREFIX: &'static [u8] = b"\x9b=";
+    const UTF8_C1_CSI_MODE_PREFIX: &'static [u8] = b"\xc2\x9b";
+    const UTF8_C1_CSI_PRIVATE_MODE_PREFIX: &'static [u8] = b"\xc2\x9b?";
+    const UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX: &'static [u8] = b"\xc2\x9b>";
+    const UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX: &'static [u8] = b"\xc2\x9b<";
+    const UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX: &'static [u8] = b"\xc2\x9b=";
     const NUMERIC_KEYPAD_PREFIX: &'static [u8] = b"\x1b>";
     const RESET_PREFIX: &'static [u8] = b"\x1bc";
     const SOFT_RESET_PREFIX: &'static [u8] = b"\x1b[!p";
     const C1_SOFT_RESET_PREFIX: &'static [u8] = b"\x9b!p";
+    const UTF8_C1_SOFT_RESET_PREFIX: &'static [u8] = b"\xc2\x9b!p";
 
     #[allow(clippy::too_many_lines)]
     pub(crate) fn process(&mut self, bytes: &[u8], mut emit: impl FnMut(TerminalModeChange)) {
@@ -225,7 +251,7 @@ impl TerminalModeTracker {
                     self.pending.drain(..2);
                 }
                 ModeSequence::SoftReset { prefix_len } => {
-                    self.soft_reset();
+                    self.soft_reset(&mut emit);
                     self.pending.drain(..prefix_len);
                 }
                 ModeSequence::KittyKeyboard {
@@ -355,99 +381,213 @@ impl TerminalModeTracker {
         self.process(bytes, |_| {});
     }
 
+    pub(crate) fn clear_kitty_keyboard_flags(&mut self) {
+        self.kitty_keyboard_modes = KittyKeyboardModes::default();
+    }
+
+    pub(crate) fn set_allow_win32_input_mode(&mut self, allowed: bool) {
+        self.allow_win32_input_mode = allowed;
+        if !allowed {
+            self.tracked_modes
+                .set(TrackedTerminalModes::WIN32_INPUT_MODE, false);
+        }
+    }
+
     fn find_next_mode_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
         [
-            (
-                Self::CSI_PRIVATE_MODE_PREFIX,
-                ModeSequence::CsiPrivateMode {
-                    prefix_len: Self::CSI_PRIVATE_MODE_PREFIX.len(),
-                },
-            ),
-            (
-                Self::C1_CSI_PRIVATE_MODE_PREFIX,
-                ModeSequence::CsiPrivateMode {
-                    prefix_len: Self::C1_CSI_PRIVATE_MODE_PREFIX.len(),
-                },
-            ),
-            (
-                Self::CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-                ModeSequence::KeyModifierOptions {
-                    prefix_len: Self::CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
-                },
-            ),
-            (
-                Self::CSI_KITTY_KEYBOARD_POP_PREFIX,
-                ModeSequence::KittyKeyboard {
-                    prefix_len: Self::CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
-                    operation: KittyKeyboardOperation::Pop,
-                },
-            ),
-            (
-                Self::CSI_KITTY_KEYBOARD_SET_PREFIX,
-                ModeSequence::KittyKeyboard {
-                    prefix_len: Self::CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
-                    operation: KittyKeyboardOperation::Apply,
-                },
-            ),
-            (
-                Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
-                ModeSequence::KeyModifierOptions {
-                    prefix_len: Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
-                },
-            ),
-            (
-                Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
-                ModeSequence::KittyKeyboard {
-                    prefix_len: Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
-                    operation: KittyKeyboardOperation::Pop,
-                },
-            ),
-            (
-                Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
-                ModeSequence::KittyKeyboard {
-                    prefix_len: Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
-                    operation: KittyKeyboardOperation::Apply,
-                },
-            ),
-            (
-                Self::SOFT_RESET_PREFIX,
-                ModeSequence::SoftReset {
-                    prefix_len: Self::SOFT_RESET_PREFIX.len(),
-                },
-            ),
-            (
-                Self::C1_SOFT_RESET_PREFIX,
-                ModeSequence::SoftReset {
-                    prefix_len: Self::C1_SOFT_RESET_PREFIX.len(),
-                },
-            ),
-            (
-                Self::CSI_MODE_PREFIX,
-                ModeSequence::CsiMode {
-                    prefix_len: Self::CSI_MODE_PREFIX.len(),
-                },
-            ),
-            (
-                Self::C1_CSI_MODE_PREFIX,
-                ModeSequence::CsiMode {
-                    prefix_len: Self::C1_CSI_MODE_PREFIX.len(),
-                },
-            ),
-            (
-                Self::APPLICATION_KEYPAD_PREFIX,
-                ModeSequence::ApplicationKeypad(true),
-            ),
-            (
-                Self::NUMERIC_KEYPAD_PREFIX,
-                ModeSequence::ApplicationKeypad(false),
-            ),
-            (Self::RESET_PREFIX, ModeSequence::Reset),
+            Self::find_csi_private_mode_start(bytes),
+            Self::find_key_modifier_options_start(bytes),
+            Self::find_kitty_keyboard_start(bytes),
+            Self::find_soft_reset_start(bytes),
+            Self::find_csi_mode_start(bytes),
+            Self::find_simple_escape_start(bytes),
         ]
         .into_iter()
-        .filter_map(|(prefix, sequence)| {
-            find_subslice(bytes, prefix).map(|index| ModeSequenceStart { index, sequence })
-        })
+        .flatten()
         .min_by_key(|start| start.index)
+    }
+
+    fn find_csi_private_mode_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
+        Self::find_mode_start_with_prefixes(
+            bytes,
+            [
+                (
+                    Self::CSI_PRIVATE_MODE_PREFIX,
+                    ModeSequence::CsiPrivateMode {
+                        prefix_len: Self::CSI_PRIVATE_MODE_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::C1_CSI_PRIVATE_MODE_PREFIX,
+                    ModeSequence::CsiPrivateMode {
+                        prefix_len: Self::C1_CSI_PRIVATE_MODE_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::UTF8_C1_CSI_PRIVATE_MODE_PREFIX,
+                    ModeSequence::CsiPrivateMode {
+                        prefix_len: Self::UTF8_C1_CSI_PRIVATE_MODE_PREFIX.len(),
+                    },
+                ),
+            ],
+        )
+    }
+
+    fn find_key_modifier_options_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
+        Self::find_mode_start_with_prefixes(
+            bytes,
+            [
+                (
+                    Self::CSI_KITTY_KEYBOARD_PUSH_PREFIX,
+                    ModeSequence::KeyModifierOptions {
+                        prefix_len: Self::CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
+                    ModeSequence::KeyModifierOptions {
+                        prefix_len: Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
+                    ModeSequence::KeyModifierOptions {
+                        prefix_len: Self::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
+                    },
+                ),
+            ],
+        )
+    }
+
+    fn find_kitty_keyboard_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
+        Self::find_mode_start_with_prefixes(
+            bytes,
+            [
+                (
+                    Self::CSI_KITTY_KEYBOARD_POP_PREFIX,
+                    ModeSequence::KittyKeyboard {
+                        prefix_len: Self::CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
+                        operation: KittyKeyboardOperation::Pop,
+                    },
+                ),
+                (
+                    Self::CSI_KITTY_KEYBOARD_SET_PREFIX,
+                    ModeSequence::KittyKeyboard {
+                        prefix_len: Self::CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
+                        operation: KittyKeyboardOperation::Apply,
+                    },
+                ),
+                (
+                    Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
+                    ModeSequence::KittyKeyboard {
+                        prefix_len: Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
+                        operation: KittyKeyboardOperation::Pop,
+                    },
+                ),
+                (
+                    Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
+                    ModeSequence::KittyKeyboard {
+                        prefix_len: Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
+                        operation: KittyKeyboardOperation::Apply,
+                    },
+                ),
+                (
+                    Self::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
+                    ModeSequence::KittyKeyboard {
+                        prefix_len: Self::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
+                        operation: KittyKeyboardOperation::Pop,
+                    },
+                ),
+                (
+                    Self::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
+                    ModeSequence::KittyKeyboard {
+                        prefix_len: Self::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
+                        operation: KittyKeyboardOperation::Apply,
+                    },
+                ),
+            ],
+        )
+    }
+
+    fn find_soft_reset_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
+        Self::find_mode_start_with_prefixes(
+            bytes,
+            [
+                (
+                    Self::SOFT_RESET_PREFIX,
+                    ModeSequence::SoftReset {
+                        prefix_len: Self::SOFT_RESET_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::C1_SOFT_RESET_PREFIX,
+                    ModeSequence::SoftReset {
+                        prefix_len: Self::C1_SOFT_RESET_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::UTF8_C1_SOFT_RESET_PREFIX,
+                    ModeSequence::SoftReset {
+                        prefix_len: Self::UTF8_C1_SOFT_RESET_PREFIX.len(),
+                    },
+                ),
+            ],
+        )
+    }
+
+    fn find_csi_mode_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
+        Self::find_mode_start_with_prefixes(
+            bytes,
+            [
+                (
+                    Self::CSI_MODE_PREFIX,
+                    ModeSequence::CsiMode {
+                        prefix_len: Self::CSI_MODE_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::C1_CSI_MODE_PREFIX,
+                    ModeSequence::CsiMode {
+                        prefix_len: Self::C1_CSI_MODE_PREFIX.len(),
+                    },
+                ),
+                (
+                    Self::UTF8_C1_CSI_MODE_PREFIX,
+                    ModeSequence::CsiMode {
+                        prefix_len: Self::UTF8_C1_CSI_MODE_PREFIX.len(),
+                    },
+                ),
+            ],
+        )
+    }
+
+    fn find_simple_escape_start(bytes: &[u8]) -> Option<ModeSequenceStart> {
+        Self::find_mode_start_with_prefixes(
+            bytes,
+            [
+                (
+                    Self::APPLICATION_KEYPAD_PREFIX,
+                    ModeSequence::ApplicationKeypad(true),
+                ),
+                (
+                    Self::NUMERIC_KEYPAD_PREFIX,
+                    ModeSequence::ApplicationKeypad(false),
+                ),
+                (Self::RESET_PREFIX, ModeSequence::Reset),
+            ],
+        )
+    }
+
+    fn find_mode_start_with_prefixes<const N: usize>(
+        bytes: &[u8],
+        prefixes: [(&'static [u8], ModeSequence); N],
+    ) -> Option<ModeSequenceStart> {
+        prefixes
+            .into_iter()
+            .filter_map(|(prefix, sequence)| {
+                find_subslice(bytes, prefix).map(|index| ModeSequenceStart { index, sequence })
+            })
+            .min_by_key(|start| start.index)
     }
 
     fn parse_mode_sequence(bytes: &[u8], prefix_len: usize) -> ModeParse {
@@ -620,6 +760,11 @@ impl TerminalModeTracker {
     }
 
     fn apply_mode(&mut self, mode: u16, enabled: bool, emit: &mut impl FnMut(TerminalModeChange)) {
+        if let Some(tracked_mode) = TrackedTerminalModes::private_mode_bit(mode) {
+            self.tracked_modes.set(tracked_mode, enabled);
+            return;
+        }
+
         match mode {
             1 => {
                 if self
@@ -650,49 +795,14 @@ impl TerminalModeTracker {
                     emit(TerminalModeChange::SynchronizedOutput(enabled));
                 }
             }
-            6 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::ORIGIN_MODE, enabled);
-            }
-            7 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::AUTO_WRAP, enabled);
-            }
-            12 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::CURSOR_BLINKING, enabled);
-            }
-            25 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::CURSOR_VISIBLE, enabled);
-            }
-            69 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::LEFT_RIGHT_MARGIN_MODE, enabled);
-            }
-            80 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::SIXEL_SCROLLING, enabled);
-            }
-            1034 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::META_KEY, enabled);
-            }
-            47 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::ALTERNATE_SCREEN_47, enabled);
-            }
-            1048 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::PRIVATE_CURSOR_SAVE, enabled);
-            }
-            1047 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::ALTERNATE_SCREEN_1047, enabled);
-            }
-            1049 => {
-                self.tracked_modes
-                    .set(TrackedTerminalModes::ALTERNATE_SCREEN_1049, enabled);
+            9001 => {
+                if self.allow_win32_input_mode
+                    && self
+                        .tracked_modes
+                        .set(TrackedTerminalModes::WIN32_INPUT_MODE, enabled)
+                {
+                    emit(TerminalModeChange::Win32InputMode(enabled));
+                }
             }
             _ => {}
         }
@@ -736,19 +846,56 @@ impl TerminalModeTracker {
     }
 
     fn apply_ansi_mode(&mut self, mode: u16, enabled: bool) {
-        if mode == 4 {
-            self.tracked_modes
-                .set(TrackedTerminalModes::INSERT_MODE, enabled);
+        match mode {
+            4 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::INSERT_MODE, enabled);
+            }
+            8 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::BIDIRECTIONAL_SUPPORT, enabled);
+            }
+            20 => {
+                self.tracked_modes
+                    .set(TrackedTerminalModes::AUTOMATIC_NEWLINE, enabled);
+            }
+            _ => {}
         }
     }
 
-    fn soft_reset(&mut self) {
+    fn soft_reset(&mut self, emit: &mut impl FnMut(TerminalModeChange)) {
+        if self
+            .tracked_modes
+            .set(TrackedTerminalModes::APPLICATION_CURSOR_KEYS, false)
+        {
+            emit(TerminalModeChange::ApplicationCursorKeys(false));
+        }
+        if self.modify_other_keys != 0 {
+            self.modify_other_keys = 0;
+            emit(TerminalModeChange::ModifyOtherKeys(0));
+        }
+        if self
+            .tracked_modes
+            .set(TrackedTerminalModes::APPLICATION_KEYPAD, false)
+        {
+            emit(TerminalModeChange::ApplicationKeypad(false));
+        }
         self.tracked_modes
             .set(TrackedTerminalModes::ORIGIN_MODE, false);
+        self.tracked_modes
+            .set(TrackedTerminalModes::AUTO_WRAP, true);
+        self.tracked_modes
+            .set(TrackedTerminalModes::CURSOR_VISIBLE, true);
         self.tracked_modes
             .set(TrackedTerminalModes::INSERT_MODE, false);
         self.tracked_modes
             .set(TrackedTerminalModes::LEFT_RIGHT_MARGIN_MODE, false);
+        self.tracked_modes
+            .set(TrackedTerminalModes::BIDIRECTIONAL_SUPPORT, false);
+        self.tracked_modes
+            .set(TrackedTerminalModes::REVERSE_WRAP, false);
+        self.tracked_modes
+            .set(TrackedTerminalModes::SCREEN_REVERSE, false);
     }
 
     fn reset(&mut self, emit: &mut impl FnMut(TerminalModeChange)) {
@@ -760,6 +907,7 @@ impl TerminalModeTracker {
         let synchronized_output = self.synchronized_output();
         let kitty_keyboard_flags = self.kitty_keyboard_flags();
         let modify_other_keys = self.modify_other_keys();
+        let win32_input_mode = self.win32_input_mode();
 
         self.mouse_modes = MouseModes::default();
         self.kitty_keyboard_modes = KittyKeyboardModes::default();
@@ -789,6 +937,9 @@ impl TerminalModeTracker {
         }
         if modify_other_keys != 0 {
             emit(TerminalModeChange::ModifyOtherKeys(0));
+        }
+        if win32_input_mode {
+            emit(TerminalModeChange::Win32InputMode(false));
         }
     }
 
@@ -836,6 +987,11 @@ impl TerminalModeTracker {
         self.mouse_modes.input_mode()
     }
 
+    pub(crate) fn win32_input_mode(&self) -> bool {
+        self.tracked_modes
+            .enabled(TrackedTerminalModes::WIN32_INPUT_MODE)
+    }
+
     pub(crate) fn kitty_keyboard_flags(&self) -> u16 {
         self.kitty_keyboard_modes.flags()
     }
@@ -847,6 +1003,15 @@ impl TerminalModeTracker {
     pub(crate) fn private_mode_report_value(&self, mode: u16) -> u8 {
         match mode {
             1 => mode_report_value(self.application_cursor_keys()),
+            2 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::DEC_ANSI_MODE),
+            ),
+            3 => mode_report_value(false),
+            5 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::SCREEN_REVERSE),
+            ),
             6 => mode_report_value(
                 self.tracked_modes
                     .enabled(TrackedTerminalModes::ORIGIN_MODE),
@@ -860,9 +1025,9 @@ impl TerminalModeTracker {
                 self.tracked_modes
                     .enabled(TrackedTerminalModes::CURSOR_VISIBLE),
             ),
-            47 => mode_report_value(
+            45 => mode_report_value(
                 self.tracked_modes
-                    .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_47),
+                    .enabled(TrackedTerminalModes::REVERSE_WRAP),
             ),
             69 => mode_report_value(
                 self.tracked_modes
@@ -870,27 +1035,25 @@ impl TerminalModeTracker {
             ),
             80 => mode_report_value(
                 self.tracked_modes
-                    .enabled(TrackedTerminalModes::SIXEL_SCROLLING),
+                    .enabled(TrackedTerminalModes::SIXEL_DISPLAY_MODE),
             ),
-            1000 | 1002 | 1003 | 1005 | 1006 | 1015 => {
+            8452 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::SIXEL_SCROLLS_RIGHT),
+            ),
+            1000 | 1002 | 1003 | 1005 | 1006 | 1015 | 1016 => {
                 self.mouse_modes.report_value(mode).unwrap_or(0)
             }
             1004 => mode_report_value(self.focus_reporting()),
             1034 => mode_report_value(self.tracked_modes.enabled(TrackedTerminalModes::META_KEY)),
-            1048 => mode_report_value(
+            1070 => mode_report_value(
                 self.tracked_modes
-                    .enabled(TrackedTerminalModes::PRIVATE_CURSOR_SAVE),
+                    .enabled(TrackedTerminalModes::PRIVATE_COLOR_REGISTERS),
             ),
-            1047 => mode_report_value(
-                self.tracked_modes
-                    .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_1047),
-            ),
-            1049 => mode_report_value(
-                self.tracked_modes
-                    .enabled(TrackedTerminalModes::ALTERNATE_SCREEN_1049),
-            ),
+            9001 => mode_report_value(self.win32_input_mode()),
             2004 => mode_report_value(self.bracketed_paste()),
             2026 => mode_report_value(self.synchronized_output()),
+            2027 => 3,
             _ => 0,
         }
     }
@@ -900,6 +1063,14 @@ impl TerminalModeTracker {
             4 => mode_report_value(
                 self.tracked_modes
                     .enabled(TrackedTerminalModes::INSERT_MODE),
+            ),
+            8 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::BIDIRECTIONAL_SUPPORT),
+            ),
+            20 => mode_report_value(
+                self.tracked_modes
+                    .enabled(TrackedTerminalModes::AUTOMATIC_NEWLINE),
             ),
             _ => 0,
         }
@@ -917,11 +1088,17 @@ impl TerminalModeTracker {
             Self::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
             Self::C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
             Self::C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
+            Self::UTF8_C1_CSI_MODE_PREFIX,
+            Self::UTF8_C1_CSI_PRIVATE_MODE_PREFIX,
+            Self::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
+            Self::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
+            Self::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
             Self::APPLICATION_KEYPAD_PREFIX,
             Self::NUMERIC_KEYPAD_PREFIX,
             Self::RESET_PREFIX,
             Self::SOFT_RESET_PREFIX,
             Self::C1_SOFT_RESET_PREFIX,
+            Self::UTF8_C1_SOFT_RESET_PREFIX,
         ]
         .into_iter()
         .map(|prefix| suffix_len_matching_prefix(&self.pending, prefix))
@@ -1002,13 +1179,21 @@ impl MouseModes {
     const UTF8_PROTOCOL: u8 = 1 << 3;
     const SGR_PROTOCOL: u8 = 1 << 4;
     const URXVT_PROTOCOL: u8 = 1 << 5;
+    const SGR_PIXELS_PROTOCOL: u8 = 1 << 6;
+    const PROTOCOL_MASK: u8 =
+        Self::UTF8_PROTOCOL | Self::SGR_PROTOCOL | Self::URXVT_PROTOCOL | Self::SGR_PIXELS_PROTOCOL;
 
     fn set(&mut self, mode: u16, enabled: bool) -> bool {
         let Some(mask) = Self::mask(mode) else {
             return false;
         };
 
-        if enabled {
+        if Self::is_protocol_mode(mode) {
+            self.0 &= !Self::PROTOCOL_MASK;
+            if enabled {
+                self.0 |= mask;
+            }
+        } else if enabled {
             self.0 |= mask;
         } else {
             self.0 &= !mask;
@@ -1027,7 +1212,9 @@ impl MouseModes {
         } else {
             MouseReportingMode::None
         };
-        let protocol = if self.0 & Self::SGR_PROTOCOL != 0 {
+        let protocol = if self.0 & Self::SGR_PIXELS_PROTOCOL != 0 {
+            MouseProtocolMode::SgrPixels
+        } else if self.0 & Self::SGR_PROTOCOL != 0 {
             MouseProtocolMode::Sgr
         } else if self.0 & Self::URXVT_PROTOCOL != 0 {
             MouseProtocolMode::Urxvt
@@ -1048,8 +1235,13 @@ impl MouseModes {
             1005 => Some(Self::UTF8_PROTOCOL),
             1006 => Some(Self::SGR_PROTOCOL),
             1015 => Some(Self::URXVT_PROTOCOL),
+            1016 => Some(Self::SGR_PIXELS_PROTOCOL),
             _ => None,
         }
+    }
+
+    const fn is_protocol_mode(mode: u16) -> bool {
+        matches!(mode, 1005 | 1006 | 1015 | 1016)
     }
 
     fn report_value(&self, mode: u16) -> Option<u8> {
@@ -1081,7 +1273,37 @@ impl TrackedTerminalModes {
     const INSERT_MODE: u32 = 1 << 13;
     const META_KEY: u32 = 1 << 14;
     const LEFT_RIGHT_MARGIN_MODE: u32 = 1 << 15;
-    const SIXEL_SCROLLING: u32 = 1 << 16;
+    const SIXEL_DISPLAY_MODE: u32 = 1 << 16;
+    const SIXEL_SCROLLS_RIGHT: u32 = 1 << 17;
+    const REVERSE_WRAP: u32 = 1 << 18;
+    const SCREEN_REVERSE: u32 = 1 << 19;
+    const WIN32_INPUT_MODE: u32 = 1 << 20;
+    const AUTOMATIC_NEWLINE: u32 = 1 << 21;
+    const BIDIRECTIONAL_SUPPORT: u32 = 1 << 22;
+    const PRIVATE_COLOR_REGISTERS: u32 = 1 << 23;
+    const DEC_ANSI_MODE: u32 = 1 << 24;
+
+    fn private_mode_bit(mode: u16) -> Option<u32> {
+        match mode {
+            2 => Some(Self::DEC_ANSI_MODE),
+            5 => Some(Self::SCREEN_REVERSE),
+            6 => Some(Self::ORIGIN_MODE),
+            7 => Some(Self::AUTO_WRAP),
+            12 => Some(Self::CURSOR_BLINKING),
+            25 => Some(Self::CURSOR_VISIBLE),
+            45 => Some(Self::REVERSE_WRAP),
+            47 => Some(Self::ALTERNATE_SCREEN_47),
+            69 => Some(Self::LEFT_RIGHT_MARGIN_MODE),
+            80 => Some(Self::SIXEL_DISPLAY_MODE),
+            1034 => Some(Self::META_KEY),
+            1047 => Some(Self::ALTERNATE_SCREEN_1047),
+            1048 => Some(Self::PRIVATE_CURSOR_SAVE),
+            1049 => Some(Self::ALTERNATE_SCREEN_1049),
+            1070 => Some(Self::PRIVATE_COLOR_REGISTERS),
+            8452 => Some(Self::SIXEL_SCROLLS_RIGHT),
+            _ => None,
+        }
+    }
 
     fn set(&mut self, mode: u32, enabled: bool) -> bool {
         let before = self.0;
@@ -1100,7 +1322,7 @@ impl TrackedTerminalModes {
 
 impl Default for TrackedTerminalModes {
     fn default() -> Self {
-        Self(Self::AUTO_WRAP | Self::CURSOR_VISIBLE | Self::SIXEL_SCROLLING)
+        Self(Self::AUTO_WRAP | Self::CURSOR_VISIBLE)
     }
 }
 
@@ -1417,7 +1639,7 @@ pub(crate) fn key_modifier_options_query_suffix_len(bytes: &[u8]) -> usize {
         .unwrap_or(0)
 }
 
-fn synchronized_output_private_mode_prefixes() -> [(&'static [u8], usize); 2] {
+fn synchronized_output_private_mode_prefixes() -> [(&'static [u8], usize); 3] {
     [
         (
             TerminalModeTracker::CSI_PRIVATE_MODE_PREFIX,
@@ -1427,10 +1649,14 @@ fn synchronized_output_private_mode_prefixes() -> [(&'static [u8], usize); 2] {
             TerminalModeTracker::C1_CSI_PRIVATE_MODE_PREFIX,
             TerminalModeTracker::C1_CSI_PRIVATE_MODE_PREFIX.len(),
         ),
+        (
+            TerminalModeTracker::UTF8_C1_CSI_PRIVATE_MODE_PREFIX,
+            TerminalModeTracker::UTF8_C1_CSI_PRIVATE_MODE_PREFIX.len(),
+        ),
     ]
 }
 
-fn kitty_keyboard_mode_prefixes() -> [(&'static [u8], usize, KittyKeyboardOperation); 6] {
+fn kitty_keyboard_mode_prefixes() -> [(&'static [u8], usize, KittyKeyboardOperation); 9] {
     [
         (
             TerminalModeTracker::CSI_KITTY_KEYBOARD_PUSH_PREFIX,
@@ -1462,10 +1688,25 @@ fn kitty_keyboard_mode_prefixes() -> [(&'static [u8], usize, KittyKeyboardOperat
             TerminalModeTracker::C1_CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
             KittyKeyboardOperation::Apply,
         ),
+        (
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
+            KittyKeyboardOperation::Push,
+        ),
+        (
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX,
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_POP_PREFIX.len(),
+            KittyKeyboardOperation::Pop,
+        ),
+        (
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX,
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_SET_PREFIX.len(),
+            KittyKeyboardOperation::Apply,
+        ),
     ]
 }
 
-fn key_modifier_options_prefixes() -> [(&'static [u8], usize); 2] {
+fn key_modifier_options_prefixes() -> [(&'static [u8], usize); 3] {
     [
         (
             TerminalModeTracker::CSI_KITTY_KEYBOARD_PUSH_PREFIX,
@@ -1475,13 +1716,18 @@ fn key_modifier_options_prefixes() -> [(&'static [u8], usize); 2] {
             TerminalModeTracker::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
             TerminalModeTracker::C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
         ),
+        (
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX,
+            TerminalModeTracker::UTF8_C1_CSI_KITTY_KEYBOARD_PUSH_PREFIX.len(),
+        ),
     ]
 }
 
-fn kitty_keyboard_flags_query_prefixes() -> [&'static [u8]; 2] {
+fn kitty_keyboard_flags_query_prefixes() -> [&'static [u8]; 3] {
     [
         b"\x1b[?".as_slice(),
         TerminalModeTracker::C1_CSI_PRIVATE_MODE_PREFIX,
+        TerminalModeTracker::UTF8_C1_CSI_PRIVATE_MODE_PREFIX,
     ]
 }
 
@@ -1540,7 +1786,63 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
     haystack
         .windows(needle.len())
-        .position(|window| window == needle)
+        .enumerate()
+        .find_map(|(index, window)| {
+            (window == needle && !raw_c1_prefix_is_utf8_continuation(haystack, index, needle))
+                .then_some(index)
+        })
+}
+
+fn raw_c1_prefix_is_utf8_continuation(bytes: &[u8], index: usize, prefix: &[u8]) -> bool {
+    prefix
+        .first()
+        .is_some_and(|byte| is_raw_c1_control_byte(*byte))
+        && is_utf8_continuation_in_potential_sequence(bytes, index)
+}
+
+fn is_raw_c1_control_byte(byte: u8) -> bool {
+    (0x80..=0x9f).contains(&byte)
+}
+
+fn is_utf8_continuation_in_potential_sequence(bytes: &[u8], index: usize) -> bool {
+    if index == 0
+        || bytes
+            .get(index)
+            .is_none_or(|byte| !is_utf8_continuation(*byte))
+    {
+        return false;
+    }
+
+    let mut start = index;
+    while start > 0 && is_utf8_continuation(bytes[start]) {
+        start -= 1;
+    }
+    if start == index {
+        return false;
+    }
+
+    let Some(expected_len) = utf8_sequence_len(bytes[start]) else {
+        return false;
+    };
+
+    index < start + expected_len
+        && bytes[start + 1..=index]
+            .iter()
+            .all(|byte| is_utf8_continuation(*byte))
+}
+
+fn utf8_sequence_len(byte: u8) -> Option<usize> {
+    match byte {
+        0x00..=0x7f => Some(1),
+        0xc2..=0xdf => Some(2),
+        0xe0..=0xef => Some(3),
+        0xf0..=0xf4 => Some(4),
+        _ => None,
+    }
+}
+
+fn is_utf8_continuation(byte: u8) -> bool {
+    byte & 0b1100_0000 == 0b1000_0000
 }
 
 fn is_inside_osc_or_st_control_string(bytes: &[u8], index: usize) -> bool {
@@ -1678,7 +1980,11 @@ fn suffix_len_matching_prefix(haystack: &[u8], needle: &[u8]) -> usize {
     let max = haystack.len().min(needle.len().saturating_sub(1));
     (1..=max)
         .rev()
-        .find(|&length| haystack[haystack.len() - length..] == needle[..length])
+        .find(|&length| {
+            let suffix_start = haystack.len() - length;
+            haystack[suffix_start..] == needle[..length]
+                && !raw_c1_prefix_is_utf8_continuation(haystack, suffix_start, &needle[..length])
+        })
         .unwrap_or(0)
 }
 
@@ -1777,6 +2083,87 @@ mod tests {
     }
 
     #[test]
+    fn tracks_reverse_wraparound_private_mode_status() {
+        let mut tracker = TerminalModeTracker::default();
+
+        assert_eq!(tracker.private_mode_report_value(45), 2);
+
+        tracker.process(b"\x1b[?45h", |_| {});
+        assert_eq!(tracker.private_mode_report_value(45), 1);
+
+        tracker.process(b"\x9b?45l", |_| {});
+        assert_eq!(tracker.private_mode_report_value(45), 2);
+    }
+
+    #[test]
+    fn tracks_screen_reverse_private_mode_status() {
+        let mut tracker = TerminalModeTracker::default();
+
+        assert_eq!(tracker.private_mode_report_value(5), 2);
+
+        tracker.process(b"\x1b[?5h", |_| {});
+        assert_eq!(tracker.private_mode_report_value(5), 1);
+
+        tracker.process(b"\x9b?5l", |_| {});
+        assert_eq!(tracker.private_mode_report_value(5), 2);
+    }
+
+    #[test]
+    fn tracks_wezterm_private_mode_reports() {
+        let mut tracker = TerminalModeTracker::default();
+
+        assert_eq!(tracker.private_mode_report_value(3), 2);
+        assert_eq!(tracker.private_mode_report_value(2027), 3);
+        assert_eq!(tracker.private_mode_report_value(1070), 2);
+
+        tracker.process(b"\x1b[?2027l\x1b[?1070h", |_| {});
+        assert_eq!(tracker.private_mode_report_value(2027), 3);
+        assert_eq!(tracker.private_mode_report_value(1070), 1);
+
+        tracker.process(b"\x9b?1070l", |_| {});
+        assert_eq!(tracker.private_mode_report_value(1070), 2);
+    }
+
+    #[test]
+    fn tracks_dec_ansi_private_mode_status() {
+        let mut tracker = TerminalModeTracker::default();
+
+        assert_eq!(tracker.private_mode_report_value(2), 2);
+
+        tracker.process(b"\x1b[?2h", |_| {});
+        assert_eq!(tracker.private_mode_report_value(2), 1);
+
+        tracker.process(b"\x9b?2l", |_| {});
+        assert_eq!(tracker.private_mode_report_value(2), 2);
+    }
+
+    #[test]
+    fn tracks_utf8_c1_private_mode_status() {
+        let mut tracker = TerminalModeTracker::default();
+        let csi = '\u{9b}';
+
+        assert_eq!(tracker.private_mode_report_value(45), 2);
+
+        tracker.process(format!("{csi}?45h").as_bytes(), |_| {});
+        assert_eq!(tracker.private_mode_report_value(45), 1);
+
+        tracker.process(format!("{csi}?45l").as_bytes(), |_| {});
+        assert_eq!(tracker.private_mode_report_value(45), 2);
+    }
+
+    #[test]
+    fn soft_reset_restores_cursor_visibility_mode_status() {
+        let mut tracker = TerminalModeTracker::default();
+
+        tracker.process(b"\x1b[?25l", |_| {});
+        assert_eq!(tracker.private_mode_report_value(25), 2);
+
+        tracker.process(b"\x1b[!p", |_| {});
+
+        assert_eq!(tracker.private_mode_report_value(25), 1);
+    }
+
+    #[test]
     fn tracks_xterm_modify_other_keys_mode() {
         let mut tracker = TerminalModeTracker::default();
         let mut changes = Vec::new();
@@ -1797,6 +2184,28 @@ mod tests {
                 TerminalModeChange::ModifyOtherKeys(2),
                 TerminalModeChange::ModifyOtherKeys(1),
                 TerminalModeChange::ModifyOtherKeys(0)
+            ]
+        );
+    }
+
+    #[test]
+    fn tracks_win32_input_private_mode() {
+        let mut tracker = TerminalModeTracker::default();
+        let mut changes = Vec::new();
+
+        assert!(!tracker.win32_input_mode());
+
+        tracker.process(b"\x1b[?9001h", |change| changes.push(change));
+        assert!(tracker.win32_input_mode());
+
+        tracker.process(b"\x9b?9001l", |change| changes.push(change));
+        assert!(!tracker.win32_input_mode());
+
+        assert_eq!(
+            changes,
+            vec![
+                TerminalModeChange::Win32InputMode(true),
+                TerminalModeChange::Win32InputMode(false)
             ]
         );
     }
