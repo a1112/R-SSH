@@ -763,8 +763,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   wiring. The default `Ctrl+Shift+Space`
   key-assignment entry exposes `QuickSelect` with default native args, while
   `EnterQuickSelect` remains an internal command-palette query alias and
-  action-name `enterquickselect` queries dispatch that default entry. Lua
-  option-table parsing and arbitrary custom callback actions remain open.
+  action-name `enterquickselect` queries dispatch that default entry.
+  WezTerm-style `wezterm.action.QuickSelectArgs { patterns = { ... },
+  alphabet = ..., label = ... }` Lua table calls parse the same native options
+  subset. Arbitrary custom callback actions remain open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
   WezTerm's `"> "` default prompt when `prompt` is omitted, submit `Some(line)`
@@ -1039,8 +1041,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ShowLauncherArgs({ flags = "TABS|WORKSPACES", title = "Jump" })`,
   routing the same `flags`, `title`, `alphabet`, `help_text`, and
   `fuzzy_help_text` fields as the existing command-palette query forms.
-- WezTerm-style character-selection table actions now accept parenthesized Lua
-  table calls such as
+- WezTerm-style character-selection table actions now accept Lua table calls
+  such as
+  `wezterm.action.CharSelect { copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" }`
+  and parenthesized calls such as
   `wezterm.action.CharSelect({ copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" })`,
   routing the same `copy_on_select`, `copy_to`, and `group` fields as the
   existing command-palette query forms.

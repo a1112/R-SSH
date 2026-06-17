@@ -19134,6 +19134,12 @@ fn char_select_options_from_query(query: &str) -> Option<WindowCharSelectOptions
         return char_select_lua_table_from_query(rest);
     }
 
+    if let Some(rest) = strip_query_table_assignment_from_prefix(query, "charselect=")
+        && rest.trim_start().starts_with('{')
+    {
+        return char_select_lua_table_from_query(rest);
+    }
+
     let rest = strip_query_prefix_from_any(
         query,
         &["char select=", "char select ", "charselect=", "charselect "],
@@ -21045,7 +21051,8 @@ fn quick_select_options_from_query(query: &str) -> WindowQuickSelectOptions {
 
 fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOptions> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    let value = strip_lua_function_call_from_query(query, "quickselectargs")?;
+    let value = strip_lua_function_call_from_query(query, "quickselectargs")
+        .or_else(|| strip_query_table_assignment_from_prefix(query, "quickselectargs="))?;
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowQuickSelectOptions::default();
     let mut parsed = false;
@@ -45604,6 +45611,26 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_char_select_wezterm_action_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CharSelect { copy_on_select = false, copy_to = 'PrimarySelection', group = 'PeopleAndBody' }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::CharSelectArgs(WindowCharSelectOptions {
+                copy_on_select: false,
+                copy_to: WindowCopyDestination::PrimarySelection,
+                group: Some("PeopleAndBody".to_owned()),
+            })]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_char_select_args_equals_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -57248,6 +57275,41 @@ mod tests {
         assert_eq!(quick_select.action_label.as_deref(), Some("open ticket"));
         assert_eq!(quick_select.action, WindowQuickSelectAction::OpenUri);
         assert!(quick_select.skip_action_on_paste);
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_quick_select_args_wezterm_action_patterns_table_query() {
+        let query = "wezterm.action.QuickSelectArgs { patterns = { 'https?://\\\\S+', 'ticket-[0-9]+' }, alphabet = '12', label = 'open match' }";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["https?://\\S+".to_owned(), "ticket-[0-9]+".to_owned()]),
+            alphabet: Some("12".to_owned()),
+            label: Some("open match".to_owned()),
+            action: None,
+            skip_action_on_paste: false,
+            scope_lines: None,
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://example.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::EnterQuickSelect]
+        );
+        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 2);
+        assert_eq!(quick_select.labels.len(), 2);
+        assert_eq!(quick_select.action_label.as_deref(), Some("open match"));
+        assert_eq!(quick_select.action, WindowQuickSelectAction::Copy);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
     }
 
