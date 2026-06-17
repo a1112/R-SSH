@@ -17084,6 +17084,12 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
     if let Some(command) = key_table_stack_command_from_query(query) {
         return Some(command);
     }
+    if let Some(options) = switch_workspace_options_from_query(query) {
+        return Some(WindowCommand::SwitchToWorkspaceArgs(options));
+    }
+    if let Some(name) = switch_workspace_name_from_query(query) {
+        return Some(WindowCommand::SwitchToWorkspaceName(name));
+    }
     if let Some(spawn_command) = spawn_command_in_new_tab_from_query(query) {
         return Some(WindowCommand::SpawnCommandInNewTab(spawn_command));
     }
@@ -52240,6 +52246,36 @@ mod tests {
                 WindowCommand::Search(WindowSearchCommandQuery::Pattern {
                     pattern: "ticket-[0-9]+".to_owned(),
                     match_type: WindowSearchMatchType::Regex,
+                }),
+                WindowCommand::Nop,
+            ])]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_multiple_nested_switch_workspace_lua_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Multiple({ wezterm.action.SwitchToWorkspace({ name = \"monitoring\", spawn = { args = { \"top\", \"-d\", \"1\" }, cwd = \"C:/Mon\" } }), wezterm.action.Nop() })"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::Multiple(vec![
+                WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
+                    name: Some("monitoring".to_owned()),
+                    command: Some(WindowSpawnCommandQuery {
+                        program: "top".to_owned(),
+                        args: vec!["-d".to_owned(), "1".to_owned()],
+                        cwd: Some("C:/Mon".to_owned()),
+                        environment: BTreeMap::new(),
+                        domain: None,
+                        window_position: None,
+                    }),
+                    command_options: None,
                 }),
                 WindowCommand::Nop,
             ])]
