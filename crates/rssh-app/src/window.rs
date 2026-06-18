@@ -20228,8 +20228,7 @@ fn spawn_command_table_from_query(
             if !allow_position || window_position.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
-            window_position = Some(spawn_command_window_position_from_query(&value).ok()?);
+            window_position = Some(spawn_command_window_position_value_from_query(value).ok()?);
         } else {
             return None;
         }
@@ -20295,8 +20294,8 @@ fn spawn_command_table_options_from_query(
             if !allow_position || options.window_position.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
-            options.window_position = Some(spawn_command_window_position_from_query(&value).ok()?);
+            options.window_position =
+                Some(spawn_command_window_position_value_from_query(value).ok()?);
         } else {
             return None;
         }
@@ -22236,6 +22235,105 @@ fn spawn_command_window_position_from_query(position: &str) -> Result<WindowPosi
     let x = x.parse::<i32>().map_err(|_| ())?;
     let y = y.parse::<i32>().map_err(|_| ())?;
     Ok(WindowPosition { origin, x, y })
+}
+
+fn spawn_command_window_position_value_from_query(position: &str) -> Result<WindowPosition, ()> {
+    let position = position.trim();
+    if position.starts_with('{') {
+        return spawn_command_window_position_table_from_query(position);
+    }
+    let position = parse_maybe_quoted_query_text(position).ok_or(())?;
+    spawn_command_window_position_from_query(&position)
+}
+
+fn spawn_command_window_position_table_from_query(position: &str) -> Result<WindowPosition, ()> {
+    let table = position
+        .trim()
+        .strip_prefix('{')
+        .and_then(|table| table.strip_suffix('}'))
+        .ok_or(())?
+        .trim();
+    let mut x = None;
+    let mut y = None;
+    let mut origin = None;
+    for field in split_lua_table_top_level_fields(table).ok_or(())? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = field.split_once('=').ok_or(())?;
+        let key = split_lua_table_key_from_query(key.trim()).ok_or(())?;
+        let value = value.trim();
+        if key.eq_ignore_ascii_case("x") {
+            if x.is_some() {
+                return Err(());
+            }
+            x = Some(spawn_command_window_position_coordinate_from_query(value)?);
+        } else if key.eq_ignore_ascii_case("y") {
+            if y.is_some() {
+                return Err(());
+            }
+            y = Some(spawn_command_window_position_coordinate_from_query(value)?);
+        } else if key.eq_ignore_ascii_case("origin") {
+            if origin.is_some() {
+                return Err(());
+            }
+            origin = Some(spawn_command_window_position_origin_from_query(value)?);
+        } else {
+            return Err(());
+        }
+    }
+    Ok(WindowPosition {
+        origin: origin.unwrap_or(WindowPositionOrigin::Screen),
+        x: x.ok_or(())?,
+        y: y.ok_or(())?,
+    })
+}
+
+fn spawn_command_window_position_coordinate_from_query(value: &str) -> Result<i32, ()> {
+    let value = parse_maybe_quoted_query_text(value).ok_or(())?;
+    value.parse().map_err(|_| ())
+}
+
+fn spawn_command_window_position_origin_from_query(
+    value: &str,
+) -> Result<WindowPositionOrigin, ()> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        let table = value
+            .strip_prefix('{')
+            .and_then(|table| table.strip_suffix('}'))
+            .ok_or(())?
+            .trim();
+        let mut monitor = None;
+        for field in split_lua_table_top_level_fields(table).ok_or(())? {
+            let field = field.trim();
+            if field.is_empty() {
+                continue;
+            }
+            let (key, value) = field.split_once('=').ok_or(())?;
+            let key = split_lua_table_key_from_query(key.trim()).ok_or(())?;
+            if !key.eq_ignore_ascii_case("named") || monitor.is_some() {
+                return Err(());
+            }
+            let value = parse_maybe_quoted_query_text(value.trim()).ok_or(())?;
+            monitor = Some(non_empty_spawn_command_option_value(&value)?);
+        }
+        return monitor.map(WindowPositionOrigin::Monitor).ok_or(());
+    }
+
+    let value = parse_maybe_quoted_query_text(value).ok_or(())?;
+    let normalized = value
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    match normalized.as_str() {
+        "screencoordinatesystem" | "screen" => Ok(WindowPositionOrigin::Screen),
+        "mainscreen" | "main" => Ok(WindowPositionOrigin::Main),
+        "activescreen" | "active" => Ok(WindowPositionOrigin::Active),
+        _ => Err(()),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44586,6 +44684,79 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_spawn_command_in_new_window_position_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewWindow { position = { x = 10, y = 300, origin = { Named = \"HDMI-1\" } }, args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SpawnWindow]
+        );
+        assert!(app.command_palette_execute(WindowCommand::SpawnWindow));
+
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("spawn command table position query should request a pending detached window");
+        assert_eq!(
+            detached_app.initial_window_position(),
+            Some(crate::cli::WindowPosition {
+                origin: crate::cli::WindowPositionOrigin::Monitor("HDMI-1".to_owned()),
+                x: 10,
+                y: 300,
+            })
+        );
+        let launch = detached_app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_in_new_window_position_table_default_origin_query()
+     {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewWindow { position = { x = 12, y = 34 }, args = { \"top\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SpawnWindow]
+        );
+        assert!(app.command_palette_execute(WindowCommand::SpawnWindow));
+
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("spawn command table position query should request a pending detached window");
+        assert_eq!(
+            detached_app.initial_window_position(),
+            Some(crate::cli::WindowPosition {
+                origin: crate::cli::WindowPositionOrigin::Screen,
+                x: 12,
+                y: 34,
+            })
+        );
+        let launch = detached_app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "top");
+        assert!(launch.args().is_empty());
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_spawn_command_in_new_window_wezterm_action_parenthesized_table_query()
      {
         let mut app = NativeWindowApp::new_with_command(
@@ -44634,6 +44805,43 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "SpawnCommandInNewWindow={ position = \"main:42,84\" }".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SpawnWindow]
+        );
+        assert!(app.command_palette_execute(WindowCommand::SpawnWindow));
+
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("spawn command table options query should request a pending detached window");
+        assert_eq!(
+            detached_app.initial_window_position(),
+            Some(crate::cli::WindowPosition {
+                origin: crate::cli::WindowPositionOrigin::Main,
+                x: 42,
+                y: 84,
+            })
+        );
+        let launch = detached_app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "powershell");
+        assert_eq!(launch.args(), ["-NoProfile"]);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_in_new_window_position_table_without_program_query()
+     {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "SpawnCommandInNewWindow={ position = { x = 42, y = 84, origin = \"MainScreen\" } }"
+                .to_owned(),
         );
 
         assert_eq!(
