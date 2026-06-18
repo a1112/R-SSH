@@ -762,8 +762,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   scope_lines }` directly for command-palette augmentation and later config
   wiring. The default `Ctrl+Shift+Space`
   key-assignment entry exposes `QuickSelect` with default native args, while
-  `EnterQuickSelect` remains an internal command-palette query alias and
-  action-name `enterquickselect` queries dispatch that default entry.
+  WezTerm-style `quickselect`, `quickselectargs`,
+  `wezterm.action.QuickSelect`, and `wezterm.action.QuickSelectArgs` action
+  names dispatch that same default entry; `EnterQuickSelect` remains an
+  internal command-palette query alias and action-name `enterquickselect`
+  queries dispatch that default entry.
   WezTerm-style `wezterm.action.QuickSelectArgs { patterns = { ... },
   alphabet = ..., label = ... }` Lua table calls parse the same native options
   subset. Arbitrary custom callback actions remain open.

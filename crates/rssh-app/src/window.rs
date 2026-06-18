@@ -16245,6 +16245,7 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
         "showtabnavigator" => return Some(WindowCommand::ShowTabNavigator),
         "showlauncher" => return Some(WindowCommand::ShowLauncher),
         "charselect" => return Some(WindowCommand::CharSelect),
+        "quickselect" | "quickselectargs" => return Some(WindowCommand::EnterQuickSelect),
         "enterquickselect" => return Some(WindowCommand::EnterQuickSelect),
         "enterpaneselect" => return Some(WindowCommand::EnterPaneSelect),
         "enterpaneselectshowpaneids" => return Some(WindowCommand::EnterPaneSelectShowPaneIds),
@@ -57587,6 +57588,35 @@ mod tests {
         assert!(app.command_palette.is_none());
         assert!(app.search.is_none());
         assert!(app.copy_mode.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_quick_select_wezterm_action_name_queries() {
+        for query in [
+            "wezterm.action.QuickSelect",
+            "wezterm.action.QuickSelectArgs",
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
+            app.handle_pty_output(b"https://example.test").unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::EnterQuickSelect]
+            );
+
+            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(app.selected_text().as_deref(), Some("https://example.test"));
+            assert!(app.command_palette.is_none());
+            assert!(app.search.is_none());
+            assert!(app.copy_mode.is_none());
+        }
     }
 
     #[test]
