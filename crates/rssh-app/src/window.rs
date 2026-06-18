@@ -4595,6 +4595,16 @@ impl NativeWindowApp {
             return Ok(());
         }
 
+        if let WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options) = &command {
+            let window_position = spawn_options.window_position.clone();
+            let launch = self.default_pane_launch_with_options(spawn_options.clone())?;
+            self.dispatch_app_action(AppAction::SpawnWindow {
+                launch: Some(launch),
+            })?;
+            self.record_latest_pending_window_position(window_position);
+            return Ok(());
+        }
+
         if command == WindowCommand::SpawnWindow {
             let palette_query = self
                 .command_palette
@@ -5185,6 +5195,9 @@ impl NativeWindowApp {
             WindowCommand::SpawnCommandInNewTab(spawn_command) => AppAction::NewTab {
                 launch: Some(self.supported_pane_launch(spawn_command)?),
             },
+            WindowCommand::SpawnCommandOptionsInNewTab(spawn_options) => AppAction::NewTab {
+                launch: Some(self.default_pane_launch_with_options(spawn_options)?),
+            },
             WindowCommand::SpawnWindow => {
                 let launch = self
                     .command_palette
@@ -5193,6 +5206,11 @@ impl NativeWindowApp {
                     .map(|command| self.supported_pane_launch(command))
                     .transpose()?;
                 AppAction::SpawnWindow { launch }
+            }
+            WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options) => {
+                AppAction::SpawnWindow {
+                    launch: Some(self.default_pane_launch_with_options(spawn_options)?),
+                }
             }
             WindowCommand::SpawnCommandInNewWindow(spawn_command) => AppAction::SpawnWindow {
                 launch: Some(self.supported_pane_launch(spawn_command)?),
@@ -17093,8 +17111,14 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
     if let Some(spawn_command) = spawn_command_in_new_tab_from_query(query) {
         return Some(WindowCommand::SpawnCommandInNewTab(spawn_command));
     }
+    if let Some(spawn_options) = spawn_command_options_in_new_tab_from_query(query) {
+        return Some(WindowCommand::SpawnCommandOptionsInNewTab(spawn_options));
+    }
     if let Some(spawn_command) = spawn_command_in_new_window_from_query(query) {
         return Some(WindowCommand::SpawnCommandInNewWindow(spawn_command));
+    }
+    if let Some(spawn_options) = spawn_command_options_in_new_window_from_query(query) {
+        return Some(WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options));
     }
     if let Some(mode) = clear_scrollback_mode_from_query(query) {
         return Some(WindowCommand::ClearScrollback(mode));
@@ -23200,7 +23224,11 @@ enum WindowCommand {
     #[allow(dead_code)]
     SpawnCommandInNewTab(WindowSpawnCommandQuery),
     #[allow(dead_code)]
+    SpawnCommandOptionsInNewTab(WindowSpawnCommandQueryOptions),
+    #[allow(dead_code)]
     SpawnCommandInNewWindow(WindowSpawnCommandQuery),
+    #[allow(dead_code)]
+    SpawnCommandOptionsInNewWindow(WindowSpawnCommandQueryOptions),
     NewTab,
     SpawnWindow,
     NewWorkspace,
@@ -23564,8 +23592,13 @@ impl WindowCommand {
             Self::TogglePaneZoomState | Self::TogglePaneZoom => "Toggle Pane Zoom State",
             Self::UnzoomPane => "Unzoom Pane",
             Self::ZoomPane => "Zoom Pane",
-            Self::SpawnTab(_) | Self::SpawnCommandInNewTab(_) | Self::NewTab => "New Tab",
-            Self::SpawnCommandInNewWindow(_) | Self::SpawnWindow => "Spawn Window",
+            Self::SpawnTab(_)
+            | Self::SpawnCommandInNewTab(_)
+            | Self::SpawnCommandOptionsInNewTab(_)
+            | Self::NewTab => "New Tab",
+            Self::SpawnCommandInNewWindow(_)
+            | Self::SpawnCommandOptionsInNewWindow(_)
+            | Self::SpawnWindow => "Spawn Window",
             Self::NewWorkspace => "New Workspace",
             Self::RenameTab => "Rename Tab",
             Self::RenameWorkspace => "Rename Workspace",
@@ -52327,6 +52360,65 @@ mod tests {
                 WindowCommand::Nop,
             ])]
         );
+    }
+
+    #[test]
+    fn window_app_multiple_nested_spawn_command_in_new_tab_options_query_applies_default_launch_options()
+     {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "Multiple spawncommandinnewtab --cwd \"C:/Nested Dir\" ; NoP".to_owned(),
+        );
+        let command = app.command_palette_filtered_commands().remove(0);
+
+        assert!(app.command_palette_execute(command));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "powershell");
+        assert_eq!(launch.args(), ["-NoProfile"]);
+        assert_eq!(launch.cwd(), Some("C:/Nested Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_multiple_nested_spawn_command_in_new_window_options_query_applies_default_launch_options()
+     {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "Multiple spawncommandinnewwindow --cwd \"C:/Nested Window\" --position main:42,84 ; NoP"
+                .to_owned(),
+        );
+        let command = app.command_palette_filtered_commands().remove(0);
+
+        assert!(app.command_palette_execute(command));
+
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("spawn window options should request a pending detached window");
+        assert_eq!(
+            detached_app.initial_window_position(),
+            Some(crate::cli::WindowPosition {
+                origin: crate::cli::WindowPositionOrigin::Main,
+                x: 42,
+                y: 84,
+            })
+        );
+        let launch = detached_app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "powershell");
+        assert_eq!(launch.args(), ["-NoProfile"]);
+        assert_eq!(launch.cwd(), Some("C:/Nested Window"));
+        assert!(app.command_palette.is_none());
     }
 
     #[test]
