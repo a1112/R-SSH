@@ -5413,6 +5413,10 @@ impl NativeWindowApp {
                         .unwrap_or_else(|| format!("{} (renamed)", active_workspace.name())),
                 }
             }
+            WindowCommand::RenameWorkspaceTo(name) => AppAction::RenameWorkspace {
+                workspace: self.app_shell.active_workspace_id(),
+                name,
+            },
             WindowCommand::RenameTab => {
                 let active_tab = self.app_shell.active_tab();
                 let explicit_title = self
@@ -5430,6 +5434,10 @@ impl NativeWindowApp {
                     title,
                 }
             }
+            WindowCommand::RenameTabTo(title) => AppAction::SetTabTitle {
+                tab: self.app_shell.active_tab_id(),
+                title,
+            },
             WindowCommand::NextWorkspace => AppAction::SwitchWorkspaceRelative { offset: 1 },
             WindowCommand::PreviousWorkspace => AppAction::SwitchWorkspaceRelative { offset: -1 },
             WindowCommand::SwitchWorkspaceRelative(offset) => {
@@ -17087,6 +17095,12 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
     if query.eq_ignore_ascii_case("disabledefaultassignment") {
         return Some(WindowCommand::DisableDefaultAssignment);
     }
+    if let Some(title) = rename_tab_title_from_query(query) {
+        return Some(WindowCommand::RenameTabTo(title));
+    }
+    if let Some(name) = rename_workspace_name_from_query(query) {
+        return Some(WindowCommand::RenameWorkspaceTo(name));
+    }
     if let Some(value) = send_string_from_query(query) {
         return Some(WindowCommand::SendString(value));
     }
@@ -23233,7 +23247,11 @@ enum WindowCommand {
     SpawnWindow,
     NewWorkspace,
     RenameTab,
+    #[allow(dead_code)]
+    RenameTabTo(String),
     RenameWorkspace,
+    #[allow(dead_code)]
+    RenameWorkspaceTo(String),
     SwitchToWorkspace,
     #[allow(dead_code)]
     SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions),
@@ -23600,8 +23618,8 @@ impl WindowCommand {
             | Self::SpawnCommandOptionsInNewWindow(_)
             | Self::SpawnWindow => "Spawn Window",
             Self::NewWorkspace => "New Workspace",
-            Self::RenameTab => "Rename Tab",
-            Self::RenameWorkspace => "Rename Workspace",
+            Self::RenameTab | Self::RenameTabTo(_) => "Rename Tab",
+            Self::RenameWorkspace | Self::RenameWorkspaceTo(_) => "Rename Workspace",
             Self::SwitchToWorkspace
             | Self::SwitchToWorkspaceArgs(_)
             | Self::SwitchToWorkspaceName(_) => "Switch To Workspace",
@@ -52418,6 +52436,35 @@ mod tests {
         assert_eq!(launch.program(), "powershell");
         assert_eq!(launch.args(), ["-NoProfile"]);
         assert_eq!(launch.cwd(), Some("C:/Nested Window"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_multiple_nested_rename_tab_query_applies_explicit_title() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("Multiple rename tab nested-build ; NoP".to_owned());
+        let command = app.command_palette_filtered_commands().remove(0);
+
+        assert!(app.command_palette_execute(command));
+
+        assert_eq!(app.app_shell.active_tab().title(), Some("nested-build"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_multiple_nested_rename_workspace_query_applies_explicit_name() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("Multiple rename workspace deploy-west ; NoP".to_owned());
+        let command = app.command_palette_filtered_commands().remove(0);
+
+        assert!(app.command_palette_execute(command));
+
+        assert_eq!(app.app_shell.active_workspace().name(), "deploy-west");
         assert!(app.command_palette.is_none());
     }
 

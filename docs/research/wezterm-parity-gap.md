@@ -937,7 +937,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `split horizontal <program> [args...]` without dropping their launch command,
   and option-only nested `SpawnCommandInNewTab`/`SpawnCommandInNewWindow`
   queries that apply `cwd`/environment/domain/window-position options to the
-  default launch.
+  default launch. Nested `rename tab <title>` and
+  `rename workspace <name>` queries now retain their explicit payloads instead
+  of falling back to generated rename labels when sequenced in `Multiple`.
 - Command palette now exposes WezTerm-style `ReloadConfiguration`, and the
   default `Ctrl+Shift+R` shortcut dispatches the same typed native
   `window-config-reloaded` hook with the window id and active pane id.
