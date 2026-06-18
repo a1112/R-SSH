@@ -15857,6 +15857,9 @@ fn is_word_selection_character(character: char, word_boundary: &str) -> bool {
 }
 
 fn command_palette_structured_query_command(query: &str) -> Option<WindowCommand> {
+    if let Some(command) = wezterm_action_table_wrapper_command(query) {
+        return Some(command);
+    }
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     command_palette_structured_query_command_inner(query)
 }
@@ -15868,6 +15871,50 @@ fn strip_wezterm_action_prefix(query: &str) -> Option<&str> {
     candidate
         .eq_ignore_ascii_case(PREFIX)
         .then(|| query[PREFIX.len()..].trim_start())
+}
+
+fn wezterm_action_table_wrapper_command(query: &str) -> Option<WindowCommand> {
+    let table = strip_wezterm_action_table_wrapper_from_query(query)?;
+    let mut fields = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty());
+    let field = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+
+    let (name, value) = field.split_once('=')?;
+    let name = split_lua_table_key_from_query(name.trim())?;
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    command_palette_structured_query_command_inner(&format!("{name}={value}"))
+}
+
+fn strip_wezterm_action_table_wrapper_from_query(query: &str) -> Option<&str> {
+    const PREFIX: &str = "wezterm.action";
+    let query = query.trim();
+    let candidate = query.get(..PREFIX.len())?;
+    let rest = query.get(PREFIX.len()..)?.trim_start();
+    if !candidate.eq_ignore_ascii_case(PREFIX) {
+        return None;
+    }
+    if let Some(table) = rest
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    {
+        return Some(table.trim());
+    }
+    rest.strip_prefix('(')?
+        .trim()
+        .strip_suffix(')')?
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')
+        .map(str::trim)
 }
 
 fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowCommand> {
@@ -53202,6 +53249,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_activate_tab_relative_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(3));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action({ ActivateTabRelative = -1 })".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ActivateTabRelative(-1)]
+        );
+
+        app.command_palette_execute(WindowCommand::ActivateTabRelative(-1));
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_paste_from_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action{PasteFrom=\"Clipboard\"}".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::PasteFrom(WindowPasteSource::Clipboard)]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_activate_tab_relative_equals_query() {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::NewTab { launch: None })
@@ -54617,6 +54700,28 @@ mod tests {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-d", "1"]);
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_split_horizontal_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action{ SplitHorizontal = { domain = \"CurrentPaneDomain\" } }".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SplitPane(WindowSplitPaneOptions {
+                direction: rssh_core::app_shell::SplitDirection::Right,
+                domain: Some(WindowSpawnTabDomain::CurrentPaneDomain),
+                command: None,
+                command_options: None,
+                size: None,
+                top_level: false,
+            })]
+        );
     }
 
     #[test]

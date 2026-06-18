@@ -920,6 +920,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SendKey { key = ..., mods = ... }` and
   `wezterm.action.SendKey({ key = ..., mods = ... })` table-call queries route
   to the same implemented key/modifier payload parser.
+- Structured action queries now also accept WezTerm's older
+  `wezterm.action { ActionName = value }` / `wezterm.action({ ActionName =
+  value })` wrapper-table syntax for the implemented native action subset,
+  including scalar action parameters such as `ActivateTabRelative = -1` and
+  table payloads such as `SplitHorizontal = { domain = "CurrentPaneDomain" }`.
 - Native `Multiple` action payloads now sequence implemented `WindowCommand`
   values in order and stop on the first failed command, matching WezTerm's
   multi-action key assignment model for the covered native action subset.
