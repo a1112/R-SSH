@@ -13586,6 +13586,8 @@ impl NativeWindowApp {
             WindowCopyModeAssignment::ClearSelectionMode => self.clear_copy_mode_selection_mode(),
             WindowCopyModeAssignment::CycleMatchType => self.cycle_search_match_type(),
             WindowCopyModeAssignment::EditPattern => self.set_search_pattern_editing(true),
+            WindowCopyModeAssignment::JumpAgain => self.repeat_copy_mode_jump(false),
+            WindowCopyModeAssignment::JumpReverse => self.repeat_copy_mode_jump(true),
             WindowCopyModeAssignment::MoveBackwardSemanticZone => {
                 self.move_copy_mode_by_semantic_zone(-1, None)
             }
@@ -17509,6 +17511,8 @@ enum WindowCopyModeAssignment {
     ClearSelectionMode,
     CycleMatchType,
     EditPattern,
+    JumpAgain,
+    JumpReverse,
     MoveBackwardSemanticZone,
     MoveBackwardWord,
     MoveDown,
@@ -18305,6 +18309,8 @@ fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAss
         "clearselectionmode" => Some(WindowCopyModeAssignment::ClearSelectionMode),
         "cyclematchtype" => Some(WindowCopyModeAssignment::CycleMatchType),
         "editpattern" => Some(WindowCopyModeAssignment::EditPattern),
+        "jumpagain" => Some(WindowCopyModeAssignment::JumpAgain),
+        "jumpreverse" => Some(WindowCopyModeAssignment::JumpReverse),
         "movebackwardsemanticzone" => Some(WindowCopyModeAssignment::MoveBackwardSemanticZone),
         "movebackwardword" => Some(WindowCopyModeAssignment::MoveBackwardWord),
         "movedown" => Some(WindowCopyModeAssignment::MoveDown),
@@ -42721,6 +42727,45 @@ mod tests {
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 4 })
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_jump_repeat_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"abacad").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("0".into()), ModifiersState::empty()));
+        assert!(app.handle_copy_mode_key(&Key::Character("f".into()), ModifiersState::empty()));
+        assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 2 })
+        );
+
+        let command =
+            super::command_palette_structured_query_command("wezterm.action.CopyMode 'JumpAgain'")
+                .expect("expected CopyMode JumpAgain assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode JumpAgain should dispatch");
+
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 4 })
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'JumpReverse'",
+        )
+        .expect("expected CopyMode JumpReverse assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode JumpReverse should dispatch");
+
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 2 })
         );
     }
 
