@@ -790,8 +790,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `act.CompleteSelectionOrOpenLinkAtMouseCursor('PrimarySelection')`, plus
   `PasteFrom` KeyAssignments such as `wezterm.action.PasteFrom 'Clipboard'`,
   `act.PasteFrom('PrimarySelection')`, and
-  `wezterm.action { PasteFrom = 'Clipboard' }`. Arbitrary custom callback
-  actions remain open.
+  `wezterm.action { PasteFrom = 'Clipboard' }`, plus `SendString`
+  KeyAssignments such as `wezterm.action.SendString 'text'`,
+  `act.SendString('text')`, `wezterm.action.SendString { string = 'text' }`,
+  and `wezterm.action { SendString = { string = 'text' } }`. Arbitrary custom
+  callback actions remain open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
   WezTerm's `"> "` default prompt when `prompt` is omitted, submit `Some(line)`
