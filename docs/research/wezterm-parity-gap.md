@@ -991,7 +991,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `sendstring <text>` queries dispatch the same typed payload path.
   WezTerm-style `wezterm.action.SendString { string = ... }` and
   `wezterm.action.SendString({ string = ... })` table-call queries dispatch the
-  same typed payload path.
+  same typed payload path. Quoted action strings decode Lua-style escapes such
+  as `\x1b` before dispatching the payload bytes.
 - Native `SendKey` action payloads now encode the specified key and modifiers
   through the active terminal input mode, write the resulting bytes directly to
   the active PTY input path, and do not re-match key assignments. Structured

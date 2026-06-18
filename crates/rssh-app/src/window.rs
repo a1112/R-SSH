@@ -19607,8 +19607,7 @@ fn send_string_from_query(query: &str) -> Option<String> {
     )?;
     let value = strip_query_prefix_from_any(value, &["string=", "string "]).unwrap_or(value);
     if value.starts_with('"') || value.starts_with('\'') {
-        let words = command_palette_query_words(value)?;
-        return (words.len() == 1 && !words[0].is_empty()).then(|| words[0].clone());
+        return parse_lua_quoted_query_text(value).filter(|value| !value.is_empty());
     }
     (!value.is_empty()).then(|| value.to_owned())
 }
@@ -21825,10 +21824,54 @@ fn parse_non_empty_query_text(value: &str) -> Option<&str> {
 fn parse_maybe_quoted_query_text(value: &str) -> Option<String> {
     let value = value.trim();
     if value.starts_with('"') || value.starts_with('\'') {
-        let words = command_palette_query_words(value)?;
-        return (words.len() == 1 && !words[0].is_empty()).then(|| words[0].clone());
+        return parse_lua_quoted_query_text(value).filter(|value| !value.is_empty());
     }
     parse_non_empty_query_text(value).map(str::to_owned)
+}
+
+fn parse_lua_quoted_query_text(value: &str) -> Option<String> {
+    let value = value.trim();
+    let mut chars = value.char_indices();
+    let (_, quote) = chars.next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+
+    let mut parsed = String::new();
+    while let Some((index, character)) = chars.next() {
+        if character == quote {
+            let rest = &value[index + character.len_utf8()..];
+            return rest.trim().is_empty().then_some(parsed);
+        }
+        if character != '\\' {
+            parsed.push(character);
+            continue;
+        }
+
+        let (_, escaped) = chars.next()?;
+        match escaped {
+            'a' => parsed.push('\u{7}'),
+            'b' => parsed.push('\u{8}'),
+            'f' => parsed.push('\u{c}'),
+            'n' => parsed.push('\n'),
+            'r' => parsed.push('\r'),
+            't' => parsed.push('\t'),
+            'v' => parsed.push('\u{b}'),
+            '\\' => parsed.push('\\'),
+            '"' => parsed.push('"'),
+            '\'' => parsed.push('\''),
+            'x' => {
+                let (_, high) = chars.next()?;
+                let (_, low) = chars.next()?;
+                let hex = [high, low].into_iter().collect::<String>();
+                let byte = u8::from_str_radix(&hex, 16).ok()?;
+                parsed.push(char::from(byte));
+            }
+            _ => parsed.push(escaped),
+        }
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68588,6 +68631,34 @@ mod tests {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_lua_hex_escape_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.SendString '\\x1b b'".to_owned());
+
+        let expected = WindowCommand::SendString("\x1b b".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x1b b");
         assert_eq!(app.scrollback_offset, 0);
         assert!(app.command_palette.is_none());
     }
