@@ -12150,6 +12150,8 @@ impl NativeWindowApp {
             }
             WindowCopyModeAssignment::MoveToViewportTop => self.move_copy_mode_to_viewport_top(),
             WindowCopyModeAssignment::MoveUp => self.move_copy_mode_cursor(-1, 0),
+            WindowCopyModeAssignment::NextMatch => self.step_search(SearchDirection::Next),
+            WindowCopyModeAssignment::PriorMatch => self.step_search(SearchDirection::Previous),
             WindowCopyModeAssignment::SetSelectionMode(mode) => {
                 self.set_copy_mode_selection_mode(mode)
             }
@@ -15886,6 +15888,8 @@ enum WindowCopyModeAssignment {
     MoveToViewportMiddle,
     MoveToViewportTop,
     MoveUp,
+    NextMatch,
+    PriorMatch,
     SetSelectionMode(WindowCopySelectionMode),
 }
 
@@ -16667,6 +16671,8 @@ fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAss
         "movetoviewportmiddle" => Some(WindowCopyModeAssignment::MoveToViewportMiddle),
         "movetoviewporttop" => Some(WindowCopyModeAssignment::MoveToViewportTop),
         "moveup" => Some(WindowCopyModeAssignment::MoveUp),
+        "nextmatch" => Some(WindowCopyModeAssignment::NextMatch),
+        "priormatch" => Some(WindowCopyModeAssignment::PriorMatch),
         _ => None,
     }
 }
@@ -40720,6 +40726,46 @@ mod tests {
 
         assert!(app.handle_copy_mode_key(&Key::Character("p".into()), ModifiersState::CONTROL));
         assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('f'));
+    }
+
+    #[test]
+    fn window_copy_mode_search_dispatches_wezterm_match_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.handle_pty_output(b"foo one\r\nmiddle\r\nfoo two")
+            .unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["f", "o", "o"] {
+            assert!(
+                app.handle_copy_mode_key(
+                    &Key::Character(character.into()),
+                    ModifiersState::empty()
+                )
+            );
+        }
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 0 })
+        );
+
+        for (query, expected_row) in [
+            ("wezterm.action.CopyMode 'NextMatch'", 2),
+            ("wezterm.action.CopyMode 'PriorMatch'", 0),
+        ] {
+            let command = super::command_palette_structured_query_command(query)
+                .expect("expected CopyMode search assignment query");
+            app.command_palette_apply_command(command)
+                .expect("copy mode search assignment should dispatch");
+            assert_eq!(
+                app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+                Some(SelectionCell {
+                    row: expected_row,
+                    column: 0
+                })
+            );
+        }
     }
 
     #[test]
