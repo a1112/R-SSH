@@ -1538,16 +1538,15 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(cursor_blink_ease_in) =
-        lua_config_string_assignment_from_query(config, "cursor_blink_ease_in")
+        lua_config_easing_assignment_from_query(config, "cursor_blink_ease_in")
     {
-        overrides.cursor_blink_ease_in = Some(NativeEasingFunction::parse(&cursor_blink_ease_in)?);
+        overrides.cursor_blink_ease_in = Some(cursor_blink_ease_in);
         parsed = true;
     }
     if let Some(cursor_blink_ease_out) =
-        lua_config_string_assignment_from_query(config, "cursor_blink_ease_out")
+        lua_config_easing_assignment_from_query(config, "cursor_blink_ease_out")
     {
-        overrides.cursor_blink_ease_out =
-            Some(NativeEasingFunction::parse(&cursor_blink_ease_out)?);
+        overrides.cursor_blink_ease_out = Some(cursor_blink_ease_out);
         parsed = true;
     }
     if let Some(text_blink_rate) = lua_config_usize_assignment_from_query(config, "text_blink_rate")
@@ -1562,29 +1561,27 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(text_blink_ease_in) =
-        lua_config_string_assignment_from_query(config, "text_blink_ease_in")
+        lua_config_easing_assignment_from_query(config, "text_blink_ease_in")
     {
-        overrides.text_blink_ease_in = Some(NativeEasingFunction::parse(&text_blink_ease_in)?);
+        overrides.text_blink_ease_in = Some(text_blink_ease_in);
         parsed = true;
     }
     if let Some(text_blink_ease_out) =
-        lua_config_string_assignment_from_query(config, "text_blink_ease_out")
+        lua_config_easing_assignment_from_query(config, "text_blink_ease_out")
     {
-        overrides.text_blink_ease_out = Some(NativeEasingFunction::parse(&text_blink_ease_out)?);
+        overrides.text_blink_ease_out = Some(text_blink_ease_out);
         parsed = true;
     }
     if let Some(text_blink_rapid_ease_in) =
-        lua_config_string_assignment_from_query(config, "text_blink_rapid_ease_in")
+        lua_config_easing_assignment_from_query(config, "text_blink_rapid_ease_in")
     {
-        overrides.text_blink_rapid_ease_in =
-            Some(NativeEasingFunction::parse(&text_blink_rapid_ease_in)?);
+        overrides.text_blink_rapid_ease_in = Some(text_blink_rapid_ease_in);
         parsed = true;
     }
     if let Some(text_blink_rapid_ease_out) =
-        lua_config_string_assignment_from_query(config, "text_blink_rapid_ease_out")
+        lua_config_easing_assignment_from_query(config, "text_blink_rapid_ease_out")
     {
-        overrides.text_blink_rapid_ease_out =
-            Some(NativeEasingFunction::parse(&text_blink_rapid_ease_out)?);
+        overrides.text_blink_rapid_ease_out = Some(text_blink_rapid_ease_out);
         parsed = true;
     }
     if let Some(default_cursor_style) =
@@ -1996,6 +1993,18 @@ fn lua_config_f32_assignment_from_query(source: &str, field: &str) -> Option<f32
 }
 
 #[allow(dead_code)]
+fn lua_config_easing_assignment_from_query(
+    source: &str,
+    field: &str,
+) -> Option<NativeEasingFunction> {
+    lua_config_assignment_from_query(source, field, |value| {
+        lua_quoted_string_literal_from_query(value)
+            .or_else(|| lua_braced_table_literal_from_query(value))
+    })
+    .and_then(native_easing_lua_value_from_query)
+}
+
+#[allow(dead_code)]
 fn lua_config_dimension_assignment_from_query(source: &str, field: &str) -> Option<String> {
     lua_config_string_assignment_from_query(source, field).or_else(|| {
         lua_config_assignment_from_query(source, field, lua_signed_number_literal_from_query)
@@ -2238,6 +2247,52 @@ fn native_non_negative_ratio_to_per_mille(ratio: f32) -> Option<u16> {
     }
     let per_mille = (ratio * 1_000.0).round();
     (per_mille <= f32::from(u16::MAX)).then_some(per_mille as u16)
+}
+
+#[allow(dead_code)]
+fn native_easing_lua_value_from_query(value: &str) -> Option<NativeEasingFunction> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        return native_easing_lua_table_from_query(value);
+    }
+
+    if let Some(value) = parse_maybe_quoted_query_text(value) {
+        return NativeEasingFunction::parse(&value);
+    }
+
+    None
+}
+
+#[allow(dead_code)]
+fn native_easing_lua_table_from_query(value: &str) -> Option<NativeEasingFunction> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let fields = split_lua_table_top_level_fields(table)?;
+    let [field] = fields.as_slice() else {
+        return None;
+    };
+    let (key, value) = field.trim().split_once('=')?;
+    let key = split_lua_table_key_from_query(key.trim())?;
+    if key != "CubicBezier" {
+        return None;
+    }
+
+    let value = lua_braced_table_literal_from_query(value.trim())?;
+    let points = split_lua_table_f64_array(value)?;
+    let [x1, y1, x2, y2] = points.as_slice() else {
+        return None;
+    };
+
+    Some(NativeEasingFunction::CubicBezier(NativeCubicBezier {
+        x1_per_mille: lua_easing_coordinate_per_mille(*x1),
+        y1_per_mille: lua_easing_coordinate_per_mille(*y1),
+        x2_per_mille: lua_easing_coordinate_per_mille(*x2),
+        y2_per_mille: lua_easing_coordinate_per_mille(*y2),
+    }))
+}
+
+#[allow(dead_code)]
+fn lua_easing_coordinate_per_mille(value: f64) -> i32 {
+    rounded_i32(value * 1_000.0)
 }
 
 #[allow(dead_code)]
@@ -22273,12 +22328,10 @@ fn native_visual_bell_lua_table_from_query(value: &str) -> Option<NativeVisualBe
                     .ok()?;
             }
             "fade_in_function" => {
-                let value = parse_maybe_quoted_query_text(value)?;
-                visual_bell.fade_in_function = NativeEasingFunction::parse(&value)?;
+                visual_bell.fade_in_function = native_easing_lua_value_from_query(value)?;
             }
             "fade_out_function" => {
-                let value = parse_maybe_quoted_query_text(value)?;
-                visual_bell.fade_out_function = NativeEasingFunction::parse(&value)?;
+                visual_bell.fade_out_function = native_easing_lua_value_from_query(value)?;
             }
             "target" => {
                 let value = parse_maybe_quoted_query_text(value)?;
@@ -22389,6 +22442,35 @@ fn split_lua_table_u32_array(value: &str) -> Option<Vec<u32>> {
             return None;
         }
         indexed_values.insert(implicit_index, field.parse().ok()?);
+        implicit_index += 1;
+    }
+    (1..=indexed_values.len())
+        .map(|index| indexed_values.remove(&index))
+        .collect()
+}
+
+fn split_lua_table_f64_array(value: &str) -> Option<Vec<f64>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut indexed_values = BTreeMap::new();
+    let mut implicit_index = 1usize;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = field.split_once('=') {
+            if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
+                if index == 0 || indexed_values.contains_key(&index) {
+                    return None;
+                }
+                indexed_values.insert(index, parse_finite_f64(value.trim())?);
+                continue;
+            }
+        }
+        if indexed_values.contains_key(&implicit_index) {
+            return None;
+        }
+        indexed_values.insert(implicit_index, parse_finite_f64(field)?);
         implicit_index += 1;
     }
     (1..=indexed_values.len())
@@ -51137,6 +51219,97 @@ mod tests {
         assert_eq!(
             effective.strikethrough_position,
             Some(NativeStrikethroughPosition::CellFractionPerMille(500))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cubic_bezier_easing_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cursor_blink_ease_in = { CubicBezier = { 0.1, 0.2, 0.3, 0.4 } }
+            config.cursor_blink_ease_out = { CubicBezier = { 0.2, 0.3, 0.4, 0.5 } }
+            config.text_blink_ease_in = { CubicBezier = { 0.3, 0.4, 0.5, 0.6 } }
+            config.text_blink_ease_out = { CubicBezier = { 0.4, 0.5, 0.6, 0.7 } }
+            config.text_blink_rapid_ease_in = { CubicBezier = { 0.5, 0.6, 0.7, 0.8 } }
+            config.text_blink_rapid_ease_out = { CubicBezier = { 0.6, 0.7, 0.8, 0.9 } }
+            config.visual_bell = {
+              fade_out_duration_ms = 100,
+              fade_out_function = { CubicBezier = { 0.0, 0.0, 0.58, 1.0 } },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CubicBezier easing config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cursor_blink_ease_in,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 100,
+                y1_per_mille: 200,
+                x2_per_mille: 300,
+                y2_per_mille: 400,
+            })
+        );
+        assert_eq!(
+            effective.cursor_blink_ease_out,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 200,
+                y1_per_mille: 300,
+                x2_per_mille: 400,
+                y2_per_mille: 500,
+            })
+        );
+        assert_eq!(
+            effective.text_blink_ease_in,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 300,
+                y1_per_mille: 400,
+                x2_per_mille: 500,
+                y2_per_mille: 600,
+            })
+        );
+        assert_eq!(
+            effective.text_blink_ease_out,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 400,
+                y1_per_mille: 500,
+                x2_per_mille: 600,
+                y2_per_mille: 700,
+            })
+        );
+        assert_eq!(
+            effective.text_blink_rapid_ease_in,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 500,
+                y1_per_mille: 600,
+                x2_per_mille: 700,
+                y2_per_mille: 800,
+            })
+        );
+        assert_eq!(
+            effective.text_blink_rapid_ease_out,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 600,
+                y1_per_mille: 700,
+                x2_per_mille: 800,
+                y2_per_mille: 900,
+            })
+        );
+        assert_eq!(
+            effective.visual_bell.fade_out_function,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 0,
+                y1_per_mille: 0,
+                x2_per_mille: 580,
+                y2_per_mille: 1_000,
+            })
         );
     }
 
