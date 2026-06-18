@@ -13635,6 +13635,10 @@ impl NativeWindowApp {
             }
             WindowCopyModeAssignment::MoveToViewportTop => self.move_copy_mode_to_viewport_top(),
             WindowCopyModeAssignment::MoveUp => self.move_copy_mode_cursor(-1, 0),
+            WindowCopyModeAssignment::MoveByPage(amount) => {
+                let page = isize::try_from(self.runtime.terminal().grid().size().rows).unwrap_or(0);
+                self.move_copy_mode_cursor_by_lines(-amount.viewport_lines(page))
+            }
             WindowCopyModeAssignment::PageDown => {
                 let page = isize::try_from(self.runtime.terminal().grid().size().rows).unwrap_or(0);
                 self.move_copy_mode_cursor_by_lines(page)
@@ -17525,6 +17529,7 @@ enum WindowCopyModeAssignment {
     MoveToViewportMiddle,
     MoveToViewportTop,
     MoveUp,
+    MoveByPage(WindowScrollByPageAmount),
     PageDown,
     PageUp,
     NextMatch,
@@ -18280,6 +18285,8 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
     if let Some((name, value)) = field.split_once('=') {
         let name = split_lua_table_key_from_query(name.trim())?;
         match normalized_action_name_query(&name).as_str() {
+            "movebypage" => scroll_by_page_amount_from_query(value.trim())
+                .map(WindowCopyModeAssignment::MoveByPage),
             "setselectionmode" => copy_mode_selection_mode_from_query(value)
                 .map(WindowCopyModeAssignment::SetSelectionMode),
             _ => None,
@@ -42202,6 +42209,46 @@ mod tests {
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_move_by_page_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 4));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee\r\nff\r\ngg\r\nhh")
+            .unwrap();
+
+        app.enter_copy_mode();
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 3, column: 2 })
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { MoveByPage = -0.5 }",
+        )
+        .expect("expected CopyMode MoveByPage assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode MoveByPage up should dispatch");
+
+        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 1, column: 2 })
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { MoveByPage = 0.5 }",
+        )
+        .expect("expected CopyMode MoveByPage assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode MoveByPage down should dispatch");
+
+        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 3, column: 2 })
         );
     }
 

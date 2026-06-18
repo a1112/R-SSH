@@ -1696,9 +1696,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   selection modes. Search
   `NextMatch`, `PriorMatch`, `NextMatchPage`, `PriorMatchPage`, `ClearPattern`,
   and `CycleMatchType` assignment values dispatch the same copy-mode search
-  helpers as the default key table. `PageUp` and `PageDown` assignment values
-  dispatch the same copy-mode page movement path as the default copy-mode keys.
-  Single-name Lua table forms such as
+  helpers as the default key table. `PageUp`, `PageDown`, and
+  `MoveByPage = +/-0.5` assignment values dispatch the same copy-mode page
+  movement path as the default copy-mode keys. Single-name Lua table forms such as
   `wezterm.action.CopyMode { 'ClearSelectionMode' }` now reuse the same
   assignment parser. `AcceptPattern` and `EditPattern` now toggle whether
   typed copy-mode search input edits the current search pattern. WezTerm-style
