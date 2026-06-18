@@ -1320,6 +1320,77 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         ));
         parsed = true;
     }
+    if let Some(enable_tab_bar) = lua_config_bool_assignment_from_query(config, "enable_tab_bar") {
+        overrides.enable_tab_bar = Some(enable_tab_bar);
+        parsed = true;
+    }
+    if let Some(hide_tab_bar_if_only_one_tab) =
+        lua_config_bool_assignment_from_query(config, "hide_tab_bar_if_only_one_tab")
+    {
+        overrides.hide_tab_bar_if_only_one_tab = Some(hide_tab_bar_if_only_one_tab);
+        parsed = true;
+    }
+    if let Some(unzoom_on_switch_pane) =
+        lua_config_bool_assignment_from_query(config, "unzoom_on_switch_pane")
+    {
+        overrides.unzoom_on_switch_pane = Some(unzoom_on_switch_pane);
+        parsed = true;
+    }
+    if let Some(tab_bar_at_bottom) =
+        lua_config_bool_assignment_from_query(config, "tab_bar_at_bottom")
+    {
+        overrides.tab_bar_at_bottom = Some(tab_bar_at_bottom);
+        parsed = true;
+    }
+    if let Some(tab_and_split_indices_are_zero_based) =
+        lua_config_bool_assignment_from_query(config, "tab_and_split_indices_are_zero_based")
+    {
+        overrides.tab_and_split_indices_are_zero_based = Some(tab_and_split_indices_are_zero_based);
+        parsed = true;
+    }
+    if let Some(mouse_wheel_scrolls_tabs) =
+        lua_config_bool_assignment_from_query(config, "mouse_wheel_scrolls_tabs")
+    {
+        overrides.mouse_wheel_scrolls_tabs = Some(mouse_wheel_scrolls_tabs);
+        parsed = true;
+    }
+    if let Some(switch_to_last_active_tab_when_closing_tab) =
+        lua_config_bool_assignment_from_query(config, "switch_to_last_active_tab_when_closing_tab")
+    {
+        overrides.switch_to_last_active_tab_when_closing_tab =
+            Some(switch_to_last_active_tab_when_closing_tab);
+        parsed = true;
+    }
+    if let Some(quit_when_all_windows_are_closed) =
+        lua_config_bool_assignment_from_query(config, "quit_when_all_windows_are_closed")
+    {
+        overrides.quit_when_all_windows_are_closed = Some(quit_when_all_windows_are_closed);
+        parsed = true;
+    }
+    if let Some(show_close_tab_button_in_tabs) =
+        lua_config_bool_assignment_from_query(config, "show_close_tab_button_in_tabs")
+    {
+        overrides.show_close_tab_button_in_tabs = Some(show_close_tab_button_in_tabs);
+        parsed = true;
+    }
+    if let Some(show_new_tab_button_in_tab_bar) =
+        lua_config_bool_assignment_from_query(config, "show_new_tab_button_in_tab_bar")
+    {
+        overrides.show_new_tab_button_in_tab_bar = Some(show_new_tab_button_in_tab_bar);
+        parsed = true;
+    }
+    if let Some(show_tab_index_in_tab_bar) =
+        lua_config_bool_assignment_from_query(config, "show_tab_index_in_tab_bar")
+    {
+        overrides.show_tab_index_in_tab_bar = Some(show_tab_index_in_tab_bar);
+        parsed = true;
+    }
+    if let Some(show_tabs_in_tab_bar) =
+        lua_config_bool_assignment_from_query(config, "show_tabs_in_tab_bar")
+    {
+        overrides.show_tabs_in_tab_bar = Some(show_tabs_in_tab_bar);
+        parsed = true;
+    }
     if let Some(exit_behavior) = lua_config_string_assignment_from_query(config, "exit_behavior") {
         overrides.exit_behavior = Some(NativeExitBehavior::parse(&exit_behavior)?);
         parsed = true;
@@ -49834,6 +49905,49 @@ mod tests {
         app.handle_dropped_file_path(std::path::Path::new("hello ($world)"))
             .unwrap();
         assert_eq!(written.lock().unwrap().as_slice(), b"\"hello (\\$world)\"");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_tab_bar_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_tab_bar = false
+            config.hide_tab_bar_if_only_one_tab = true
+            config.unzoom_on_switch_pane = false
+            config.tab_bar_at_bottom = true
+            config.tab_and_split_indices_are_zero_based = true
+            config.mouse_wheel_scrolls_tabs = false
+            config.switch_to_last_active_tab_when_closing_tab = true
+            config.quit_when_all_windows_are_closed = false
+            config.show_close_tab_button_in_tabs = false
+            config.show_new_tab_button_in_tab_bar = false
+            config.show_tab_index_in_tab_bar = false
+            config.show_tabs_in_tab_bar = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm tab bar config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.enable_tab_bar);
+        assert!(effective.hide_tab_bar_if_only_one_tab);
+        assert!(!effective.unzoom_on_switch_pane);
+        assert!(effective.tab_bar_at_bottom);
+        assert!(effective.tab_and_split_indices_are_zero_based);
+        assert!(!effective.mouse_wheel_scrolls_tabs);
+        assert!(effective.switch_to_last_active_tab_when_closing_tab);
+        assert!(!effective.quit_when_all_windows_are_closed);
+        assert!(!effective.show_close_tab_button_in_tabs);
+        assert!(!effective.show_new_tab_button_in_tab_bar);
+        assert!(!effective.show_tab_index_in_tab_bar);
+        assert!(!effective.show_tabs_in_tab_bar);
+        assert!(!app.tab_bar_is_visible());
     }
 
     #[test]
