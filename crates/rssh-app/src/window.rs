@@ -1251,6 +1251,59 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(split_lua_table_environment_from_query(environment)?);
         parsed = true;
     }
+    if let Some(status_update_interval) =
+        lua_config_usize_assignment_from_query(config, "status_update_interval")
+    {
+        overrides.status_update_interval_ms = Some(u64::try_from(status_update_interval).ok()?);
+        parsed = true;
+    }
+    if let Some(command_palette_rows) =
+        lua_config_usize_assignment_from_query(config, "command_palette_rows")
+    {
+        overrides.command_palette_rows = Some(command_palette_rows);
+        parsed = true;
+    }
+    if let Some(launcher_alphabet) =
+        lua_config_string_assignment_from_query(config, "launcher_alphabet")
+    {
+        overrides.launcher_alphabet =
+            Some(non_empty_spawn_command_option_value(&launcher_alphabet).ok()?);
+        parsed = true;
+    }
+    if let Some(quick_select_alphabet) =
+        lua_config_string_assignment_from_query(config, "quick_select_alphabet")
+    {
+        overrides.quick_select_alphabet =
+            Some(non_empty_spawn_command_option_value(&quick_select_alphabet).ok()?);
+        parsed = true;
+    }
+    if let Some(quick_select_patterns) =
+        lua_config_table_assignment_from_query(config, "quick_select_patterns")
+    {
+        overrides.quick_select_patterns =
+            Some(split_lua_table_string_array(quick_select_patterns)?);
+        parsed = true;
+    }
+    if let Some(disable_default_quick_select_patterns) =
+        lua_config_bool_assignment_from_query(config, "disable_default_quick_select_patterns")
+    {
+        overrides.disable_default_quick_select_patterns =
+            Some(disable_default_quick_select_patterns);
+        parsed = true;
+    }
+    if let Some(quick_select_remove_styling) =
+        lua_config_bool_assignment_from_query(config, "quick_select_remove_styling")
+    {
+        overrides.quick_select_remove_styling = Some(quick_select_remove_styling);
+        parsed = true;
+    }
+    if let Some(selection_word_boundary) =
+        lua_config_string_assignment_from_query(config, "selection_word_boundary")
+    {
+        overrides.selection_word_boundary =
+            Some(non_empty_spawn_command_option_value(&selection_word_boundary).ok()?);
+        parsed = true;
+    }
     if let Some(canonicalize_pasted_newlines) =
         lua_config_string_assignment_from_query(config, "canonicalize_pasted_newlines")
     {
@@ -50049,6 +50102,43 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert!(logs[0].contains("INFO key_event"));
         assert!(logs[0].contains("key: Character(\"x\")"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_palette_and_quick_select_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.status_update_interval = 250
+            config.command_palette_rows = 3
+            config.launcher_alphabet = 'ab'
+            config.quick_select_alphabet = 'xy'
+            config.quick_select_patterns = { 'ticket-[0-9]+', 'bug-[A-Z]+' }
+            config.disable_default_quick_select_patterns = true
+            config.quick_select_remove_styling = true
+            config.selection_word_boundary = ' :'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm palette/quick-select config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.status_update_interval_ms, 250);
+        assert_eq!(effective.command_palette_rows, Some(3));
+        assert_eq!(effective.launcher_alphabet, "ab");
+        assert_eq!(effective.quick_select_alphabet, "xy");
+        assert_eq!(
+            effective.quick_select_patterns,
+            vec!["ticket-[0-9]+".to_owned(), "bug-[A-Z]+".to_owned()]
+        );
+        assert!(effective.disable_default_quick_select_patterns);
+        assert!(effective.quick_select_remove_styling);
+        assert_eq!(effective.selection_word_boundary, " :");
     }
 
     #[test]
