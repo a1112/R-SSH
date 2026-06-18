@@ -12004,8 +12004,10 @@ impl NativeWindowApp {
     fn copy_mode_status(copy_mode: &WindowCopyMode) -> String {
         match copy_mode.selection_mode {
             WindowCopySelectionMode::Cell => "Copy Mode: Cell".to_owned(),
+            WindowCopySelectionMode::Word => "Copy Mode: Word".to_owned(),
             WindowCopySelectionMode::Block => "Copy Mode: Block".to_owned(),
             WindowCopySelectionMode::Line => "Copy Mode: Line".to_owned(),
+            WindowCopySelectionMode::SemanticZone => "Copy Mode: SemanticZone".to_owned(),
             WindowCopySelectionMode::None => "Copy Mode".to_owned(),
         }
     }
@@ -12074,7 +12076,10 @@ impl NativeWindowApp {
 
         copy_mode.selection_mode = mode;
         match mode {
-            WindowCopySelectionMode::None | WindowCopySelectionMode::Line => {
+            WindowCopySelectionMode::None
+            | WindowCopySelectionMode::Word
+            | WindowCopySelectionMode::Line
+            | WindowCopySelectionMode::SemanticZone => {
                 copy_mode.anchor = None;
                 copy_mode.source_anchor = None;
             }
@@ -12452,8 +12457,12 @@ impl NativeWindowApp {
 
         let history_len = self.runtime.terminal().scrollback().len();
         let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
-        self.selection = copy_mode_source_selection(copy_mode, size)
-            .and_then(|selection| selection.viewport_selection(viewport_top, size));
+        self.selection = copy_mode_source_selection(
+            copy_mode,
+            self.runtime.terminal(),
+            &self.selection_word_boundary,
+        )
+        .and_then(|selection| selection.viewport_selection(viewport_top, size));
         self.refresh_snapshot();
         self.apply_window_title();
     }
@@ -13552,9 +13561,11 @@ impl NativeWindowApp {
 
     fn selected_text(&self) -> Option<String> {
         if let Some(copy_mode) = self.copy_mode.as_ref() {
-            if let Some(selection) =
-                copy_mode_source_selection(copy_mode, self.runtime.terminal().grid().size())
-            {
+            if let Some(selection) = copy_mode_source_selection(
+                copy_mode,
+                self.runtime.terminal(),
+                &self.selection_word_boundary,
+            ) {
                 let text = selection.text_from_terminal(self.runtime.terminal())?;
                 return (!text.is_empty()).then_some(text);
             }
@@ -15446,13 +15457,18 @@ fn is_copy_mode_whitespace_word(word: &str) -> bool {
 
 fn copy_mode_source_selection(
     copy_mode: &WindowCopyMode,
-    size: TerminalSize,
+    terminal: &Terminal,
+    word_boundary: &str,
 ) -> Option<WindowSourceSelection> {
+    let size = terminal.grid().size();
     match copy_mode.selection_mode {
         WindowCopySelectionMode::None => None,
         WindowCopySelectionMode::Cell => copy_mode
             .source_anchor
             .map(|anchor| WindowSourceSelection::new(anchor, copy_mode.source_cursor)),
+        WindowCopySelectionMode::Word => {
+            copy_mode_word_source_selection(terminal, copy_mode.source_cursor, word_boundary)
+        }
         WindowCopySelectionMode::Block => copy_mode
             .source_anchor
             .map(|anchor| WindowSourceSelection::rectangular(anchor, copy_mode.source_cursor)),
@@ -15472,7 +15488,88 @@ fn copy_mode_source_selection(
                 },
             ))
         }
+        WindowCopySelectionMode::SemanticZone => {
+            copy_mode_semantic_zone_source_selection(terminal, copy_mode.source_cursor)
+        }
     }
+}
+
+fn copy_mode_word_source_selection(
+    terminal: &Terminal,
+    cursor: SelectionSourceCell,
+    word_boundary: &str,
+) -> Option<WindowSourceSelection> {
+    let columns = usize::from(terminal.grid().size().columns);
+    if columns == 0 {
+        return None;
+    }
+
+    let line = copy_mode_source_line(terminal, cursor.row)?;
+    let characters = line.chars().collect::<Vec<_>>();
+    if characters.is_empty() {
+        return None;
+    }
+
+    let column = cursor.column.min(columns.saturating_sub(1));
+    let character = *characters.get(column)?;
+    if !is_word_selection_character(character, word_boundary) {
+        return None;
+    }
+
+    let mut start_column = column;
+    while start_column > 0
+        && characters
+            .get(start_column.saturating_sub(1))
+            .is_some_and(|character| is_word_selection_character(*character, word_boundary))
+    {
+        start_column = start_column.saturating_sub(1);
+    }
+
+    let mut end_column = column;
+    while end_column + 1 < columns
+        && characters
+            .get(end_column + 1)
+            .is_some_and(|character| is_word_selection_character(*character, word_boundary))
+    {
+        end_column += 1;
+    }
+
+    Some(WindowSourceSelection::new(
+        SelectionSourceCell {
+            row: cursor.row,
+            column: start_column,
+        },
+        SelectionSourceCell {
+            row: cursor.row,
+            column: end_column,
+        },
+    ))
+}
+
+fn copy_mode_semantic_zone_source_selection(
+    terminal: &Terminal,
+    cursor: SelectionSourceCell,
+) -> Option<WindowSourceSelection> {
+    let size = terminal.grid().size();
+    let row_count = terminal
+        .scrollback()
+        .len()
+        .saturating_add(usize::from(size.rows));
+    if cursor.row >= row_count || cursor.column >= usize::from(size.columns) {
+        return None;
+    }
+
+    let zone = terminal.semantic_zone_at(cursor.column, cursor.row)?;
+    Some(WindowSourceSelection::new(
+        SelectionSourceCell {
+            row: zone.start_y,
+            column: zone.start_x,
+        },
+        SelectionSourceCell {
+            row: zone.end_y,
+            column: zone.end_x,
+        },
+    ))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15828,8 +15925,10 @@ fn selection_focus_for_extension(
 enum WindowCopySelectionMode {
     None,
     Cell,
+    Word,
     Block,
     Line,
+    SemanticZone,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16712,8 +16811,10 @@ fn copy_mode_selection_mode_from_query(value: &str) -> Option<WindowCopySelectio
     let value = parse_maybe_quoted_query_text(value)?;
     match normalized_action_name_query(&value).as_str() {
         "cell" => Some(WindowCopySelectionMode::Cell),
+        "word" => Some(WindowCopySelectionMode::Word),
         "line" => Some(WindowCopySelectionMode::Line),
         "block" => Some(WindowCopySelectionMode::Block),
+        "semanticzone" => Some(WindowCopySelectionMode::SemanticZone),
         _ => None,
     }
 }
@@ -40498,6 +40599,47 @@ mod tests {
                 .map(|copy_mode| copy_mode.selection_mode),
             Some(super::WindowCopySelectionMode::Block)
         ));
+        assert!(app.selection.is_some());
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_word_selection_mode_assignment_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"alpha beta").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(0, 8));
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { SetSelectionMode = 'Word' }",
+        )
+        .expect("expected CopyMode SetSelectionMode Word query");
+        app.command_palette_apply_command(command)
+            .expect("copy mode assignment should dispatch");
+
+        assert_eq!(app.selected_text().as_deref(), Some("beta"));
+        assert!(app.selection.is_some());
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_semantic_zone_selection_mode_assignment_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 4));
+        app.handle_pty_output(
+            b"ready\r\n\x1b]133;A\x07> \x1b]133;B\x07cargo test\r\n\x1b]133;C\x07ok",
+        )
+        .unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.set_copy_mode_cursor(1, 4));
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { SetSelectionMode = 'SemanticZone' }",
+        )
+        .expect("expected CopyMode SetSelectionMode SemanticZone query");
+        app.command_palette_apply_command(command)
+            .expect("copy mode assignment should dispatch");
+
+        assert_eq!(app.selected_text().as_deref(), Some("cargo test"));
         assert!(app.selection.is_some());
     }
 
