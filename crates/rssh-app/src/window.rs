@@ -18149,10 +18149,11 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
 }
 
 fn clear_scrollback_mode_from_query(query: &str) -> Option<WindowClearScrollbackMode> {
-    if let Some(rest) = strip_lua_function_call_from_query(query, "clearscrollback")
-        && rest.trim_start().starts_with('{')
-    {
-        return clear_scrollback_lua_table_from_query(rest);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "clearscrollback") {
+        if rest.trim_start().starts_with('{') {
+            return clear_scrollback_lua_table_from_query(rest);
+        }
+        return clear_scrollback_mode_from_query(&format!("clearscrollback {rest}"));
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "clearscrollback=")
@@ -66713,6 +66714,23 @@ mod tests {
             app.command_palette_filtered_commands(),
             [WindowCommand::ClearScrollback(
                 WindowClearScrollbackMode::ScrollbackOnly
+            )]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_clear_scrollback_wezterm_action_function_string_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ClearScrollback('ScrollbackAndViewport')".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            [WindowCommand::ClearScrollback(
+                WindowClearScrollbackMode::ScrollbackAndViewport
             )]
         );
     }

@@ -1086,6 +1086,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   queries `clear scrollback scrollback only` and
   `clearscrollback scrollback only` map to the same payload and accept quoted
   or unquoted mode text. WezTerm-style
+  `wezterm.action.ClearScrollback('ScrollbackOnly')` string calls and
   `wezterm.action.ClearScrollback { mode = ... }` table-call queries dispatch
   the same native payload path.
 - Command palette and native action payloads now expose WezTerm-style
@@ -1139,6 +1140,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   table calls such as
   `wezterm.action.ClearScrollback({ mode = "ScrollbackOnly" })`, in addition
   to the existing `Action { mode = ... }` form.
+- WezTerm-style clear-scrollback Lua action calls now accept parenthesized
+  mode strings such as
+  `wezterm.action.ClearScrollback('ScrollbackAndViewport')`, matching the
+  existing structured and table-call payload path.
 - WezTerm-style launcher table actions now accept Lua table calls such as
   `wezterm.action.ShowLauncherArgs { flags = "TABS|WORKSPACES", title = "Jump" }`
   and parenthesized calls such as
