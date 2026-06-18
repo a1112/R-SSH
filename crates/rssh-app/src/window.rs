@@ -15865,12 +15865,13 @@ fn command_palette_structured_query_command(query: &str) -> Option<WindowCommand
 }
 
 fn strip_wezterm_action_prefix(query: &str) -> Option<&str> {
-    const PREFIX: &str = "wezterm.action.";
     let query = query.trim_start();
-    let candidate = query.get(..PREFIX.len())?;
-    candidate
-        .eq_ignore_ascii_case(PREFIX)
-        .then(|| query[PREFIX.len()..].trim_start())
+    ["wezterm.action.", "act."].into_iter().find_map(|prefix| {
+        let candidate = query.get(..prefix.len())?;
+        candidate
+            .eq_ignore_ascii_case(prefix)
+            .then(|| query[prefix.len()..].trim_start())
+    })
 }
 
 fn wezterm_action_table_wrapper_command(query: &str) -> Option<WindowCommand> {
@@ -15895,26 +15896,28 @@ fn wezterm_action_table_wrapper_command(query: &str) -> Option<WindowCommand> {
 }
 
 fn strip_wezterm_action_table_wrapper_from_query(query: &str) -> Option<&str> {
-    const PREFIX: &str = "wezterm.action";
     let query = query.trim();
-    let candidate = query.get(..PREFIX.len())?;
-    let rest = query.get(PREFIX.len()..)?.trim_start();
-    if !candidate.eq_ignore_ascii_case(PREFIX) {
-        return None;
-    }
-    if let Some(table) = rest
-        .strip_prefix('{')
-        .and_then(|rest| rest.strip_suffix('}'))
-    {
-        return Some(table.trim());
-    }
-    rest.strip_prefix('(')?
-        .trim()
-        .strip_suffix(')')?
-        .trim()
-        .strip_prefix('{')?
-        .strip_suffix('}')
-        .map(str::trim)
+    ["wezterm.action", "act"].into_iter().find_map(|prefix| {
+        let candidate = query.get(..prefix.len())?;
+        if !candidate.eq_ignore_ascii_case(prefix) {
+            return None;
+        }
+
+        let rest = query.get(prefix.len()..)?.trim_start();
+        if let Some(table) = rest
+            .strip_prefix('{')
+            .and_then(|rest| rest.strip_suffix('}'))
+        {
+            return Some(table.trim());
+        }
+        rest.strip_prefix('(')?
+            .trim()
+            .strip_suffix(')')?
+            .trim()
+            .strip_prefix('{')?
+            .strip_suffix('}')
+            .map(str::trim)
+    })
 }
 
 fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowCommand> {
@@ -48214,6 +48217,34 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_prompt_input_line_wezterm_action_alias_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "act.PromptInputLine { description = \"Rename tab\", prompt = \"name: \", initial_value = \"old name\" }"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+            description: "Rename tab".to_owned(),
+            prompt: Some("name: ".to_owned()),
+            initial_value: Some("old name".to_owned()),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Rename tab: name: old name"
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_prompt_input_line_hyphenated_initial_value_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -53365,6 +53396,19 @@ mod tests {
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action{PasteFrom=\"Clipboard\"}".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::PasteFrom(WindowPasteSource::Clipboard)]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_paste_from_wezterm_action_alias_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("act{PasteFrom=\"Clipboard\"}".to_owned());
 
         assert_eq!(
             app.command_palette_filtered_commands(),

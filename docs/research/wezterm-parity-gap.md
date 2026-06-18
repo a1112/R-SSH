@@ -929,6 +929,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   value })` wrapper-table syntax for the implemented native action subset,
   including scalar action parameters such as `ActivateTabRelative = -1` and
   table payloads such as `SplitHorizontal = { domain = "CurrentPaneDomain" }`.
+- Structured action queries now accept the common documented
+  `local act = wezterm.action` alias form for implemented action constructors
+  and wrapper tables, including `act.PromptInputLine { ... }` and
+  `act { PasteFrom = "Clipboard" }`.
 - Native `Multiple` action payloads now sequence implemented `WindowCommand`
   values in order and stop on the first failed command, matching WezTerm's
   multi-action key assignment model for the covered native action subset.
