@@ -1216,6 +1216,44 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(split_lua_table_environment_from_query(environment)?);
         parsed = true;
     }
+    if let Some(scroll_to_bottom_on_input) =
+        lua_config_bool_assignment_from_query(config, "scroll_to_bottom_on_input")
+    {
+        overrides.scroll_to_bottom_on_input = Some(scroll_to_bottom_on_input);
+        parsed = true;
+    }
+    if let Some(alternate_buffer_wheel_scroll_speed) =
+        lua_config_usize_assignment_from_query(config, "alternate_buffer_wheel_scroll_speed")
+    {
+        overrides.alternate_buffer_wheel_scroll_speed = Some(alternate_buffer_wheel_scroll_speed);
+        parsed = true;
+    }
+    if let Some(scrollback_lines) =
+        lua_config_usize_assignment_from_query(config, "scrollback_lines")
+    {
+        overrides.scrollback_lines = Some(scrollback_lines);
+        parsed = true;
+    }
+    if let Some(enable_scroll_bar) =
+        lua_config_bool_assignment_from_query(config, "enable_scroll_bar")
+    {
+        overrides.enable_scroll_bar = Some(enable_scroll_bar);
+        parsed = true;
+    }
+    if let Some(min_scroll_bar_height) =
+        lua_config_string_assignment_from_query(config, "min_scroll_bar_height")
+    {
+        overrides.min_scroll_bar_height =
+            Some(NativeScrollBarHeight::parse(&min_scroll_bar_height)?);
+        parsed = true;
+    } else if let Some(min_scroll_bar_height) =
+        lua_config_usize_assignment_from_query(config, "min_scroll_bar_height")
+    {
+        overrides.min_scroll_bar_height = Some(NativeScrollBarHeight::Pixels(
+            u32::try_from(min_scroll_bar_height).ok()?,
+        ));
+        parsed = true;
+    }
     if let Some(exit_behavior) = lua_config_string_assignment_from_query(config, "exit_behavior") {
         overrides.exit_behavior = Some(NativeExitBehavior::parse(&exit_behavior)?);
         parsed = true;
@@ -1258,6 +1296,18 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<String> {
     lua_config_assignment_from_query(source, field, lua_quoted_string_literal_from_query)
         .and_then(parse_maybe_quoted_query_text)
+}
+
+#[allow(dead_code)]
+fn lua_config_bool_assignment_from_query(source: &str, field: &str) -> Option<bool> {
+    lua_config_assignment_from_query(source, field, lua_bool_literal_from_query)
+        .and_then(|value| value.parse().ok())
+}
+
+#[allow(dead_code)]
+fn lua_config_usize_assignment_from_query(source: &str, field: &str) -> Option<usize> {
+    lua_config_assignment_from_query(source, field, lua_unsigned_integer_literal_from_query)
+        .and_then(|value| value.parse().ok())
 }
 
 #[allow(dead_code)]
@@ -1320,6 +1370,34 @@ fn lua_config_assignment_from_query<'a>(
     }
 
     None
+}
+
+#[allow(dead_code)]
+fn lua_bool_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    for value in ["false", "true"] {
+        if let Some(rest) = query.strip_prefix(value) {
+            let next = rest.chars().next();
+            if !next.is_some_and(is_lua_identifier_character) {
+                return query.get(..value.len());
+            }
+        }
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn lua_unsigned_integer_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    let end = query
+        .char_indices()
+        .take_while(|(_, character)| character.is_ascii_digit())
+        .map(|(index, character)| index + character.len_utf8())
+        .last()?;
+    let rest = &query[end..];
+    let next = rest.chars().next();
+    (!next.is_some_and(is_lua_identifier_character) && !query[..end].is_empty())
+        .then_some(&query[..end])
 }
 
 #[allow(dead_code)]
@@ -49709,6 +49787,41 @@ mod tests {
             &PtyExitStatus::from_exit_code(143),
         );
         assert!(close_window);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_scrollback_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.scroll_to_bottom_on_input = false
+            config.alternate_buffer_wheel_scroll_speed = 2
+            config.scrollback_lines = 1
+            config.enable_scroll_bar = true
+            config.min_scroll_bar_height = '2cell'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm scrollback config");
+        app.set_config_overrides(overrides);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+
+        let effective = app.native_effective_config();
+        assert!(!effective.scroll_to_bottom_on_input);
+        assert_eq!(effective.alternate_buffer_wheel_scroll_speed, 2);
+        assert_eq!(effective.scrollback_lines, 1);
+        assert!(effective.enable_scroll_bar);
+        assert_eq!(
+            effective.min_scroll_bar_height,
+            Some(NativeScrollBarHeight::CellFractionPerMille(2_000))
+        );
+        assert_eq!(app.runtime.terminal().scrollback().len(), 1);
     }
 
     #[test]
