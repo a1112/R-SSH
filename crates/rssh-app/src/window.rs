@@ -4640,6 +4640,10 @@ impl NativeWindowApp {
                 self.enter_copy_mode();
                 return Ok(());
             }
+            WindowCommand::CopyMode(assignment) => {
+                self.perform_copy_mode_assignment(assignment);
+                return Ok(());
+            }
             WindowCommand::EnterQuickSelect => {
                 let query = self
                     .command_palette
@@ -12063,6 +12067,82 @@ impl NativeWindowApp {
         self.exit_copy_mode();
     }
 
+    fn clear_copy_mode_selection_mode(&mut self) -> bool {
+        let Some(copy_mode) = self.copy_mode.as_mut() else {
+            return false;
+        };
+
+        copy_mode.selection_mode = WindowCopySelectionMode::None;
+        copy_mode.anchor = None;
+        copy_mode.source_anchor = None;
+        self.selection = None;
+        self.refresh_snapshot();
+        self.apply_window_title();
+        true
+    }
+
+    fn perform_copy_mode_assignment(&mut self, assignment: WindowCopyModeAssignment) -> bool {
+        match assignment {
+            WindowCopyModeAssignment::Close => {
+                if self.copy_mode.is_none() {
+                    return false;
+                }
+                self.scroll_to_bottom_and_exit_copy_mode();
+                true
+            }
+            WindowCopyModeAssignment::ClearSelectionMode => self.clear_copy_mode_selection_mode(),
+            WindowCopyModeAssignment::MoveBackwardSemanticZone => {
+                self.move_copy_mode_by_semantic_zone(-1, None)
+            }
+            WindowCopyModeAssignment::MoveBackwardWord => {
+                self.move_copy_mode_by_word(WindowCopyWordMovement::Backward)
+            }
+            WindowCopyModeAssignment::MoveDown => self.move_copy_mode_cursor(1, 0),
+            WindowCopyModeAssignment::MoveForwardSemanticZone => {
+                self.move_copy_mode_by_semantic_zone(1, None)
+            }
+            WindowCopyModeAssignment::MoveForwardWord => {
+                self.move_copy_mode_by_word(WindowCopyWordMovement::Forward)
+            }
+            WindowCopyModeAssignment::MoveForwardWordEnd => {
+                self.move_copy_mode_by_word(WindowCopyWordMovement::End)
+            }
+            WindowCopyModeAssignment::MoveLeft => self.move_copy_mode_cursor(0, -1),
+            WindowCopyModeAssignment::MoveRight => self.move_copy_mode_cursor(0, 1),
+            WindowCopyModeAssignment::MoveToEndOfLineContent => {
+                self.move_copy_mode_to_line_content_end()
+            }
+            WindowCopyModeAssignment::MoveToScrollbackBottom => {
+                self.move_copy_mode_to_scrollback_bottom()
+            }
+            WindowCopyModeAssignment::MoveToScrollbackTop => {
+                self.move_copy_mode_to_scrollback_top()
+            }
+            WindowCopyModeAssignment::MoveToSelectionOtherEnd => {
+                self.move_copy_mode_to_selection_other_end()
+            }
+            WindowCopyModeAssignment::MoveToSelectionOtherEndHoriz => {
+                self.move_copy_mode_to_selection_other_end_horiz()
+            }
+            WindowCopyModeAssignment::MoveToStartOfLine => self.move_copy_mode_to_line_start(),
+            WindowCopyModeAssignment::MoveToStartOfLineContent => {
+                self.move_copy_mode_to_line_content_start()
+            }
+            WindowCopyModeAssignment::MoveToStartOfNextLine => {
+                self.move_copy_mode_cursor_by_lines(1);
+                self.move_copy_mode_to_line_start()
+            }
+            WindowCopyModeAssignment::MoveToViewportBottom => {
+                self.move_copy_mode_to_viewport_bottom()
+            }
+            WindowCopyModeAssignment::MoveToViewportMiddle => {
+                self.move_copy_mode_to_viewport_middle()
+            }
+            WindowCopyModeAssignment::MoveToViewportTop => self.move_copy_mode_to_viewport_top(),
+            WindowCopyModeAssignment::MoveUp => self.move_copy_mode_cursor(-1, 0),
+        }
+    }
+
     #[allow(clippy::too_many_lines)]
     fn handle_copy_mode_key(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
         let pending_jump = {
@@ -15770,6 +15850,32 @@ enum WindowCopyWordMovement {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowCopyModeAssignment {
+    Close,
+    ClearSelectionMode,
+    MoveBackwardSemanticZone,
+    MoveBackwardWord,
+    MoveDown,
+    MoveForwardSemanticZone,
+    MoveForwardWord,
+    MoveForwardWordEnd,
+    MoveLeft,
+    MoveRight,
+    MoveToEndOfLineContent,
+    MoveToScrollbackBottom,
+    MoveToScrollbackTop,
+    MoveToSelectionOtherEnd,
+    MoveToSelectionOtherEndHoriz,
+    MoveToStartOfLine,
+    MoveToStartOfLineContent,
+    MoveToStartOfNextLine,
+    MoveToViewportBottom,
+    MoveToViewportMiddle,
+    MoveToViewportTop,
+    MoveUp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WindowCopyWordSegment {
     start: usize,
     end: usize,
@@ -16047,6 +16153,9 @@ fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowC
     }
     if let Some(command) = activate_window_command_from_query(query) {
         return Some(command);
+    }
+    if let Some(assignment) = copy_mode_assignment_from_query(query) {
+        return Some(WindowCommand::CopyMode(assignment));
     }
     if let Some(offset) = activate_tab_relative_no_wrap_from_query(query) {
         return Some(WindowCommand::ActivateTabRelativeNoWrap(offset));
@@ -16473,6 +16582,53 @@ fn paste_source_command_from_query(query: &str) -> Option<WindowPasteSource> {
     )?;
     let source = strip_query_prefix_from_any(source, &["source=", "source "]).unwrap_or(source);
     paste_source_from_query(source)
+}
+
+fn copy_mode_assignment_from_query(query: &str) -> Option<WindowCopyModeAssignment> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    if let Some(value) = strip_lua_function_call_from_query(query, "copymode") {
+        return copy_mode_assignment_name_from_query(value);
+    }
+
+    let value = strip_query_prefix_from_any(
+        query,
+        &["copy mode=", "copy mode ", "copymode=", "copymode "],
+    )?;
+    let value = strip_query_prefix_from_any(value, &["assignment=", "assignment "])
+        .or_else(|| strip_query_prefix_from_any(value, &["action=", "action "]))
+        .unwrap_or(value);
+    copy_mode_assignment_name_from_query(value)
+}
+
+fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
+    let value = parse_maybe_quoted_query_text(value)?;
+    match normalized_action_name_query(&value).as_str() {
+        "close" => Some(WindowCopyModeAssignment::Close),
+        "clearselectionmode" => Some(WindowCopyModeAssignment::ClearSelectionMode),
+        "movebackwardsemanticzone" => Some(WindowCopyModeAssignment::MoveBackwardSemanticZone),
+        "movebackwardword" => Some(WindowCopyModeAssignment::MoveBackwardWord),
+        "movedown" => Some(WindowCopyModeAssignment::MoveDown),
+        "moveforwardsemanticzone" => Some(WindowCopyModeAssignment::MoveForwardSemanticZone),
+        "moveforwardword" => Some(WindowCopyModeAssignment::MoveForwardWord),
+        "moveforwardwordend" => Some(WindowCopyModeAssignment::MoveForwardWordEnd),
+        "moveleft" => Some(WindowCopyModeAssignment::MoveLeft),
+        "moveright" => Some(WindowCopyModeAssignment::MoveRight),
+        "movetoendoflinecontent" => Some(WindowCopyModeAssignment::MoveToEndOfLineContent),
+        "movetoscrollbackbottom" => Some(WindowCopyModeAssignment::MoveToScrollbackBottom),
+        "movetoscrollbacktop" => Some(WindowCopyModeAssignment::MoveToScrollbackTop),
+        "movetoselectionotherend" => Some(WindowCopyModeAssignment::MoveToSelectionOtherEnd),
+        "movetoselectionotherendhoriz" => {
+            Some(WindowCopyModeAssignment::MoveToSelectionOtherEndHoriz)
+        }
+        "movetostartofline" => Some(WindowCopyModeAssignment::MoveToStartOfLine),
+        "movetostartoflinecontent" => Some(WindowCopyModeAssignment::MoveToStartOfLineContent),
+        "movetostartofnextline" => Some(WindowCopyModeAssignment::MoveToStartOfNextLine),
+        "movetoviewportbottom" => Some(WindowCopyModeAssignment::MoveToViewportBottom),
+        "movetoviewportmiddle" => Some(WindowCopyModeAssignment::MoveToViewportMiddle),
+        "movetoviewporttop" => Some(WindowCopyModeAssignment::MoveToViewportTop),
+        "moveup" => Some(WindowCopyModeAssignment::MoveUp),
+        _ => None,
+    }
 }
 
 fn close_current_command_from_query(query: &str) -> Option<WindowCommand> {
@@ -23664,6 +23820,8 @@ enum WindowCommand {
     ActivateCommandPalette,
     #[allow(dead_code)]
     ActivateCopyMode,
+    #[allow(dead_code)]
+    CopyMode(WindowCopyModeAssignment),
     ActivatePaneDown,
     ActivatePaneLeft,
     ActivatePane1,
@@ -23971,6 +24129,7 @@ impl WindowCommand {
             Self::CloseWorkspace => "Close Workspace",
             Self::CloseCurrentTab { .. } | Self::CloseTab => "Close Current Tab",
             Self::ActivateCopyMode | Self::EnterCopyMode => "Activate Copy Mode",
+            Self::CopyMode(_) => "Copy Mode",
             Self::ClearScrollback(_) => "Clear Scrollback",
             Self::ClearScrollbackAndViewport => "Clear Scrollback And Viewport",
             Self::ClearSelection => "Clear Selection",
@@ -24130,6 +24289,7 @@ impl WindowCommand {
             Self::CloseWorkspace => "Close Workspace",
             Self::CloseCurrentTab { .. } | Self::CloseTab => "Close Current Tab",
             Self::ActivateCopyMode | Self::EnterCopyMode => "Activate Copy Mode",
+            Self::CopyMode(_) => "Copy Mode",
             Self::ClearScrollback(_) => "Clear Scrollback",
             Self::ClearScrollbackAndViewport => "Clear Scrollback And Viewport",
             Self::ClearSelection => "Clear Selection",
@@ -40194,6 +40354,33 @@ mod tests {
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 3 })
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_copy_mode_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"  aa  \r\n  bb  \r\n  cc  ")
+            .unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("g".into()), ModifiersState::empty()));
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 6 })
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'MoveToStartOfLine'",
+        )
+        .expect("expected CopyMode assignment query");
+        app.command_palette_apply_command(command)
+            .expect("copy mode assignment should dispatch");
+
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 0 })
         );
     }
 
