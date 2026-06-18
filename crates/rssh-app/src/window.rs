@@ -851,7 +851,29 @@ struct NativeWindowEmitEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeLaunchMenuItem {
     label: Option<String>,
-    command: WindowSpawnCommandQuery,
+    command: NativeLaunchMenuCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLaunchMenuCommand {
+    Command(WindowSpawnCommandQuery),
+    Options(WindowSpawnCommandQueryOptions),
+}
+
+impl NativeLaunchMenuCommand {
+    fn launch_menu_label(&self) -> String {
+        match self {
+            Self::Command(command) => command.launch_menu_label(),
+            Self::Options(options) => options.launch_menu_label(),
+        }
+    }
+
+    fn window_command(&self) -> WindowCommand {
+        match self {
+            Self::Command(command) => WindowCommand::SpawnCommandInNewTab(command.clone()),
+            Self::Options(options) => WindowCommand::SpawnCommandOptionsInNewTab(options.clone()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1321,8 +1343,17 @@ fn native_launch_menu_item_lua_table_from_query(value: &str) -> Option<NativeLau
 
     Some(NativeLaunchMenuItem {
         label,
-        command: spawn_command_table_from_query(value, false)?,
+        command: native_launch_menu_command_lua_table_from_query(value)?,
     })
+}
+
+fn native_launch_menu_command_lua_table_from_query(value: &str) -> Option<NativeLaunchMenuCommand> {
+    spawn_command_table_from_query(value, false)
+        .map(NativeLaunchMenuCommand::Command)
+        .or_else(|| {
+            spawn_command_table_options_from_query(value, false)
+                .map(NativeLaunchMenuCommand::Options)
+        })
 }
 
 fn native_key_tables_lua_table_from_query(
@@ -4749,7 +4780,7 @@ impl NativeWindowApp {
                     brief: label,
                     doc: None,
                     icon: None,
-                    action: WindowCommand::SpawnCommandInNewTab(item.command.clone()),
+                    action: item.command.window_command(),
                 })
             }));
         }
@@ -22944,6 +22975,12 @@ struct WindowSpawnCommandQueryOptions {
     window_position: Option<WindowPosition>,
 }
 
+impl WindowSpawnCommandQueryOptions {
+    fn launch_menu_label(&self) -> String {
+        "New Tab".to_owned()
+    }
+}
+
 fn parse_spawn_command_query_options<'a, I>(
     words: &mut std::iter::Peekable<I>,
 ) -> Result<WindowSpawnCommandQueryOptions, ()>
@@ -30821,8 +30858,8 @@ mod tests {
         NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeHsbMultiplier, NativeInactivePaneHsb,
-        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuItem, NativeLeaderKey,
-        NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
+        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
+        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
         NativeQuoteDroppedFiles, NativeScrollBarHeight, NativeStrikethroughPosition,
         NativeTabTitle, NativeTextBackgroundOpacity, NativeUnderlinePosition,
         NativeUnderlineThickness, NativeUserKeyAssignment, NativeVisualBell,
@@ -49388,6 +49425,60 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_default_program_entries() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'Project Shell',
+                cwd = 'C:/Project Dir',
+                set_environment_variables = {
+                  PROJECT_MODE = 'dev',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::launch_menu_items(),
+                title: None,
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Project Shell");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "powershell");
+        assert_eq!(launch.args(), ["-NoProfile"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert_eq!(
+            launch.environment().get("PROJECT_MODE"),
+            Some(&"dev".to_owned())
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_confirmation_accepts_with_enter() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&events);
@@ -53553,14 +53644,14 @@ mod tests {
             allow_win32_input_mode: Some(false),
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("Top".to_owned()),
-                command: WindowSpawnCommandQuery {
+                command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
                     program: "top".to_owned(),
                     args: vec!["-H".to_owned()],
                     cwd: Some("/tmp/default".to_owned()),
                     environment: sample_environment(),
                     domain: None,
                     window_position: None,
-                },
+                }),
             }]),
             leader: Some(NativeLeaderKey {
                 keys: "CTRL+A".to_owned(),
@@ -67660,14 +67751,14 @@ mod tests {
         app.set_config_overrides(NativeConfigOverrides {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
-                command: WindowSpawnCommandQuery {
+                command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
                     program: "top".to_owned(),
                     args: vec!["-H".to_owned()],
                     cwd: Some("/tmp/project".to_owned()),
                     environment: BTreeMap::from([("LAUNCH_MENU".to_owned(), "1".to_owned())]),
                     domain: None,
                     window_position: None,
-                },
+                }),
             }]),
             ..NativeConfigOverrides::default()
         });
@@ -67714,14 +67805,14 @@ mod tests {
         app.set_config_overrides(NativeConfigOverrides {
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("System Monitor".to_owned()),
-                command: WindowSpawnCommandQuery {
+                command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
                     program: "top".to_owned(),
                     args: Vec::new(),
                     cwd: None,
                     environment: BTreeMap::new(),
                     domain: None,
                     window_position: None,
-                },
+                }),
             }]),
             ..NativeConfigOverrides::default()
         });
