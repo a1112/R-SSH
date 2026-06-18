@@ -599,6 +599,18 @@ enum NativeCursorThickness {
     CellFractionPerMille(u32),
 }
 
+impl NativeCursorThickness {
+    fn parse(value: &str) -> Option<Self> {
+        parse_native_unsigned_dimension(
+            value,
+            Self::Pixels,
+            Self::Points,
+            Self::Percent,
+            Self::CellFractionPerMille,
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeUnderlineThickness {
@@ -606,6 +618,18 @@ enum NativeUnderlineThickness {
     Points(u32),
     Percent(u32),
     CellFractionPerMille(u32),
+}
+
+impl NativeUnderlineThickness {
+    fn parse(value: &str) -> Option<Self> {
+        parse_native_unsigned_dimension(
+            value,
+            Self::Pixels,
+            Self::Points,
+            Self::Percent,
+            Self::CellFractionPerMille,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -617,6 +641,18 @@ enum NativeUnderlinePosition {
     CellFractionPerMille(i32),
 }
 
+impl NativeUnderlinePosition {
+    fn parse(value: &str) -> Option<Self> {
+        parse_native_signed_dimension(
+            value,
+            Self::Pixels,
+            Self::Points,
+            Self::Percent,
+            Self::CellFractionPerMille,
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeStrikethroughPosition {
@@ -624,6 +660,18 @@ enum NativeStrikethroughPosition {
     Points(u32),
     Percent(u32),
     CellFractionPerMille(u32),
+}
+
+impl NativeStrikethroughPosition {
+    fn parse(value: &str) -> Option<Self> {
+        parse_native_unsigned_dimension(
+            value,
+            Self::Pixels,
+            Self::Points,
+            Self::Percent,
+            Self::CellFractionPerMille,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -784,10 +832,90 @@ fn parse_non_negative_f64(value: &str) -> Option<f64> {
     (value.is_finite() && value >= 0.0).then_some(value)
 }
 
+#[allow(dead_code)]
+fn parse_finite_f64(value: &str) -> Option<f64> {
+    let value = value.trim().parse::<f64>().ok()?;
+    value.is_finite().then_some(value)
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #[allow(dead_code)]
 fn rounded_u32(value: f64) -> u32 {
     value.round().clamp(0.0, f64::from(u32::MAX)) as u32
+}
+
+#[allow(clippy::cast_possible_truncation)]
+#[allow(dead_code)]
+fn rounded_i32(value: f64) -> i32 {
+    value
+        .round()
+        .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
+}
+
+#[allow(dead_code)]
+fn parse_native_unsigned_dimension<T>(
+    value: &str,
+    pixels: impl Fn(u32) -> T,
+    points: impl Fn(u32) -> T,
+    percent: impl Fn(u32) -> T,
+    cell_fraction_per_mille: impl Fn(u32) -> T,
+) -> Option<T> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Some(number) = value.strip_suffix("cell") {
+        return parse_non_negative_f64(number)
+            .map(|value| cell_fraction_per_mille(rounded_u32(value * 1_000.0)));
+    }
+
+    if let Some(number) = value.strip_suffix("px") {
+        return parse_non_negative_f64(number).map(|value| pixels(rounded_u32(value)));
+    }
+
+    if let Some(number) = value.strip_suffix("pt") {
+        return parse_non_negative_f64(number).map(|value| points(rounded_u32(value)));
+    }
+
+    if let Some(number) = value.strip_suffix('%') {
+        return parse_non_negative_f64(number).map(|value| percent(rounded_u32(value)));
+    }
+
+    parse_non_negative_f64(value).map(|value| pixels(rounded_u32(value)))
+}
+
+#[allow(dead_code)]
+fn parse_native_signed_dimension<T>(
+    value: &str,
+    pixels: impl Fn(i32) -> T,
+    points: impl Fn(i32) -> T,
+    percent: impl Fn(i32) -> T,
+    cell_fraction_per_mille: impl Fn(i32) -> T,
+) -> Option<T> {
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    if let Some(number) = value.strip_suffix("cell") {
+        return parse_finite_f64(number)
+            .map(|value| cell_fraction_per_mille(rounded_i32(value * 1_000.0)));
+    }
+
+    if let Some(number) = value.strip_suffix("px") {
+        return parse_finite_f64(number).map(|value| pixels(rounded_i32(value)));
+    }
+
+    if let Some(number) = value.strip_suffix("pt") {
+        return parse_finite_f64(number).map(|value| points(rounded_i32(value)));
+    }
+
+    if let Some(number) = value.strip_suffix('%') {
+        return parse_finite_f64(number).map(|value| percent(rounded_i32(value)));
+    }
+
+    parse_finite_f64(value).map(|value| pixels(rounded_i32(value)))
 }
 
 impl From<NativeCursorStyle> for CursorStyle {
@@ -1418,10 +1546,73 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(NativeEasingFunction::parse(&cursor_blink_ease_out)?);
         parsed = true;
     }
+    if let Some(text_blink_rate) = lua_config_usize_assignment_from_query(config, "text_blink_rate")
+    {
+        overrides.text_blink_rate_ms = Some(u64::try_from(text_blink_rate).ok()?);
+        parsed = true;
+    }
+    if let Some(text_blink_rate_rapid) =
+        lua_config_usize_assignment_from_query(config, "text_blink_rate_rapid")
+    {
+        overrides.text_blink_rate_rapid_ms = Some(u64::try_from(text_blink_rate_rapid).ok()?);
+        parsed = true;
+    }
+    if let Some(text_blink_ease_in) =
+        lua_config_string_assignment_from_query(config, "text_blink_ease_in")
+    {
+        overrides.text_blink_ease_in = Some(NativeEasingFunction::parse(&text_blink_ease_in)?);
+        parsed = true;
+    }
+    if let Some(text_blink_ease_out) =
+        lua_config_string_assignment_from_query(config, "text_blink_ease_out")
+    {
+        overrides.text_blink_ease_out = Some(NativeEasingFunction::parse(&text_blink_ease_out)?);
+        parsed = true;
+    }
+    if let Some(text_blink_rapid_ease_in) =
+        lua_config_string_assignment_from_query(config, "text_blink_rapid_ease_in")
+    {
+        overrides.text_blink_rapid_ease_in =
+            Some(NativeEasingFunction::parse(&text_blink_rapid_ease_in)?);
+        parsed = true;
+    }
+    if let Some(text_blink_rapid_ease_out) =
+        lua_config_string_assignment_from_query(config, "text_blink_rapid_ease_out")
+    {
+        overrides.text_blink_rapid_ease_out =
+            Some(NativeEasingFunction::parse(&text_blink_rapid_ease_out)?);
+        parsed = true;
+    }
     if let Some(default_cursor_style) =
         lua_config_string_assignment_from_query(config, "default_cursor_style")
     {
         overrides.default_cursor_style = Some(NativeCursorStyle::parse(&default_cursor_style)?);
+        parsed = true;
+    }
+    if let Some(cursor_thickness) =
+        lua_config_string_assignment_from_query(config, "cursor_thickness")
+    {
+        overrides.cursor_thickness = Some(NativeCursorThickness::parse(&cursor_thickness)?);
+        parsed = true;
+    }
+    if let Some(underline_thickness) =
+        lua_config_string_assignment_from_query(config, "underline_thickness")
+    {
+        overrides.underline_thickness =
+            Some(NativeUnderlineThickness::parse(&underline_thickness)?);
+        parsed = true;
+    }
+    if let Some(underline_position) =
+        lua_config_string_assignment_from_query(config, "underline_position")
+    {
+        overrides.underline_position = Some(NativeUnderlinePosition::parse(&underline_position)?);
+        parsed = true;
+    }
+    if let Some(strikethrough_position) =
+        lua_config_string_assignment_from_query(config, "strikethrough_position")
+    {
+        overrides.strikethrough_position =
+            Some(NativeStrikethroughPosition::parse(&strikethrough_position)?);
         parsed = true;
     }
     if let Some(force_reverse_video_cursor) =
@@ -50689,6 +50880,62 @@ mod tests {
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
         assert_eq!(cell.foreground, Color::Rgb(50, 75, 100));
         assert_eq!(cell.background, Color::Rgba(20, 40, 60, 102));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_text_blink_and_decoration_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.text_blink_rate = 600
+            config.text_blink_rate_rapid = 150
+            config.text_blink_ease_in = 'EaseIn'
+            config.text_blink_ease_out = 'EaseOut'
+            config.text_blink_rapid_ease_in = 'EaseInOut'
+            config.text_blink_rapid_ease_out = 'Constant'
+            config.cursor_thickness = '25%'
+            config.underline_thickness = '2px'
+            config.underline_position = '-2px'
+            config.strikethrough_position = '0.5cell'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm text blink/decoration config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.text_blink_rate_ms, 600);
+        assert_eq!(effective.text_blink_rate_rapid_ms, 150);
+        assert_eq!(effective.text_blink_ease_in, NativeEasingFunction::EaseIn);
+        assert_eq!(effective.text_blink_ease_out, NativeEasingFunction::EaseOut);
+        assert_eq!(
+            effective.text_blink_rapid_ease_in,
+            NativeEasingFunction::EaseInOut
+        );
+        assert_eq!(
+            effective.text_blink_rapid_ease_out,
+            NativeEasingFunction::Constant
+        );
+        assert_eq!(
+            effective.cursor_thickness,
+            Some(NativeCursorThickness::Percent(25))
+        );
+        assert_eq!(
+            effective.underline_thickness,
+            Some(NativeUnderlineThickness::Pixels(2))
+        );
+        assert_eq!(
+            effective.underline_position,
+            Some(NativeUnderlinePosition::Pixels(-2))
+        );
+        assert_eq!(
+            effective.strikethrough_position,
+            Some(NativeStrikethroughPosition::CellFractionPerMille(500))
+        );
     }
 
     #[test]
