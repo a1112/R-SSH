@@ -5192,6 +5192,9 @@ impl NativeWindowApp {
                 }
                 AppAction::NewTab { launch: None }
             }
+            WindowCommand::AttachDomain(_) | WindowCommand::DetachDomain(_) => {
+                return Err(AppShellError::UnsupportedAction);
+            }
             WindowCommand::SpawnCommandInNewTab(spawn_command) => AppAction::NewTab {
                 launch: Some(self.supported_pane_launch(spawn_command)?),
             },
@@ -16064,6 +16067,12 @@ fn command_palette_basic_structured_query_command(query: &str) -> Option<WindowC
     if let Some(domain) = spawn_tab_domain_from_query(query) {
         return Some(WindowCommand::SpawnTab(domain));
     }
+    if let Some(domain) = attach_domain_from_query(query) {
+        return Some(WindowCommand::AttachDomain(domain));
+    }
+    if let Some(domain) = detach_domain_from_query(query) {
+        return Some(WindowCommand::DetachDomain(domain));
+    }
     if spawn_command_in_new_tab_from_query(query).is_some() {
         return Some(WindowCommand::NewTab);
     }
@@ -22191,6 +22200,105 @@ fn spawn_command_domain_from_query(domain: &str) -> Option<WindowSpawnTabDomain>
     }
 }
 
+fn attach_domain_from_query(query: &str) -> Option<String> {
+    if let Some(domain) = strip_lua_function_call_from_query(query, "attachdomain") {
+        return named_domain_from_query(domain);
+    }
+
+    let domain = strip_query_prefix_from_any(
+        query,
+        &[
+            "attach domain=",
+            "attach domain ",
+            "attachdomain=",
+            "attachdomain ",
+        ],
+    )?;
+    named_domain_from_query(domain)
+}
+
+fn detach_domain_from_query(query: &str) -> Option<WindowDomainSelector> {
+    if let Some(domain) = strip_lua_function_call_from_query(query, "detachdomain") {
+        if domain.trim_start().starts_with('{') {
+            return window_domain_selector_lua_table_from_query(domain);
+        }
+        return window_domain_selector_from_query(domain);
+    }
+
+    if let Some(domain) = strip_query_table_assignment_from_prefix(query, "detachdomain=")
+        && domain.trim_start().starts_with('{')
+    {
+        return window_domain_selector_lua_table_from_query(domain);
+    }
+
+    let domain = strip_query_prefix_from_any(
+        query,
+        &[
+            "detach domain=",
+            "detach domain ",
+            "detachdomain=",
+            "detachdomain ",
+        ],
+    )?;
+    if domain.trim_start().starts_with('{') {
+        return window_domain_selector_lua_table_from_query(domain);
+    }
+    window_domain_selector_from_query(domain)
+}
+
+fn named_domain_from_query(domain: &str) -> Option<String> {
+    let domain = strip_query_prefix_from_any(
+        domain,
+        &[
+            "domain name=",
+            "domain name ",
+            "domain=",
+            "domain ",
+            "name=",
+            "name ",
+        ],
+    )
+    .unwrap_or(domain);
+    parse_maybe_quoted_query_text(domain).filter(|domain| !domain.is_empty())
+}
+
+fn window_domain_selector_from_query(domain: &str) -> Option<WindowDomainSelector> {
+    let domain = named_domain_from_query(domain)?;
+    let normalized = domain
+        .chars()
+        .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
+        .collect::<String>()
+        .to_ascii_lowercase();
+    match normalized.as_str() {
+        "currentpanedomain" | "currentpane" | "current" => {
+            Some(WindowDomainSelector::CurrentPaneDomain)
+        }
+        _ => Some(WindowDomainSelector::DomainName(domain)),
+    }
+}
+
+fn window_domain_selector_lua_table_from_query(value: &str) -> Option<WindowDomainSelector> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut domain = None;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = field.split_once('=')?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value)?;
+        if value.is_empty() {
+            return None;
+        }
+        domain = Some(WindowDomainSelector::DomainName(value));
+    }
+    domain
+}
+
 fn spawn_command_environment_from_query(environment: &str) -> Result<(String, String), ()> {
     let (name, value) = environment.split_once('=').ok_or(())?;
     let name = non_empty_spawn_command_option_value(name)?;
@@ -23294,6 +23402,12 @@ impl WindowSendKey {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WindowDomainSelector {
+    CurrentPaneDomain,
+    DomainName(String),
+}
+
 fn isize_from_i128_saturating(value: i128) -> isize {
     match isize::try_from(value) {
         Ok(value) => value,
@@ -23333,6 +23447,8 @@ enum WindowCommand {
     ActivateLastTab,
     #[allow(dead_code)]
     ActivateWindow(usize),
+    #[allow(dead_code)]
+    AttachDomain(String),
     ActivateCommandPalette,
     #[allow(dead_code)]
     ActivateCopyMode,
@@ -23396,6 +23512,8 @@ enum WindowCommand {
     HideApplication,
     QuitApplication,
     DecreaseFontSize,
+    #[allow(dead_code)]
+    DetachDomain(WindowDomainSelector),
     IncreaseFontSize,
     ResetFontSize,
     ResetFontAndWindowSize,
@@ -23836,6 +23954,8 @@ impl WindowCommand {
             Self::InputSelector(_) => "Input Selector",
             Self::Confirmation(_) => "Confirmation",
             Self::EmitEvent(_) => "Emit Event",
+            Self::AttachDomain(_) => "Attach Domain",
+            Self::DetachDomain(_) => "Detach Domain",
             Self::ActivateKeyTable(_) => "Activate Key Table",
             Self::PopKeyTable => "Pop Key Table",
             Self::ClearKeyTableStack => "Clear Key Table Stack",
@@ -29806,7 +29926,7 @@ mod tests {
         WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
         WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
         WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
+        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
         WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
         WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
         WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
@@ -43400,6 +43520,64 @@ mod tests {
             assert!(app.command_palette_execute(expected_command));
             assert_eq!(app.active_tab_id(), expected_tab);
             assert!(app.command_palette.is_none());
+        }
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_attach_domain_action_queries_as_unsupported_actions() {
+        let mut app = NativeWindowApp::new(None);
+
+        for query in [
+            "wezterm.action.AttachDomain('devhost')",
+            "wezterm.action.AttachDomain 'devhost'",
+            "act.AttachDomain \"devhost\"",
+            "attach domain name devhost",
+        ] {
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected = WindowCommand::AttachDomain("devhost".to_owned());
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected.clone()]
+            );
+            assert!(!app.command_palette_execute(expected));
+            assert!(app.command_palette.is_some());
+        }
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_detach_domain_action_queries_as_unsupported_actions() {
+        let mut app = NativeWindowApp::new(None);
+
+        for (query, expected_domain) in [
+            (
+                "wezterm.action.DetachDomain 'CurrentPaneDomain'",
+                WindowDomainSelector::CurrentPaneDomain,
+            ),
+            (
+                "wezterm.action.DetachDomain({ DomainName = 'devhost' })",
+                WindowDomainSelector::DomainName("devhost".to_owned()),
+            ),
+            (
+                "act.DetachDomain { DomainName = 'devhost' }",
+                WindowDomainSelector::DomainName("devhost".to_owned()),
+            ),
+            (
+                "detach domain name devhost",
+                WindowDomainSelector::DomainName("devhost".to_owned()),
+            ),
+        ] {
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let expected = WindowCommand::DetachDomain(expected_domain);
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![expected.clone()]
+            );
+            assert!(!app.command_palette_execute(expected));
+            assert!(app.command_palette.is_some());
         }
     }
 

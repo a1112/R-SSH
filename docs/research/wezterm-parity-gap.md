@@ -653,6 +653,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SpawnTab { DomainName = 'local' }`, and
   `wezterm.action.SpawnTab({ DomainName = 'local' })` queries dispatch the same
   implemented local-domain subset. Remote/mux named domain spawning remains open.
+- Native `AttachDomain`/`DetachDomain` action parsing now recognizes official
+  WezTerm-style domain action forms including `AttachDomain 'devhost'`,
+  `AttachDomain('devhost')`, `DetachDomain 'CurrentPaneDomain'`, and
+  `DetachDomain { DomainName = 'devhost' }`. Because the current domain model is
+  local-only, executing those actions returns the existing unsupported-action
+  result instead of pretending to attach or detach a mux domain; actual remote
+  domain import/removal behavior remains open.
 - Command palette split entries now use WezTerm action names:
   native `SplitHorizontal` dispatches the right-side split path and is exposed
   as Split Horizontal, while native `SplitVertical` dispatches the downward
