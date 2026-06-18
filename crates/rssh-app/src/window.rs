@@ -1745,6 +1745,32 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.hide_mouse_cursor_when_typing = Some(hide_mouse_cursor_when_typing);
         parsed = true;
     }
+    if let Some(pane_focus_follows_mouse) =
+        lua_config_bool_assignment_from_query(config, "pane_focus_follows_mouse")
+    {
+        overrides.pane_focus_follows_mouse = Some(pane_focus_follows_mouse);
+        parsed = true;
+    }
+    if let Some(swallow_mouse_click_on_pane_focus) =
+        lua_config_bool_assignment_from_query(config, "swallow_mouse_click_on_pane_focus")
+    {
+        overrides.swallow_mouse_click_on_pane_focus = Some(swallow_mouse_click_on_pane_focus);
+        parsed = true;
+    }
+    if let Some(swallow_mouse_click_on_window_focus) =
+        lua_config_bool_assignment_from_query(config, "swallow_mouse_click_on_window_focus")
+    {
+        overrides.swallow_mouse_click_on_window_focus = Some(swallow_mouse_click_on_window_focus);
+        parsed = true;
+    }
+    if let Some(bypass_mouse_reporting_modifiers) =
+        lua_config_string_assignment_from_query(config, "bypass_mouse_reporting_modifiers")
+    {
+        overrides.bypass_mouse_reporting_modifiers = Some(
+            native_modifiers_from_wezterm_lua_config(&bypass_mouse_reporting_modifiers)?,
+        );
+        parsed = true;
+    }
     if let Some(automatically_reload_config) =
         lua_config_bool_assignment_from_query(config, "automatically_reload_config")
     {
@@ -26267,6 +26293,34 @@ fn window_key_assignment_modifier_matches(
     true
 }
 
+fn native_modifiers_from_wezterm_lua_config(value: &str) -> Option<ModifiersState> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("NONE") {
+        return Some(ModifiersState::empty());
+    }
+
+    let mut parsed_modifiers = ModifiersState::empty();
+    let mut leader_required = false;
+    let mut parsed_any = false;
+
+    for token in value.split(['|', '+']) {
+        let token = token.trim();
+        if token.is_empty() || token.eq_ignore_ascii_case("NONE") {
+            return None;
+        }
+        if !window_key_assignment_modifier_matches(
+            token,
+            &mut parsed_modifiers,
+            &mut leader_required,
+        ) {
+            return None;
+        }
+        parsed_any = true;
+    }
+
+    (parsed_any && !leader_required).then_some(parsed_modifiers)
+}
+
 fn window_key_assignment_key_matches(
     token: &str,
     key: &Key,
@@ -50656,6 +50710,35 @@ mod tests {
         assert!(effective.enable_csi_u_key_encoding);
         assert!(effective.enable_kitty_keyboard);
         assert!(!effective.allow_win32_input_mode);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_focus_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.pane_focus_follows_mouse = true
+            config.swallow_mouse_click_on_pane_focus = true
+            config.swallow_mouse_click_on_window_focus = true
+            config.bypass_mouse_reporting_modifiers = 'ALT|SHIFT'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse/focus config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(effective.pane_focus_follows_mouse);
+        assert!(effective.swallow_mouse_click_on_pane_focus);
+        assert!(effective.swallow_mouse_click_on_window_focus);
+        assert_eq!(
+            effective.bypass_mouse_reporting_modifiers,
+            ModifiersState::ALT | ModifiersState::SHIFT
+        );
     }
 
     #[test]
