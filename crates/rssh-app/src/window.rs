@@ -579,6 +579,17 @@ enum NativeBoldBrightensAnsiColors {
     BrightOnly,
 }
 
+impl NativeBoldBrightensAnsiColors {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "No" => Some(Self::No),
+            "BrightAndBold" => Some(Self::BrightAndBold),
+            "BrightOnly" => Some(Self::BrightOnly),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeCursorThickness {
@@ -1345,6 +1356,34 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.line_height = Some(native_line_height_from_ratio(line_height)?);
         parsed = true;
     }
+    if let Some(foreground_text_hsb) =
+        lua_config_table_assignment_from_query(config, "foreground_text_hsb")
+    {
+        overrides.foreground_text_hsb = Some(native_hsb_lua_table_from_query(foreground_text_hsb)?);
+        parsed = true;
+    }
+    if let Some(inactive_pane_hsb) =
+        lua_config_table_assignment_from_query(config, "inactive_pane_hsb")
+    {
+        overrides.inactive_pane_hsb = Some(native_hsb_lua_table_from_query(inactive_pane_hsb)?);
+        parsed = true;
+    }
+    if let Some(bold_brightens_ansi_colors) =
+        lua_config_string_assignment_from_query(config, "bold_brightens_ansi_colors")
+    {
+        overrides.bold_brightens_ansi_colors = Some(NativeBoldBrightensAnsiColors::parse(
+            &bold_brightens_ansi_colors,
+        )?);
+        parsed = true;
+    }
+    if let Some(text_background_opacity) =
+        lua_config_f32_assignment_from_query(config, "text_background_opacity")
+    {
+        overrides.text_background_opacity = Some(native_text_background_opacity_from_alpha(
+            text_background_opacity,
+        )?);
+        parsed = true;
+    }
     if let Some(initial_cols) = lua_config_usize_assignment_from_query(config, "initial_cols") {
         overrides.initial_cols = Some(u16::try_from(initial_cols).ok()?);
         parsed = true;
@@ -1843,8 +1882,65 @@ fn native_line_height_from_ratio(ratio: f32) -> Option<NativeLineHeight> {
 }
 
 #[allow(dead_code)]
+fn native_hsb_lua_table_from_query(value: &str) -> Option<NativeInactivePaneHsb> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut hue = None;
+    let mut saturation = None;
+    let mut brightness = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = field.split_once('=')?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = lua_unsigned_number_literal_from_query(value.trim())?
+            .parse::<f32>()
+            .ok()?;
+        match key.as_str() {
+            "hue" => hue = Some(native_hsb_multiplier_from_ratio(value)?),
+            "saturation" => saturation = Some(native_hsb_multiplier_from_ratio(value)?),
+            "brightness" => brightness = Some(native_hsb_multiplier_from_ratio(value)?),
+            _ => return None,
+        }
+    }
+
+    Some(NativeInactivePaneHsb {
+        hue: hue.unwrap_or(NativeHsbMultiplier::ONE),
+        saturation: saturation.unwrap_or(NativeHsbMultiplier::ONE),
+        brightness: brightness.unwrap_or(NativeHsbMultiplier::ONE),
+    })
+}
+
+#[allow(dead_code)]
+fn native_hsb_multiplier_from_ratio(ratio: f32) -> Option<NativeHsbMultiplier> {
+    native_non_negative_ratio_to_per_mille(ratio).map(NativeHsbMultiplier::from_per_mille)
+}
+
+#[allow(dead_code)]
+fn native_text_background_opacity_from_alpha(alpha: f32) -> Option<NativeTextBackgroundOpacity> {
+    if !alpha.is_finite() || alpha < 0.0 {
+        return None;
+    }
+    let per_mille = (alpha.min(1.0) * 1_000.0).round();
+    Some(NativeTextBackgroundOpacity::from_per_mille(
+        per_mille as u16,
+    ))
+}
+
+#[allow(dead_code)]
 fn native_ratio_to_per_mille(ratio: f32) -> Option<u16> {
     if !ratio.is_finite() || ratio <= 0.0 {
+        return None;
+    }
+    let per_mille = (ratio * 1_000.0).round();
+    (per_mille <= f32::from(u16::MAX)).then_some(per_mille as u16)
+}
+
+#[allow(dead_code)]
+fn native_non_negative_ratio_to_per_mille(ratio: f32) -> Option<u16> {
+    if !ratio.is_finite() || ratio < 0.0 {
         return None;
     }
     let per_mille = (ratio * 1_000.0).round();
@@ -50531,6 +50627,68 @@ mod tests {
         let snapshot = app.render_snapshot();
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
         assert_eq!(cell.background, Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_render_color_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.foreground_text_hsb = {
+              hue = 1.0,
+              saturation = 1.0,
+              brightness = 0.5,
+            }
+            config.inactive_pane_hsb = {
+              hue = 1.0,
+              saturation = 0.8,
+              brightness = 0.7,
+            }
+            config.bold_brightens_ansi_colors = 'BrightOnly'
+            config.text_background_opacity = 0.4
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm render color config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.foreground_text_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(1.0),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            }
+        );
+        assert_eq!(
+            effective.inactive_pane_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.8),
+                brightness: NativeHsbMultiplier::from_f32(0.7),
+            }
+        );
+        assert_eq!(
+            effective.bold_brightens_ansi_colors,
+            NativeBoldBrightensAnsiColors::BrightOnly
+        );
+        assert_eq!(
+            effective.text_background_opacity,
+            NativeTextBackgroundOpacity::from_f32(0.4)
+        );
+
+        app.handle_pty_output(b"\x1b[38;2;100;150;200;48;2;20;40;60mA\x1b[0m")
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
+        assert_eq!(cell.foreground, Color::Rgb(50, 75, 100));
+        assert_eq!(cell.background, Color::Rgba(20, 40, 60, 102));
     }
 
     #[test]
