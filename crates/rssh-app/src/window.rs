@@ -7007,6 +7007,13 @@ impl NativeWindowApp {
                 }
                 self.open_selected_text_as_uri();
             }
+            WindowQuickSelectAction::Nop => {
+                if paste {
+                    if let Err(error) = self.paste_selected_text_to_pane() {
+                        eprintln!("quick-select paste failed: {error}");
+                    }
+                }
+            }
         }
     }
 
@@ -15704,6 +15711,7 @@ enum WindowQuickSelectAction {
     Copy,
     CopyTo(WindowCopyDestination),
     OpenUri,
+    Nop,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -20994,7 +21002,21 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
     }
 
     let action = strip_wezterm_action_prefix(action).unwrap_or(action);
+    if let Some(action) = quick_select_no_arg_key_assignment_action_from_value(action) {
+        return Some(action);
+    }
+
     copy_destination_command_from_query(action).map(WindowQuickSelectAction::CopyTo)
+}
+
+fn quick_select_no_arg_key_assignment_action_from_value(
+    action: &str,
+) -> Option<WindowQuickSelectAction> {
+    let action = strip_zero_arg_lua_function_call_from_query(action).unwrap_or(action);
+    match normalized_action_name_query(action).as_str() {
+        "nop" => Some(WindowQuickSelectAction::Nop),
+        _ => None,
+    }
 }
 
 fn quick_select_wrapped_key_assignment_action_from_value(
@@ -58538,6 +58560,63 @@ mod tests {
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(quick_select.action, expected_action);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_quick_select_args_wezterm_nested_nop_action_queries() {
+        for query in [
+            "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = wezterm.action.Nop })",
+            "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = act.Nop() }",
+        ] {
+            let expected_options = WindowQuickSelectOptions {
+                patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                action: Some(WindowQuickSelectAction::Nop),
+                ..WindowQuickSelectOptions::default()
+            };
+
+            assert_eq!(quick_select_options_from_query(query), expected_options);
+
+            let copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_copy = Arc::clone(&copied);
+            let primary_copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_primary = Arc::clone(&primary_copied);
+            let mut app = NativeWindowApp::new(None);
+            app.clipboard_writer = Box::new(move |text: &str| {
+                recorded_copy.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.primary_selection_writer = Box::new(move |text: &str| {
+                recorded_primary.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+            app.handle_pty_output(b"ticket-1234 https://default.test")
+                .unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::EnterQuickSelect]
+            );
+            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(quick_select.action, WindowQuickSelectAction::Nop);
+            assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+            let label = quick_select.labels[0].clone();
+
+            assert!(app.handle_quick_select_logical_key(
+                &Key::Character(label.into()),
+                ModifiersState::empty()
+            ));
+
+            assert!(app.quick_select.is_none());
+            assert!(app.selection.is_none());
+            assert!(copied.lock().unwrap().is_empty());
+            assert!(primary_copied.lock().unwrap().is_empty());
         }
     }
 

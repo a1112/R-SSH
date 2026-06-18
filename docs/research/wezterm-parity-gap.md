@@ -783,7 +783,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   subset, and the `action` field now accepts nested implemented `CopyTo`
   KeyAssignment values such as `wezterm.action.CopyTo 'Clipboard'`,
   `act.CopyTo('PrimarySelection')`, and
-  `wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' }`. Arbitrary
+  `wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' }`, plus explicit
+  `Nop` KeyAssignments such as `wezterm.action.Nop` and `act.Nop()`. Arbitrary
   custom callback actions remain open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
