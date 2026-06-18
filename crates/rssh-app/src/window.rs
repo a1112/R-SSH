@@ -1163,6 +1163,25 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     let mut overrides = NativeConfigOverrides::default();
     let mut parsed = false;
 
+    if let Some(default_prog) = lua_config_table_assignment_from_query(config, "default_prog") {
+        overrides.default_prog = Some(split_lua_table_string_array(default_prog)?);
+        parsed = true;
+    }
+    if let Some(default_cwd) = lua_config_string_assignment_from_query(config, "default_cwd") {
+        overrides.default_cwd = Some(non_empty_spawn_command_option_value(&default_cwd).ok()?);
+        parsed = true;
+    }
+    if let Some(term) = lua_config_string_assignment_from_query(config, "term") {
+        overrides.term = Some(non_empty_spawn_command_option_value(&term).ok()?);
+        parsed = true;
+    }
+    if let Some(environment) =
+        lua_config_table_assignment_from_query(config, "set_environment_variables")
+    {
+        overrides.set_environment_variables =
+            Some(split_lua_table_environment_from_query(environment)?);
+        parsed = true;
+    }
     if let Some(keys) = lua_config_table_assignment_from_query(config, "keys") {
         overrides.key_assignments = Some(native_key_assignments_lua_table_from_query(keys)?);
         parsed = true;
@@ -1184,7 +1203,22 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 }
 
 #[allow(dead_code)]
+fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<String> {
+    lua_config_assignment_from_query(source, field, lua_quoted_string_literal_from_query)
+        .and_then(parse_maybe_quoted_query_text)
+}
+
+#[allow(dead_code)]
 fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> Option<&'a str> {
+    lua_config_assignment_from_query(source, field, lua_braced_table_literal_from_query)
+}
+
+#[allow(dead_code)]
+fn lua_config_assignment_from_query<'a>(
+    source: &'a str,
+    field: &str,
+    mut literal_from_query: impl FnMut(&'a str) -> Option<&'a str>,
+) -> Option<&'a str> {
     let mut quote = None;
     let mut escape = false;
     let mut line_comment = false;
@@ -1226,13 +1260,34 @@ fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> O
         {
             let rest = source[index + field.len()..].trim_start();
             if let Some(rest) = rest.strip_prefix('=') {
-                if let Some(table) = lua_braced_table_literal_from_query(rest.trim_start()) {
-                    return Some(table);
+                if let Some(value) = literal_from_query(rest.trim_start()) {
+                    return Some(value);
                 }
             }
         }
     }
 
+    None
+}
+
+#[allow(dead_code)]
+fn lua_quoted_string_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    let quote = query
+        .chars()
+        .next()
+        .filter(|quote| *quote == '\'' || *quote == '"')?;
+    let mut escape = false;
+    for (index, character) in query[quote.len_utf8()..].char_indices() {
+        if escape {
+            escape = false;
+        } else if character == '\\' {
+            escape = true;
+        } else if character == quote {
+            let end = quote.len_utf8() + index + character.len_utf8();
+            return query.get(..end);
+        }
+    }
     None
 }
 
@@ -49470,6 +49525,45 @@ mod tests {
         .unwrap();
 
         assert!(app.debug_overlay_active_for_test());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_default_launch_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.default_cwd = 'C:/Project Dir'
+            config.term = 'wezterm'
+            config.set_environment_variables = {
+              PROJECT_MODE = 'dev',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+        assert_eq!(command.env_value("TERM"), Some("wezterm"));
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
     }
 
     #[test]
