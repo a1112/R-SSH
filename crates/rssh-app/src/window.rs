@@ -12067,18 +12067,28 @@ impl NativeWindowApp {
         self.exit_copy_mode();
     }
 
-    fn clear_copy_mode_selection_mode(&mut self) -> bool {
+    fn set_copy_mode_selection_mode(&mut self, mode: WindowCopySelectionMode) -> bool {
         let Some(copy_mode) = self.copy_mode.as_mut() else {
             return false;
         };
 
-        copy_mode.selection_mode = WindowCopySelectionMode::None;
-        copy_mode.anchor = None;
-        copy_mode.source_anchor = None;
-        self.selection = None;
-        self.refresh_snapshot();
-        self.apply_window_title();
+        copy_mode.selection_mode = mode;
+        match mode {
+            WindowCopySelectionMode::None | WindowCopySelectionMode::Line => {
+                copy_mode.anchor = None;
+                copy_mode.source_anchor = None;
+            }
+            WindowCopySelectionMode::Cell | WindowCopySelectionMode::Block => {
+                copy_mode.anchor = Some(copy_mode.cursor);
+                copy_mode.source_anchor = Some(copy_mode.source_cursor);
+            }
+        }
+        self.apply_copy_mode_selection();
         true
+    }
+
+    fn clear_copy_mode_selection_mode(&mut self) -> bool {
+        self.set_copy_mode_selection_mode(WindowCopySelectionMode::None)
     }
 
     fn perform_copy_mode_assignment(&mut self, assignment: WindowCopyModeAssignment) -> bool {
@@ -12140,6 +12150,9 @@ impl NativeWindowApp {
             }
             WindowCopyModeAssignment::MoveToViewportTop => self.move_copy_mode_to_viewport_top(),
             WindowCopyModeAssignment::MoveUp => self.move_copy_mode_cursor(-1, 0),
+            WindowCopyModeAssignment::SetSelectionMode(mode) => {
+                self.set_copy_mode_selection_mode(mode)
+            }
         }
     }
 
@@ -15789,7 +15802,7 @@ fn selection_focus_for_extension(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WindowCopySelectionMode {
     None,
     Cell,
@@ -15873,6 +15886,7 @@ enum WindowCopyModeAssignment {
     MoveToViewportMiddle,
     MoveToViewportTop,
     MoveUp,
+    SetSelectionMode(WindowCopySelectionMode),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16587,6 +16601,9 @@ fn paste_source_command_from_query(query: &str) -> Option<WindowPasteSource> {
 fn copy_mode_assignment_from_query(query: &str) -> Option<WindowCopyModeAssignment> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     if let Some(value) = strip_lua_function_call_from_query(query, "copymode") {
+        if value.trim_start().starts_with('{') {
+            return copy_mode_assignment_lua_table_from_query(value);
+        }
         return copy_mode_assignment_name_from_query(value);
     }
 
@@ -16594,10 +16611,33 @@ fn copy_mode_assignment_from_query(query: &str) -> Option<WindowCopyModeAssignme
         query,
         &["copy mode=", "copy mode ", "copymode=", "copymode "],
     )?;
+    if value.trim_start().starts_with('{') {
+        return copy_mode_assignment_lua_table_from_query(value);
+    }
     let value = strip_query_prefix_from_any(value, &["assignment=", "assignment "])
         .or_else(|| strip_query_prefix_from_any(value, &["action=", "action "]))
         .unwrap_or(value);
     copy_mode_assignment_name_from_query(value)
+}
+
+fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut fields = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty());
+    let field = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+
+    let (name, value) = field.split_once('=')?;
+    let name = split_lua_table_key_from_query(name.trim())?;
+    match normalized_action_name_query(&name).as_str() {
+        "setselectionmode" => copy_mode_selection_mode_from_query(value)
+            .map(WindowCopyModeAssignment::SetSelectionMode),
+        _ => None,
+    }
 }
 
 fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
@@ -16627,6 +16667,16 @@ fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAss
         "movetoviewportmiddle" => Some(WindowCopyModeAssignment::MoveToViewportMiddle),
         "movetoviewporttop" => Some(WindowCopyModeAssignment::MoveToViewportTop),
         "moveup" => Some(WindowCopyModeAssignment::MoveUp),
+        _ => None,
+    }
+}
+
+fn copy_mode_selection_mode_from_query(value: &str) -> Option<WindowCopySelectionMode> {
+    let value = parse_maybe_quoted_query_text(value)?;
+    match normalized_action_name_query(&value).as_str() {
+        "cell" => Some(WindowCopySelectionMode::Cell),
+        "line" => Some(WindowCopySelectionMode::Line),
+        "block" => Some(WindowCopySelectionMode::Block),
         _ => None,
     }
 }
@@ -40382,6 +40432,36 @@ mod tests {
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 0 })
         );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_set_selection_mode_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"abcd\r\nefgh").unwrap();
+
+        app.enter_copy_mode();
+        assert!(matches!(
+            app.copy_mode
+                .as_ref()
+                .map(|copy_mode| copy_mode.selection_mode),
+            Some(super::WindowCopySelectionMode::None)
+        ));
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { SetSelectionMode = 'Block' }",
+        )
+        .expect("expected CopyMode SetSelectionMode query");
+        app.command_palette_apply_command(command)
+            .expect("copy mode assignment should dispatch");
+
+        assert!(matches!(
+            app.copy_mode
+                .as_ref()
+                .map(|copy_mode| copy_mode.selection_mode),
+            Some(super::WindowCopySelectionMode::Block)
+        ));
+        assert!(app.selection.is_some());
     }
 
     #[test]
