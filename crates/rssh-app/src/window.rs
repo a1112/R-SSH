@@ -21860,6 +21860,22 @@ fn parse_lua_quoted_query_text(value: &str) -> Option<String> {
             '\\' => parsed.push('\\'),
             '"' => parsed.push('"'),
             '\'' => parsed.push('\''),
+            digit if digit.is_ascii_digit() => {
+                let mut digits = String::from(digit);
+                for _ in 0..2 {
+                    let mut next_chars = chars.clone();
+                    let Some((_, next)) = next_chars.next() else {
+                        break;
+                    };
+                    if !next.is_ascii_digit() {
+                        break;
+                    }
+                    chars.next();
+                    digits.push(next);
+                }
+                let byte = digits.parse::<u8>().ok()?;
+                parsed.push(char::from(byte));
+            }
             'x' => {
                 let (_, high) = chars.next()?;
                 let (_, low) = chars.next()?;
@@ -68649,6 +68665,34 @@ mod tests {
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action.SendString '\\x1b b'".to_owned());
+
+        let expected = WindowCommand::SendString("\x1b b".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x1b b");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_lua_decimal_escape_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.SendString '\\027 b'".to_owned());
 
         let expected = WindowCommand::SendString("\x1b b".to_owned());
         assert_eq!(
