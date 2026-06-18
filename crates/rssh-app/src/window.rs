@@ -7052,6 +7052,21 @@ impl NativeWindowApp {
                 }
                 self.emit_event(event);
             }
+            WindowQuickSelectAction::Multiple(commands) => {
+                if paste {
+                    if let Err(error) = self.paste_selected_text_to_pane() {
+                        eprintln!("quick-select paste failed: {error}");
+                    }
+                }
+                if paste && skip_action_on_paste {
+                    return;
+                }
+                if let Err(error) =
+                    self.command_palette_apply_command(WindowCommand::Multiple(commands))
+                {
+                    eprintln!("quick-select multiple failed: {error:?}");
+                }
+            }
         }
     }
 
@@ -15770,6 +15785,7 @@ enum WindowQuickSelectAction {
     SendString(String),
     SendKey(WindowSendKey),
     EmitEvent(WindowEmitEvent),
+    Multiple(Vec<WindowCommand>),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -21079,6 +21095,9 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
             }
             WindowCommand::EmitEvent(event) => {
                 return Some(WindowQuickSelectAction::EmitEvent(event));
+            }
+            WindowCommand::Multiple(commands) => {
+                return Some(WindowQuickSelectAction::Multiple(commands));
             }
             _ => {}
         }
@@ -58986,6 +59005,71 @@ mod tests {
                     window_id: rssh_core::WindowId::new(1),
                     pane: rssh_core::PaneId::new(1),
                     name: expected_name.to_owned(),
+                }]
+            );
+            assert!(copied.lock().unwrap().is_empty());
+            assert!(primary_copied.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_nested_multiple_actions() {
+        for query in [
+            "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = wezterm.action.Multiple { wezterm.action.SendString 'alpha', wezterm.action.EmitEvent 'quick-select-multiple' } })",
+            "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = act.Multiple({ act.SendString('alpha'), act.EmitEvent({ name = 'quick-select-multiple' }) }) }",
+        ] {
+            let written = Arc::new(Mutex::new(Vec::new()));
+            let events = Arc::new(Mutex::new(Vec::new()));
+            let recorded_events = Arc::clone(&events);
+            let copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_copy = Arc::clone(&copied);
+            let primary_copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_primary = Arc::clone(&primary_copied);
+            let mut app = NativeWindowApp::new(None);
+            app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+            app.emit_event_handler = Box::new(move |event| {
+                recorded_events.lock().unwrap().push(event.clone());
+                true
+            });
+            app.clipboard_writer = Box::new(move |text: &str| {
+                recorded_copy.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.primary_selection_writer = Box::new(move |text: &str| {
+                recorded_primary.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+            app.handle_pty_output(b"ticket-1234 https://default.test")
+                .unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::EnterQuickSelect]
+            );
+            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+            let label = quick_select.labels[0].clone();
+
+            assert!(app.handle_quick_select_logical_key(
+                &Key::Character(label.into()),
+                ModifiersState::empty()
+            ));
+
+            assert!(app.quick_select.is_none());
+            assert!(app.selection.is_none());
+            assert_eq!(written.lock().unwrap().as_slice(), b"alpha");
+            assert_eq!(
+                events.lock().unwrap().as_slice(),
+                [NativeWindowEmitEvent {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: rssh_core::PaneId::new(1),
+                    name: "quick-select-multiple".to_owned(),
                 }]
             );
             assert!(copied.lock().unwrap().is_empty());
