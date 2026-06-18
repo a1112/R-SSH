@@ -1282,6 +1282,36 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.hide_mouse_cursor_when_typing = Some(hide_mouse_cursor_when_typing);
         parsed = true;
     }
+    if let Some(automatically_reload_config) =
+        lua_config_bool_assignment_from_query(config, "automatically_reload_config")
+    {
+        overrides.automatically_reload_config = Some(automatically_reload_config);
+        parsed = true;
+    }
+    if let Some(use_resize_increments) =
+        lua_config_bool_assignment_from_query(config, "use_resize_increments")
+    {
+        overrides.use_resize_increments = Some(use_resize_increments);
+        parsed = true;
+    }
+    if let Some(debug_key_events) =
+        lua_config_bool_assignment_from_query(config, "debug_key_events")
+    {
+        overrides.debug_key_events = Some(debug_key_events);
+        parsed = true;
+    }
+    if let Some(log_unknown_escape_sequences) =
+        lua_config_bool_assignment_from_query(config, "log_unknown_escape_sequences")
+    {
+        overrides.log_unknown_escape_sequences = Some(log_unknown_escape_sequences);
+        parsed = true;
+    }
+    if let Some(warn_about_missing_glyphs) =
+        lua_config_bool_assignment_from_query(config, "warn_about_missing_glyphs")
+    {
+        overrides.warn_about_missing_glyphs = Some(warn_about_missing_glyphs);
+        parsed = true;
+    }
     if let Some(scroll_to_bottom_on_input) =
         lua_config_bool_assignment_from_query(config, "scroll_to_bottom_on_input")
     {
@@ -49948,6 +49978,48 @@ mod tests {
         assert!(!effective.show_tab_index_in_tab_bar);
         assert!(!effective.show_tabs_in_tab_bar);
         assert!(!app.tab_bar_is_visible());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_diagnostics_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.automatically_reload_config = false
+            config.use_resize_increments = true
+            config.debug_key_events = true
+            config.log_unknown_escape_sequences = true
+            config.warn_about_missing_glyphs = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm diagnostics config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.automatically_reload_config);
+        assert!(effective.use_resize_increments);
+        assert!(effective.debug_key_events);
+        assert!(effective.log_unknown_escape_sequences);
+        assert!(!effective.warn_about_missing_glyphs);
+
+        app.handle_keyboard_input_event(
+            &Key::Character("x".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyX),
+            Some("x"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        let logs = app.debug_key_event_logs_for_test();
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].contains("INFO key_event"));
+        assert!(logs[0].contains("key: Character(\"x\")"));
     }
 
     #[test]
