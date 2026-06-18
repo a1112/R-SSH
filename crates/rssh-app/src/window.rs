@@ -1419,6 +1419,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     let mut overrides = NativeConfigOverrides::default();
     let mut parsed = false;
 
+    if let Some(tab_max_width) = lua_config_usize_assignment_from_query(config, "tab_max_width") {
+        overrides.tab_max_width = Some(tab_max_width);
+        parsed = true;
+    }
     if let Some(default_prog) = lua_config_table_assignment_from_query(config, "default_prog") {
         overrides.default_prog = Some(split_lua_table_string_array(default_prog)?);
         parsed = true;
@@ -50749,6 +50753,7 @@ mod tests {
             local wezterm = require 'wezterm'
             local config = {}
 
+            config.tab_max_width = 32
             config.enable_tab_bar = false
             config.hide_tab_bar_if_only_one_tab = true
             config.unzoom_on_switch_pane = false
@@ -50769,6 +50774,7 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        assert_eq!(effective.tab_max_width, 32);
         assert!(!effective.enable_tab_bar);
         assert!(effective.hide_tab_bar_if_only_one_tab);
         assert!(!effective.unzoom_on_switch_pane);
