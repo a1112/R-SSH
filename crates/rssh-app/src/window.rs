@@ -17105,6 +17105,11 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
     if let Some(source) = paste_source_command_from_query(query) {
         return Some(WindowCommand::PasteFrom(source));
     }
+    if let Some(split_pane) = split_horizontal_options_from_query(query)
+        .or_else(|| split_vertical_options_from_query(query))
+    {
+        return Some(WindowCommand::SplitPane(split_pane));
+    }
     if let Some(args) = show_launcher_args_from_query(query) {
         return Some(WindowCommand::ShowLauncherArgs(args));
     }
@@ -52318,6 +52323,36 @@ mod tests {
                     window_position: None,
                     program: "top".to_owned(),
                     args: vec!["-d".to_owned(), "1".to_owned()],
+                }),
+                WindowCommand::Nop,
+            ])]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_multiple_nested_split_horizontal_command_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("Multiple split horizontal top -d 1 ; NoP".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::Multiple(vec![
+                WindowCommand::SplitPane(WindowSplitPaneOptions {
+                    direction: rssh_core::app_shell::SplitDirection::Right,
+                    domain: None,
+                    command: Some(WindowSpawnCommandQuery {
+                        program: "top".to_owned(),
+                        args: vec!["-d".to_owned(), "1".to_owned()],
+                        cwd: None,
+                        environment: BTreeMap::new(),
+                        domain: None,
+                        window_position: None,
+                    }),
+                    command_options: None,
+                    size: None,
+                    top_level: false,
                 }),
                 WindowCommand::Nop,
             ])]
