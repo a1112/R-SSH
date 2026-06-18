@@ -1132,7 +1132,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - WezTerm-style zero-argument Lua action queries such as
   `wezterm.action.ActivateLastTab()`, `wezterm.action.ShowTabNavigator()`, and
   `wezterm.action.ToggleFullScreen()` now normalize through the same no-argument
-  command-palette action table as their bare action-name forms.
+  command-palette action table as their bare action-name forms. Generic
+  `wezterm.action { ActionName = {} }` empty-table wrappers such as
+  `wezterm.action { ReloadConfiguration = {} }` also dispatch through the same
+  no-argument action path.
 - WezTerm-style close-current table actions now accept parenthesized Lua table
   calls such as `wezterm.action.CloseCurrentPane({ confirm = false })` and
   `wezterm.action.CloseCurrentTab({ confirm = true })`, in addition to the
@@ -1886,7 +1889,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   payload. WezTerm-style
   `wezterm.action.AdjustPaneSize { '<direction>', <cells> }` and
   `wezterm.action.AdjustPaneSize({ '<direction>', <cells> })` Lua table action
-  queries dispatch the same payload. Native
+  queries plus `wezterm.action { AdjustPaneSize = { '<direction>', <cells> } }`
+  table-wrapper queries dispatch the same payload. Native
   `WindowCommand::AdjustPaneSize { direction, amount }` payloads dispatch the
   same active-pane resize path with arbitrary cell amounts.
 - Split panes support WezTerm-style `ActivatePaneDirection` from

@@ -17806,6 +17806,10 @@ fn wezterm_action_table_wrapper_command(query: &str) -> Option<WindowCommand> {
         return None;
     }
 
+    if value == "{}" {
+        return basic_no_arg_action_name_command(&normalized_action_name_query(&name));
+    }
+
     command_palette_structured_query_command_inner(&format!("{name}={value}"))
 }
 
@@ -53697,6 +53701,35 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_reload_configuration_wezterm_action_table_wrapper_query() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action { ReloadConfiguration = {} }".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ReloadConfiguration]
+        );
+        assert!(app.command_palette_execute(WindowCommand::ReloadConfiguration));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeWindowConfigReloaded {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+            }]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_action_name_queries() {
         for (query, expected) in [
             ("reloadconfiguration", WindowCommand::ReloadConfiguration),
@@ -69074,6 +69107,39 @@ mod tests {
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action.AdjustPaneSize({ 'Left', 4 })".to_owned());
+
+        let expected = WindowCommand::AdjustPaneSize {
+            direction: rssh_core::app_shell::ResizeDirection::Left,
+            amount: 4,
+        };
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        let split = app.app_shell.active_tab().panes()[1]
+            .split()
+            .expect("split should be present");
+        assert_eq!(split.source_size_delta, -4);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_adjust_pane_size_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action { AdjustPaneSize = { 'Left', 4 } }".to_owned(),
+        );
 
         let expected = WindowCommand::AdjustPaneSize {
             direction: rssh_core::app_shell::ResizeDirection::Left,
