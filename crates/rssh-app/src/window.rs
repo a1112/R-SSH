@@ -1594,26 +1594,26 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(cursor_thickness) =
-        lua_config_string_assignment_from_query(config, "cursor_thickness")
+        lua_config_dimension_assignment_from_query(config, "cursor_thickness")
     {
         overrides.cursor_thickness = Some(NativeCursorThickness::parse(&cursor_thickness)?);
         parsed = true;
     }
     if let Some(underline_thickness) =
-        lua_config_string_assignment_from_query(config, "underline_thickness")
+        lua_config_dimension_assignment_from_query(config, "underline_thickness")
     {
         overrides.underline_thickness =
             Some(NativeUnderlineThickness::parse(&underline_thickness)?);
         parsed = true;
     }
     if let Some(underline_position) =
-        lua_config_string_assignment_from_query(config, "underline_position")
+        lua_config_dimension_assignment_from_query(config, "underline_position")
     {
         overrides.underline_position = Some(NativeUnderlinePosition::parse(&underline_position)?);
         parsed = true;
     }
     if let Some(strikethrough_position) =
-        lua_config_string_assignment_from_query(config, "strikethrough_position")
+        lua_config_dimension_assignment_from_query(config, "strikethrough_position")
     {
         overrides.strikethrough_position =
             Some(NativeStrikethroughPosition::parse(&strikethrough_position)?);
@@ -1996,6 +1996,14 @@ fn lua_config_f32_assignment_from_query(source: &str, field: &str) -> Option<f32
 }
 
 #[allow(dead_code)]
+fn lua_config_dimension_assignment_from_query(source: &str, field: &str) -> Option<String> {
+    lua_config_string_assignment_from_query(source, field).or_else(|| {
+        lua_config_assignment_from_query(source, field, lua_signed_number_literal_from_query)
+            .map(str::to_owned)
+    })
+}
+
+#[allow(dead_code)]
 fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> Option<&'a str> {
     lua_config_assignment_from_query(source, field, lua_braced_table_literal_from_query)
 }
@@ -2099,6 +2107,40 @@ fn lua_unsigned_number_literal_from_query(query: &str) -> Option<&str> {
         } else if character == '.' && !decimal_seen {
             decimal_seen = true;
             end = index + character.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    if digits == 0 {
+        return None;
+    }
+
+    let rest = &query[end..];
+    let next = rest.chars().next();
+    (!next.is_some_and(is_lua_identifier_character) && next != Some('.')).then_some(&query[..end])
+}
+
+#[allow(dead_code)]
+fn lua_signed_number_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    let sign_len = query
+        .chars()
+        .next()
+        .filter(|character| *character == '-')
+        .map_or(0, char::len_utf8);
+    let number = query.get(sign_len..)?;
+    let mut end = 0;
+    let mut digits = 0;
+    let mut decimal_seen = false;
+
+    for (index, character) in number.char_indices() {
+        if character.is_ascii_digit() {
+            digits += 1;
+            end = sign_len + index + character.len_utf8();
+        } else if character == '.' && !decimal_seen {
+            decimal_seen = true;
+            end = sign_len + index + character.len_utf8();
         } else {
             break;
         }
@@ -51095,6 +51137,44 @@ mod tests {
         assert_eq!(
             effective.strikethrough_position,
             Some(NativeStrikethroughPosition::CellFractionPerMille(500))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_numeric_decoration_dimensions() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cursor_thickness = 2.0
+            config.underline_thickness = 3
+            config.underline_position = -4
+            config.strikethrough_position = 5.0
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm numeric decoration dimensions");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cursor_thickness,
+            Some(NativeCursorThickness::Pixels(2))
+        );
+        assert_eq!(
+            effective.underline_thickness,
+            Some(NativeUnderlineThickness::Pixels(3))
+        );
+        assert_eq!(
+            effective.underline_position,
+            Some(NativeUnderlinePosition::Pixels(-4))
+        );
+        assert_eq!(
+            effective.strikethrough_position,
+            Some(NativeStrikethroughPosition::Pixels(5))
         );
     }
 

@@ -492,8 +492,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.cursor_thickness`, `config.underline_thickness`,
   `config.underline_position`, `config.strikethrough_position`, and
   `config.force_reverse_video_cursor` snippets now parse into the same native
-  override path; richer CubicBezier/table easing and dimension forms remain
-  open.
+  override path, including string dimensions with units and bare numeric pixel
+  values for the decoration dimensions; richer CubicBezier/table easing forms
+  remain open.
 - App runtime and console output filtering now answer the remaining official
   WezTerm XTGETTCAP boolean names (`am`, `bce`, `ccc`, `hs`, `mc5i`, `mir`,
   `msgr`, `npc`, `Su`, `xenl`) plus `flash`, printer (`mc0`/`mc4`/`mc5`),
@@ -1807,21 +1808,22 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Native terminal rendering applies WezTerm-style `underline_thickness`
   overrides to terminal text underline decorations using px, DPI-scaled pt,
   percent-of-default, and cell-fraction units. Static WezTerm-style Lua
-  `config.underline_thickness` snippets now parse into the same native override
-  path; font-metric defaults and split/custom-glyph line use remain later
-  parity work.
+  `config.underline_thickness` snippets now parse string dimensions with units
+  or bare numeric pixel values into the same native override path; font-metric
+  defaults and split/custom-glyph line use remain later parity work.
 - Native terminal rendering applies WezTerm-style `underline_position`
   overrides to terminal text underline placement using signed px, DPI-scaled
   pt, percent-of-default, and cell-fraction units against the current default
   underline-row baseline approximation. Static WezTerm-style Lua
-  `config.underline_position` snippets now parse into the same native override
-  path; exact font-metric-derived baseline/default behavior remains later
-  parity work.
+  `config.underline_position` snippets now parse string dimensions with units
+  or bare signed numeric pixel values into the same native override path; exact
+  font-metric-derived baseline/default behavior remains later parity work.
 - Native terminal rendering applies WezTerm-style `strikethrough_position`
   overrides to terminal text strikethrough decorations using px, DPI-scaled pt,
   percent-of-default, and cell-fraction units. Static WezTerm-style Lua
-  `config.strikethrough_position` snippets now parse into the same native
-  override path; font-metric-derived defaults remain later parity work.
+  `config.strikethrough_position` snippets now parse string dimensions with
+  units or bare numeric pixel values into the same native override path;
+  font-metric-derived defaults remain later parity work.
 - Split panes now have pane-local mouse hit testing for click-to-focus,
   optional focus-follows-mouse via `pane_focus_follows_mouse`, and wheel scroll
   routing.
