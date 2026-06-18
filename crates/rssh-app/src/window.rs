@@ -7014,6 +7014,19 @@ impl NativeWindowApp {
                     }
                 }
             }
+            WindowQuickSelectAction::PasteFrom(source) => {
+                if paste {
+                    if let Err(error) = self.paste_selected_text_to_pane() {
+                        eprintln!("quick-select paste failed: {error}");
+                    }
+                }
+                if paste && skip_action_on_paste {
+                    return;
+                }
+                if let Err(error) = self.handle_window_paste_from(source) {
+                    eprintln!("quick-select paste-from failed: {error}");
+                }
+            }
         }
     }
 
@@ -15712,6 +15725,7 @@ enum WindowQuickSelectAction {
     CopyTo(WindowCopyDestination),
     OpenUri,
     Nop,
+    PasteFrom(WindowPasteSource),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -21008,6 +21022,9 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
     if let Some(action) = quick_select_complete_selection_action_from_value(action) {
         return Some(action);
     }
+    if let Some(source) = paste_source_command_from_query(action) {
+        return Some(WindowQuickSelectAction::PasteFrom(source));
+    }
 
     copy_destination_command_from_query(action).map(WindowQuickSelectAction::CopyTo)
 }
@@ -21049,10 +21066,11 @@ fn quick_select_wrapped_key_assignment_action_from_value(
 
     let (name, value) = field.split_once('=')?;
     let name = split_lua_table_key_from_query(name.trim())?;
-    if !normalized_action_name_query(&name).eq_ignore_ascii_case("copyto") {
-        return None;
+    match normalized_action_name_query(&name).as_str() {
+        "copyto" => copy_destination_from_query(value).map(WindowQuickSelectAction::CopyTo),
+        "pastefrom" => paste_source_from_query(value).map(WindowQuickSelectAction::PasteFrom),
+        _ => None,
     }
-    copy_destination_from_query(value).map(WindowQuickSelectAction::CopyTo)
 }
 
 fn quick_select_action_query_text(query: &str) -> Option<String> {
@@ -58642,6 +58660,80 @@ mod tests {
             assert!(app.selection.is_none());
             assert_eq!(copied.lock().unwrap().as_slice(), expected_clipboard);
             assert_eq!(primary_copied.lock().unwrap().as_slice(), expected_primary);
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_nested_paste_from_actions() {
+        for (query, expected_written) in [
+            (
+                "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = wezterm.action.PasteFrom 'Clipboard' })",
+                encode_window_paste(
+                    "clipboard\ntext",
+                    false,
+                    DEFAULT_CANONICALIZE_PASTED_NEWLINES,
+                ),
+            ),
+            (
+                "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = act.PasteFrom('PrimarySelection') }",
+                encode_window_paste("primary\ntext", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES),
+            ),
+            (
+                "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action { PasteFrom = 'Clipboard' } }",
+                encode_window_paste(
+                    "clipboard\ntext",
+                    false,
+                    DEFAULT_CANONICALIZE_PASTED_NEWLINES,
+                ),
+            ),
+        ] {
+            let written = Arc::new(Mutex::new(Vec::new()));
+            let copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_copy = Arc::clone(&copied);
+            let primary_copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_primary = Arc::clone(&primary_copied);
+            let mut app = NativeWindowApp::new(None);
+            app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+            app.clipboard_reader = Box::new(|| Some("clipboard\ntext".to_owned()));
+            app.primary_selection_reader = Box::new(|| Some("primary\ntext".to_owned()));
+            app.clipboard_writer = Box::new(move |text: &str| {
+                recorded_copy.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.primary_selection_writer = Box::new(move |text: &str| {
+                recorded_primary.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+            app.handle_pty_output(b"ticket-1234 https://default.test")
+                .unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::EnterQuickSelect]
+            );
+            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+            let label = quick_select.labels[0].clone();
+
+            assert!(app.handle_quick_select_logical_key(
+                &Key::Character(label.into()),
+                ModifiersState::empty()
+            ));
+
+            assert!(app.quick_select.is_none());
+            assert!(app.selection.is_none());
+            assert_eq!(
+                written.lock().unwrap().as_slice(),
+                expected_written.as_slice()
+            );
+            assert!(copied.lock().unwrap().is_empty());
+            assert!(primary_copied.lock().unwrap().is_empty());
         }
     }
 
