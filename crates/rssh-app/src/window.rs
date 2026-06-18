@@ -16672,6 +16672,56 @@ fn input_selector_choices_from_query(value: &str) -> Option<Vec<WindowInputSelec
     (!choices.is_empty()).then_some(choices)
 }
 
+fn input_selector_choices_lua_table_from_query(
+    value: &str,
+) -> Option<Vec<WindowInputSelectorChoice>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut choices = Vec::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        choices.push(input_selector_choice_lua_table_from_query(field)?);
+    }
+
+    (!choices.is_empty()).then_some(choices)
+}
+
+fn input_selector_choice_lua_table_from_query(value: &str) -> Option<WindowInputSelectorChoice> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut label = None;
+    let mut id = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = field.split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+        match name.to_ascii_lowercase().as_str() {
+            "label" => {
+                if label.is_some() || value.is_empty() {
+                    return None;
+                }
+                label = Some(value);
+            }
+            "id" => {
+                if id.is_some() {
+                    return None;
+                }
+                id = (!value.is_empty()).then_some(value);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(WindowInputSelectorChoice { label: label?, id })
+}
+
 fn split_unquoted_query_semicolons(query: &str) -> Vec<&str> {
     let mut values = Vec::new();
     let mut quote = None;
@@ -16918,7 +16968,8 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
     for field in split_lua_table_top_level_fields(table)? {
         let (name, value) = field.trim().split_once('=')?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value)?;
+        let raw_value = value.trim();
+        let value = parse_maybe_quoted_query_text(raw_value)?;
         match name.to_ascii_lowercase().as_str() {
             "title" => {
                 if parsed_title || value.is_empty() {
@@ -16931,7 +16982,11 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 if parsed_choices {
                     return None;
                 }
-                options.choices = input_selector_choices_from_query(&value)?;
+                options.choices = if raw_value.starts_with('{') {
+                    input_selector_choices_lua_table_from_query(raw_value)?
+                } else {
+                    input_selector_choices_from_query(&value)?
+                };
                 parsed_choices = true;
             }
             "alphabet" => {
@@ -48521,6 +48576,38 @@ mod tests {
         assert!(
             app.effective_window_title()
                 .contains("Pick Reply: Filter replies:")
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_input_selector_wezterm_action_choices_table_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Pick Reply\", choices = { { id = \"decline\", label = \"No thanks\" }, { label = \"LGTM\" } }, alphabet = \"ab\", description = \"Choose one:\" }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::InputSelector(WindowInputSelectorOptions {
+                title: "Pick Reply".to_owned(),
+                choices: vec![
+                    WindowInputSelectorChoice {
+                        label: "No thanks".to_owned(),
+                        id: Some("decline".to_owned()),
+                    },
+                    WindowInputSelectorChoice {
+                        label: "LGTM".to_owned(),
+                        id: None,
+                    },
+                ],
+                alphabet: Some("ab".to_owned()),
+                description: Some("Choose one:".to_owned()),
+                fuzzy_description: None,
+                fuzzy: false,
+            })]
         );
     }
 

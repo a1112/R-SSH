@@ -808,9 +808,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style
   `wezterm.action.InputSelector { title = ..., choices = "...", alphabet = ...,
   description = ..., fuzzy_description = ..., fuzzy = ... }` table-call queries
-  also dispatch that native field subset when `choices` uses the existing
-  semicolon-delimited string form. Lua `wezterm.action_callback` wiring remains
-  open.
+  also dispatch that native field subset when `choices` uses either the existing
+  semicolon-delimited string form or WezTerm's Lua table-of-tables choice form
+  with `{ label = ..., id = ... }` entries. Lua `wezterm.action_callback`
+  wiring remains open.
 - Native `Confirmation` action payloads now carry a message string, required Yes
   action, and optional No/cancel action. They open a modal confirmation overlay,
   dispatch typed native `accepted = true` events on Enter/`Y`/Space before
