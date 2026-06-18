@@ -784,7 +784,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   KeyAssignment values such as `wezterm.action.CopyTo 'Clipboard'`,
   `act.CopyTo('PrimarySelection')`, and
   `wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' }`, plus explicit
-  `Nop` KeyAssignments such as `wezterm.action.Nop` and `act.Nop()`. Arbitrary
+  `Nop` KeyAssignments such as `wezterm.action.Nop` and `act.Nop()`, and
+  destination-style `CompleteSelection`/`CompleteSelectionOrOpenLinkAtMouseCursor`
+  KeyAssignments such as `wezterm.action.CompleteSelection 'Clipboard'` and
+  `act.CompleteSelectionOrOpenLinkAtMouseCursor('PrimarySelection')`. Arbitrary
   custom callback actions remain open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use

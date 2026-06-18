@@ -21005,8 +21005,23 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
     if let Some(action) = quick_select_no_arg_key_assignment_action_from_value(action) {
         return Some(action);
     }
+    if let Some(action) = quick_select_complete_selection_action_from_value(action) {
+        return Some(action);
+    }
 
     copy_destination_command_from_query(action).map(WindowQuickSelectAction::CopyTo)
+}
+
+fn quick_select_complete_selection_action_from_value(
+    action: &str,
+) -> Option<WindowQuickSelectAction> {
+    match complete_selection_command_from_query(action)? {
+        WindowCommand::CompleteSelectionTo(destination)
+        | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(destination) => {
+            Some(WindowQuickSelectAction::CopyTo(destination))
+        }
+        _ => None,
+    }
 }
 
 fn quick_select_no_arg_key_assignment_action_from_value(
@@ -58560,6 +58575,73 @@ mod tests {
             assert_eq!(quick_select.matches.len(), 1);
             assert_eq!(quick_select.action, expected_action);
             assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_nested_complete_selection_actions() {
+        for (query, expected_action, expected_clipboard, expected_primary) in [
+            (
+                "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = wezterm.action.CompleteSelection 'Clipboard' })",
+                WindowQuickSelectAction::CopyTo(WindowCopyDestination::Clipboard),
+                vec!["ticket-1234"],
+                Vec::new(),
+            ),
+            (
+                "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = act.CompleteSelectionOrOpenLinkAtMouseCursor('PrimarySelection') }",
+                WindowQuickSelectAction::CopyTo(WindowCopyDestination::PrimarySelection),
+                Vec::new(),
+                vec!["ticket-1234"],
+            ),
+        ] {
+            let expected_options = WindowQuickSelectOptions {
+                patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                action: Some(expected_action),
+                ..WindowQuickSelectOptions::default()
+            };
+
+            assert_eq!(quick_select_options_from_query(query), expected_options);
+
+            let copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_copy = Arc::clone(&copied);
+            let primary_copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_primary = Arc::clone(&primary_copied);
+            let mut app = NativeWindowApp::new(None);
+            app.clipboard_writer = Box::new(move |text: &str| {
+                recorded_copy.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.primary_selection_writer = Box::new(move |text: &str| {
+                recorded_primary.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+            app.handle_pty_output(b"ticket-1234 https://default.test")
+                .unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::EnterQuickSelect]
+            );
+            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(quick_select.action, expected_action);
+            assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+            let label = quick_select.labels[0].clone();
+
+            assert!(app.handle_quick_select_logical_key(
+                &Key::Character(label.into()),
+                ModifiersState::empty()
+            ));
+
+            assert!(app.quick_select.is_none());
+            assert!(app.selection.is_none());
+            assert_eq!(copied.lock().unwrap().as_slice(), expected_clipboard);
+            assert_eq!(primary_copied.lock().unwrap().as_slice(), expected_primary);
         }
     }
 
