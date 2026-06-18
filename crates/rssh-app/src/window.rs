@@ -349,6 +349,16 @@ enum NativeAudibleBell {
     Disabled,
 }
 
+impl NativeAudibleBell {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "SystemBeep" => Some(Self::SystemBeep),
+            "Disabled" => Some(Self::Disabled),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 struct NativeCellWidth(u16);
@@ -430,12 +440,35 @@ enum NativeNotificationHandling {
     SuppressFromFocusedWindow,
 }
 
+impl NativeNotificationHandling {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "AlwaysShow" => Some(Self::AlwaysShow),
+            "NeverShow" => Some(Self::NeverShow),
+            "SuppressFromFocusedPane" => Some(Self::SuppressFromFocusedPane),
+            "SuppressFromFocusedTab" => Some(Self::SuppressFromFocusedTab),
+            "SuppressFromFocusedWindow" => Some(Self::SuppressFromFocusedWindow),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeVisualBellTarget {
     #[default]
     BackgroundColor,
     CursorColor,
+}
+
+impl NativeVisualBellTarget {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "BackgroundColor" => Some(Self::BackgroundColor),
+            "CursorColor" => Some(Self::CursorColor),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1270,6 +1303,27 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(term) = lua_config_string_assignment_from_query(config, "term") {
         overrides.term = Some(non_empty_spawn_command_option_value(&term).ok()?);
+        parsed = true;
+    }
+    if let Some(audible_bell) = lua_config_string_assignment_from_query(config, "audible_bell") {
+        overrides.audible_bell = Some(NativeAudibleBell::parse(&audible_bell)?);
+        parsed = true;
+    }
+    if let Some(visual_bell) = lua_config_table_assignment_from_query(config, "visual_bell") {
+        overrides.visual_bell = Some(native_visual_bell_lua_table_from_query(visual_bell)?);
+        parsed = true;
+    }
+    if let Some(colors) = lua_config_table_assignment_from_query(config, "colors")
+        && let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)?
+    {
+        overrides.visual_bell_color = Some(visual_bell_color);
+        parsed = true;
+    }
+    if let Some(notification_handling) =
+        lua_config_string_assignment_from_query(config, "notification_handling")
+    {
+        overrides.notification_handling =
+            Some(NativeNotificationHandling::parse(&notification_handling)?);
         parsed = true;
     }
     if let Some(environment) =
@@ -21794,6 +21848,85 @@ fn split_lua_table_environment_from_query(value: &str) -> Option<BTreeMap<String
         environment.insert(name, value);
     }
     Some(environment)
+}
+
+fn native_visual_bell_lua_table_from_query(value: &str) -> Option<NativeVisualBell> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut visual_bell = NativeVisualBell::default();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = field.split_once('=')?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "fade_in_duration_ms" => {
+                visual_bell.fade_in_duration_ms = lua_unsigned_integer_literal_from_query(value)?
+                    .parse()
+                    .ok()?;
+            }
+            "fade_out_duration_ms" => {
+                visual_bell.fade_out_duration_ms = lua_unsigned_integer_literal_from_query(value)?
+                    .parse()
+                    .ok()?;
+            }
+            "fade_in_function" => {
+                let value = parse_maybe_quoted_query_text(value)?;
+                visual_bell.fade_in_function = NativeEasingFunction::parse(&value)?;
+            }
+            "fade_out_function" => {
+                let value = parse_maybe_quoted_query_text(value)?;
+                visual_bell.fade_out_function = NativeEasingFunction::parse(&value)?;
+            }
+            "target" => {
+                let value = parse_maybe_quoted_query_text(value)?;
+                visual_bell.target = NativeVisualBellTarget::parse(&value)?;
+            }
+            _ => return None,
+        }
+    }
+
+    Some(visual_bell)
+}
+
+fn visual_bell_color_lua_table_from_query(value: &str) -> Option<Option<Color>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut visual_bell = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = field.split_once('=') else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != "visual_bell" {
+            continue;
+        }
+        if visual_bell.is_some() {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+        visual_bell = Some(lua_hex_color_from_query(&value)?);
+    }
+
+    Some(visual_bell)
+}
+
+fn lua_hex_color_from_query(value: &str) -> Option<Color> {
+    let hex = value.trim().strip_prefix('#')?;
+    if hex.len() != 6 || !hex.chars().all(|character| character.is_ascii_hexdigit()) {
+        return None;
+    }
+    let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+    let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+    let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+    Some(Color::Rgb(red, green, blue))
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
@@ -50339,6 +50472,65 @@ mod tests {
             NativeCursorStyle::BlinkingBar
         );
         assert!(effective.force_reverse_video_cursor);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_bell_and_notification_overrides() {
+        let audible_bells = Arc::new(Mutex::new(Vec::new()));
+        let recorded_audible = Arc::clone(&audible_bells);
+        let mut app = NativeWindowApp::new(None);
+        app.audible_bell_handler = Box::new(move |bell| {
+            recorded_audible.lock().unwrap().push(*bell);
+            true
+        });
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.audible_bell = 'Disabled'
+            config.visual_bell = {
+              fade_in_duration_ms = 0,
+              fade_out_duration_ms = 150,
+              fade_in_function = 'EaseIn',
+              fade_out_function = 'EaseOut',
+              target = 'BackgroundColor',
+            }
+            config.colors = {
+              visual_bell = '#010203',
+            }
+            config.notification_handling = 'SuppressFromFocusedWindow'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm bell/notification config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.audible_bell, NativeAudibleBell::Disabled);
+        assert_eq!(
+            effective.visual_bell,
+            NativeVisualBell {
+                fade_in_duration_ms: 0,
+                fade_out_duration_ms: 150,
+                fade_in_function: NativeEasingFunction::EaseIn,
+                fade_out_function: NativeEasingFunction::EaseOut,
+                target: NativeVisualBellTarget::BackgroundColor,
+            }
+        );
+        assert_eq!(effective.visual_bell_color, Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(
+            effective.notification_handling,
+            NativeNotificationHandling::SuppressFromFocusedWindow
+        );
+
+        app.handle_pty_output(b"\x1b[31mA\x07").unwrap();
+
+        assert!(audible_bells.lock().unwrap().is_empty());
+        let snapshot = app.render_snapshot();
+        let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
+        assert_eq!(cell.background, Color::Rgb(1, 2, 3));
     }
 
     #[test]
