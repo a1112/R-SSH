@@ -5026,19 +5026,7 @@ impl NativeWindowApp {
                 return Ok(());
             }
             WindowCommand::SendKey(send_key) => {
-                let text = send_key.text();
-                let bytes = encode_window_key_with_kitty_event(
-                    &send_key.key,
-                    PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
-                    text.as_deref(),
-                    send_key.modifiers,
-                    self.runtime.application_cursor_keys(),
-                    self.runtime.application_keypad(),
-                    self.effective_kitty_keyboard_flags(),
-                    self.runtime.modify_other_keys(),
-                    KittyKeyEventKind::Press,
-                );
-                if let Err(error) = self.write_pty_bytes(&bytes) {
+                if let Err(error) = self.send_key_to_active_pane(&send_key) {
                     eprintln!("send key failed: {error}");
                 }
                 return Ok(());
@@ -7040,7 +7028,36 @@ impl NativeWindowApp {
                     eprintln!("quick-select send-string failed: {error}");
                 }
             }
+            WindowQuickSelectAction::SendKey(send_key) => {
+                if paste {
+                    if let Err(error) = self.paste_selected_text_to_pane() {
+                        eprintln!("quick-select paste failed: {error}");
+                    }
+                }
+                if paste && skip_action_on_paste {
+                    return;
+                }
+                if let Err(error) = self.send_key_to_active_pane(&send_key) {
+                    eprintln!("quick-select send-key failed: {error}");
+                }
+            }
         }
+    }
+
+    fn send_key_to_active_pane(&mut self, send_key: &WindowSendKey) -> io::Result<()> {
+        let text = send_key.text();
+        let bytes = encode_window_key_with_kitty_event(
+            &send_key.key,
+            PhysicalKey::Unidentified(winit::keyboard::NativeKeyCode::Unidentified),
+            text.as_deref(),
+            send_key.modifiers,
+            self.runtime.application_cursor_keys(),
+            self.runtime.application_keypad(),
+            self.effective_kitty_keyboard_flags(),
+            self.runtime.modify_other_keys(),
+            KittyKeyEventKind::Press,
+        );
+        self.write_pty_bytes(&bytes)
     }
 
     fn enter_quick_select_mode(&mut self) {
@@ -15740,6 +15757,7 @@ enum WindowQuickSelectAction {
     Nop,
     PasteFrom(WindowPasteSource),
     SendString(String),
+    SendKey(WindowSendKey),
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -21042,6 +21060,10 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
     if let Some(WindowCommand::SendString(value)) = command_palette_structured_query_command(action)
     {
         return Some(WindowQuickSelectAction::SendString(value));
+    }
+    if let Some(WindowCommand::SendKey(send_key)) = command_palette_structured_query_command(action)
+    {
+        return Some(WindowQuickSelectAction::SendKey(send_key));
     }
 
     copy_destination_command_from_query(action).map(WindowQuickSelectAction::CopyTo)
@@ -58773,6 +58795,67 @@ mod tests {
             (
                 "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action { SendString = { string = 'delta' } } }",
                 b"delta".as_slice(),
+            ),
+        ] {
+            let written = Arc::new(Mutex::new(Vec::new()));
+            let copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_copy = Arc::clone(&copied);
+            let primary_copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_primary = Arc::clone(&primary_copied);
+            let mut app = NativeWindowApp::new(None);
+            app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+            app.clipboard_writer = Box::new(move |text: &str| {
+                recorded_copy.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.primary_selection_writer = Box::new(move |text: &str| {
+                recorded_primary.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+            app.handle_pty_output(b"ticket-1234 https://default.test")
+                .unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::EnterQuickSelect]
+            );
+            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+            let label = quick_select.labels[0].clone();
+
+            assert!(app.handle_quick_select_logical_key(
+                &Key::Character(label.into()),
+                ModifiersState::empty()
+            ));
+
+            assert!(app.quick_select.is_none());
+            assert!(app.selection.is_none());
+            assert_eq!(written.lock().unwrap().as_slice(), expected_written);
+            assert!(copied.lock().unwrap().is_empty());
+            assert!(primary_copied.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_nested_send_key_actions() {
+        for (query, expected_written) in [
+            (
+                "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = wezterm.action.SendKey { key = 'b', mods = 'ALT' } })",
+                b"\x1bb".as_slice(),
+            ),
+            (
+                "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = act.SendKey({ key = 'LeftArrow', mods = 'ALT' }) }",
+                b"\x1b[1;3D".as_slice(),
+            ),
+            (
+                "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action { SendKey = { key = 'b', mods = 'ALT' } } }",
+                b"\x1bb".as_slice(),
             ),
         ] {
             let written = Arc::new(Mutex::new(Vec::new()));
