@@ -1073,13 +1073,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   rendered selection highlights.
 - Command palette and native action payloads now expose WezTerm-style
   `SelectTextAtMouseCursor` and `ExtendSelectionToMouseCursor` for Cell, Word,
-  Line, and Block modes using the current mouse cell. Structured action-name
+  Line, Block, and SemanticZone modes using the current mouse cell. Structured
+  action-name
   queries `selecttextatmousecursor <mode>` and
   `extendselectiontomousecursor <mode>` dispatch the same typed payloads, as do
   WezTerm-style `wezterm.action.SelectTextAtMouseCursor '<mode>'` and
-  `wezterm.action.ExtendSelectionToMouseCursor '<mode>'` Lua action queries,
-  plus WezTerm-style `SelectTextAtMouseCursor` SemanticZone selection for the
-  OSC 133 semantic zone under the mouse.
+  `wezterm.action.ExtendSelectionToMouseCursor '<mode>'` Lua action queries.
+  SemanticZone selection and extension both use the OSC 133 semantic zone under
+  the mouse.
 - Command palette and native action payloads now expose WezTerm-style
   `ClearScrollback('ScrollbackOnly')`, clearing active-pane history on the
   output side while preserving the viewport. The structured command-palette

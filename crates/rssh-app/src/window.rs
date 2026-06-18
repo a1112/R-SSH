@@ -12392,7 +12392,7 @@ impl NativeWindowApp {
                 self.apply_window_title();
                 return true;
             }
-            WindowMouseSelectionMode::SemanticZone => None,
+            WindowMouseSelectionMode::SemanticZone => self.semantic_zone_selection_at_cell(cell),
         };
         let Some(target) = target else {
             return false;
@@ -43902,6 +43902,49 @@ mod tests {
             ))
         );
         assert_eq!(app.selected_text().as_deref(), Some("bcd\nhij\nnop"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_extend_selection_to_mouse_cursor_semantic_zone_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 4));
+        app.handle_pty_output(
+            b"ready\r\n\x1b]133;A\x07> \x1b]133;B\x07cargo test\r\n\x1b]133;C\x07ok",
+        )
+        .unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 1, column: 0 },
+            SelectionCell { row: 1, column: 1 },
+        ));
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 4),
+            f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT),
+        ))
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ExtendSelectionToMouseCursor('SemanticZone')".to_owned(),
+        );
+
+        let expected =
+            WindowCommand::ExtendSelectionToMouseCursor(WindowMouseSelectionMode::SemanticZone);
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 1, column: 0 },
+                SelectionCell { row: 1, column: 11 },
+            ))
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("> cargo test"));
         assert!(app.command_palette.is_none());
     }
 
