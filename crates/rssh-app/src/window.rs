@@ -21052,7 +21052,8 @@ fn activate_pane_direction_from_query(query: &str) -> Option<PaneDirection> {
     .and_then(parse_single_query_value)?;
     let direction =
         strip_query_prefix_from_any(direction, &["direction=", "direction "]).unwrap_or(direction);
-    pane_direction_from_query(direction)
+    let direction = parse_maybe_quoted_query_text(direction)?;
+    pane_direction_from_query(&direction)
 }
 
 fn pane_direction_from_query(direction: &str) -> Option<PaneDirection> {
@@ -59125,6 +59126,37 @@ mod tests {
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action.ActivatePaneDirection(\"Left\")".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ActivatePaneDirection(
+                rssh_core::app_shell::PaneDirection::Left
+            )]
+        );
+
+        app.command_palette_execute(WindowCommand::ActivatePaneDirection(
+            rssh_core::app_shell::PaneDirection::Left,
+        ));
+
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(1));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_activate_pane_direction_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.active_pane_id(), rssh_core::PaneId::new(2));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action { ActivatePaneDirection = 'Left' }".to_owned(),
+        );
 
         assert_eq!(
             app.command_palette_filtered_commands(),

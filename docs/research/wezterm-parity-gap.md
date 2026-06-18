@@ -1897,7 +1897,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `activatepanedirection <direction>` plus WezTerm-style
   `wezterm.action.ActivatePaneDirection '<direction>'` bare-string and
   `wezterm.action.ActivatePaneDirection("<direction>")` function-call queries
-  map Left/Right/Up/Down/Next/Prev to native direction payloads, while
+  plus `wezterm.action { ActivatePaneDirection = '<direction>' }` table-wrapper
+  queries map Left/Right/Up/Down/Next/Prev to native direction payloads, while
   action-name `activatepaneleft`, `activatepaneright`, `activatepaneup`,
   `activatepanedown`, `nextpane`, and `previouspane` queries dispatch the
   corresponding no-argument entries. Native
