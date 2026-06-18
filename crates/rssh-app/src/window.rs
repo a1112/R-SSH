@@ -1171,6 +1171,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.key_tables = Some(native_key_tables_lua_table_from_query(key_tables)?);
         parsed = true;
     }
+    if let Some(leader) = lua_config_table_assignment_from_query(config, "leader") {
+        overrides.leader = Some(native_leader_lua_table_from_query(leader)?);
+        parsed = true;
+    }
     if let Some(launch_menu) = lua_config_table_assignment_from_query(config, "launch_menu") {
         overrides.launch_menu = Some(native_launch_menu_lua_table_from_query(launch_menu)?);
         parsed = true;
@@ -1281,6 +1285,54 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
     }
 
     None
+}
+
+fn native_leader_lua_table_from_query(value: &str) -> Option<NativeLeaderKey> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut key = None;
+    let mut mods = None;
+    let mut timeout_milliseconds = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = field.split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = value.trim();
+        if name.eq_ignore_ascii_case("key") {
+            if key.is_some() {
+                return None;
+            }
+            key = Some(parse_maybe_quoted_query_text(value)?);
+        } else if name.eq_ignore_ascii_case("mods") {
+            if mods.is_some() {
+                return None;
+            }
+            mods = Some(parse_maybe_quoted_query_text(value)?);
+        } else if name.eq_ignore_ascii_case("timeout_milliseconds")
+            || name.eq_ignore_ascii_case("timeout-milliseconds")
+        {
+            if timeout_milliseconds.is_some() {
+                return None;
+            }
+            timeout_milliseconds = Some(value.parse().ok()?);
+        } else {
+            return None;
+        }
+    }
+
+    let key = non_empty_spawn_command_option_value(&key?).ok()?;
+    let mods = match mods {
+        Some(mods) => Some(non_empty_spawn_command_option_value(&mods).ok()?),
+        None => None,
+    };
+    let keys = mods.map_or(key.clone(), |mods| format!("{mods}+{key}"));
+    Some(NativeLeaderKey {
+        keys,
+        timeout_milliseconds,
+    })
 }
 
 fn native_launch_menu_lua_table_from_query(value: &str) -> Option<Vec<NativeLaunchMenuItem>> {
@@ -49369,6 +49421,55 @@ mod tests {
 
         assert_eq!(written.lock().unwrap().as_slice(), b"left");
         assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_leader_into_runtime_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 }
+
+            config.keys = {
+              {
+                key = '|',
+                mods = 'LEADER|SHIFT',
+                action = act.ShowDebugOverlay,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm leader config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert!(!app.debug_overlay_active_for_test());
+
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("|".into()),
+            PhysicalKey::Code(WinitKeyCode::Backslash),
+            Some("|"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
     }
 
     #[test]
