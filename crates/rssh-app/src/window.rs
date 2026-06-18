@@ -1697,6 +1697,36 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.quote_dropped_files = Some(NativeQuoteDroppedFiles::parse(&quote_dropped_files)?);
         parsed = true;
     }
+    if let Some(key_map_preference) =
+        lua_config_string_assignment_from_query(config, "key_map_preference")
+    {
+        overrides.key_map_preference = Some(NativeKeyMapPreference::parse(&key_map_preference)?);
+        parsed = true;
+    }
+    if let Some(swap_backspace_and_delete) =
+        lua_config_bool_assignment_from_query(config, "swap_backspace_and_delete")
+    {
+        overrides.swap_backspace_and_delete = Some(swap_backspace_and_delete);
+        parsed = true;
+    }
+    if let Some(enable_csi_u_key_encoding) =
+        lua_config_bool_assignment_from_query(config, "enable_csi_u_key_encoding")
+    {
+        overrides.enable_csi_u_key_encoding = Some(enable_csi_u_key_encoding);
+        parsed = true;
+    }
+    if let Some(enable_kitty_keyboard) =
+        lua_config_bool_assignment_from_query(config, "enable_kitty_keyboard")
+    {
+        overrides.enable_kitty_keyboard = Some(enable_kitty_keyboard);
+        parsed = true;
+    }
+    if let Some(allow_win32_input_mode) =
+        lua_config_bool_assignment_from_query(config, "allow_win32_input_mode")
+    {
+        overrides.allow_win32_input_mode = Some(allow_win32_input_mode);
+        parsed = true;
+    }
     if let Some(disable_default_key_bindings) =
         lua_config_bool_assignment_from_query(config, "disable_default_key_bindings")
     {
@@ -2451,6 +2481,16 @@ enum NativeKeyMapPreference {
     #[default]
     Mapped,
     Physical,
+}
+
+impl NativeKeyMapPreference {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Mapped" => Some(Self::Mapped),
+            "Physical" => Some(Self::Physical),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50585,6 +50625,37 @@ mod tests {
         app.handle_dropped_file_path(std::path::Path::new("hello ($world)"))
             .unwrap();
         assert_eq!(written.lock().unwrap().as_slice(), b"\"hello (\\$world)\"");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_keyboard_protocol_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.key_map_preference = 'Physical'
+            config.swap_backspace_and_delete = true
+            config.enable_csi_u_key_encoding = true
+            config.enable_kitty_keyboard = true
+            config.allow_win32_input_mode = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm keyboard protocol config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.key_map_preference,
+            NativeKeyMapPreference::Physical
+        );
+        assert!(effective.swap_backspace_and_delete);
+        assert!(effective.enable_csi_u_key_encoding);
+        assert!(effective.enable_kitty_keyboard);
+        assert!(!effective.allow_win32_input_mode);
     }
 
     #[test]
