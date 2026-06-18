@@ -572,6 +572,15 @@ enum NativeExitBehavior {
 }
 
 impl NativeExitBehavior {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Close" => Some(Self::Close),
+            "Hold" => Some(Self::Hold),
+            "CloseOnCleanExit" => Some(Self::CloseOnCleanExit),
+            _ => None,
+        }
+    }
+
     fn as_wezterm_config_value(self) -> &'static str {
         match self {
             Self::Close => "Close",
@@ -589,6 +598,18 @@ enum NativeExitBehaviorMessaging {
     Brief,
     Terse,
     None,
+}
+
+impl NativeExitBehaviorMessaging {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Verbose" => Some(Self::Verbose),
+            "Brief" => Some(Self::Brief),
+            "Terse" => Some(Self::Terse),
+            "None" => Some(Self::None),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1193,6 +1214,24 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.set_environment_variables =
             Some(split_lua_table_environment_from_query(environment)?);
+        parsed = true;
+    }
+    if let Some(exit_behavior) = lua_config_string_assignment_from_query(config, "exit_behavior") {
+        overrides.exit_behavior = Some(NativeExitBehavior::parse(&exit_behavior)?);
+        parsed = true;
+    }
+    if let Some(clean_exit_codes) =
+        lua_config_table_assignment_from_query(config, "clean_exit_codes")
+    {
+        overrides.clean_exit_codes = Some(split_lua_table_u32_array(clean_exit_codes)?);
+        parsed = true;
+    }
+    if let Some(exit_behavior_messaging) =
+        lua_config_string_assignment_from_query(config, "exit_behavior_messaging")
+    {
+        overrides.exit_behavior_messaging = Some(NativeExitBehaviorMessaging::parse(
+            &exit_behavior_messaging,
+        )?);
         parsed = true;
     }
     if let Some(keys) = lua_config_table_assignment_from_query(config, "keys") {
@@ -21319,6 +21358,35 @@ fn split_lua_table_string_array(value: &str) -> Option<Vec<String>> {
             .collect();
     }
     Some(values)
+}
+
+fn split_lua_table_u32_array(value: &str) -> Option<Vec<u32>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut indexed_values = BTreeMap::new();
+    let mut implicit_index = 1usize;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = field.split_once('=') {
+            if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
+                if index == 0 || indexed_values.contains_key(&index) {
+                    return None;
+                }
+                indexed_values.insert(index, value.trim().parse().ok()?);
+                continue;
+            }
+        }
+        if indexed_values.contains_key(&implicit_index) {
+            return None;
+        }
+        indexed_values.insert(implicit_index, field.parse().ok()?);
+        implicit_index += 1;
+    }
+    (1..=indexed_values.len())
+        .map(|index| indexed_values.remove(&index))
+        .collect()
 }
 
 fn split_lua_table_array_index_from_query(key: &str) -> Option<usize> {
@@ -49605,6 +49673,42 @@ mod tests {
             WindowSpawnTabDomain::DefaultDomain,
         )));
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_exit_behavior() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("tool"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.exit_behavior = 'CloseOnCleanExit'
+            config.clean_exit_codes = { 130, [2] = 143 }
+            config.exit_behavior_messaging = 'Brief'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm exit behavior config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.exit_behavior,
+            NativeExitBehavior::CloseOnCleanExit
+        );
+        assert_eq!(effective.clean_exit_codes, [130, 143]);
+        assert_eq!(
+            effective.exit_behavior_messaging,
+            NativeExitBehaviorMessaging::Brief
+        );
+
+        let close_window = app.apply_pane_exit_behavior(
+            rssh_core::PaneId::new(1),
+            &PtyExitStatus::from_exit_code(143),
+        );
+        assert!(close_window);
     }
 
     #[test]
