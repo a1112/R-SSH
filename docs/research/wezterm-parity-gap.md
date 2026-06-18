@@ -627,7 +627,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SpawnCommandInNewTab` and
   `SpawnCommandInNewWindow` action payloads now carry a WezTerm-style
   `SpawnCommand` `args`/`cwd`/`set_environment_variables` subset through the
-  same tab/window launch paths, accept the local-domain subset
+  same tab/window launch paths, accept and ignore the launch-menu-only `label`
+  field for key-assignment action parsing, accept the local-domain subset
   `CurrentPaneDomain`, `DefaultDomain`, and `DomainName("local")`, and
   `SpawnCommandInNewTab`/`SpawnCommandInNewWindow` accept both
   `wezterm.action.SpawnCommandInNewTab { ... }` and

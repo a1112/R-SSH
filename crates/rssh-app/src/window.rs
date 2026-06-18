@@ -20185,6 +20185,7 @@ fn spawn_command_table_from_query(
     let mut environment = BTreeMap::new();
     let mut domain = None;
     let mut window_position = None;
+    let mut label = None;
     for field in split_lua_table_top_level_fields(table)? {
         let field = field.trim();
         if field.is_empty() {
@@ -20204,6 +20205,12 @@ fn spawn_command_table_from_query(
             }
             let value = parse_maybe_quoted_query_text(value)?;
             cwd = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("label") {
+            if label.is_some() {
+                return None;
+            }
+            let value = parse_maybe_quoted_query_text(value)?;
+            label = Some(non_empty_spawn_command_option_value(&value).ok()?);
         } else if key.eq_ignore_ascii_case("set_environment_variables")
             || key.eq_ignore_ascii_case("set-environment-variables")
         {
@@ -20248,6 +20255,7 @@ fn spawn_command_table_options_from_query(
 ) -> Option<WindowSpawnCommandQueryOptions> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowSpawnCommandQueryOptions::default();
+    let mut label = None;
     for field in split_lua_table_top_level_fields(table)? {
         let field = field.trim();
         if field.is_empty() {
@@ -20264,6 +20272,12 @@ fn spawn_command_table_options_from_query(
             }
             let value = parse_maybe_quoted_query_text(value)?;
             options.cwd = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("label") {
+            if label.is_some() {
+                return None;
+            }
+            let value = parse_maybe_quoted_query_text(value)?;
+            label = Some(non_empty_spawn_command_option_value(&value).ok()?);
         } else if key.eq_ignore_ascii_case("set_environment_variables")
             || key.eq_ignore_ascii_case("set-environment-variables")
         {
@@ -43834,6 +43848,60 @@ mod tests {
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_label_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewTab { label = \"System Monitor\", cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_options_label_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewTab { label = \"Project Shell\", cwd = \"C:/Project Dir\" }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "powershell");
+        assert_eq!(launch.args(), ["-NoProfile"]);
         assert_eq!(launch.cwd(), Some("C:/Project Dir"));
         assert!(app.command_palette.is_none());
     }
