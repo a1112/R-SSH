@@ -12100,7 +12100,9 @@ impl NativeWindowApp {
                 self.scroll_to_bottom_and_exit_copy_mode();
                 true
             }
+            WindowCopyModeAssignment::ClearPattern => self.clear_search_pattern(),
             WindowCopyModeAssignment::ClearSelectionMode => self.clear_copy_mode_selection_mode(),
+            WindowCopyModeAssignment::CycleMatchType => self.cycle_search_match_type(),
             WindowCopyModeAssignment::MoveBackwardSemanticZone => {
                 self.move_copy_mode_by_semantic_zone(-1, None)
             }
@@ -12151,7 +12153,11 @@ impl NativeWindowApp {
             WindowCopyModeAssignment::MoveToViewportTop => self.move_copy_mode_to_viewport_top(),
             WindowCopyModeAssignment::MoveUp => self.move_copy_mode_cursor(-1, 0),
             WindowCopyModeAssignment::NextMatch => self.step_search(SearchDirection::Next),
+            WindowCopyModeAssignment::NextMatchPage => self.step_search_page(SearchDirection::Next),
             WindowCopyModeAssignment::PriorMatch => self.step_search(SearchDirection::Previous),
+            WindowCopyModeAssignment::PriorMatchPage => {
+                self.step_search_page(SearchDirection::Previous)
+            }
             WindowCopyModeAssignment::SetSelectionMode(mode) => {
                 self.set_copy_mode_selection_mode(mode)
             }
@@ -13066,6 +13072,20 @@ impl NativeWindowApp {
 
     fn update_search_query(&mut self, query: &str) -> bool {
         self.update_search_query_with_direction(query, SearchDirection::Next)
+    }
+
+    fn clear_search_pattern(&mut self) -> bool {
+        if self.search.is_none() {
+            return false;
+        }
+
+        let direction = if self.copy_mode.is_some() {
+            self.copy_mode_search_direction()
+        } else {
+            SearchDirection::Next
+        };
+        self.update_search_query_with_direction("", direction);
+        true
     }
 
     fn cycle_search_match_type(&mut self) -> bool {
@@ -15867,7 +15887,9 @@ enum WindowCopyWordMovement {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WindowCopyModeAssignment {
     Close,
+    ClearPattern,
     ClearSelectionMode,
+    CycleMatchType,
     MoveBackwardSemanticZone,
     MoveBackwardWord,
     MoveDown,
@@ -15889,7 +15911,9 @@ enum WindowCopyModeAssignment {
     MoveToViewportTop,
     MoveUp,
     NextMatch,
+    NextMatchPage,
     PriorMatch,
+    PriorMatchPage,
     SetSelectionMode(WindowCopySelectionMode),
 }
 
@@ -16635,12 +16659,15 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
         return None;
     }
 
-    let (name, value) = field.split_once('=')?;
-    let name = split_lua_table_key_from_query(name.trim())?;
-    match normalized_action_name_query(&name).as_str() {
-        "setselectionmode" => copy_mode_selection_mode_from_query(value)
-            .map(WindowCopyModeAssignment::SetSelectionMode),
-        _ => None,
+    if let Some((name, value)) = field.split_once('=') {
+        let name = split_lua_table_key_from_query(name.trim())?;
+        match normalized_action_name_query(&name).as_str() {
+            "setselectionmode" => copy_mode_selection_mode_from_query(value)
+                .map(WindowCopyModeAssignment::SetSelectionMode),
+            _ => None,
+        }
+    } else {
+        copy_mode_assignment_name_from_query(field)
     }
 }
 
@@ -16648,7 +16675,9 @@ fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAss
     let value = parse_maybe_quoted_query_text(value)?;
     match normalized_action_name_query(&value).as_str() {
         "close" => Some(WindowCopyModeAssignment::Close),
+        "clearpattern" => Some(WindowCopyModeAssignment::ClearPattern),
         "clearselectionmode" => Some(WindowCopyModeAssignment::ClearSelectionMode),
+        "cyclematchtype" => Some(WindowCopyModeAssignment::CycleMatchType),
         "movebackwardsemanticzone" => Some(WindowCopyModeAssignment::MoveBackwardSemanticZone),
         "movebackwardword" => Some(WindowCopyModeAssignment::MoveBackwardWord),
         "movedown" => Some(WindowCopyModeAssignment::MoveDown),
@@ -16672,7 +16701,9 @@ fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAss
         "movetoviewporttop" => Some(WindowCopyModeAssignment::MoveToViewportTop),
         "moveup" => Some(WindowCopyModeAssignment::MoveUp),
         "nextmatch" => Some(WindowCopyModeAssignment::NextMatch),
+        "nextmatchpage" => Some(WindowCopyModeAssignment::NextMatchPage),
         "priormatch" => Some(WindowCopyModeAssignment::PriorMatch),
+        "priormatchpage" => Some(WindowCopyModeAssignment::PriorMatchPage),
         _ => None,
     }
 }
@@ -40471,6 +40502,43 @@ mod tests {
     }
 
     #[test]
+    fn window_copy_mode_dispatches_wezterm_lua_table_name_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"abcd\r\nefgh").unwrap();
+
+        app.enter_copy_mode();
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { SetSelectionMode = 'Cell' }",
+        )
+        .expect("expected CopyMode SetSelectionMode query");
+        app.command_palette_apply_command(command)
+            .expect("copy mode assignment should dispatch");
+        assert!(matches!(
+            app.copy_mode
+                .as_ref()
+                .map(|copy_mode| copy_mode.selection_mode),
+            Some(super::WindowCopySelectionMode::Cell)
+        ));
+        assert!(app.selection.is_some());
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { 'ClearSelectionMode' }",
+        )
+        .expect("expected CopyMode table name assignment query");
+        app.command_palette_apply_command(command)
+            .expect("copy mode assignment should dispatch");
+
+        assert!(matches!(
+            app.copy_mode
+                .as_ref()
+                .map(|copy_mode| copy_mode.selection_mode),
+            Some(super::WindowCopySelectionMode::None)
+        ));
+        assert!(app.selection.is_none());
+    }
+
+    #[test]
     fn window_copy_mode_alt_m_uses_line_content_start_binding() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
@@ -40766,6 +40834,99 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn window_copy_mode_search_dispatches_wezterm_page_match_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.handle_pty_output(b"foo 0\r\nfoo 1\r\nfoo 2\r\nfoo 3\r\nfoo 4")
+            .unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["f", "o", "o"] {
+            assert!(
+                app.handle_copy_mode_key(
+                    &Key::Character(character.into()),
+                    ModifiersState::empty()
+                )
+            );
+        }
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'NextMatchPage'",
+        )
+        .expect("expected CopyMode NextMatchPage assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode NextMatchPage should dispatch");
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 2   ");
+        assert_eq!(
+            app.copy_mode
+                .as_ref()
+                .map(|copy_mode| (copy_mode.source_cursor.row, copy_mode.source_cursor.column)),
+            Some((3, 0))
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'PriorMatchPage'",
+        )
+        .expect("expected CopyMode PriorMatchPage assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode PriorMatchPage should dispatch");
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 0 })
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_search_dispatches_wezterm_pattern_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.handle_pty_output(b"foo\r\nFOO\r\nfao").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["f", "o", "o"] {
+            assert!(
+                app.handle_copy_mode_key(
+                    &Key::Character(character.into()),
+                    ModifiersState::empty()
+                )
+            );
+        }
+        assert_eq!(
+            app.search.as_ref().map(|search| search.match_type),
+            Some(WindowSearchMatchType::CaseSensitive)
+        );
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo     ");
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'CycleMatchType'",
+        )
+        .expect("expected CopyMode CycleMatchType assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode CycleMatchType should dispatch");
+        assert_eq!(
+            app.search.as_ref().map(|search| search.match_type),
+            Some(WindowSearchMatchType::CaseInsensitive)
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'ClearPattern'",
+        )
+        .expect("expected CopyMode ClearPattern assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode ClearPattern should dispatch");
+        assert_eq!(
+            app.search.as_ref().map(|search| search.query.as_str()),
+            Some("")
+        );
+        assert!(app.selection.is_none());
+        assert!(app.copy_mode.is_some());
     }
 
     #[test]
