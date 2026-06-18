@@ -622,6 +622,18 @@ enum NativeCanonicalizePastedNewlines {
     CarriageReturnAndLineFeed,
 }
 
+impl NativeCanonicalizePastedNewlines {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "None" => Some(Self::None),
+            "LineFeed" => Some(Self::LineFeed),
+            "CarriageReturn" => Some(Self::CarriageReturn),
+            "CarriageReturnAndLineFeed" => Some(Self::CarriageReturnAndLineFeed),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeQuoteDroppedFiles {
@@ -631,6 +643,19 @@ enum NativeQuoteDroppedFiles {
     Posix,
     Windows,
     WindowsAlwaysQuoted,
+}
+
+impl NativeQuoteDroppedFiles {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "None" => Some(Self::None),
+            "SpacesOnly" => Some(Self::SpacesOnly),
+            "Posix" => Some(Self::Posix),
+            "Windows" => Some(Self::Windows),
+            "WindowsAlwaysQuoted" => Some(Self::WindowsAlwaysQuoted),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1214,6 +1239,47 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.set_environment_variables =
             Some(split_lua_table_environment_from_query(environment)?);
+        parsed = true;
+    }
+    if let Some(canonicalize_pasted_newlines) =
+        lua_config_string_assignment_from_query(config, "canonicalize_pasted_newlines")
+    {
+        overrides.canonicalize_pasted_newlines = Some(NativeCanonicalizePastedNewlines::parse(
+            &canonicalize_pasted_newlines,
+        )?);
+        parsed = true;
+    } else if let Some(canonicalize_pasted_newlines) =
+        lua_config_bool_assignment_from_query(config, "canonicalize_pasted_newlines")
+    {
+        overrides.canonicalize_pasted_newlines = Some(if canonicalize_pasted_newlines {
+            NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
+        } else {
+            NativeCanonicalizePastedNewlines::None
+        });
+        parsed = true;
+    }
+    if let Some(quote_dropped_files) =
+        lua_config_string_assignment_from_query(config, "quote_dropped_files")
+    {
+        overrides.quote_dropped_files = Some(NativeQuoteDroppedFiles::parse(&quote_dropped_files)?);
+        parsed = true;
+    }
+    if let Some(disable_default_key_bindings) =
+        lua_config_bool_assignment_from_query(config, "disable_default_key_bindings")
+    {
+        overrides.disable_default_key_bindings = Some(disable_default_key_bindings);
+        parsed = true;
+    }
+    if let Some(disable_default_mouse_bindings) =
+        lua_config_bool_assignment_from_query(config, "disable_default_mouse_bindings")
+    {
+        overrides.disable_default_mouse_bindings = Some(disable_default_mouse_bindings);
+        parsed = true;
+    }
+    if let Some(hide_mouse_cursor_when_typing) =
+        lua_config_bool_assignment_from_query(config, "hide_mouse_cursor_when_typing")
+    {
+        overrides.hide_mouse_cursor_when_typing = Some(hide_mouse_cursor_when_typing);
         parsed = true;
     }
     if let Some(scroll_to_bottom_on_input) =
@@ -49723,6 +49789,51 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_paste_and_input_overrides() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.clipboard_reader = Box::new(|| Some("paste\ntext".to_owned()));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.canonicalize_pasted_newlines = 'CarriageReturnAndLineFeed'
+            config.quote_dropped_files = 'Posix'
+            config.disable_default_key_bindings = true
+            config.disable_default_mouse_bindings = true
+            config.hide_mouse_cursor_when_typing = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm paste/input config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.canonicalize_pasted_newlines,
+            NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
+        );
+        assert_eq!(
+            effective.quote_dropped_files,
+            NativeQuoteDroppedFiles::Posix
+        );
+        assert!(effective.disable_default_key_bindings);
+        assert!(effective.disable_default_mouse_bindings);
+        assert!(!effective.hide_mouse_cursor_when_typing);
+
+        app.command_palette_execute(WindowCommand::PasteFrom(WindowPasteSource::Clipboard));
+        assert_eq!(written.lock().unwrap().as_slice(), b"paste\r\ntext");
+        written.lock().unwrap().clear();
+
+        app.handle_dropped_file_path(std::path::Path::new("hello ($world)"))
+            .unwrap();
+        assert_eq!(written.lock().unwrap().as_slice(), b"\"hello (\\$world)\"");
     }
 
     #[test]
