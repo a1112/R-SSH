@@ -796,8 +796,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and `wezterm.action { SendString = { string = 'text' } }`, plus `SendKey`
   KeyAssignments such as `wezterm.action.SendKey { key = 'b', mods = 'ALT' }`,
   `act.SendKey({ key = 'LeftArrow', mods = 'ALT' })`, and
-  `wezterm.action { SendKey = { key = 'b', mods = 'ALT' } }`. Arbitrary custom
-  callback actions remain open.
+  `wezterm.action { SendKey = { key = 'b', mods = 'ALT' } }`, plus
+  `EmitEvent` KeyAssignments such as `wezterm.action.EmitEvent 'name'`,
+  `act.EmitEvent({ name = 'name' })`, and
+  `wezterm.action { EmitEvent = { name = 'name' } }`. Arbitrary custom callback
+  actions remain open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
   WezTerm's `"> "` default prompt when `prompt` is omitted, submit `Some(line)`
