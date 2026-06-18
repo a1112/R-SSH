@@ -13635,6 +13635,14 @@ impl NativeWindowApp {
             }
             WindowCopyModeAssignment::MoveToViewportTop => self.move_copy_mode_to_viewport_top(),
             WindowCopyModeAssignment::MoveUp => self.move_copy_mode_cursor(-1, 0),
+            WindowCopyModeAssignment::PageDown => {
+                let page = isize::try_from(self.runtime.terminal().grid().size().rows).unwrap_or(0);
+                self.move_copy_mode_cursor_by_lines(page)
+            }
+            WindowCopyModeAssignment::PageUp => {
+                let page = isize::try_from(self.runtime.terminal().grid().size().rows).unwrap_or(0);
+                self.move_copy_mode_cursor_by_lines(-page)
+            }
             WindowCopyModeAssignment::NextMatch => self.step_search(SearchDirection::Next),
             WindowCopyModeAssignment::NextMatchPage => self.step_search_page(SearchDirection::Next),
             WindowCopyModeAssignment::PriorMatch => self.step_search(SearchDirection::Previous),
@@ -17517,6 +17525,8 @@ enum WindowCopyModeAssignment {
     MoveToViewportMiddle,
     MoveToViewportTop,
     MoveUp,
+    PageDown,
+    PageUp,
     NextMatch,
     NextMatchPage,
     PriorMatch,
@@ -18310,6 +18320,8 @@ fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAss
         "movetoviewportmiddle" => Some(WindowCopyModeAssignment::MoveToViewportMiddle),
         "movetoviewporttop" => Some(WindowCopyModeAssignment::MoveToViewportTop),
         "moveup" => Some(WindowCopyModeAssignment::MoveUp),
+        "pagedown" => Some(WindowCopyModeAssignment::PageDown),
+        "pageup" => Some(WindowCopyModeAssignment::PageUp),
         "nextmatch" => Some(WindowCopyModeAssignment::NextMatch),
         "nextmatchpage" => Some(WindowCopyModeAssignment::NextMatchPage),
         "priormatch" => Some(WindowCopyModeAssignment::PriorMatch),
@@ -42146,6 +42158,44 @@ mod tests {
         );
 
         assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageDown), ModifiersState::empty()));
+        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
+        assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 1, column: 2 })
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_page_movement_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee\r\nff")
+            .unwrap();
+
+        app.enter_copy_mode();
+
+        let command =
+            super::command_palette_structured_query_command("wezterm.action.CopyMode 'PageUp'")
+                .expect("expected CopyMode PageUp assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode PageUp should dispatch");
+
+        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "dd  ");
+        assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ee  ");
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 2 })
+        );
+
+        let command =
+            super::command_palette_structured_query_command("wezterm.action.CopyMode 'PageDown'")
+                .expect("expected CopyMode PageDown assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode PageDown should dispatch");
+
         assert_eq!(app.scrollback_offset, 0);
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
         assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
