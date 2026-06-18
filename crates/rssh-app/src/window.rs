@@ -20965,6 +20965,9 @@ fn quick_select_action_from_value(action: &str) -> Option<WindowQuickSelectActio
     {
         return copy_destination_from_query(destination).map(WindowQuickSelectAction::CopyTo);
     }
+    if let Some(action) = quick_select_key_assignment_action_from_value(action) {
+        return Some(action);
+    }
     let normalized = action
         .chars()
         .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
@@ -20983,6 +20986,36 @@ fn quick_select_action_from_value(action: &str) -> Option<WindowQuickSelectActio
         "openuri" | "openurl" => Some(WindowQuickSelectAction::OpenUri),
         _ => None,
     }
+}
+
+fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQuickSelectAction> {
+    if let Some(action) = quick_select_wrapped_key_assignment_action_from_value(action) {
+        return Some(action);
+    }
+
+    let action = strip_wezterm_action_prefix(action).unwrap_or(action);
+    copy_destination_command_from_query(action).map(WindowQuickSelectAction::CopyTo)
+}
+
+fn quick_select_wrapped_key_assignment_action_from_value(
+    action: &str,
+) -> Option<WindowQuickSelectAction> {
+    let table = strip_wezterm_action_table_wrapper_from_query(action)?;
+    let mut fields = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty());
+    let field = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+
+    let (name, value) = field.split_once('=')?;
+    let name = split_lua_table_key_from_query(name.trim())?;
+    if !normalized_action_name_query(&name).eq_ignore_ascii_case("copyto") {
+        return None;
+    }
+    copy_destination_from_query(value).map(WindowQuickSelectAction::CopyTo)
 }
 
 fn quick_select_action_query_text(query: &str) -> Option<String> {
@@ -58460,6 +58493,52 @@ mod tests {
         assert_eq!(quick_select.action, WindowQuickSelectAction::OpenUri);
         assert!(quick_select.skip_action_on_paste);
         assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_quick_select_args_wezterm_nested_copy_action_queries() {
+        for (query, expected_action) in [
+            (
+                "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = wezterm.action.CopyTo 'Clipboard' })",
+                WindowQuickSelectAction::CopyTo(WindowCopyDestination::Clipboard),
+            ),
+            (
+                "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = act.CopyTo('PrimarySelection') }",
+                WindowQuickSelectAction::CopyTo(WindowCopyDestination::PrimarySelection),
+            ),
+            (
+                "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' } }",
+                WindowQuickSelectAction::CopyTo(
+                    WindowCopyDestination::ClipboardAndPrimarySelection,
+                ),
+            ),
+        ] {
+            let expected_options = WindowQuickSelectOptions {
+                patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                action: Some(expected_action),
+                ..WindowQuickSelectOptions::default()
+            };
+
+            assert_eq!(quick_select_options_from_query(query), expected_options);
+
+            let mut app = NativeWindowApp::new(None);
+            app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+            app.handle_pty_output(b"ticket-1234 https://default.test")
+                .unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::EnterQuickSelect]
+            );
+            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(quick_select.action, expected_action);
+            assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        }
     }
 
     #[test]

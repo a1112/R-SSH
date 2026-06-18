@@ -780,7 +780,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   queries dispatch that default entry.
   WezTerm-style `wezterm.action.QuickSelectArgs { patterns = { ... },
   alphabet = ..., label = ... }` Lua table calls parse the same native options
-  subset. Arbitrary custom callback actions remain open.
+  subset, and the `action` field now accepts nested implemented `CopyTo`
+  KeyAssignment values such as `wezterm.action.CopyTo 'Clipboard'`,
+  `act.CopyTo('PrimarySelection')`, and
+  `wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' }`. Arbitrary
+  custom callback actions remain open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
   WezTerm's `"> "` default prompt when `prompt` is omitted, submit `Some(line)`
