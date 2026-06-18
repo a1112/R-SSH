@@ -487,6 +487,20 @@ enum NativeCursorStyle {
     BlinkingBar,
 }
 
+impl NativeCursorStyle {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "SteadyBlock" => Some(Self::SteadyBlock),
+            "BlinkingBlock" => Some(Self::BlinkingBlock),
+            "SteadyUnderline" => Some(Self::SteadyUnderline),
+            "BlinkingUnderline" => Some(Self::BlinkingUnderline),
+            "SteadyBar" => Some(Self::SteadyBar),
+            "BlinkingBar" => Some(Self::BlinkingBar),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 struct NativeCubicBezier {
@@ -507,6 +521,20 @@ enum NativeEasingFunction {
     EaseOut,
     EaseInOut,
     CubicBezier(NativeCubicBezier),
+}
+
+impl NativeEasingFunction {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Constant" => Some(Self::Constant),
+            "Linear" => Some(Self::Linear),
+            "Ease" => Some(Self::Ease),
+            "EaseIn" => Some(Self::EaseIn),
+            "EaseOut" => Some(Self::EaseOut),
+            "EaseInOut" => Some(Self::EaseInOut),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1251,6 +1279,64 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(split_lua_table_environment_from_query(environment)?);
         parsed = true;
     }
+    if let Some(font_size) = lua_config_f32_assignment_from_query(config, "font_size") {
+        overrides.font_size = Some(native_font_size_from_points(font_size)?);
+        parsed = true;
+    }
+    if let Some(cell_width) = lua_config_f32_assignment_from_query(config, "cell_width") {
+        overrides.cell_width = Some(native_cell_width_from_ratio(cell_width)?);
+        parsed = true;
+    }
+    if let Some(line_height) = lua_config_f32_assignment_from_query(config, "line_height") {
+        overrides.line_height = Some(native_line_height_from_ratio(line_height)?);
+        parsed = true;
+    }
+    if let Some(initial_cols) = lua_config_usize_assignment_from_query(config, "initial_cols") {
+        overrides.initial_cols = Some(u16::try_from(initial_cols).ok()?);
+        parsed = true;
+    }
+    if let Some(initial_rows) = lua_config_usize_assignment_from_query(config, "initial_rows") {
+        overrides.initial_rows = Some(u16::try_from(initial_rows).ok()?);
+        parsed = true;
+    }
+    if let Some(adjust_window_size_when_changing_font_size) =
+        lua_config_bool_assignment_from_query(config, "adjust_window_size_when_changing_font_size")
+    {
+        overrides.adjust_window_size_when_changing_font_size =
+            Some(adjust_window_size_when_changing_font_size);
+        parsed = true;
+    }
+    if let Some(cursor_blink_rate) =
+        lua_config_usize_assignment_from_query(config, "cursor_blink_rate")
+    {
+        overrides.cursor_blink_rate_ms = Some(u64::try_from(cursor_blink_rate).ok()?);
+        parsed = true;
+    }
+    if let Some(cursor_blink_ease_in) =
+        lua_config_string_assignment_from_query(config, "cursor_blink_ease_in")
+    {
+        overrides.cursor_blink_ease_in = Some(NativeEasingFunction::parse(&cursor_blink_ease_in)?);
+        parsed = true;
+    }
+    if let Some(cursor_blink_ease_out) =
+        lua_config_string_assignment_from_query(config, "cursor_blink_ease_out")
+    {
+        overrides.cursor_blink_ease_out =
+            Some(NativeEasingFunction::parse(&cursor_blink_ease_out)?);
+        parsed = true;
+    }
+    if let Some(default_cursor_style) =
+        lua_config_string_assignment_from_query(config, "default_cursor_style")
+    {
+        overrides.default_cursor_style = Some(NativeCursorStyle::parse(&default_cursor_style)?);
+        parsed = true;
+    }
+    if let Some(force_reverse_video_cursor) =
+        lua_config_bool_assignment_from_query(config, "force_reverse_video_cursor")
+    {
+        overrides.force_reverse_video_cursor = Some(force_reverse_video_cursor);
+        parsed = true;
+    }
     if let Some(status_update_interval) =
         lua_config_usize_assignment_from_query(config, "status_update_interval")
     {
@@ -1560,6 +1646,12 @@ fn lua_config_usize_assignment_from_query(source: &str, field: &str) -> Option<u
 }
 
 #[allow(dead_code)]
+fn lua_config_f32_assignment_from_query(source: &str, field: &str) -> Option<f32> {
+    lua_config_assignment_from_query(source, field, lua_unsigned_number_literal_from_query)
+        .and_then(|value| value.parse().ok())
+}
+
+#[allow(dead_code)]
 fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> Option<&'a str> {
     lua_config_assignment_from_query(source, field, lua_braced_table_literal_from_query)
 }
@@ -1647,6 +1739,62 @@ fn lua_unsigned_integer_literal_from_query(query: &str) -> Option<&str> {
     let next = rest.chars().next();
     (!next.is_some_and(is_lua_identifier_character) && !query[..end].is_empty())
         .then_some(&query[..end])
+}
+
+#[allow(dead_code)]
+fn lua_unsigned_number_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    let mut end = 0;
+    let mut digits = 0;
+    let mut decimal_seen = false;
+
+    for (index, character) in query.char_indices() {
+        if character.is_ascii_digit() {
+            digits += 1;
+            end = index + character.len_utf8();
+        } else if character == '.' && !decimal_seen {
+            decimal_seen = true;
+            end = index + character.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    if digits == 0 {
+        return None;
+    }
+
+    let rest = &query[end..];
+    let next = rest.chars().next();
+    (!next.is_some_and(is_lua_identifier_character) && next != Some('.')).then_some(&query[..end])
+}
+
+#[allow(dead_code)]
+fn native_font_size_from_points(points: f32) -> Option<NativeFontSize> {
+    if !points.is_finite() || points <= 0.0 {
+        return None;
+    }
+    let millipoints = (points * 1_000.0).round();
+    (millipoints <= u32::MAX as f32).then(|| NativeFontSize::from_millipoints(millipoints as u32))
+}
+
+#[allow(dead_code)]
+fn native_cell_width_from_ratio(ratio: f32) -> Option<NativeCellWidth> {
+    native_ratio_to_per_mille(ratio).map(NativeCellWidth::from_per_mille)
+}
+
+#[allow(dead_code)]
+fn native_line_height_from_ratio(ratio: f32) -> Option<NativeLineHeight> {
+    native_ratio_to_per_mille(ratio).map(NativeLineHeight::from_per_mille)
+}
+
+#[allow(dead_code)]
+fn native_ratio_to_per_mille(ratio: f32) -> Option<u16> {
+    if !ratio.is_finite() || ratio <= 0.0 {
+        return None;
+    }
+    let per_mille = (ratio * 1_000.0).round();
+    (per_mille <= f32::from(u16::MAX)).then_some(per_mille as u16)
 }
 
 #[allow(dead_code)]
@@ -50139,6 +50287,58 @@ mod tests {
         assert!(effective.disable_default_quick_select_patterns);
         assert!(effective.quick_select_remove_styling);
         assert_eq!(effective.selection_word_boundary, " :");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_and_cursor_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_size = 13.5
+            config.cell_width = 1.25
+            config.line_height = 1.5
+            config.initial_cols = 100
+            config.initial_rows = 30
+            config.adjust_window_size_when_changing_font_size = false
+            config.cursor_blink_rate = 375
+            config.cursor_blink_ease_in = 'EaseIn'
+            config.cursor_blink_ease_out = 'EaseOut'
+            config.default_cursor_style = 'BlinkingBar'
+            config.force_reverse_video_cursor = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font/cursor config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_size,
+            NativeFontSize::from_millipoints(13_500)
+        );
+        assert_eq!(effective.cell_width, NativeCellWidth::from_per_mille(1_250));
+        assert_eq!(
+            effective.line_height,
+            NativeLineHeight::from_per_mille(1_500)
+        );
+        assert_eq!(effective.initial_cols, 100);
+        assert_eq!(effective.initial_rows, 30);
+        assert!(!effective.adjust_window_size_when_changing_font_size);
+        assert_eq!(effective.cursor_blink_rate_ms, 375);
+        assert_eq!(effective.cursor_blink_ease_in, NativeEasingFunction::EaseIn);
+        assert_eq!(
+            effective.cursor_blink_ease_out,
+            NativeEasingFunction::EaseOut
+        );
+        assert_eq!(
+            effective.default_cursor_style,
+            NativeCursorStyle::BlinkingBar
+        );
+        assert!(effective.force_reverse_video_cursor);
     }
 
     #[test]
