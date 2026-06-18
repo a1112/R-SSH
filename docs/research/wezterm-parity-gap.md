@@ -629,7 +629,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SpawnCommand` `args`/`cwd`/`set_environment_variables` subset through the
   same tab/window launch paths, accept and ignore the launch-menu-only `label`
   field for key-assignment action parsing, accept the local-domain subset
-  `CurrentPaneDomain`, `DefaultDomain`, and `DomainName("local")`, and
+  `CurrentPaneDomain`, `DefaultDomain`, and `DomainName("local")` including
+  the WezTerm `domain = { DomainName = "local" }` table form, and
   `SpawnCommandInNewTab`/`SpawnCommandInNewWindow` accept both
   `wezterm.action.SpawnCommandInNewTab { ... }` and
   `wezterm.action.SpawnCommandInNewTab({ ... })`-style Lua table action forms.

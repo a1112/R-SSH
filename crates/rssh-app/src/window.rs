@@ -22175,6 +22175,9 @@ fn spawn_command_domain_from_query(domain: &str) -> Option<WindowSpawnTabDomain>
     if domain.is_empty() {
         return None;
     }
+    if domain.starts_with('{') {
+        return spawn_tab_domain_lua_table_from_query(domain);
+    }
     let normalized = domain
         .chars()
         .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
@@ -43849,6 +43852,32 @@ mod tests {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-d", "1"]);
         assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_domain_name_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewTab { domain = { DomainName = \"local\" }, args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
         assert!(app.command_palette.is_none());
     }
 
