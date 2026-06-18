@@ -6423,6 +6423,10 @@ impl NativeWindowApp {
                 self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::Block);
                 return Ok(());
             }
+            WindowCommand::ExtendSelectionToMouseCursorSemanticZone => {
+                self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::SemanticZone);
+                return Ok(());
+            }
             WindowCommand::ExtendSelectionToMouseCursor(mode) => {
                 self.extend_selection_to_mouse_cursor(mode);
                 return Ok(());
@@ -26056,6 +26060,7 @@ enum WindowCommand {
     ExtendSelectionToMouseCursorWord,
     ExtendSelectionToMouseCursorLine,
     ExtendSelectionToMouseCursorBlock,
+    ExtendSelectionToMouseCursorSemanticZone,
     #[allow(dead_code)]
     ExtendSelectionToMouseCursor(WindowMouseSelectionMode),
     SplitDown,
@@ -26371,6 +26376,9 @@ impl WindowCommand {
             Self::ExtendSelectionToMouseCursorWord => "Extend Selection To Mouse Cursor Word",
             Self::ExtendSelectionToMouseCursorLine => "Extend Selection To Mouse Cursor Line",
             Self::ExtendSelectionToMouseCursorBlock => "Extend Selection To Mouse Cursor Block",
+            Self::ExtendSelectionToMouseCursorSemanticZone => {
+                "Extend Selection To Mouse Cursor Semantic Zone"
+            }
             Self::ExtendSelectionToMouseCursor(_) => "Extend Selection To Mouse Cursor",
             Self::SetPaneZoomState(_) => "Set Pane Zoom State",
             Self::TogglePaneZoomState | Self::TogglePaneZoom => "Toggle Pane Zoom State",
@@ -27354,6 +27362,7 @@ const WINDOW_COMMANDS: &[WindowCommand] = &[
     WindowCommand::ExtendSelectionToMouseCursorWord,
     WindowCommand::ExtendSelectionToMouseCursorLine,
     WindowCommand::ExtendSelectionToMouseCursorBlock,
+    WindowCommand::ExtendSelectionToMouseCursorSemanticZone,
     WindowCommand::CompleteSelection,
     WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursor,
     WindowCommand::OpenLinkAtMouseCursor,
@@ -46073,6 +46082,10 @@ mod tests {
             "Extend Selection To Mouse Cursor Block"
         );
         assert_eq!(
+            WindowCommand::ExtendSelectionToMouseCursorSemanticZone.label(),
+            "Extend Selection To Mouse Cursor Semantic Zone"
+        );
+        assert_eq!(
             WindowCommand::ExtendSelectionToMouseCursor(WindowMouseSelectionMode::Block).label(),
             "Extend Selection To Mouse Cursor"
         );
@@ -46096,6 +46109,14 @@ mod tests {
 
             assert_eq!(app.command_palette_filtered_commands(), vec![expected]);
         }
+    }
+
+    #[test]
+    fn window_app_exposes_palette_extend_selection_to_mouse_cursor_semantic_zone_command() {
+        assert!(
+            super::WINDOW_COMMANDS
+                .contains(&WindowCommand::ExtendSelectionToMouseCursorSemanticZone)
+        );
     }
 
     #[test]
