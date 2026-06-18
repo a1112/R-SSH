@@ -562,6 +562,16 @@ enum NativeWindowCloseConfirmation {
     NeverPrompt,
 }
 
+impl NativeWindowCloseConfirmation {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "AlwaysPrompt" => Some(Self::AlwaysPrompt),
+            "NeverPrompt" => Some(Self::NeverPrompt),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeExitBehavior {
@@ -1397,6 +1407,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.quit_when_all_windows_are_closed = Some(quit_when_all_windows_are_closed);
         parsed = true;
     }
+    if let Some(window_close_confirmation) =
+        lua_config_string_assignment_from_query(config, "window_close_confirmation")
+    {
+        overrides.window_close_confirmation = Some(NativeWindowCloseConfirmation::parse(
+            &window_close_confirmation,
+        )?);
+        parsed = true;
+    }
     if let Some(show_close_tab_button_in_tabs) =
         lua_config_bool_assignment_from_query(config, "show_close_tab_button_in_tabs")
     {
@@ -1419,6 +1437,17 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "show_tabs_in_tab_bar")
     {
         overrides.show_tabs_in_tab_bar = Some(show_tabs_in_tab_bar);
+        parsed = true;
+    }
+    if let Some(skip_close_confirmation_for_processes_named) =
+        lua_config_table_assignment_from_query(
+            config,
+            "skip_close_confirmation_for_processes_named",
+        )
+    {
+        overrides.skip_close_confirmation_for_processes_named = Some(split_lua_table_string_array(
+            skip_close_confirmation_for_processes_named,
+        )?);
         parsed = true;
     }
     if let Some(exit_behavior) = lua_config_string_assignment_from_query(config, "exit_behavior") {
@@ -50020,6 +50049,39 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert!(logs[0].contains("INFO key_event"));
         assert!(logs[0].contains("key: Character(\"x\")"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_close_confirmation_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_close_confirmation = 'NeverPrompt'
+            config.skip_close_confirmation_for_processes_named = { 'top', 'cmd.exe' }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm close confirmation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.window_close_confirmation,
+            NativeWindowCloseConfirmation::NeverPrompt
+        );
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            ["top".to_owned(), "cmd.exe".to_owned()]
+        );
+
+        app.handle_window_close_requested();
+
+        assert!(app.window_close_requested_for_test());
+        assert!(app.close_confirmation.is_none());
     }
 
     #[test]
