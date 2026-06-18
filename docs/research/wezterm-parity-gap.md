@@ -1133,9 +1133,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ActivateLastTab()`, `wezterm.action.ShowTabNavigator()`, and
   `wezterm.action.ToggleFullScreen()` now normalize through the same no-argument
   command-palette action table as their bare action-name forms. Generic
-  `wezterm.action { ActionName = {} }` empty-table wrappers such as
-  `wezterm.action { ReloadConfiguration = {} }` also dispatch through the same
-  no-argument action path.
+  `wezterm.action { ActionName = {} }` empty-table wrappers, including
+  whitespace-only empty tables such as `wezterm.action({ ToggleFullScreen =
+  { } })`, also dispatch through the same no-argument action path.
 - WezTerm-style close-current table actions now accept parenthesized Lua table
   calls such as `wezterm.action.CloseCurrentPane({ confirm = false })` and
   `wezterm.action.CloseCurrentTab({ confirm = true })`, in addition to the

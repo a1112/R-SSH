@@ -17806,11 +17806,19 @@ fn wezterm_action_table_wrapper_command(query: &str) -> Option<WindowCommand> {
         return None;
     }
 
-    if value == "{}" {
+    if is_empty_lua_table_query(value) {
         return basic_no_arg_action_name_command(&normalized_action_name_query(&name));
     }
 
     command_palette_structured_query_command_inner(&format!("{name}={value}"))
+}
+
+fn is_empty_lua_table_query(value: &str) -> bool {
+    value
+        .trim()
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+        .is_some_and(|value| value.trim().is_empty())
 }
 
 fn strip_wezterm_action_table_wrapper_from_query(query: &str) -> Option<&str> {
@@ -54030,6 +54038,10 @@ mod tests {
             ),
             (
                 "wezterm.action.ToggleFullScreen()",
+                WindowCommand::ToggleFullScreen,
+            ),
+            (
+                "wezterm.action({ ToggleFullScreen = { } })",
                 WindowCommand::ToggleFullScreen,
             ),
         ] {
