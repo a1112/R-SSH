@@ -940,6 +940,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   default launch. Nested `rename tab <title>` and
   `rename workspace <name>` queries now retain their explicit payloads instead
   of falling back to generated rename labels when sequenced in `Multiple`.
+  Nested pane-select shortcut queries now also retain their explicit alphabet,
+  mode, and show-pane-ids options instead of falling back to the effective
+  quick-select alphabet or default activate-mode display.
 - Command palette now exposes WezTerm-style `ReloadConfiguration`, and the
   default `Ctrl+Shift+R` shortcut dispatches the same typed native
   `window-config-reloaded` hook with the window id and active pane id.

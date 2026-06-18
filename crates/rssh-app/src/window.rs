@@ -17148,6 +17148,9 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
     {
         return Some(WindowCommand::SplitPane(split_pane));
     }
+    if let Some(options) = pane_select_nested_options_from_query(query) {
+        return Some(WindowCommand::PaneSelect(options));
+    }
     if let Some(args) = show_launcher_args_from_query(query) {
         return Some(WindowCommand::ShowLauncherArgs(args));
     }
@@ -17173,6 +17176,42 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
     }
     close_current_command_from_query(query)
         .or_else(|| command_palette_structured_query_command(query))
+}
+
+fn pane_select_nested_options_from_query(query: &str) -> Option<WindowPaneSelectOptions> {
+    if let Some(options) = pane_select_options_from_query(query) {
+        return Some(options);
+    }
+    if let Some(query) = pane_select_mode_show_pane_ids_from_query(query) {
+        return Some(WindowPaneSelectOptions {
+            mode: query.mode,
+            show_pane_ids: true,
+            alphabet: query.alphabet,
+        });
+    }
+    if let Some(query) = pane_select_mode_alphabet_from_query(query) {
+        return Some(WindowPaneSelectOptions {
+            mode: query.mode,
+            show_pane_ids: false,
+            alphabet: Some(query.alphabet),
+        });
+    }
+    if let Some(alphabet) = pane_select_show_pane_ids_alphabet_from_query(query)
+        .or_else(|| pane_select_activate_show_pane_ids_alphabet_from_query(query))
+    {
+        return Some(WindowPaneSelectOptions {
+            mode: WindowPaneSelectMode::Activate,
+            show_pane_ids: true,
+            alphabet: Some(alphabet),
+        });
+    }
+    pane_select_alphabet_from_query(query)
+        .or_else(|| pane_select_activate_alphabet_from_query(query))
+        .map(|alphabet| WindowPaneSelectOptions {
+            mode: WindowPaneSelectMode::Activate,
+            show_pane_ids: false,
+            alphabet: Some(alphabet),
+        })
 }
 
 fn multiple_commands_from_query(query: &str) -> Option<Vec<WindowCommand>> {
@@ -52465,6 +52504,71 @@ mod tests {
         assert!(app.command_palette_execute(command));
 
         assert_eq!(app.app_shell.active_workspace().name(), "deploy-west");
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_multiple_nested_pane_select_alphabet_query_applies_explicit_alphabet() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            quick_select_alphabet: Some("xy".to_owned()),
+            ..NativeConfigOverrides::default()
+        });
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("Multiple pane select alphabet 12 ; NoP".to_owned());
+        let command = app.command_palette_filtered_commands().remove(0);
+
+        assert!(app.command_palette_execute(command));
+
+        let pane_select = app
+            .pane_select
+            .as_ref()
+            .expect("pane select should be active");
+        assert_eq!(pane_select.labels[0].label, "1");
+        assert_eq!(pane_select.labels[0].pane_id, rssh_core::PaneId::new(1));
+        assert_eq!(pane_select.labels[1].label, "2");
+        assert_eq!(pane_select.labels[1].pane_id, rssh_core::PaneId::new(2));
+        assert!(!pane_select.show_pane_ids);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_multiple_nested_pane_select_mode_show_ids_query_applies_explicit_options() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            quick_select_alphabet: Some("xy".to_owned()),
+            ..NativeConfigOverrides::default()
+        });
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "Multiple pane select swap show pane ids alphabet 12 ; NoP".to_owned(),
+        );
+        let command = app.command_palette_filtered_commands().remove(0);
+
+        assert!(app.command_palette_execute(command));
+
+        let pane_select = app
+            .pane_select
+            .as_ref()
+            .expect("pane select should be active");
+        assert_eq!(pane_select.mode, WindowPaneSelectMode::SwapWithActive);
+        assert!(pane_select.show_pane_ids);
+        assert_eq!(pane_select.labels[0].label, "1");
+        assert_eq!(pane_select.labels[1].label, "2");
         assert!(app.command_palette.is_none());
     }
 
