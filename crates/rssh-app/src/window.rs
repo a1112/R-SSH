@@ -12105,9 +12105,11 @@ impl NativeWindowApp {
                 self.scroll_to_bottom_and_exit_copy_mode();
                 true
             }
+            WindowCopyModeAssignment::AcceptPattern => self.set_search_pattern_editing(false),
             WindowCopyModeAssignment::ClearPattern => self.clear_search_pattern(),
             WindowCopyModeAssignment::ClearSelectionMode => self.clear_copy_mode_selection_mode(),
             WindowCopyModeAssignment::CycleMatchType => self.cycle_search_match_type(),
+            WindowCopyModeAssignment::EditPattern => self.set_search_pattern_editing(true),
             WindowCopyModeAssignment::MoveBackwardSemanticZone => {
                 self.move_copy_mode_by_semantic_zone(-1, None)
             }
@@ -12861,6 +12863,9 @@ impl NativeWindowApp {
                 let Some(search) = self.search.as_ref() else {
                     return true;
                 };
+                if !search.editing {
+                    return true;
+                }
                 let mut query = search.query.clone();
                 query.pop();
                 let direction = self.copy_mode_search_direction();
@@ -12888,6 +12893,12 @@ impl NativeWindowApp {
             Key::Character(character)
                 if modifiers.control_key() && character.eq_ignore_ascii_case("u") =>
             {
+                let Some(search) = self.search.as_ref() else {
+                    return true;
+                };
+                if !search.editing {
+                    return true;
+                }
                 let direction = self.copy_mode_search_direction();
                 self.update_search_query_with_direction("", direction);
                 true
@@ -12896,6 +12907,9 @@ impl NativeWindowApp {
                 let Some(search) = self.search.as_ref() else {
                     return true;
                 };
+                if !search.editing {
+                    return true;
+                }
                 let mut query = search.query.clone();
                 query.push_str(text);
                 let direction = self.copy_mode_search_direction();
@@ -13097,6 +13111,20 @@ impl NativeWindowApp {
         true
     }
 
+    fn set_search_pattern_editing(&mut self, editing: bool) -> bool {
+        let Some(search) = self.search.as_mut() else {
+            return false;
+        };
+
+        if search.editing == editing {
+            return true;
+        }
+        search.editing = editing;
+        self.refresh_snapshot();
+        self.apply_window_title();
+        true
+    }
+
     fn cycle_search_match_type(&mut self) -> bool {
         let Some(search) = self.search.as_ref() else {
             return false;
@@ -13126,10 +13154,12 @@ impl NativeWindowApp {
         direction: SearchDirection,
         match_type: WindowSearchMatchType,
     ) -> bool {
+        let editing = self.search.as_ref().map_or(true, |search| search.editing);
         let mut search = WindowSearch {
             query: query.to_owned(),
             current: None,
             match_type,
+            editing,
         };
 
         if query.is_empty() {
@@ -15985,10 +16015,12 @@ enum WindowCopyWordMovement {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WindowCopyModeAssignment {
+    AcceptPattern,
     Close,
     ClearPattern,
     ClearSelectionMode,
     CycleMatchType,
+    EditPattern,
     MoveBackwardSemanticZone,
     MoveBackwardWord,
     MoveDown,
@@ -16773,10 +16805,12 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
 fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
     let value = parse_maybe_quoted_query_text(value)?;
     match normalized_action_name_query(&value).as_str() {
+        "acceptpattern" => Some(WindowCopyModeAssignment::AcceptPattern),
         "close" => Some(WindowCopyModeAssignment::Close),
         "clearpattern" => Some(WindowCopyModeAssignment::ClearPattern),
         "clearselectionmode" => Some(WindowCopyModeAssignment::ClearSelectionMode),
         "cyclematchtype" => Some(WindowCopyModeAssignment::CycleMatchType),
+        "editpattern" => Some(WindowCopyModeAssignment::EditPattern),
         "movebackwardsemanticzone" => Some(WindowCopyModeAssignment::MoveBackwardSemanticZone),
         "movebackwardword" => Some(WindowCopyModeAssignment::MoveBackwardWord),
         "movedown" => Some(WindowCopyModeAssignment::MoveDown),
@@ -25728,11 +25762,23 @@ impl WindowCommandPalette {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct WindowSearch {
     query: String,
     current: Option<WindowSearchMatch>,
     match_type: WindowSearchMatchType,
+    editing: bool,
+}
+
+impl Default for WindowSearch {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            current: None,
+            match_type: WindowSearchMatchType::default(),
+            editing: true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -41072,6 +41118,52 @@ mod tests {
     }
 
     #[test]
+    fn window_copy_mode_search_dispatches_wezterm_edit_pattern_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"foo\r\nfoobar").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["f", "o", "o"] {
+            assert!(
+                app.handle_copy_mode_key(
+                    &Key::Character(character.into()),
+                    ModifiersState::empty()
+                )
+            );
+        }
+        assert_eq!(
+            app.search.as_ref().map(|search| search.query.as_str()),
+            Some("foo")
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'AcceptPattern'",
+        )
+        .expect("expected CopyMode AcceptPattern assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode AcceptPattern should dispatch");
+        assert!(app.handle_copy_mode_key(&Key::Character("x".into()), ModifiersState::empty()));
+        assert_eq!(
+            app.search.as_ref().map(|search| search.query.as_str()),
+            Some("foo")
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'EditPattern'",
+        )
+        .expect("expected CopyMode EditPattern assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode EditPattern should dispatch");
+        assert!(app.handle_copy_mode_key(&Key::Character("b".into()), ModifiersState::empty()));
+        assert_eq!(
+            app.search.as_ref().map(|search| search.query.as_str()),
+            Some("foob")
+        );
+    }
+
+    #[test]
     fn window_copy_mode_search_carriage_return_uses_prior_match_binding() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
@@ -41655,6 +41747,7 @@ mod tests {
             query: "alpha".to_owned(),
             match_type: WindowSearchMatchType::CaseSensitive,
             current: None,
+            editing: true,
         });
         app.handle_cursor_moved(PhysicalPosition::new(
             f64::from(super::CELL_WIDTH * 6),
