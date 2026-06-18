@@ -13588,6 +13588,9 @@ impl NativeWindowApp {
             WindowCopyModeAssignment::EditPattern => self.set_search_pattern_editing(true),
             WindowCopyModeAssignment::JumpAgain => self.repeat_copy_mode_jump(false),
             WindowCopyModeAssignment::JumpReverse => self.repeat_copy_mode_jump(true),
+            WindowCopyModeAssignment::StartJump { forward, prev_char } => {
+                self.start_copy_mode_jump(forward, prev_char)
+            }
             WindowCopyModeAssignment::MoveBackwardSemanticZone => {
                 self.move_copy_mode_by_semantic_zone(-1, None)
             }
@@ -17513,6 +17516,7 @@ enum WindowCopyModeAssignment {
     EditPattern,
     JumpAgain,
     JumpReverse,
+    StartJump { forward: bool, prev_char: bool },
     MoveBackwardSemanticZone,
     MoveBackwardWord,
     MoveDown,
@@ -18291,6 +18295,8 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
         match normalized_action_name_query(&name).as_str() {
             "movebypage" => scroll_by_page_amount_from_query(value.trim())
                 .map(WindowCopyModeAssignment::MoveByPage),
+            "jumpforward" => copy_mode_jump_assignment_lua_table_from_query(value, true),
+            "jumpbackward" => copy_mode_jump_assignment_lua_table_from_query(value, false),
             "setselectionmode" => copy_mode_selection_mode_from_query(value)
                 .map(WindowCopyModeAssignment::SetSelectionMode),
             _ => None,
@@ -18298,6 +18304,33 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
     } else {
         copy_mode_assignment_name_from_query(field)
     }
+}
+
+fn copy_mode_jump_assignment_lua_table_from_query(
+    value: &str,
+    forward: bool,
+) -> Option<WindowCopyModeAssignment> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut prev_char = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let (name, value) = field.trim().split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        match normalized_action_name_query(&name).as_str() {
+            "prevchar" => {
+                if prev_char.is_some() {
+                    return None;
+                }
+                prev_char = Some(bool_from_query(value.trim())?);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(WindowCopyModeAssignment::StartJump {
+        forward,
+        prev_char: prev_char.unwrap_or(false),
+    })
 }
 
 fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
@@ -42766,6 +42799,42 @@ mod tests {
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 0, column: 2 })
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_jump_start_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"abacad").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("0".into()), ModifiersState::empty()));
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { JumpForward = { prev_char = false } }",
+        )
+        .expect("expected CopyMode JumpForward assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode JumpForward should dispatch");
+        assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
+
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 2 })
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { JumpBackward = { prev_char = true } }",
+        )
+        .expect("expected CopyMode JumpBackward assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode JumpBackward should dispatch");
+        assert!(app.handle_copy_mode_key(&Key::Character("a".into()), ModifiersState::empty()));
+
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 0, column: 1 })
         );
     }
 

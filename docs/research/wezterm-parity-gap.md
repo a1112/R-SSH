@@ -1700,6 +1700,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `MoveByPage = +/-0.5` assignment values dispatch the same copy-mode page
   movement path as the default copy-mode keys. `JumpAgain` and `JumpReverse`
   assignment values reuse the same repeat/reverse jump path as `;` and `,`.
+  `JumpForward = { prev_char = ... }` and
+  `JumpBackward = { prev_char = ... }` assignment tables start the same
+  target-character jump flow as `f`/`t`/`F`/`T`.
   Single-name Lua table forms such as
   `wezterm.action.CopyMode { 'ClearSelectionMode' }` now reuse the same
   assignment parser. `AcceptPattern` and `EditPattern` now toggle whether
