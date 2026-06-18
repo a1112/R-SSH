@@ -1136,6 +1136,241 @@ struct NativeConfigOverrides {
     show_tabs_in_tab_bar: Option<bool>,
 }
 
+#[allow(dead_code)]
+fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<NativeConfigOverrides> {
+    let mut overrides = NativeConfigOverrides::default();
+    let mut parsed = false;
+
+    if let Some(keys) = lua_config_table_assignment_from_query(config, "keys") {
+        overrides.key_assignments = Some(native_key_assignments_lua_table_from_query(keys)?);
+        parsed = true;
+    }
+    if let Some(key_tables) = lua_config_table_assignment_from_query(config, "key_tables") {
+        overrides.key_tables = Some(native_key_tables_lua_table_from_query(key_tables)?);
+        parsed = true;
+    }
+
+    parsed.then_some(overrides)
+}
+
+#[allow(dead_code)]
+fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> Option<&'a str> {
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+
+    for (index, character) in source.char_indices() {
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if source[index..].starts_with(field)
+            && lua_config_assignment_field_has_boundaries(source, index, field)
+        {
+            let rest = source[index + field.len()..].trim_start();
+            if let Some(rest) = rest.strip_prefix('=') {
+                if let Some(table) = lua_braced_table_literal_from_query(rest.trim_start()) {
+                    return Some(table);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+#[allow(dead_code)]
+fn lua_config_assignment_field_has_boundaries(source: &str, start: usize, field: &str) -> bool {
+    let before = source[..start].chars().next_back();
+    let after = source[start + field.len()..].chars().next();
+    !before.is_some_and(is_lua_identifier_character)
+        && !after.is_some_and(is_lua_identifier_character)
+}
+
+#[allow(dead_code)]
+fn is_lua_identifier_character(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_'
+}
+
+#[allow(dead_code)]
+fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    if !query.starts_with('{') {
+        return None;
+    }
+
+    let mut depth = 0u32;
+    let mut quote = None;
+    let mut escape = false;
+    for (index, character) in query.char_indices() {
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return query.get(..index + character.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn native_key_tables_lua_table_from_query(
+    value: &str,
+) -> Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut key_tables = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = field.split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        if key_tables.contains_key(&name) {
+            return None;
+        }
+        key_tables.insert(
+            name,
+            native_key_assignments_lua_table_from_query(value.trim())?,
+        );
+    }
+
+    Some(key_tables)
+}
+
+fn native_key_assignments_lua_table_from_query(
+    value: &str,
+) -> Option<Vec<NativeUserKeyAssignment>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut assignments = Vec::new();
+    let mut indexed_assignments = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = field.split_once('=')
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !assignments.is_empty() || index == 0 || indexed_assignments.contains_key(&index) {
+                return None;
+            }
+            indexed_assignments.insert(
+                index,
+                native_user_key_assignment_lua_table_from_query(value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_assignments.is_empty() {
+            return None;
+        }
+        assignments.push(native_user_key_assignment_lua_table_from_query(field)?);
+    }
+
+    if !indexed_assignments.is_empty() {
+        return (1..=indexed_assignments.len())
+            .map(|index| indexed_assignments.remove(&index))
+            .collect();
+    }
+
+    Some(assignments)
+}
+
+fn native_user_key_assignment_lua_table_from_query(value: &str) -> Option<NativeUserKeyAssignment> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut key = None;
+    let mut mods = None;
+    let mut command = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = field.split_once('=')?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = value.trim();
+        match name.to_ascii_lowercase().as_str() {
+            "key" => {
+                if key.is_some() {
+                    return None;
+                }
+                key = Some(parse_maybe_quoted_query_text(value)?);
+            }
+            "mods" | "mod" => {
+                if mods.is_some() {
+                    return None;
+                }
+                mods = Some(parse_maybe_quoted_query_text(value)?);
+            }
+            "action" => {
+                if command.is_some() {
+                    return None;
+                }
+                command = Some(command_palette_structured_query_command(value)?);
+            }
+            _ => return None,
+        }
+    }
+
+    let key = key.filter(|key| !key.is_empty())?;
+    let keys = match mods {
+        Some(mods) if !mods.eq_ignore_ascii_case("NONE") => format!("{mods}+{key}"),
+        _ => key,
+    };
+
+    Some(NativeUserKeyAssignment {
+        keys,
+        command: command?,
+    })
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeKeyMapPreference {
@@ -48972,6 +49207,63 @@ mod tests {
 
         assert!(!app.expire_key_table_stack_if_due(Instant::now()));
         assert_eq!(app.active_key_table_for_test(), Some("repeatable"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_tables_into_runtime_assignments() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local keys = 'not the config keys table'
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              resize_pane = {
+                { key = 'h', action = act.SendString 'left' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"left");
+        assert_eq!(app.active_key_table_for_test(), None);
     }
 
     #[test]
