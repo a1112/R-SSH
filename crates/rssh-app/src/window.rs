@@ -1149,6 +1149,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.key_tables = Some(native_key_tables_lua_table_from_query(key_tables)?);
         parsed = true;
     }
+    if let Some(launch_menu) = lua_config_table_assignment_from_query(config, "launch_menu") {
+        overrides.launch_menu = Some(native_launch_menu_lua_table_from_query(launch_menu)?);
+        parsed = true;
+    }
 
     parsed.then_some(overrides)
 }
@@ -1255,6 +1259,70 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
     }
 
     None
+}
+
+fn native_launch_menu_lua_table_from_query(value: &str) -> Option<Vec<NativeLaunchMenuItem>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut items = Vec::new();
+    let mut indexed_items = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = field.split_once('=')
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !items.is_empty() || index == 0 || indexed_items.contains_key(&index) {
+                return None;
+            }
+            indexed_items.insert(
+                index,
+                native_launch_menu_item_lua_table_from_query(value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_items.is_empty() {
+            return None;
+        }
+        items.push(native_launch_menu_item_lua_table_from_query(field)?);
+    }
+
+    if !indexed_items.is_empty() {
+        return (1..=indexed_items.len())
+            .map(|index| indexed_items.remove(&index))
+            .collect();
+    }
+
+    Some(items)
+}
+
+fn native_launch_menu_item_lua_table_from_query(value: &str) -> Option<NativeLaunchMenuItem> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut label = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = field.split_once('=')?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key.eq_ignore_ascii_case("label") {
+            if label.is_some() {
+                return None;
+            }
+            let value = parse_maybe_quoted_query_text(value.trim())?;
+            label = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        }
+    }
+
+    Some(NativeLaunchMenuItem {
+        label,
+        command: spawn_command_table_from_query(value, false)?,
+    })
 }
 
 fn native_key_tables_lua_table_from_query(
@@ -49264,6 +49332,59 @@ mod tests {
 
         assert_eq!(written.lock().unwrap().as_slice(), b"left");
         assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_into_launcher_entries() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'System Monitor',
+                args = { 'top', '-H' },
+                cwd = '/tmp/project',
+                set_environment_variables = {
+                  LAUNCH_MENU = '1',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::launch_menu_items(),
+                title: Some("Pick Launch".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        app.command_palette_set_query("monitor".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "System Monitor");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-H"]);
+        assert_eq!(launch.cwd(), Some("/tmp/project"));
+        assert_eq!(
+            launch.environment().get("LAUNCH_MENU"),
+            Some(&"1".to_owned())
+        );
+        assert!(app.command_palette.is_none());
     }
 
     #[test]
