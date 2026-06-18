@@ -1703,6 +1703,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `JumpForward = { prev_char = ... }` and
   `JumpBackward = { prev_char = ... }` assignment tables start the same
   target-character jump flow as `f`/`t`/`F`/`T`.
+  `MoveForwardSemanticZoneOfType = 'Input'` and
+  `MoveBackwardSemanticZoneOfType = 'Prompt'` assignment values reuse the
+  typed OSC 133 semantic-zone movement path.
   Single-name Lua table forms such as
   `wezterm.action.CopyMode { 'ClearSelectionMode' }` now reuse the same
   assignment parser. `AcceptPattern` and `EditPattern` now toggle whether

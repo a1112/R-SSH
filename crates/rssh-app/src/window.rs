@@ -13594,6 +13594,10 @@ impl NativeWindowApp {
             WindowCopyModeAssignment::MoveBackwardSemanticZone => {
                 self.move_copy_mode_by_semantic_zone(-1, None)
             }
+            WindowCopyModeAssignment::MoveSemanticZoneOfType {
+                delta,
+                semantic_type,
+            } => self.move_copy_mode_by_semantic_zone(delta, Some(semantic_type)),
             WindowCopyModeAssignment::MoveBackwardWord => {
                 self.move_copy_mode_by_word(WindowCopyWordMovement::Backward)
             }
@@ -17516,8 +17520,15 @@ enum WindowCopyModeAssignment {
     EditPattern,
     JumpAgain,
     JumpReverse,
-    StartJump { forward: bool, prev_char: bool },
+    StartJump {
+        forward: bool,
+        prev_char: bool,
+    },
     MoveBackwardSemanticZone,
+    MoveSemanticZoneOfType {
+        delta: isize,
+        semantic_type: SemanticType,
+    },
     MoveBackwardWord,
     MoveDown,
     MoveForwardSemanticZone,
@@ -18297,6 +18308,22 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
                 .map(WindowCopyModeAssignment::MoveByPage),
             "jumpforward" => copy_mode_jump_assignment_lua_table_from_query(value, true),
             "jumpbackward" => copy_mode_jump_assignment_lua_table_from_query(value, false),
+            "moveforwardsemanticzoneoftype" => {
+                copy_mode_semantic_zone_type_from_query(value).map(|semantic_type| {
+                    WindowCopyModeAssignment::MoveSemanticZoneOfType {
+                        delta: 1,
+                        semantic_type,
+                    }
+                })
+            }
+            "movebackwardsemanticzoneoftype" => {
+                copy_mode_semantic_zone_type_from_query(value).map(|semantic_type| {
+                    WindowCopyModeAssignment::MoveSemanticZoneOfType {
+                        delta: -1,
+                        semantic_type,
+                    }
+                })
+            }
             "setselectionmode" => copy_mode_selection_mode_from_query(value)
                 .map(WindowCopyModeAssignment::SetSelectionMode),
             _ => None,
@@ -18331,6 +18358,16 @@ fn copy_mode_jump_assignment_lua_table_from_query(
         forward,
         prev_char: prev_char.unwrap_or(false),
     })
+}
+
+fn copy_mode_semantic_zone_type_from_query(value: &str) -> Option<SemanticType> {
+    let value = parse_maybe_quoted_query_text(value)?;
+    match normalized_action_name_query(&value).as_str() {
+        "input" => Some(SemanticType::Input),
+        "output" => Some(SemanticType::Output),
+        "prompt" => Some(SemanticType::Prompt),
+        _ => None,
+    }
 }
 
 fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
@@ -41981,6 +42018,46 @@ mod tests {
             &Key::Character("I".into()),
             ModifiersState::ALT | ModifiersState::SHIFT
         ));
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 1, column: 2 })
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_semantic_zone_type_assignment_queries() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(12, 4));
+        app.handle_pty_output(
+            b"ready\r\n\x1b]133;A\x07> \x1b]133;B\x07ls -l\r\n\x1b]133;C\x07file.txt",
+        )
+        .unwrap();
+
+        app.enter_copy_mode();
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 2, column: 8 })
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { MoveBackwardSemanticZoneOfType = 'Prompt' }",
+        )
+        .expect("expected CopyMode backward semantic-zone type assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode backward semantic-zone type should dispatch");
+
+        assert_eq!(
+            app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
+            Some(SelectionCell { row: 1, column: 0 })
+        );
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { MoveForwardSemanticZoneOfType = 'Input' }",
+        )
+        .expect("expected CopyMode forward semantic-zone type assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode forward semantic-zone type should dispatch");
+
         assert_eq!(
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
