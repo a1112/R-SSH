@@ -22068,13 +22068,18 @@ fn split_pane_table_action_from_query(query: &str) -> Option<WindowSplitPaneOpti
         })?;
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let options = split_pane_table_options_from_query(table)?;
+    let split_direction = direction.or(options.direction)?;
+    let split_domain = options.domain.clone();
+    let split_size = options.size;
+    let split_top_level = options.top_level.unwrap_or(false);
+    let (command, command_options) = options.split_command_parts()?;
     Some(WindowSplitPaneOptions {
-        direction: direction.or(options.direction)?,
-        domain: options.domain,
-        command: options.command,
-        command_options: None,
-        size: options.size,
-        top_level: options.top_level.unwrap_or(false),
+        direction: split_direction,
+        domain: split_domain,
+        command,
+        command_options,
+        size: split_size,
+        top_level: split_top_level,
     })
 }
 
@@ -22095,8 +22100,52 @@ struct WindowSplitPaneTableOptions {
     direction: Option<SplitDirection>,
     domain: Option<WindowSpawnTabDomain>,
     command: Option<WindowSpawnCommandQuery>,
+    spawn_args: Option<Vec<String>>,
+    spawn_options: WindowSpawnCommandQueryOptions,
+    spawn_label_seen: bool,
     size: Option<WindowSplitPaneSize>,
     top_level: Option<bool>,
+}
+
+impl WindowSplitPaneTableOptions {
+    fn split_command_parts(
+        self,
+    ) -> Option<(
+        Option<WindowSpawnCommandQuery>,
+        Option<WindowSpawnCommandQueryOptions>,
+    )> {
+        if self.command.is_some()
+            && (self.spawn_args.is_some()
+                || self.spawn_options.cwd.is_some()
+                || !self.spawn_options.environment.is_empty()
+                || self.spawn_options.domain.is_some())
+        {
+            return None;
+        }
+
+        if let Some(mut args) = self.spawn_args {
+            if args.is_empty() {
+                return None;
+            }
+            let program = args.remove(0);
+            return Some((
+                Some(WindowSpawnCommandQuery {
+                    program,
+                    args,
+                    cwd: self.spawn_options.cwd,
+                    environment: self.spawn_options.environment,
+                    domain: self.spawn_options.domain,
+                    window_position: None,
+                }),
+                None,
+            ));
+        }
+
+        let command_options =
+            split_pane_command_options_supported_without_program(&self.spawn_options)
+                .then_some(self.spawn_options);
+        Some((self.command, command_options))
+    }
 }
 
 fn split_pane_table_options_from_query(table: &str) -> Option<WindowSplitPaneTableOptions> {
@@ -22132,10 +22181,40 @@ fn split_pane_table_apply_field(
         let value = parse_maybe_quoted_query_text(value)?;
         options.domain = Some(spawn_command_domain_from_query(&value)?);
     } else if key.eq_ignore_ascii_case("command") {
-        if options.command.is_some() {
+        if options.command.is_some()
+            || options.spawn_args.is_some()
+            || options.spawn_options.cwd.is_some()
+            || !options.spawn_options.environment.is_empty()
+            || options.spawn_options.domain.is_some()
+        {
             return None;
         }
         options.command = Some(split_pane_table_command_from_query(value)?);
+    } else if key.eq_ignore_ascii_case("args") {
+        if options.command.is_some() || options.spawn_args.is_some() {
+            return None;
+        }
+        options.spawn_args = Some(split_lua_table_string_array(value)?);
+    } else if key.eq_ignore_ascii_case("cwd") {
+        if options.command.is_some() || options.spawn_options.cwd.is_some() {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value)?;
+        options.spawn_options.cwd = Some(non_empty_spawn_command_option_value(&value).ok()?);
+    } else if key.eq_ignore_ascii_case("label") {
+        if options.command.is_some() || options.spawn_label_seen {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value)?;
+        let _ = non_empty_spawn_command_option_value(&value).ok()?;
+        options.spawn_label_seen = true;
+    } else if key.eq_ignore_ascii_case("set_environment_variables")
+        || key.eq_ignore_ascii_case("set-environment-variables")
+    {
+        if options.command.is_some() || !options.spawn_options.environment.is_empty() {
+            return None;
+        }
+        options.spawn_options.environment = split_lua_table_environment_from_query(value)?;
     } else if key.eq_ignore_ascii_case("size") {
         if options.size.is_some() {
             return None;
@@ -58899,6 +58978,39 @@ mod tests {
                     args: vec!["-d".to_owned(), "1".to_owned()],
                     cwd: None,
                     environment: BTreeMap::new(),
+                    domain: None,
+                    window_position: None,
+                }),
+                command_options: None,
+                size: None,
+                top_level: false,
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_split_horizontal_wezterm_spawn_command_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SplitHorizontal({ cwd = \"C:/Project Dir\", set_environment_variables = { MODE = \"dev\" }, args = { \"top\", \"-d\", \"1\" } })"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SplitPane(WindowSplitPaneOptions {
+                direction: rssh_core::app_shell::SplitDirection::Right,
+                domain: None,
+                command: Some(WindowSpawnCommandQuery {
+                    program: "top".to_owned(),
+                    args: vec!["-d".to_owned(), "1".to_owned()],
+                    cwd: Some("C:/Project Dir".to_owned()),
+                    environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
                     domain: None,
                     window_position: None,
                 }),

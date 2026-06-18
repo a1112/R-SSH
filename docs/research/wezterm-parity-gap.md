@@ -713,7 +713,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SplitPane({ ... })`,
   `wezterm.action.SplitHorizontal({ ... })`, and
   `wezterm.action.SplitVertical({ ... })` parenthesized Lua table calls now
-  dispatch through the same implemented split table payload parser. Native
+  dispatch through the same implemented split table payload parser, with
+  `SplitHorizontal`/`SplitVertical` also accepting top-level SpawnCommand
+  fields such as `args`, `cwd`, and `set_environment_variables`. Native
   `SplitPane` payloads also support `top_level = true` by splitting the full
   active-tab root region and compressing the existing layout into the source
   side. Full Lua table parsing remains open.
