@@ -1171,6 +1171,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.default_cwd = Some(non_empty_spawn_command_option_value(&default_cwd).ok()?);
         parsed = true;
     }
+    if let Some(default_workspace) =
+        lua_config_string_assignment_from_query(config, "default_workspace")
+    {
+        overrides.default_workspace =
+            Some(non_empty_spawn_command_option_value(&default_workspace).ok()?);
+        parsed = true;
+    }
+    if let Some(default_domain) = lua_config_string_assignment_from_query(config, "default_domain")
+    {
+        overrides.default_domain =
+            Some(non_empty_spawn_command_option_value(&default_domain).ok()?);
+        parsed = true;
+    }
     if let Some(term) = lua_config_string_assignment_from_query(config, "term") {
         overrides.term = Some(non_empty_spawn_command_option_value(&term).ok()?);
         parsed = true;
@@ -49564,6 +49577,34 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_default_workspace_and_domain() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_workspace = 'ops'
+            config.default_domain = 'local'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm workspace/domain config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.app_shell.active_workspace().name(), "ops");
+        let effective = app.native_effective_config();
+        assert_eq!(effective.default_workspace, "ops");
+        assert_eq!(effective.default_domain, "local");
+
+        assert!(app.command_palette_execute(WindowCommand::SpawnTab(
+            WindowSpawnTabDomain::DefaultDomain,
+        )));
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
     }
 
     #[test]
