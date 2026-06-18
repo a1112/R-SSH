@@ -1012,9 +1012,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and wrapper tables, including `act.PromptInputLine { ... }` and
   `act { PasteFrom = "Clipboard" }`.
 - Structured action queries now accept Lua indexed action constructors such as
-  `wezterm.action["ToggleFullScreen"]` and `act["SendString"]("text")`,
-  normalizing them through the same implemented action-name parser as dot
-  constructors.
+  `wezterm.action["ToggleFullScreen"]`, `act["SendString"]("text")`, and
+  `act["SendString"] "text"`, normalizing them through the same implemented
+  action-name parser as dot constructors.
 - Native `Multiple` action payloads now sequence implemented `WindowCommand`
   values in order and stop on the first failed command, matching WezTerm's
   multi-action key assignment model for the covered native action subset.
