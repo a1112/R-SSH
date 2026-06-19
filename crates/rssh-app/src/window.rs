@@ -188,6 +188,7 @@ const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
 const DEFAULT_USE_IME: bool = true;
+const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
 const DEFAULT_CANONICALIZE_PASTED_NEWLINES: NativeCanonicalizePastedNewlines = if cfg!(windows) {
     NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
 } else {
@@ -564,6 +565,23 @@ impl NativeFontShaper {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "Harfbuzz" => Some(Self::Harfbuzz),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeImePreeditRendering {
+    Builtin,
+    System,
+}
+
+impl NativeImePreeditRendering {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Builtin" => Some(Self::Builtin),
+            "System" => Some(Self::System),
             _ => None,
         }
     }
@@ -1947,6 +1965,7 @@ struct NativeEffectiveConfig {
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
     use_ime: bool,
+    ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
     scroll_to_bottom_on_input: bool,
     adjust_window_size_when_changing_font_size: bool,
@@ -2099,6 +2118,7 @@ struct NativeConfigOverrides {
     enable_kitty_keyboard: Option<bool>,
     allow_win32_input_mode: Option<bool>,
     use_ime: Option<bool>,
+    ime_preedit_rendering: Option<NativeImePreeditRendering>,
     xim_im_name: Option<String>,
     leader: Option<NativeLeaderKey>,
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
@@ -2771,6 +2791,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
         overrides.use_ime = Some(use_ime);
+        parsed = true;
+    }
+    if let Some(ime_preedit_rendering) =
+        lua_config_string_assignment_from_query(config, "ime_preedit_rendering")
+    {
+        overrides.ime_preedit_rendering =
+            Some(NativeImePreeditRendering::parse(&ime_preedit_rendering)?);
         parsed = true;
     }
     if let Some(xim_im_name) = lua_config_string_assignment_from_query(config, "xim_im_name") {
@@ -4598,6 +4625,7 @@ struct NativeWindowApp {
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
     use_ime: bool,
+    ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
     leader: Option<NativeLeaderKey>,
     key_assignments: Vec<NativeUserKeyAssignment>,
@@ -6024,6 +6052,7 @@ impl NativeWindowApp {
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             use_ime: DEFAULT_USE_IME,
+            ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
             leader: None,
             key_assignments: Vec::new(),
@@ -7193,6 +7222,7 @@ impl NativeWindowApp {
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
         self.use_ime = source.use_ime;
+        self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.xim_im_name.clone_from(&source.xim_im_name);
         self.leader.clone_from(&source.leader);
         self.key_assignments.clone_from(&source.key_assignments);
@@ -14160,6 +14190,7 @@ impl NativeWindowApp {
             enable_kitty_keyboard: self.enable_kitty_keyboard,
             allow_win32_input_mode: self.allow_win32_input_mode,
             use_ime: self.use_ime,
+            ime_preedit_rendering: self.ime_preedit_rendering,
             xim_im_name: self.xim_im_name.clone(),
             scroll_to_bottom_on_input: self.scroll_to_bottom_on_input,
             adjust_window_size_when_changing_font_size: self
@@ -14455,6 +14486,9 @@ impl NativeWindowApp {
             .allow_win32_input_mode
             .unwrap_or(DEFAULT_ALLOW_WIN32_INPUT_MODE);
         self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
+        self.ime_preedit_rendering = overrides
+            .ime_preedit_rendering
+            .unwrap_or(DEFAULT_IME_PREEDIT_RENDERING);
         self.xim_im_name = overrides
             .xim_im_name
             .filter(|xim_im_name| !xim_im_name.is_empty());
@@ -36688,12 +36722,12 @@ mod tests {
         DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
-        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
-        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
-        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
+        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
+        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
@@ -36709,32 +36743,33 @@ mod tests {
         NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontShaper,
         NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
         NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
-        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
-        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
-        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
-        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
-        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
-        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
-        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
+        NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
+        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
+        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWindowApp, NativeWindowBell,
+        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
+        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -46010,6 +46045,7 @@ mod tests {
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
                 use_ime: DEFAULT_USE_IME,
+                ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 xim_im_name: None,
                 scroll_to_bottom_on_input: true,
                 adjust_window_size_when_changing_font_size:
@@ -58317,6 +58353,10 @@ mod tests {
         let effective = app.native_effective_config();
 
         assert_eq!(effective.use_ime, DEFAULT_USE_IME);
+        assert_eq!(
+            effective.ime_preedit_rendering,
+            NativeImePreeditRendering::Builtin
+        );
         assert_eq!(effective.xim_im_name, None);
     }
 
@@ -58328,6 +58368,7 @@ mod tests {
             local config = {}
 
             config.use_ime = false
+            config.ime_preedit_rendering = 'System'
             config.xim_im_name = 'fcitx'
 
             return config
@@ -58338,6 +58379,10 @@ mod tests {
 
         let effective = app.native_effective_config();
         assert!(!effective.use_ime);
+        assert_eq!(
+            effective.ime_preedit_rendering,
+            NativeImePreeditRendering::System
+        );
         assert_eq!(effective.xim_im_name.as_deref(), Some("fcitx"));
     }
 
@@ -64492,6 +64537,7 @@ mod tests {
             enable_kitty_keyboard: Some(true),
             allow_win32_input_mode: Some(false),
             use_ime: Some(false),
+            ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             xim_im_name: Some("fcitx".to_owned()),
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("Top".to_owned()),
@@ -64725,6 +64771,7 @@ mod tests {
             enable_kitty_keyboard: true,
             allow_win32_input_mode: false,
             use_ime: false,
+            ime_preedit_rendering: NativeImePreeditRendering::System,
             xim_im_name: Some("fcitx".to_owned()),
             scroll_to_bottom_on_input: false,
             adjust_window_size_when_changing_font_size: false,
@@ -64877,6 +64924,7 @@ mod tests {
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             use_ime: DEFAULT_USE_IME,
+            ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
             scroll_to_bottom_on_input: true,
             adjust_window_size_when_changing_font_size:
