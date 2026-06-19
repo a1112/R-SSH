@@ -23066,12 +23066,27 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     let mut quote = None;
     let mut escape = false;
     let mut long_bracket_end = None;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut key_end_before_comment = None;
     for (index, character) in field.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
         if let Some(end) = long_bracket_end {
             if index < end {
                 continue;
             }
             long_bracket_end = None;
+        }
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
         }
         if let Some(quoted) = quote {
             if escape {
@@ -23081,6 +23096,21 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
             } else if character == quoted {
                 quote = None;
             }
+            continue;
+        }
+        if depth == 0 && field[index..].starts_with("--") {
+            if key_end_before_comment.is_none() && !field[..index].trim().is_empty() {
+                key_end_before_comment = Some(index);
+            }
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&field[index + 2..])
+            {
+                let content_and_rest = &field[index + 2 + content_start..];
+                let close_index = content_and_rest.find(&closing)?;
+                block_comment_end = Some(index + 2 + content_start + close_index + closing.len());
+                continue;
+            }
+            line_comment = true;
             continue;
         }
         match character {
@@ -23097,7 +23127,8 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
             '{' => depth = depth.saturating_add(1),
             '}' => depth = depth.checked_sub(1)?,
             '=' if depth == 0 => {
-                return Some((&field[..index], &field[index + character.len_utf8()..]));
+                let key_end = key_end_before_comment.unwrap_or(index);
+                return Some((&field[..key_end], &field[index + character.len_utf8()..]));
             }
             _ => {}
         }
@@ -52034,6 +52065,40 @@ mod tests {
               ignored, comment separator
               ]=]
               PROJECT_MODE = 'dev',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_assignment_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {
+              PROJECT_MODE --[[ environment key ]] = 'dev',
             }
 
             return config
