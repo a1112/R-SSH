@@ -111,6 +111,7 @@ pub const SCROLLBAR_TRACK_COLOR: [u8; 4] = [46, 46, 46, 255];
 pub const SCROLLBAR_THUMB_COLOR: [u8; 4] = [172, 172, 172, 255];
 pub const SCROLLBAR_WIDTH: u32 = 4;
 const DEFAULT_DPI: u32 = 96;
+pub type RenderIndexedPalette = [Option<[u8; 4]>; 256];
 const DEFAULT_ANSI_PALETTE: [[u8; 4]; 16] = [
     [0, 0, 0, 255],
     [205, 49, 49, 255],
@@ -239,6 +240,7 @@ pub struct PixelRenderer {
     rapid_text_blink_opacity_alpha: u8,
     bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
     ansi_palette: Option<[[u8; 4]; 16]>,
+    indexed_palette: Option<RenderIndexedPalette>,
     cursor_thickness: Option<RenderCursorThickness>,
     underline_thickness: Option<RenderUnderlineThickness>,
     underline_position: Option<RenderUnderlinePosition>,
@@ -304,6 +306,7 @@ impl PixelRenderer {
             rapid_text_blink_opacity_alpha: u8::MAX,
             bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
             ansi_palette: None,
+            indexed_palette: None,
             cursor_thickness: None,
             underline_thickness: None,
             underline_position: None,
@@ -329,6 +332,7 @@ impl PixelRenderer {
             rapid_text_blink_opacity_alpha: if blink_visible { u8::MAX } else { 0 },
             bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
             ansi_palette: None,
+            indexed_palette: None,
             cursor_thickness: None,
             underline_thickness: None,
             underline_position: None,
@@ -398,6 +402,10 @@ impl PixelRenderer {
 
     pub fn set_ansi_palette(&mut self, ansi_palette: Option<[[u8; 4]; 16]>) {
         self.ansi_palette = ansi_palette;
+    }
+
+    pub fn set_indexed_palette(&mut self, indexed_palette: Option<RenderIndexedPalette>) {
+        self.indexed_palette = indexed_palette;
     }
 
     #[must_use]
@@ -582,6 +590,7 @@ impl PixelRenderer {
             rapid_text_blink_opacity_alpha: u8::MAX,
             bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
             ansi_palette: None,
+            indexed_palette: None,
             cursor_thickness: None,
             underline_thickness: None,
             underline_position: None,
@@ -611,6 +620,7 @@ impl PixelRenderer {
             rapid_text_blink_opacity_alpha: u8::MAX,
             bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
             ansi_palette: None,
+            indexed_palette: None,
             cursor_thickness: None,
             underline_thickness: None,
             underline_position: None,
@@ -636,6 +646,7 @@ impl PixelRenderer {
             rapid_text_blink_opacity_alpha: u8::MAX,
             bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors::BrightAndBold,
             ansi_palette: None,
+            indexed_palette: None,
             cursor_thickness: None,
             underline_thickness: None,
             underline_position: None,
@@ -699,6 +710,7 @@ impl PixelRenderer {
                 self.default_foreground,
                 self.default_background,
                 self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
             );
         }
 
@@ -729,6 +741,7 @@ impl PixelRenderer {
                 self.default_foreground,
                 self.default_background,
                 self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
             );
         }
 
@@ -768,6 +781,7 @@ impl PixelRenderer {
                         self.default_foreground,
                         self.default_background,
                         self.ansi_palette.as_ref(),
+                        self.indexed_palette.as_ref(),
                         cursor_shape_default_color(
                             cursor,
                             self.default_cursor_color,
@@ -875,6 +889,7 @@ impl PixelRenderer {
                 self.default_foreground,
                 self.default_background,
                 self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
             );
         }
 
@@ -905,6 +920,7 @@ impl PixelRenderer {
                 self.default_foreground,
                 self.default_background,
                 self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
             );
         }
 
@@ -947,6 +963,7 @@ impl PixelRenderer {
                         self.default_foreground,
                         self.default_background,
                         self.ansi_palette.as_ref(),
+                        self.indexed_palette.as_ref(),
                         cursor_shape_default_color(
                             cursor,
                             self.default_cursor_color,
@@ -1433,6 +1450,7 @@ fn render_cell_background(
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     ansi_palette: Option<&[[u8; 4]; 16]>,
+    indexed_palette: Option<&RenderIndexedPalette>,
 ) {
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
@@ -1442,6 +1460,7 @@ fn render_cell_background(
         default_foreground,
         default_background,
         ansi_palette,
+        indexed_palette,
     );
     if background == default_background {
         return;
@@ -1473,6 +1492,7 @@ fn render_cell_foreground(
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     ansi_palette: Option<&[[u8; 4]; 16]>,
+    indexed_palette: Option<&RenderIndexedPalette>,
 ) {
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
@@ -1482,6 +1502,7 @@ fn render_cell_foreground(
         default_foreground,
         default_background,
         ansi_palette,
+        indexed_palette,
     );
     let foreground_alpha = text_foreground_alpha(
         cell,
@@ -1557,7 +1578,12 @@ fn render_cell_foreground(
             height: cell_height,
         },
         foreground,
-        color_to_rgba_with_palette(cell.underline_color, foreground, ansi_palette),
+        color_to_rgba_with_palette(
+            cell.underline_color,
+            foreground,
+            ansi_palette,
+            indexed_palette,
+        ),
         foreground_alpha,
         underline_thickness,
         underline_position,
@@ -1588,13 +1614,20 @@ fn effective_cell_colors(
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     ansi_palette: Option<&[[u8; 4]; 16]>,
+    indexed_palette: Option<&RenderIndexedPalette>,
 ) -> ([u8; 4], [u8; 4]) {
     let foreground = color_to_rgba_with_palette(
         effective_cell_foreground(cell, bold_brightens_ansi_colors),
         default_foreground,
         ansi_palette,
+        indexed_palette,
     );
-    let background = color_to_rgba_with_palette(cell.background, default_background, ansi_palette);
+    let background = color_to_rgba_with_palette(
+        cell.background,
+        default_background,
+        ansi_palette,
+        indexed_palette,
+    );
     let (foreground, background) = if cell.inverse {
         (background, foreground)
     } else {
@@ -1966,10 +1999,16 @@ fn cursor_color(
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     ansi_palette: Option<&[[u8; 4]; 16]>,
+    indexed_palette: Option<&RenderIndexedPalette>,
     default_cursor_color: [u8; 4],
 ) -> [u8; 4] {
     if let Some(color) = snapshot.cursor_color() {
-        return color_to_rgba_with_palette(color, default_foreground, ansi_palette);
+        return color_to_rgba_with_palette(
+            color,
+            default_foreground,
+            ansi_palette,
+            indexed_palette,
+        );
     }
 
     if force_reverse_video_cursor {
@@ -1984,6 +2023,7 @@ fn cursor_color(
                     default_foreground,
                     default_background,
                     ansi_palette,
+                    indexed_palette,
                 )
                 .0
             })
@@ -2127,17 +2167,18 @@ fn scrollbar_min_thumb_height(
 
 #[must_use]
 pub fn color_to_rgba(color: Color, default: [u8; 4]) -> [u8; 4] {
-    color_to_rgba_with_palette(color, default, None)
+    color_to_rgba_with_palette(color, default, None, None)
 }
 
 fn color_to_rgba_with_palette(
     color: Color,
     default: [u8; 4],
     ansi_palette: Option<&[[u8; 4]; 16]>,
+    indexed_palette: Option<&RenderIndexedPalette>,
 ) -> [u8; 4] {
     match color {
         Color::Default => default,
-        Color::Indexed(index) => indexed_color(index, ansi_palette),
+        Color::Indexed(index) => indexed_color(index, ansi_palette, indexed_palette),
         Color::Rgb(red, green, blue) => [red, green, blue, 255],
         Color::Rgba(red, green, blue, alpha) => [red, green, blue, alpha],
     }
@@ -2147,10 +2188,22 @@ fn dim_foreground(color: [u8; 4]) -> [u8; 4] {
     [color[0] / 2, color[1] / 2, color[2] / 2, color[3]]
 }
 
-fn indexed_color(index: u8, ansi_palette: Option<&[[u8; 4]; 16]>) -> [u8; 4] {
+fn indexed_color(
+    index: u8,
+    ansi_palette: Option<&[[u8; 4]; 16]>,
+    indexed_palette: Option<&RenderIndexedPalette>,
+) -> [u8; 4] {
     let ansi_palette = ansi_palette.unwrap_or(&DEFAULT_ANSI_PALETTE);
     if let Some(color) = ansi_palette.get(usize::from(index)) {
         return *color;
+    }
+
+    if let Some(color) = indexed_palette
+        .and_then(|palette| palette.get(usize::from(index)))
+        .copied()
+        .flatten()
+    {
+        return color;
     }
 
     if (16..=231).contains(&index) {

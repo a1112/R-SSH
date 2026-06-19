@@ -1404,6 +1404,7 @@ struct NativeEffectiveConfig {
     foreground_color: Color,
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -1502,6 +1503,7 @@ struct NativeConfigOverrides {
     foreground_color: Option<Color>,
     background_color: Option<Color>,
     ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
     cursor_bg_color: Option<Color>,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -1625,6 +1627,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                 .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
             palette[8..].copy_from_slice(&bright_colors);
             overrides.ansi_palette = Some(palette);
+            parsed = true;
+        }
+        if let Some(indexed_palette) = indexed_palette_lua_table_field_from_query(colors)? {
+            overrides.indexed_palette = Some(indexed_palette);
             parsed = true;
         }
         if let Some(cursor_bg_color) = color_lua_table_field_from_query(colors, "cursor_bg")? {
@@ -3584,6 +3590,7 @@ struct NativeWindowApp {
     foreground_color: Color,
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -4800,6 +4807,7 @@ impl NativeWindowApp {
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
+            indexed_palette: None,
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
@@ -5727,6 +5735,10 @@ impl NativeWindowApp {
         detached_app
             .renderer
             .set_ansi_palette(self.ansi_palette.map(native_ansi_palette_to_rgba));
+        detached_app.indexed_palette = self.indexed_palette;
+        detached_app
+            .renderer
+            .set_indexed_palette(self.indexed_palette.map(native_indexed_palette_to_rgba));
         detached_app.cursor_bg_color = self.cursor_bg_color;
         detached_app
             .renderer
@@ -5864,6 +5876,9 @@ impl NativeWindowApp {
         self.ansi_palette = source.ansi_palette;
         self.renderer
             .set_ansi_palette(source.ansi_palette.map(native_ansi_palette_to_rgba));
+        self.indexed_palette = source.indexed_palette;
+        self.renderer
+            .set_indexed_palette(source.indexed_palette.map(native_indexed_palette_to_rgba));
         self.cursor_bg_color = source.cursor_bg_color;
         self.renderer.set_default_cursor_color(color_to_rgba(
             source.cursor_bg_color,
@@ -12458,6 +12473,7 @@ impl NativeWindowApp {
             foreground_color: self.foreground_color,
             background_color: self.background_color,
             ansi_palette: self.ansi_palette,
+            indexed_palette: self.indexed_palette,
             cursor_bg_color: self.cursor_bg_color,
             cursor_border_color: self.cursor_border_color,
             cursor_fg_color: self.cursor_fg_color,
@@ -12619,6 +12635,9 @@ impl NativeWindowApp {
         self.ansi_palette = overrides.ansi_palette;
         self.renderer
             .set_ansi_palette(self.ansi_palette.map(native_ansi_palette_to_rgba));
+        self.indexed_palette = overrides.indexed_palette;
+        self.renderer
+            .set_indexed_palette(self.indexed_palette.map(native_indexed_palette_to_rgba));
         self.cursor_bg_color = overrides.cursor_bg_color.unwrap_or(DEFAULT_CURSOR_BG_COLOR);
         self.renderer.set_default_cursor_color(color_to_rgba(
             self.cursor_bg_color,
@@ -23703,6 +23722,47 @@ fn color_array_lua_table_field_from_query(
     Some(colors)
 }
 
+fn indexed_palette_lua_table_field_from_query(value: &str) -> Option<Option<[Option<Color>; 256]>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut indexed_palette = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != "indexed" {
+            continue;
+        }
+        if indexed_palette.is_some() {
+            return None;
+        }
+
+        let indexed_table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+        let mut palette = [None; 256];
+        for entry in split_lua_table_top_level_fields(indexed_table)? {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                continue;
+            }
+            let (index, color) = split_lua_table_assignment_from_field(entry)?;
+            let index = split_lua_table_array_index_from_query(index.trim())?;
+            if !(16..=255).contains(&index) || palette[index].is_some() {
+                return None;
+            }
+            let color = parse_maybe_quoted_query_text(color.trim())?;
+            palette[index] = Some(lua_hex_color_from_query(&color)?);
+        }
+        indexed_palette = Some(palette);
+    }
+
+    Some(indexed_palette)
+}
+
 fn lua_hex_color_from_query(value: &str) -> Option<Color> {
     let hex = value.trim().strip_prefix('#')?;
     if hex.len() != 6 || !hex.chars().all(|character| character.is_ascii_hexdigit()) {
@@ -30096,6 +30156,10 @@ fn native_ansi_palette_to_rgba(colors: [Color; 16]) -> [[u8; 4]; 16] {
     colors.map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA))
 }
 
+fn native_indexed_palette_to_rgba(colors: [Option<Color>; 256]) -> [Option<[u8; 4]>; 256] {
+    colors.map(|color| color.map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)))
+}
+
 fn inactive_pane_color(
     role: RenderCellColorRole,
     color: Color,
@@ -35916,6 +35980,43 @@ mod tests {
         assert!(
             uses_configured_bright_red,
             "SGR 91 did not use colors.brights red"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_indexed_palette_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#eeeeee',
+              indexed = {
+                [136] = '#010203',
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors.indexed config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b[38;5;136mA").unwrap();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let uses_configured_indexed_color =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [1, 2, 3, 255])
+            });
+        assert!(
+            uses_configured_indexed_color,
+            "SGR 38;5;136 did not use colors.indexed palette entry"
         );
     }
 
@@ -41836,6 +41937,7 @@ mod tests {
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
                 ansi_palette: None,
+                indexed_palette: None,
                 cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 cursor_border_color: None,
                 cursor_fg_color: None,
@@ -59399,6 +59501,12 @@ mod tests {
         palette
     }
 
+    fn sample_indexed_palette() -> [Option<Color>; 256] {
+        let mut palette = [None; 256];
+        palette[136] = Some(Color::Rgb(51, 52, 53));
+        palette
+    }
+
     fn sample_native_config_overrides() -> NativeConfigOverrides {
         NativeConfigOverrides {
             tab_max_width: Some(32),
@@ -59470,6 +59578,7 @@ mod tests {
             foreground_color: Some(Color::Rgb(7, 8, 9)),
             background_color: Some(Color::Rgb(4, 5, 6)),
             ansi_palette: Some(sample_ansi_palette()),
+            indexed_palette: Some(sample_indexed_palette()),
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
@@ -59616,6 +59725,7 @@ mod tests {
             foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
             ansi_palette: Some(sample_ansi_palette()),
+            indexed_palette: Some(sample_indexed_palette()),
             cursor_bg_color: Color::Rgb(10, 11, 12),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
@@ -59715,6 +59825,7 @@ mod tests {
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
+            indexed_palette: None,
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
