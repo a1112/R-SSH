@@ -245,9 +245,11 @@ keyboard, mouse, paste, resize
   `ime_preedit_rendering`, and `xim_im_name` parse into the native override
   path. `treat_east_asian_ambiguous_width_as_wide` updates terminal character
   width calculation for ambiguous East Asian width characters in active and new
+  panes. Static numeric `cell_widths` override tables parse from WezTerm-style
+  Lua and take priority over the ambiguous-width setting in active and new
   panes. Actual left Ctrl+Alt-to-AltGr input remapping, platform IME/XIM
-  connection, preedit rendering, and `cell_widths` override tables remain
-  future parity work.
+  connection, preedit rendering, and broader dynamic `cell_widths` Lua parity
+  remain future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -607,6 +609,7 @@ keyboard, mouse, paste, resize
   and recomputes terminal rows/columns from the scaled cell size. Reset Font
   And Window Size also restores the native frame to the configured initial rows
   and columns. Native config overrides expose `font_size`, `cell_width`,
+  `cell_widths`,
   `line_height`, deprecated WezTerm-compatible `font_antialias`/`font_hinting`,
   `font_rasterizer`, `font_shaper`, `custom_block_glyphs`,
   `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`,
@@ -726,7 +729,7 @@ keyboard, mouse, paste, resize
   `webgpu_preferred_adapter`, `prefer_egl`, `enable_wayland`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
-  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`,
+  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`,
   `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`,
   `custom_block_glyphs`, `anti_alias_custom_block_glyphs`,
   `allow_square_glyphs_to_overflow_width`, `freetype_load_target`,
@@ -787,8 +790,10 @@ keyboard, mouse, paste, resize
   `false`; actual left Ctrl+Alt-to-AltGr input remapping remains future parity
   work. `treat_east_asian_ambiguous_width_as_wide` is stored with WezTerm's
   default `false` and, when enabled, makes the terminal runtime treat East
-  Asian ambiguous-width characters as two cells wide; exact `cell_widths`
-  override tables remain future parity work. `use_ime` is stored with
+  Asian ambiguous-width characters as two cells wide; static numeric
+  `cell_widths` override tables are stored and applied with higher priority
+  than that ambiguous-width setting, while dynamic Lua/exact nightly parity
+  remains future work. `use_ime` is stored with
   WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
   is retained as an optional XIM server name for X11-style IME configuration;
@@ -960,7 +965,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
@@ -1045,7 +1050,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,

@@ -2,7 +2,9 @@ use rssh_core::TerminalSize;
 
 mod parser;
 
-pub use parser::{DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence};
+pub use parser::{
+    CellWidthOverride, DEFAULT_SCROLLBACK_LIMIT, Terminal, TerminalUnknownEscapeSequence,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
@@ -353,9 +355,9 @@ mod tests {
     use rssh_core::{DamageRegion, TerminalSize};
 
     use super::{
-        Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage,
-        SemanticCommandExit, SemanticType, SemanticZone, Terminal, TerminalGrid, UnderlineStyle,
-        VerticalAlign,
+        Cell, CellWidthOverride, Color, CursorShape, CursorStyle, InlineImageFormat,
+        ItermInlineImage, SemanticCommandExit, SemanticType, SemanticZone, Terminal, TerminalGrid,
+        UnderlineStyle, VerticalAlign,
     };
 
     #[test]
@@ -1984,6 +1986,23 @@ mod tests {
         assert_eq!(terminal.grid().get(0, 1).unwrap().ch, ' ');
         assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
         assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_cell_width_overrides_take_priority_over_ambiguous_width_config() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.set_treat_east_asian_ambiguous_width_as_wide(true);
+        terminal.set_cell_width_overrides(vec![CellWidthOverride::new(
+            u32::from('☆'),
+            u32::from('☆'),
+            1,
+        )]);
+
+        terminal.feed("☆x".as_bytes());
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '☆');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'x');
+        assert_eq!(terminal.cursor(), (0, 2));
     }
 
     #[test]

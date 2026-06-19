@@ -28,8 +28,8 @@ use rssh_renderer::{
     TerminalRenderSnapshot, color_to_rgba,
 };
 use rssh_terminal::{
-    Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, SemanticType, Terminal, UnderlineStyle,
-    VerticalAlign,
+    CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, SemanticType, Terminal,
+    UnderlineStyle, VerticalAlign,
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -486,6 +486,24 @@ impl NativeCellWidth {
 
     fn as_f64(self) -> f64 {
         f64::from(self.0) / 1_000.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NativeCellWidthOverride {
+    first: u32,
+    last: u32,
+    width: u16,
+}
+
+impl NativeCellWidthOverride {
+    const fn new(first: u32, last: u32, width: u16) -> Self {
+        Self { first, last, width }
+    }
+
+    const fn to_terminal(self) -> CellWidthOverride {
+        CellWidthOverride::new(self.first, self.last, self.width)
     }
 }
 
@@ -1875,6 +1893,7 @@ struct NativeEffectiveConfig {
     text_blink_rapid_ease_out: NativeEasingFunction,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
+    cell_widths: Vec<NativeCellWidthOverride>,
     line_height: NativeLineHeight,
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
@@ -2030,6 +2049,7 @@ struct NativeConfigOverrides {
     text_blink_rapid_ease_out: Option<NativeEasingFunction>,
     font_size: Option<NativeFontSize>,
     cell_width: Option<NativeCellWidth>,
+    cell_widths: Option<Vec<NativeCellWidthOverride>>,
     line_height: Option<NativeLineHeight>,
     font_antialias: Option<NativeFontAntialias>,
     font_hinting: Option<NativeFontHinting>,
@@ -2376,6 +2396,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(cell_width) = lua_config_f32_assignment_from_query(config, "cell_width") {
         overrides.cell_width = Some(native_cell_width_from_ratio(cell_width)?);
+        parsed = true;
+    }
+    if let Some(cell_widths) = lua_config_table_assignment_from_query(config, "cell_widths") {
+        overrides.cell_widths = Some(native_cell_widths_lua_table_from_query(cell_widths)?);
         parsed = true;
     }
     if let Some(line_height) = lua_config_f32_assignment_from_query(config, "line_height") {
@@ -3747,6 +3771,75 @@ fn native_cell_width_from_ratio(ratio: f32) -> Option<NativeCellWidth> {
 }
 
 #[allow(dead_code)]
+fn native_cell_widths_lua_table_from_query(value: &str) -> Option<Vec<NativeCellWidthOverride>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut overrides = Vec::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let entry =
+            split_lua_table_assignment_from_field(field).map_or(field, |(_, value)| value.trim());
+        overrides.push(native_cell_width_override_lua_table_from_query(entry)?);
+    }
+
+    Some(overrides)
+}
+
+#[allow(dead_code)]
+fn native_cell_width_override_lua_table_from_query(value: &str) -> Option<NativeCellWidthOverride> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut first = None;
+    let mut last = None;
+    let mut width = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "first" => first = Some(lua_unsigned_u32_value_from_query(value)?),
+            "last" => last = Some(lua_unsigned_u32_value_from_query(value)?),
+            "width" => width = Some(u16::try_from(lua_unsigned_u32_value_from_query(value)?).ok()?),
+            _ => return None,
+        }
+    }
+
+    let first = first?;
+    let last = last?;
+    let width = width?;
+    (first <= last).then(|| NativeCellWidthOverride::new(first, last, width))
+}
+
+#[allow(dead_code)]
+fn lua_unsigned_u32_value_from_query(value: &str) -> Option<u32> {
+    let value = value.trim();
+    if let Some(rest) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        let end = rest
+            .char_indices()
+            .take_while(|(_, character)| character.is_ascii_hexdigit())
+            .map(|(index, character)| index + character.len_utf8())
+            .last()?;
+        let trailing = rest[end..].chars().next();
+        if trailing.is_some_and(is_lua_identifier_character) || end == 0 {
+            return None;
+        }
+        return u32::from_str_radix(&rest[..end], 16).ok();
+    }
+
+    lua_unsigned_integer_literal_from_query(value)?.parse().ok()
+}
+
+#[allow(dead_code)]
 fn native_line_height_from_ratio(ratio: f32) -> Option<NativeLineHeight> {
     native_ratio_to_per_mille(ratio).map(NativeLineHeight::from_per_mille)
 }
@@ -4500,6 +4593,7 @@ struct NativeWindowApp {
     full_screen: bool,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
+    cell_widths: Vec<NativeCellWidthOverride>,
     line_height: NativeLineHeight,
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
@@ -5924,6 +6018,7 @@ impl NativeWindowApp {
             full_screen: false,
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
+            cell_widths: Vec::new(),
             line_height: DEFAULT_LINE_HEIGHT,
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,
@@ -7066,6 +7161,7 @@ impl NativeWindowApp {
         detached_app.treat_left_ctrlalt_as_altgr = self.treat_left_ctrlalt_as_altgr;
         detached_app.treat_east_asian_ambiguous_width_as_wide =
             self.treat_east_asian_ambiguous_width_as_wide;
+        detached_app.cell_widths.clone_from(&self.cell_widths);
         detached_app.leader.clone_from(&self.leader);
         detached_app
             .key_assignments
@@ -7132,6 +7228,7 @@ impl NativeWindowApp {
         self.config_overrides.clone_from(&source.config_overrides);
         self.font_size = source.font_size;
         self.cell_width = source.cell_width;
+        self.cell_widths.clone_from(&source.cell_widths);
         self.line_height = source.line_height;
         self.font_antialias = source.font_antialias;
         self.font_hinting = source.font_hinting;
@@ -7431,6 +7528,7 @@ impl NativeWindowApp {
         replacement_runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        replacement_runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         replacement_runtime.set_scrollback_limit(self.scrollback_lines);
         replacement_runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let old_runtime = std::mem::replace(&mut self.runtime, replacement_runtime);
@@ -7458,6 +7556,7 @@ impl NativeWindowApp {
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let snapshot = terminal_runtime_snapshot(&runtime, 0);
@@ -7489,6 +7588,8 @@ impl NativeWindowApp {
         self.runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        self.runtime
+            .set_cell_width_overrides(self.terminal_cell_width_overrides());
         self.snapshot = runtime_snapshot;
         self.session = runtime.session.take();
         self.session_process_id = runtime.session_process_id.take();
@@ -14148,6 +14249,7 @@ impl NativeWindowApp {
             text_blink_rapid_ease_out: self.text_blink_rapid_ease_out,
             font_size: self.font_size,
             cell_width: self.cell_width,
+            cell_widths: self.cell_widths.clone(),
             line_height: self.line_height,
             font_antialias: self.font_antialias,
             font_hinting: self.font_hinting,
@@ -14333,6 +14435,7 @@ impl NativeWindowApp {
         );
         self.font_size = overrides.font_size.unwrap_or(DEFAULT_FONT_SIZE);
         self.cell_width = overrides.cell_width.unwrap_or(DEFAULT_CELL_WIDTH);
+        self.cell_widths = overrides.cell_widths.clone().unwrap_or_default();
         self.line_height = overrides.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
         self.font_antialias = overrides.font_antialias.unwrap_or(DEFAULT_FONT_ANTIALIAS);
         self.font_hinting = overrides.font_hinting.unwrap_or(DEFAULT_FONT_HINTING);
@@ -14651,16 +14754,30 @@ impl NativeWindowApp {
     }
 
     fn apply_character_width_config_to_runtimes(&mut self) {
+        let cell_width_overrides = self.terminal_cell_width_overrides();
         self.runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        self.runtime
+            .set_cell_width_overrides(cell_width_overrides.clone());
         for runtime in self.pane_runtimes.values_mut() {
             runtime
                 .runtime
                 .set_treat_east_asian_ambiguous_width_as_wide(
                     self.treat_east_asian_ambiguous_width_as_wide,
                 );
+            runtime
+                .runtime
+                .set_cell_width_overrides(cell_width_overrides.clone());
         }
+    }
+
+    fn terminal_cell_width_overrides(&self) -> Vec<CellWidthOverride> {
+        self.cell_widths
+            .iter()
+            .copied()
+            .map(NativeCellWidthOverride::to_terminal)
+            .collect()
     }
 
     fn apply_terminal_name_config_to_runtimes(&mut self) {
@@ -15862,6 +15979,7 @@ impl NativeWindowApp {
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let snapshot = terminal_runtime_snapshot(&runtime, 0);
@@ -36818,13 +36936,13 @@ mod tests {
         DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
         FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
         NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
-        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
-        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
-        NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
-        NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontShaper,
-        NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
-        NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
+        NativeCellWidthOverride, NativeColorSpec, NativeCommandPaletteAugment,
+        NativeCommandPaletteEntry, NativeConfigOverrides, NativeConfirmation, NativeContrastRatio,
+        NativeCubicBezier, NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry,
+        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontRasterizer,
+        NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
+        NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
         NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
         NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
@@ -46033,6 +46151,7 @@ mod tests {
                 text_blink_rapid_ease_out: NativeEasingFunction::Linear,
                 font_size: DEFAULT_FONT_SIZE,
                 cell_width: DEFAULT_CELL_WIDTH,
+                cell_widths: Vec::new(),
                 line_height: DEFAULT_LINE_HEIGHT,
                 font_antialias: DEFAULT_FONT_ANTIALIAS,
                 font_hinting: DEFAULT_FONT_HINTING,
@@ -58499,6 +58618,38 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_cell_widths() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.treat_east_asian_ambiguous_width_as_wide = true
+            config.cell_widths = {
+                { first = 0x2606, last = 0x2606, width = 1 },
+                { first = 0xe000, last = 0xf8ff, width = 2 },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm cell width config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cell_widths,
+            vec![
+                NativeCellWidthOverride::new(0x2606, 0x2606, 1),
+                NativeCellWidthOverride::new(0xe000, 0xf8ff, 2),
+            ]
+        );
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_east_asian_ambiguous_width_config() {
         let app = NativeWindowApp::new(None);
         let effective = app.native_effective_config();
@@ -64552,6 +64703,7 @@ mod tests {
             text_blink_rapid_ease_out: Some(NativeEasingFunction::Constant),
             font_size: Some(NativeFontSize::from_millipoints(13_500)),
             cell_width: Some(NativeCellWidth::from_per_mille(1_250)),
+            cell_widths: Some(vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)]),
             line_height: Some(NativeLineHeight::from_per_mille(1_250)),
             font_antialias: Some(NativeFontAntialias::Subpixel),
             font_hinting: Some(NativeFontHinting::VerticalSubpixel),
@@ -64790,6 +64942,7 @@ mod tests {
             text_blink_rapid_ease_out: NativeEasingFunction::Constant,
             font_size: NativeFontSize::from_millipoints(13_500),
             cell_width: NativeCellWidth::from_per_mille(1_250),
+            cell_widths: vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)],
             line_height: NativeLineHeight::from_per_mille(1_250),
             font_antialias: NativeFontAntialias::Subpixel,
             font_hinting: NativeFontHinting::VerticalSubpixel,
@@ -64999,6 +65152,7 @@ mod tests {
             text_blink_rapid_ease_out: NativeEasingFunction::Linear,
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
+            cell_widths: Vec::new(),
             line_height: DEFAULT_LINE_HEIGHT,
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,

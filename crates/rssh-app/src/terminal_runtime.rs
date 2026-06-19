@@ -1,7 +1,8 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rssh_core::{DamageRegion, TerminalSize};
 use rssh_terminal::{
-    Cell, Color, CursorShape, CursorStyle, Terminal, UnderlineStyle, VerticalAlign,
+    Cell, CellWidthOverride, Color, CursorShape, CursorStyle, Terminal, UnderlineStyle,
+    VerticalAlign,
 };
 
 use crate::{
@@ -256,6 +257,10 @@ impl TerminalRuntime {
     pub(crate) fn set_treat_east_asian_ambiguous_width_as_wide(&mut self, enabled: bool) {
         self.terminal
             .set_treat_east_asian_ambiguous_width_as_wide(enabled);
+    }
+
+    pub(crate) fn set_cell_width_overrides(&mut self, overrides: Vec<CellWidthOverride>) {
+        self.terminal.set_cell_width_overrides(overrides);
     }
 }
 

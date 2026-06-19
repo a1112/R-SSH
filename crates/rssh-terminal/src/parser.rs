@@ -392,6 +392,26 @@ pub struct Terminal {
     bell_count: u64,
     unknown_escape_sequences: Vec<TerminalUnknownEscapeSequence>,
     treat_east_asian_ambiguous_width_as_wide: bool,
+    cell_width_overrides: Vec<CellWidthOverride>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellWidthOverride {
+    pub first: u32,
+    pub last: u32,
+    pub width: u16,
+}
+
+impl CellWidthOverride {
+    #[must_use]
+    pub const fn new(first: u32, last: u32, width: u16) -> Self {
+        Self { first, last, width }
+    }
+
+    fn contains(self, ch: char) -> bool {
+        let codepoint = ch as u32;
+        self.first <= codepoint && codepoint <= self.last
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -496,11 +516,16 @@ impl Terminal {
             bell_count: 0,
             unknown_escape_sequences: Vec::new(),
             treat_east_asian_ambiguous_width_as_wide: false,
+            cell_width_overrides: Vec::new(),
         }
     }
 
     pub fn set_treat_east_asian_ambiguous_width_as_wide(&mut self, enabled: bool) {
         self.treat_east_asian_ambiguous_width_as_wide = enabled;
+    }
+
+    pub fn set_cell_width_overrides(&mut self, overrides: Vec<CellWidthOverride>) {
+        self.cell_width_overrides = overrides;
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
@@ -2885,7 +2910,11 @@ impl Terminal {
             return;
         }
         self.finish_pending_kitty_placeholder();
-        let width = display_width(ch, self.treat_east_asian_ambiguous_width_as_wide);
+        let width = display_width(
+            ch,
+            self.treat_east_asian_ambiguous_width_as_wide,
+            &self.cell_width_overrides,
+        );
         if width == 0 {
             return;
         }
@@ -5875,7 +5904,19 @@ fn saturating_u8(value: u16) -> u8 {
     u8::try_from(value).unwrap_or(u8::MAX)
 }
 
-fn display_width(ch: char, treat_east_asian_ambiguous_width_as_wide: bool) -> u16 {
+fn display_width(
+    ch: char,
+    treat_east_asian_ambiguous_width_as_wide: bool,
+    cell_width_overrides: &[CellWidthOverride],
+) -> u16 {
+    if let Some(override_width) = cell_width_overrides
+        .iter()
+        .find(|override_width| override_width.contains(ch))
+        .map(|override_width| override_width.width)
+    {
+        return override_width;
+    }
+
     let width = if treat_east_asian_ambiguous_width_as_wide {
         UnicodeWidthChar::width_cjk(ch)
     } else {
