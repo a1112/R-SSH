@@ -187,6 +187,7 @@ const DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT: bool = true;
 const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
+const DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR: bool = false;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
 const DEFAULT_DETECT_PASSWORD_INPUT: bool = true;
@@ -1965,6 +1966,7 @@ struct NativeEffectiveConfig {
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
+    treat_left_ctrlalt_as_altgr: bool,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
@@ -2119,6 +2121,7 @@ struct NativeConfigOverrides {
     enable_csi_u_key_encoding: Option<bool>,
     enable_kitty_keyboard: Option<bool>,
     allow_win32_input_mode: Option<bool>,
+    treat_left_ctrlalt_as_altgr: Option<bool>,
     use_ime: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
     xim_im_name: Option<String>,
@@ -2790,6 +2793,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "allow_win32_input_mode")
     {
         overrides.allow_win32_input_mode = Some(allow_win32_input_mode);
+        parsed = true;
+    }
+    if let Some(treat_left_ctrlalt_as_altgr) =
+        lua_config_bool_assignment_from_query(config, "treat_left_ctrlalt_as_altgr")
+    {
+        overrides.treat_left_ctrlalt_as_altgr = Some(treat_left_ctrlalt_as_altgr);
         parsed = true;
     }
     if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
@@ -4633,6 +4642,7 @@ struct NativeWindowApp {
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
+    treat_left_ctrlalt_as_altgr: bool,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
@@ -6061,6 +6071,7 @@ impl NativeWindowApp {
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+            treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
@@ -7039,6 +7050,7 @@ impl NativeWindowApp {
         detached_app.enable_csi_u_key_encoding = self.enable_csi_u_key_encoding;
         detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
         detached_app.allow_win32_input_mode = self.allow_win32_input_mode;
+        detached_app.treat_left_ctrlalt_as_altgr = self.treat_left_ctrlalt_as_altgr;
         detached_app.leader.clone_from(&self.leader);
         detached_app
             .key_assignments
@@ -7232,6 +7244,7 @@ impl NativeWindowApp {
         self.enable_csi_u_key_encoding = source.enable_csi_u_key_encoding;
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
+        self.treat_left_ctrlalt_as_altgr = source.treat_left_ctrlalt_as_altgr;
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.xim_im_name.clone_from(&source.xim_im_name);
@@ -14201,6 +14214,7 @@ impl NativeWindowApp {
             enable_csi_u_key_encoding: self.enable_csi_u_key_encoding,
             enable_kitty_keyboard: self.enable_kitty_keyboard,
             allow_win32_input_mode: self.allow_win32_input_mode,
+            treat_left_ctrlalt_as_altgr: self.treat_left_ctrlalt_as_altgr,
             use_ime: self.use_ime,
             ime_preedit_rendering: self.ime_preedit_rendering,
             xim_im_name: self.xim_im_name.clone(),
@@ -14498,6 +14512,9 @@ impl NativeWindowApp {
         self.allow_win32_input_mode = overrides
             .allow_win32_input_mode
             .unwrap_or(DEFAULT_ALLOW_WIN32_INPUT_MODE);
+        self.treat_left_ctrlalt_as_altgr = overrides
+            .treat_left_ctrlalt_as_altgr
+            .unwrap_or(DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR);
         self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
@@ -36746,16 +36763,17 @@ mod tests {
         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
-        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME,
-        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
-        DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
-        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
-        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
-        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
-        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
-        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
-        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
+        DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR, DEFAULT_UNDERLINE_POSITION,
+        DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME, DEFAULT_USE_RESIZE_INCREMENTS,
+        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+        DEFAULT_WEBGPU_POWER_PREFERENCE, DEFAULT_WINDOW_BACKGROUND_OPACITY,
+        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
+        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
+        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
+        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
+        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
+        NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
         NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
         NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontShaper,
         NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
@@ -46061,6 +46079,7 @@ mod tests {
                 enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+                treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
                 use_ime: DEFAULT_USE_IME,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 xim_im_name: None,
@@ -58377,6 +58396,7 @@ mod tests {
             config.enable_csi_u_key_encoding = true
             config.enable_kitty_keyboard = true
             config.allow_win32_input_mode = false
+            config.treat_left_ctrlalt_as_altgr = true
 
             return config
             "#,
@@ -58393,6 +58413,18 @@ mod tests {
         assert!(effective.enable_csi_u_key_encoding);
         assert!(effective.enable_kitty_keyboard);
         assert!(!effective.allow_win32_input_mode);
+        assert!(effective.treat_left_ctrlalt_as_altgr);
+    }
+
+    #[test]
+    fn window_app_reports_default_wezterm_altgr_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(
+            effective.treat_left_ctrlalt_as_altgr,
+            DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR
+        );
     }
 
     #[test]
@@ -64584,6 +64616,7 @@ mod tests {
             enable_csi_u_key_encoding: Some(true),
             enable_kitty_keyboard: Some(true),
             allow_win32_input_mode: Some(false),
+            treat_left_ctrlalt_as_altgr: Some(true),
             use_ime: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             xim_im_name: Some("fcitx".to_owned()),
@@ -64819,6 +64852,7 @@ mod tests {
             enable_csi_u_key_encoding: true,
             enable_kitty_keyboard: true,
             allow_win32_input_mode: false,
+            treat_left_ctrlalt_as_altgr: true,
             use_ime: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
             xim_im_name: Some("fcitx".to_owned()),
@@ -64973,6 +65007,7 @@ mod tests {
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+            treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
