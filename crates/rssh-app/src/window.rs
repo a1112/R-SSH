@@ -2069,9 +2069,55 @@ fn lua_config_assignment_from_query<'a>(
                 }
             }
         }
+
+        if character == '['
+            && let Some(rest) = lua_config_bracket_assignment_rest_from_query(source, index, field)
+            && let Some(rest) = rest.trim_start().strip_prefix('=')
+            && let Some(value) = literal_from_query(rest.trim_start())
+        {
+            return Some(value);
+        }
     }
 
     None
+}
+
+#[allow(dead_code)]
+fn lua_config_bracket_assignment_rest_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    field: &str,
+) -> Option<&'a str> {
+    if !lua_config_bracket_assignment_has_config_receiver(source, start) {
+        return None;
+    }
+
+    let target = source.get(start..)?;
+    let after_open = target.strip_prefix('[')?.trim_start();
+    let key_literal = lua_quoted_string_literal_from_query(after_open)
+        .or_else(|| lua_long_bracket_literal_from_query(after_open))?;
+    let key = parse_maybe_quoted_query_text(key_literal)?;
+    if key != field {
+        return None;
+    }
+
+    after_open
+        .get(key_literal.len()..)?
+        .trim_start()
+        .strip_prefix(']')
+}
+
+#[allow(dead_code)]
+fn lua_config_bracket_assignment_has_config_receiver(source: &str, start: usize) -> bool {
+    let prefix = source[..start].trim_end();
+    let Some(receiver_start) = prefix.len().checked_sub("config".len()) else {
+        return false;
+    };
+    if !prefix[receiver_start..].starts_with("config") {
+        return false;
+    }
+    let before_receiver = prefix[..receiver_start].chars().next_back();
+    !before_receiver.is_some_and(is_lua_identifier_character)
 }
 
 #[allow(dead_code)]
@@ -2314,6 +2360,15 @@ fn lua_quoted_string_literal_from_query(query: &str) -> Option<&str> {
         }
     }
     None
+}
+
+#[allow(dead_code)]
+fn lua_long_bracket_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    let (content_start, closing) = parse_lua_long_bracket_delimiters(query)?;
+    let content_and_rest = &query[content_start..];
+    let close_index = content_and_rest.find(&closing)?;
+    query.get(..content_start + close_index + closing.len())
 }
 
 #[allow(dead_code)]
@@ -51724,6 +51779,45 @@ mod tests {
             config.default_cwd = 'C:/Project Dir'
             config.term = 'wezterm'
             config.set_environment_variables = {
+              PROJECT_MODE = 'dev',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+        assert_eq!(command.env_value("TERM"), Some("wezterm"));
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_top_level_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config[ [[default_prog]] ] = { 'nu', '--login' }
+            config['default_cwd'] = 'C:/Project Dir'
+            config["term"] = 'wezterm'
+            config[ [=[set_environment_variables]=] ] = {
               PROJECT_MODE = 'dev',
             }
 
