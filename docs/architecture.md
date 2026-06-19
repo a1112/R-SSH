@@ -237,8 +237,11 @@ keyboard, mouse, paste, resize
   enabled, honors kitty keyboard protocol negotiation sequences and flags
   queries. Native `allow_win32_input_mode` defaults to true, tracks ConPTY
   `CSI ? 9001 h/l` mode requests, and makes native-window and local console
-  input emit Win32 key records for that mode before CSI-u/kitty encoding; Lua
-  config parsing remains future parity work.
+  input emit Win32 key records for that mode before CSI-u/kitty encoding.
+  Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
+  `enable_csi_u_key_encoding`, `enable_kitty_keyboard`,
+  `allow_win32_input_mode`, `use_ime`, and `xim_im_name` parse into the native
+  override path; actual platform IME/XIM connection remains future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -730,7 +733,8 @@ keyboard, mouse, paste, resize
   `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
-  `enable_kitty_keyboard`, `allow_win32_input_mode`,
+  `enable_kitty_keyboard`, `allow_win32_input_mode`, `use_ime`,
+  `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`, `quote_dropped_files`,
@@ -771,7 +775,10 @@ keyboard, mouse, paste, resize
   snapshots; actual OS-specific window resize increment application remains
   future parity work. `debug_key_events` and `log_unknown_escape_sequences` are
   stored with WezTerm's default `false` and included in effective config
-  snapshots. `warn_about_missing_glyphs` is
+  snapshots. `use_ime` is stored with WezTerm's current default `true`, and
+  `xim_im_name` is retained as an optional XIM server name for X11-style IME
+  configuration; actual platform IME/XIM connection remains future parity
+  work. `warn_about_missing_glyphs` is
   stored with WezTerm's default `true` and included in effective config
   snapshots. Missing glyph codepoints detected in rendered cells are emitted
   once per native window as stderr `CONFIG ERROR missing glyph ...`
@@ -943,7 +950,8 @@ keyboard, mouse, paste, resize
   `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
-  `enable_kitty_keyboard`, `allow_win32_input_mode`,
+  `enable_kitty_keyboard`, `allow_win32_input_mode`, `use_ime`,
+  `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,

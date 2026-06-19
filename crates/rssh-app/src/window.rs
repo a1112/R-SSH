@@ -187,6 +187,7 @@ const DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT: bool = true;
 const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
+const DEFAULT_USE_IME: bool = true;
 const DEFAULT_CANONICALIZE_PASTED_NEWLINES: NativeCanonicalizePastedNewlines = if cfg!(windows) {
     NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
 } else {
@@ -1945,6 +1946,8 @@ struct NativeEffectiveConfig {
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
+    use_ime: bool,
+    xim_im_name: Option<String>,
     scroll_to_bottom_on_input: bool,
     adjust_window_size_when_changing_font_size: bool,
     canonicalize_pasted_newlines: NativeCanonicalizePastedNewlines,
@@ -2095,6 +2098,8 @@ struct NativeConfigOverrides {
     enable_csi_u_key_encoding: Option<bool>,
     enable_kitty_keyboard: Option<bool>,
     allow_win32_input_mode: Option<bool>,
+    use_ime: Option<bool>,
+    xim_im_name: Option<String>,
     leader: Option<NativeLeaderKey>,
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
@@ -2762,6 +2767,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "allow_win32_input_mode")
     {
         overrides.allow_win32_input_mode = Some(allow_win32_input_mode);
+        parsed = true;
+    }
+    if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
+        overrides.use_ime = Some(use_ime);
+        parsed = true;
+    }
+    if let Some(xim_im_name) = lua_config_string_assignment_from_query(config, "xim_im_name") {
+        overrides.xim_im_name = Some(xim_im_name);
         parsed = true;
     }
     if let Some(disable_default_key_bindings) =
@@ -4584,6 +4597,8 @@ struct NativeWindowApp {
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
+    use_ime: bool,
+    xim_im_name: Option<String>,
     leader: Option<NativeLeaderKey>,
     key_assignments: Vec<NativeUserKeyAssignment>,
     key_tables: BTreeMap<String, Vec<NativeUserKeyAssignment>>,
@@ -6008,6 +6023,8 @@ impl NativeWindowApp {
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+            use_ime: DEFAULT_USE_IME,
+            xim_im_name: None,
             leader: None,
             key_assignments: Vec::new(),
             key_tables: BTreeMap::new(),
@@ -7175,6 +7192,8 @@ impl NativeWindowApp {
         self.enable_csi_u_key_encoding = source.enable_csi_u_key_encoding;
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
+        self.use_ime = source.use_ime;
+        self.xim_im_name.clone_from(&source.xim_im_name);
         self.leader.clone_from(&source.leader);
         self.key_assignments.clone_from(&source.key_assignments);
         self.key_tables.clone_from(&source.key_tables);
@@ -14140,6 +14159,8 @@ impl NativeWindowApp {
             enable_csi_u_key_encoding: self.enable_csi_u_key_encoding,
             enable_kitty_keyboard: self.enable_kitty_keyboard,
             allow_win32_input_mode: self.allow_win32_input_mode,
+            use_ime: self.use_ime,
+            xim_im_name: self.xim_im_name.clone(),
             scroll_to_bottom_on_input: self.scroll_to_bottom_on_input,
             adjust_window_size_when_changing_font_size: self
                 .adjust_window_size_when_changing_font_size,
@@ -14433,6 +14454,10 @@ impl NativeWindowApp {
         self.allow_win32_input_mode = overrides
             .allow_win32_input_mode
             .unwrap_or(DEFAULT_ALLOW_WIN32_INPUT_MODE);
+        self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
+        self.xim_im_name = overrides
+            .xim_im_name
+            .filter(|xim_im_name| !xim_im_name.is_empty());
         self.apply_keyboard_protocol_config_to_runtimes();
         self.leader = overrides.leader.filter(|leader| !leader.keys.is_empty());
         self.leader_active_since = None;
@@ -36670,16 +36695,16 @@ mod tests {
         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
-        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_RESIZE_INCREMENTS,
-        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
-        DEFAULT_WEBGPU_POWER_PREFERENCE, DEFAULT_WINDOW_BACKGROUND_OPACITY,
-        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
-        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
-        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
-        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
-        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
-        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
-        NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
+        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME,
+        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
+        DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
+        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
+        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
+        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
+        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
+        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
+        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
         NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
         NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontShaper,
         NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
@@ -45984,6 +46009,8 @@ mod tests {
                 enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+                use_ime: DEFAULT_USE_IME,
+                xim_im_name: None,
                 scroll_to_bottom_on_input: true,
                 adjust_window_size_when_changing_font_size:
                     DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
@@ -58285,6 +58312,36 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_ime_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.use_ime, DEFAULT_USE_IME);
+        assert_eq!(effective.xim_im_name, None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_ime_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.use_ime = false
+            config.xim_im_name = 'fcitx'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm IME config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.use_ime);
+        assert_eq!(effective.xim_im_name.as_deref(), Some("fcitx"));
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_mouse_focus_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -64434,6 +64491,8 @@ mod tests {
             enable_csi_u_key_encoding: Some(true),
             enable_kitty_keyboard: Some(true),
             allow_win32_input_mode: Some(false),
+            use_ime: Some(false),
+            xim_im_name: Some("fcitx".to_owned()),
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("Top".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
@@ -64665,6 +64724,8 @@ mod tests {
             enable_csi_u_key_encoding: true,
             enable_kitty_keyboard: true,
             allow_win32_input_mode: false,
+            use_ime: false,
+            xim_im_name: Some("fcitx".to_owned()),
             scroll_to_bottom_on_input: false,
             adjust_window_size_when_changing_font_size: false,
             canonicalize_pasted_newlines: NativeCanonicalizePastedNewlines::LineFeed,
@@ -64815,6 +64876,8 @@ mod tests {
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
+            use_ime: DEFAULT_USE_IME,
+            xim_im_name: None,
             scroll_to_bottom_on_input: true,
             adjust_window_size_when_changing_font_size:
                 DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
