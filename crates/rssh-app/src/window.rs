@@ -2459,13 +2459,29 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
     let mut depth = 0u32;
     let mut quote = None;
     let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
     let mut long_bracket_end = None;
     for (index, character) in query.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
         if let Some(end) = long_bracket_end {
             if index < end {
                 continue;
             }
             long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
         }
 
         if let Some(active_quote) = quote {
@@ -2476,6 +2492,24 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
             } else if character == active_quote {
                 quote = None;
             }
+            continue;
+        }
+
+        if query[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&query[index + 2..])
+            {
+                let content_and_rest = &query[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(query.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
             continue;
         }
 
@@ -52074,6 +52108,36 @@ mod tests {
             app.default_cwd.as_deref(),
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev}ops"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_comments_with_brace() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = {
+              -- ignored } line comment
+              'nu',
+              --[=[
+              ignored } block comment
+              ]=]
+              '--login',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
     }
 
     #[test]
