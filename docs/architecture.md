@@ -698,7 +698,7 @@ keyboard, mouse, paste, resize
   `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
-  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`,
+  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`,
   `force_reverse_video_cursor`, `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,

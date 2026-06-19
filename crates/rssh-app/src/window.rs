@@ -98,6 +98,12 @@ const DEFAULT_UNDERLINE_THICKNESS: Option<NativeUnderlineThickness> = None;
 const DEFAULT_UNDERLINE_POSITION: Option<NativeUnderlinePosition> = None;
 const DEFAULT_STRIKETHROUGH_POSITION: Option<NativeStrikethroughPosition> = None;
 const DEFAULT_FORCE_REVERSE_VIDEO_CURSOR: bool = false;
+const DEFAULT_WINDOW_PADDING: NativeWindowPadding = NativeWindowPadding {
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+};
 const DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS: NativeBoldBrightensAnsiColors =
     NativeBoldBrightensAnsiColors::BrightAndBold;
 const DEFAULT_WINDOW_DPI: u32 = 96;
@@ -385,6 +391,15 @@ impl NativeLineHeight {
     fn as_f64(self) -> f64 {
         f64::from(self.0) / 1_000.0
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NativeWindowPadding {
+    left: u16,
+    right: u16,
+    top: u16,
+    bottom: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1257,6 +1272,7 @@ struct NativeEffectiveConfig {
     underline_position: Option<NativeUnderlinePosition>,
     strikethrough_position: Option<NativeStrikethroughPosition>,
     force_reverse_video_cursor: bool,
+    window_padding: NativeWindowPadding,
     initial_cols: u16,
     initial_rows: u16,
     inactive_pane_hsb: NativeInactivePaneHsb,
@@ -1346,6 +1362,7 @@ struct NativeConfigOverrides {
     underline_position: Option<NativeUnderlinePosition>,
     strikethrough_position: Option<NativeStrikethroughPosition>,
     force_reverse_video_cursor: Option<bool>,
+    window_padding: Option<NativeWindowPadding>,
     initial_cols: Option<u16>,
     initial_rows: Option<u16>,
     inactive_pane_hsb: Option<NativeInactivePaneHsb>,
@@ -1838,6 +1855,11 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.min_scroll_bar_height = Some(NativeScrollBarHeight::Pixels(
             u32::try_from(min_scroll_bar_height).ok()?,
         ));
+        parsed = true;
+    }
+    if let Some(window_padding) = lua_config_table_assignment_from_query(config, "window_padding") {
+        overrides.window_padding =
+            Some(native_window_padding_lua_table_from_query(window_padding)?);
         parsed = true;
     }
     if let Some(enable_tab_bar) = lua_config_bool_assignment_from_query(config, "enable_tab_bar") {
@@ -2648,6 +2670,34 @@ fn native_hsb_lua_table_from_query(value: &str) -> Option<NativeInactivePaneHsb>
 }
 
 #[allow(dead_code)]
+fn native_window_padding_lua_table_from_query(value: &str) -> Option<NativeWindowPadding> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut padding = DEFAULT_WINDOW_PADDING;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let cells = lua_unsigned_integer_literal_from_query(value.trim())?
+            .parse::<u16>()
+            .ok()?;
+
+        match key.as_str() {
+            "left" => padding.left = cells,
+            "right" => padding.right = cells,
+            "top" => padding.top = cells,
+            "bottom" => padding.bottom = cells,
+            _ => return None,
+        }
+    }
+
+    Some(padding)
+}
+
+#[allow(dead_code)]
 fn native_hsb_multiplier_from_ratio(ratio: f32) -> Option<NativeHsbMultiplier> {
     native_non_negative_ratio_to_per_mille(ratio).map(NativeHsbMultiplier::from_per_mille)
 }
@@ -3420,6 +3470,7 @@ struct NativeWindowApp {
     underline_position: Option<NativeUnderlinePosition>,
     strikethrough_position: Option<NativeStrikethroughPosition>,
     force_reverse_video_cursor: bool,
+    window_padding: NativeWindowPadding,
     cursor_blink_visible: bool,
     cursor_blink_opacity_alpha: u8,
     last_cursor_blink_at: Option<Instant>,
@@ -4601,6 +4652,7 @@ impl NativeWindowApp {
             underline_position: DEFAULT_UNDERLINE_POSITION,
             strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
             force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+            window_padding: DEFAULT_WINDOW_PADDING,
             cursor_blink_visible: true,
             cursor_blink_opacity_alpha: u8::MAX,
             last_cursor_blink_at: None,
@@ -5610,6 +5662,7 @@ impl NativeWindowApp {
         self.underline_position = source.underline_position;
         self.strikethrough_position = source.strikethrough_position;
         self.force_reverse_video_cursor = source.force_reverse_video_cursor;
+        self.window_padding = source.window_padding;
         self.cursor_blink_visible = true;
         self.cursor_blink_opacity_alpha = u8::MAX;
         self.last_cursor_blink_at = None;
@@ -10896,33 +10949,42 @@ impl NativeWindowApp {
         self.pane_render_layout_for_tab(self.app_shell.active_tab())
     }
 
+    fn padded_terminal_render_rect(&self, pane_id: rssh_core::PaneId) -> PaneRenderRect {
+        let size = self.runtime.terminal().grid().size();
+        let left = self.window_padding.left.min(size.columns.saturating_sub(1));
+        let top = self.window_padding.top.min(size.rows.saturating_sub(1));
+        let right = self
+            .window_padding
+            .right
+            .min(size.columns.saturating_sub(left).saturating_sub(1));
+        let bottom = self
+            .window_padding
+            .bottom
+            .min(size.rows.saturating_sub(top).saturating_sub(1));
+
+        PaneRenderRect {
+            pane_id,
+            row: self.terminal_frame_row_offset().saturating_add(top),
+            column: left,
+            rows: size.rows.saturating_sub(top).saturating_sub(bottom),
+            columns: size.columns.saturating_sub(left).saturating_sub(right),
+        }
+    }
+
     fn pane_render_layout_for_tab(&self, tab: &rssh_core::app_shell::Tab) -> PaneRenderLayout {
         let panes = tab.panes();
         let Some(first_pane) = panes.first() else {
             return PaneRenderLayout::default();
         };
 
-        let size = self.runtime.terminal().grid().size();
         if let Some(zoomed_pane_id) = tab.zoomed_pane_id() {
             return PaneRenderLayout {
-                panes: vec![PaneRenderRect {
-                    pane_id: zoomed_pane_id,
-                    row: self.terminal_frame_row_offset(),
-                    column: 0,
-                    rows: size.rows,
-                    columns: size.columns,
-                }],
+                panes: vec![self.padded_terminal_render_rect(zoomed_pane_id)],
                 separators: Vec::new(),
             };
         }
 
-        let first_rect = PaneRenderRect {
-            pane_id: first_pane.id(),
-            row: self.terminal_frame_row_offset(),
-            column: 0,
-            rows: size.rows,
-            columns: size.columns,
-        };
+        let first_rect = self.padded_terminal_render_rect(first_pane.id());
         let mut rects = HashMap::from([(first_pane.id(), first_rect)]);
         let mut separators = Vec::new();
 
@@ -12056,6 +12118,7 @@ impl NativeWindowApp {
             underline_position: self.underline_position,
             strikethrough_position: self.strikethrough_position,
             force_reverse_video_cursor: self.force_reverse_video_cursor,
+            window_padding: self.window_padding,
             initial_cols: self.initial_cols,
             initial_rows: self.initial_rows,
             inactive_pane_hsb: self.inactive_pane_hsb,
@@ -12164,6 +12227,7 @@ impl NativeWindowApp {
         self.apply_underline_position_override(overrides.underline_position);
         self.apply_strikethrough_position_override(overrides.strikethrough_position);
         self.apply_force_reverse_video_cursor_override(overrides.force_reverse_video_cursor);
+        self.apply_window_padding_override(overrides.window_padding);
         self.apply_tab_bar_config_overrides(&overrides);
         self.apply_input_config_overrides(&overrides);
         self.initial_cols = overrides
@@ -12553,6 +12617,11 @@ impl NativeWindowApp {
             force_reverse_video_cursor.unwrap_or(DEFAULT_FORCE_REVERSE_VIDEO_CURSOR);
         self.renderer
             .set_force_reverse_video_cursor(self.force_reverse_video_cursor);
+        self.frame_needs_full_repaint = true;
+    }
+
+    fn apply_window_padding_override(&mut self, window_padding: Option<NativeWindowPadding>) {
+        self.window_padding = window_padding.unwrap_or(DEFAULT_WINDOW_PADDING);
         self.frame_needs_full_repaint = true;
     }
 
@@ -33190,12 +33259,12 @@ mod tests {
         DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_STRIKETHROUGH_POSITION,
         DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
-        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DamageRegion,
-        FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAudibleBell,
-        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
-        NativeConfirmation, NativeCubicBezier, NativeCursorStyle, NativeCursorThickness,
-        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WINDOW_PADDING,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
+        NativeAudibleBell, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
+        NativeCellWidth, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeCubicBezier, NativeCursorStyle,
+        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeHsbMultiplier, NativeInactivePaneHsb,
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
@@ -33206,10 +33275,10 @@ mod tests {
         NativeVisualBellTarget, NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
         NativeWindowConfigReloaded, NativeWindowEmitEvent, NativeWindowFocusChange,
         NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowResize, NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent,
-        NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate, ResizeDirection,
-        SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS,
-        WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        NativeWindowPadding, NativeWindowResize, NativeWindowStatusUpdate,
+        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
+        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
+        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
         WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
         WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
         WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
@@ -41013,6 +41082,7 @@ mod tests {
                 underline_position: DEFAULT_UNDERLINE_POSITION,
                 strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
                 force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+                window_padding: DEFAULT_WINDOW_PADDING,
                 initial_cols: TERMINAL_COLUMNS,
                 initial_rows: TERMINAL_ROWS,
                 inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
@@ -53947,6 +54017,48 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_window_padding() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_padding = {
+              left = 2,
+              right = 3,
+              top = 1,
+              bottom = 2,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window padding config");
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 6));
+        app.refresh_snapshot();
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let layout = app.pane_render_layout();
+        let rect = layout.panes.first().expect("pane rect");
+
+        assert_eq!(
+            effective.window_padding,
+            NativeWindowPadding {
+                left: 2,
+                right: 3,
+                top: 1,
+                bottom: 2,
+            }
+        );
+        assert_eq!(rect.row, TAB_BAR_ROWS + 1);
+        assert_eq!(rect.column, 2);
+        assert_eq!(rect.rows, 3);
+        assert_eq!(rect.columns, 15);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_launch_menu_into_launcher_entries() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -58308,6 +58420,39 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_window_padding_to_pane_render_layout() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 6));
+        app.refresh_snapshot();
+        app.set_config_overrides(NativeConfigOverrides {
+            window_padding: Some(NativeWindowPadding {
+                left: 2,
+                right: 3,
+                top: 1,
+                bottom: 2,
+            }),
+            ..NativeConfigOverrides::default()
+        });
+
+        let layout = app.pane_render_layout();
+        let rect = layout.panes.first().expect("pane rect");
+
+        assert_eq!(
+            app.native_effective_config().window_padding,
+            NativeWindowPadding {
+                left: 2,
+                right: 3,
+                top: 1,
+                bottom: 2,
+            }
+        );
+        assert_eq!(rect.row, TAB_BAR_ROWS + 1);
+        assert_eq!(rect.column, 2);
+        assert_eq!(rect.rows, 3);
+        assert_eq!(rect.columns, 15);
+    }
+
+    #[test]
     fn window_app_applies_inactive_pane_hsb_to_split_render_snapshot() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
@@ -58443,6 +58588,12 @@ mod tests {
             underline_position: Some(NativeUnderlinePosition::Pixels(-2)),
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: Some(true),
+            window_padding: Some(NativeWindowPadding {
+                left: 1,
+                right: 2,
+                top: 3,
+                bottom: 4,
+            }),
             initial_cols: Some(100),
             initial_rows: Some(30),
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
@@ -58567,6 +58718,12 @@ mod tests {
             underline_position: Some(NativeUnderlinePosition::Pixels(-2)),
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: true,
+            window_padding: NativeWindowPadding {
+                left: 1,
+                right: 2,
+                top: 3,
+                bottom: 4,
+            },
             initial_cols: 100,
             initial_rows: 30,
             inactive_pane_hsb: NativeInactivePaneHsb {
@@ -58667,6 +58824,7 @@ mod tests {
             underline_position: DEFAULT_UNDERLINE_POSITION,
             strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
             force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+            window_padding: DEFAULT_WINDOW_PADDING,
             initial_cols: TERMINAL_COLUMNS,
             initial_rows: TERMINAL_ROWS,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
