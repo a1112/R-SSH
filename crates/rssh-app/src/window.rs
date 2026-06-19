@@ -18272,7 +18272,7 @@ fn clear_scrollback_lua_table_from_query(value: &str) -> Option<WindowClearScrol
     let mut mode = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value)?;
         match name.to_ascii_lowercase().as_str() {
@@ -19761,7 +19761,7 @@ fn send_key_lua_table_from_query(value: &str) -> Option<WindowSendKey> {
     let mut parsed_mods = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value)?;
         match name.to_ascii_lowercase().as_str() {
@@ -21596,7 +21596,7 @@ fn char_select_lua_table_from_query(value: &str) -> Option<WindowCharSelectOptio
     let mut parsed_group = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
 
@@ -23910,7 +23910,7 @@ fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOpt
     let mut parsed_scope_lines = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = value.trim();
 
@@ -49642,6 +49642,26 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_char_select_wezterm_action_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CharSelect { [[=[copy_on_select]=]] = false, [[=[copy_to]=]] = [[PrimarySelection]], [[=[group]=]] = [[PeopleAndBody]] }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::CharSelectArgs(WindowCharSelectOptions {
+                copy_on_select: false,
+                copy_to: WindowCopyDestination::PrimarySelection,
+                group: Some("PeopleAndBody".to_owned()),
+            })]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_char_select_args_equals_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -63605,6 +63625,41 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_quick_select_args_wezterm_action_table_long_bracket_key_query()
+    {
+        let query = "wezterm.action.QuickSelectArgs { [[=[pattern]=]] = [[ticket-[0-9]+]], [[=[alphabet]=]] = [[12]], [[=[label]=]] = [[Pick]], [[=[skip_action_on_paste]=]] = true, [[=[scope_lines]=]] = 1 }";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            alphabet: Some("12".to_owned()),
+            label: Some("Pick".to_owned()),
+            action: None,
+            skip_action_on_paste: true,
+            scope_lines: Some(1),
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::EnterQuickSelect]
+        );
+        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(quick_select.labels.as_slice(), ["1"]);
+        assert_eq!(quick_select.action_label.as_deref(), Some("Pick"));
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+    }
+
+    #[test]
     fn window_app_dispatches_palette_quick_select_action_name_queries() {
         for (query, expected_options) in [
             (
@@ -67593,6 +67648,25 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_clear_scrollback_wezterm_action_table_long_bracket_key_query()
+    {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ClearScrollback { [[=[mode]=]] = [[ScrollbackAndViewport]] }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            [WindowCommand::ClearScrollback(
+                WindowClearScrollbackMode::ScrollbackAndViewport
+            )]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_clear_scrollback_wezterm_action_parenthesized_table_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -69440,6 +69514,25 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SendKey { key = \"LeftArrow\", mods = \"ALT\" }".to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SendKey(WindowSendKey {
+                key: Key::Named(NamedKey::ArrowLeft),
+                modifiers: ModifiersState::ALT,
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_key_wezterm_action_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SendKey { [[=[key]=]] = [[LeftArrow]], [[=[mods]=]] = [[ALT]] }"
+                .to_owned(),
         );
 
         assert_eq!(

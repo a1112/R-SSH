@@ -809,7 +809,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   queries dispatch that default entry.
   WezTerm-style `wezterm.action.QuickSelectArgs { patterns = { ... },
   alphabet = ..., label = ... }` Lua table calls parse the same native options
-  subset, and the `action` field now accepts nested implemented `CopyTo`
+  subset, including bracketed string table keys with long-bracket values, and
+  the `action` field now accepts nested implemented `CopyTo`
   KeyAssignment values such as `wezterm.action.CopyTo 'Clipboard'`,
   `act.CopyTo('PrimarySelection')`, and
   `wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' }`, plus explicit
@@ -1009,7 +1010,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `send key ALT+LeftArrow` and `send key CTRL+SHIFT+F5`. WezTerm-style
   `wezterm.action.SendKey { key = ..., mods = ... }` and
   `wezterm.action.SendKey({ key = ..., mods = ... })` table-call queries route
-  to the same implemented key/modifier payload parser.
+  to the same implemented key/modifier payload parser, including bracketed
+  string table keys with long-bracket values.
 - Structured action queries now also accept WezTerm's older
   `wezterm.action { ActionName = value }` / `wezterm.action({ ActionName =
   value })` wrapper-table syntax for the implemented native action subset,
@@ -1101,7 +1103,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   or unquoted mode text. WezTerm-style
   `wezterm.action.ClearScrollback('ScrollbackOnly')` string calls and
   `wezterm.action.ClearScrollback { mode = ... }` table-call queries dispatch
-  the same native payload path.
+  the same native payload path, including bracketed string table keys with
+  long-bracket values.
 - Command palette and native action payloads now expose WezTerm-style
   `ClearScrollback('ScrollbackAndViewport')`, clearing active-pane history plus
   the viewport while preserving the prompt/cursor row as the new first visible
@@ -1173,13 +1176,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and parenthesized calls such as
   `wezterm.action.CharSelect({ copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" })`,
   routing the same `copy_on_select`, `copy_to`, and `group` fields as the
-  existing command-palette query forms.
+  existing command-palette query forms, including bracketed string table keys
+  with long-bracket values.
 - WezTerm-style quick-select table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.QuickSelectArgs({ pattern = "ticket-[0-9]+", action = "open-uri", alphabet = "12" })`,
   routing the same `pattern`/`patterns`, `action`, `alphabet`, `label`,
   `skip_action_on_paste`, and `scope_lines` fields as the existing
-  command-palette query forms.
+  command-palette query forms, including bracketed string table keys with
+  long-bracket values.
 - WezTerm-style pane-selection table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.PaneSelect({ mode = "SwapWithActive", show_pane_ids = true, alphabet = "12" })`,
