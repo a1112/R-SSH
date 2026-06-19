@@ -2155,6 +2155,7 @@ fn lua_config_return_table_assignment_from_query<'a>(
     let mut line_comment = false;
     let mut block_comment_end = None;
     let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
 
     for (index, character) in source.char_indices() {
         if let Some(end) = block_comment_end {
@@ -2230,8 +2231,24 @@ fn lua_config_return_table_assignment_from_query<'a>(
             continue;
         }
 
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
         if source[index..].starts_with("return")
             && lua_config_assignment_field_has_boundaries(source, index, "return")
+            && lua_block_depth == 0
         {
             let rest = lua_trim_start_comments(source.get(index + "return".len()..)?)?;
             let Some(table) = lua_braced_table_literal_from_query(rest) else {
@@ -2254,6 +2271,12 @@ fn lua_config_return_table_assignment_from_query<'a>(
     }
 
     None
+}
+
+#[allow(dead_code)]
+fn lua_source_keyword_at(source: &str, index: usize, keyword: &str) -> bool {
+    source[index..].starts_with(keyword)
+        && lua_config_assignment_field_has_boundaries(source, index, keyword)
 }
 
 #[allow(dead_code)]
@@ -52218,6 +52241,33 @@ mod tests {
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
         assert_eq!(launch.program(), "nu");
         assert_eq!(launch.args(), ["--login"]);
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_return_tables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local function ignored()
+              return {
+                default_prog = { 'bad-shell', '--bad' },
+                default_cwd = 'C:/Bad Dir',
+              }
+            end
+
+            local config = {}
+            config.term = 'wezterm'
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.default_prog, None);
+        assert_eq!(app.default_cwd, None);
+        assert_eq!(app.term, "wezterm");
     }
 
     #[test]
