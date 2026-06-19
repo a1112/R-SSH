@@ -2028,6 +2028,7 @@ fn lua_config_assignment_from_query<'a>(
     let mut line_comment = false;
     let mut block_comment_end = None;
     let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
 
     for (index, character) in source.char_indices() {
         if let Some(end) = block_comment_end {
@@ -2103,9 +2104,25 @@ fn lua_config_assignment_from_query<'a>(
             continue;
         }
 
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
         if source[index..].starts_with(field)
             && lua_config_assignment_field_has_boundaries(source, index, field)
             && lua_config_dot_assignment_has_config_receiver(source, index)
+            && lua_block_depth == 0
         {
             let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
             if let Some(rest) = rest.strip_prefix('=') {
@@ -2116,6 +2133,7 @@ fn lua_config_assignment_from_query<'a>(
         }
 
         if character == '['
+            && lua_block_depth == 0
             && let Some(rest) = lua_config_bracket_assignment_rest_from_query(source, index, field)
             && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
             && let Some(value) = literal_from_query(lua_trim_start_comments(rest)?)
@@ -52435,6 +52453,31 @@ mod tests {
             end
 
             local config = {}
+            config.term = 'wezterm'
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.default_prog, None);
+        assert_eq!(app.default_cwd, None);
+        assert_eq!(app.term, "wezterm");
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_config_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            local function ignored()
+              config.default_prog = { 'bad-shell', '--bad' }
+              config['default_cwd'] = 'C:/Bad Dir'
+            end
+
             config.term = 'wezterm'
             return config
             "#,
