@@ -2105,6 +2105,7 @@ fn lua_config_assignment_from_query<'a>(
 
         if source[index..].starts_with(field)
             && lua_config_assignment_field_has_boundaries(source, index, field)
+            && lua_config_dot_assignment_has_config_receiver(source, index)
         {
             let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
             if let Some(rest) = rest.strip_prefix('=') {
@@ -2120,6 +2121,135 @@ fn lua_config_assignment_from_query<'a>(
             && let Some(value) = literal_from_query(lua_trim_start_comments(rest)?)
         {
             return Some(value);
+        }
+    }
+
+    lua_config_return_table_assignment_from_query(source, field, &mut literal_from_query)
+}
+
+#[allow(dead_code)]
+fn lua_config_dot_assignment_has_config_receiver(source: &str, start: usize) -> bool {
+    let prefix = source[..start].trim_end();
+    let Some(receiver_prefix) = prefix.strip_suffix('.') else {
+        return false;
+    };
+    let receiver_prefix = receiver_prefix.trim_end();
+    let Some(receiver_start) = receiver_prefix.len().checked_sub("config".len()) else {
+        return false;
+    };
+    if !receiver_prefix[receiver_start..].starts_with("config") {
+        return false;
+    }
+    let before_receiver = receiver_prefix[..receiver_start].chars().next_back();
+    !before_receiver.is_some_and(is_lua_identifier_character)
+}
+
+#[allow(dead_code)]
+fn lua_config_return_table_assignment_from_query<'a>(
+    source: &'a str,
+    field: &str,
+    literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
+) -> Option<&'a str> {
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index..])
+        {
+            let content_and_rest = &source[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(source.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if source[index..].starts_with("return")
+            && lua_config_assignment_field_has_boundaries(source, index, "return")
+        {
+            let rest = lua_trim_start_comments(source.get(index + "return".len()..)?)?;
+            let Some(table) = lua_braced_table_literal_from_query(rest) else {
+                continue;
+            };
+            let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+            for table_field in split_lua_table_top_level_fields(table)? {
+                let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim())
+                else {
+                    continue;
+                };
+                let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+                    continue;
+                };
+                if key == field {
+                    return literal_from_query(lua_trim_start_comments(value)?);
+                }
+            }
         }
     }
 
@@ -52029,6 +52159,87 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_return_table_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            return {
+              default_prog = { 'nu', '--login' },
+              default_cwd = 'C:/Project Dir',
+            }
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_return_table_after_helper_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local function ignored()
+              return config
+            end
+
+            return {
+              default_prog = { 'nu', '--login' },
+            }
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_bare_local_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local default_prog = { 'bad-shell', '--bad' }
+            local default_cwd = 'C:/Bad Dir'
+            local config = {}
+            config.term = 'wezterm'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.default_prog, None);
+        assert_eq!(app.default_cwd, None);
+        assert_eq!(app.term, "wezterm");
     }
 
     #[test]
