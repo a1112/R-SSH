@@ -567,9 +567,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SwitchToWorkspace { name = ..., spawn = { ... } }` and
   `wezterm.action.SwitchToWorkspace({ name = ..., spawn = { ... } })` table
   queries dispatch the same implemented `name` plus native `SpawnCommand`
-  subset. Native
-  `ShowLauncher`
-  opens the default Launcher Menu for local-domain spawning plus native
+  subset. Native `ShowLauncher` opens the default Launcher Menu for
+  local-domain spawning plus native
   launch-menu items. Native `ShowLauncherArgs` accepts WezTerm-style
   pipe-separated flags through `show launcher <FLAGS>` and action-name
   `showlauncherargs <FLAGS>` / `showlauncher <FLAGS>` /
@@ -906,7 +905,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   quote-aware event-name parsing. WezTerm-style
   `wezterm.action.EmitEvent { name = ... }` and
   `wezterm.action.EmitEvent({ name = ... })` table-call queries dispatch the
-  same typed payload path. Lua `wezterm.on`/`wezterm.emit` wiring remains open.
+  same typed payload path, including bracketed string table keys with
+  long-bracket values. Lua `wezterm.on`/`wezterm.emit` wiring remains open.
 - Native `ActivateKeyTable`, `PopKeyTable`, and `ClearKeyTableStack` action
   payloads now maintain a per-window key-table activation stack and show the
   active table in native window status and title-formatting snapshots; reload
@@ -929,7 +929,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   silently overriding earlier values. WezTerm-style
   `wezterm.action.ActivateKeyTable { ... }` and
   `wezterm.action.ActivateKeyTable({ ... })` table-call queries dispatch the
-  same implemented activation payload fields. Action-name
+  same implemented activation payload fields, including bracketed string table
+  keys with long-bracket values. Action-name
   `activatekeytable ...`, `popkeytable`, and `clearkeytablestack` aliases
   dispatch the same activation and stack mutation payloads as their spaced query
   forms. Native `key_tables` overrides now match table entries from the
@@ -1164,7 +1165,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and parenthesized calls such as
   `wezterm.action.ShowLauncherArgs({ flags = "TABS|WORKSPACES", title = "Jump" })`,
   routing the same `flags`, `title`, `alphabet`, `help_text`, and
-  `fuzzy_help_text` fields as the existing command-palette query forms.
+  `fuzzy_help_text` fields as the existing command-palette query forms,
+  including bracketed string table keys with long-bracket values.
 - WezTerm-style character-selection table actions now accept Lua table calls
   such as
   `wezterm.action.CharSelect { copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" }`
@@ -1985,7 +1987,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   rejecting duplicate structured fields. WezTerm-style
   `wezterm.action.PaneSelect { mode = ..., show_pane_ids = ..., alphabet = ... }`
   and parenthesized table calls parse the same native option subset, with
-  omitted `mode` defaulting to Activate.
+  omitted `mode` defaulting to Activate, including bracketed string table keys
+  with long-bracket values.
 - Pane-select swap modes now expose WezTerm-style mode entries `Pane Select Swap
   With Active` and `Pane Select Swap With Active Keep Focus`: selected panes
   exchange layout positions with the active pane, with focus either moving to the

@@ -19571,7 +19571,7 @@ fn emit_event_lua_table_from_query(value: &str) -> Option<WindowEmitEvent> {
     let mut event = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value)?;
         match name.to_ascii_lowercase().as_str() {
@@ -20210,7 +20210,7 @@ fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivate
     let mut parsed_prevent_fallback = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value)?;
         match name.to_ascii_lowercase().as_str() {
@@ -20345,7 +20345,7 @@ fn show_launcher_args_lua_table_from_query(value: &str) -> Option<WindowShowLaun
     let mut fields = WindowShowLauncherQueryFields::default();
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
 
@@ -24123,7 +24123,7 @@ fn pane_select_lua_table_from_query(query: &str) -> Option<WindowPaneSelectOptio
     let mut parsed_alphabet = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
 
@@ -49938,6 +49938,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_emit_event_wezterm_action_table_long_bracket_key_query() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.emit_event_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(event.clone());
+            true
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.EmitEvent { [[=[name]=]] = [[trigger-update]] }".to_owned(),
+        );
+
+        let expected = WindowCommand::EmitEvent(WindowEmitEvent {
+            name: "trigger-update".to_owned(),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeWindowEmitEvent {
+                window_id: rssh_core::WindowId::new(1),
+                pane: rssh_core::PaneId::new(1),
+                name: "trigger-update".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_emit_event_wezterm_action_parenthesized_table_query() {
         let events = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&events);
@@ -50700,6 +50736,37 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.ActivateKeyTable { name = \"resize_pane\", timeout_milliseconds = 1000, one_shot = false, replace_current = true, until_unknown = true, prevent_fallback = true }"
+                .to_owned(),
+        );
+        let command = WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
+            name: "resize_pane".to_owned(),
+            timeout_milliseconds: Some(1_000),
+            one_shot: false,
+            replace_current: true,
+            until_unknown: true,
+            prevent_fallback: true,
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+        assert!(
+            app.effective_window_title()
+                .contains("KeyTable: resize_pane")
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_activate_key_table_wezterm_action_table_long_bracket_key_query()
+     {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ActivateKeyTable { [[=[name]=]] = [[resize_pane]], [[=[timeout_milliseconds]=]] = 1000, [[=[one_shot]=]] = false, [[=[replace_current]=]] = true, [[=[until_unknown]=]] = true, [[=[prevent_fallback]=]] = true }"
                 .to_owned(),
         );
         let command = WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
@@ -65211,6 +65278,43 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_pane_select_wezterm_action_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PaneSelect { [[=[mode]=]] = [[SwapWithActive]], [[=[show_pane_ids]=]] = true, [[=[alphabet]=]] = [[12]] }"
+                .to_owned(),
+        );
+
+        let expected = WindowCommand::PaneSelect(WindowPaneSelectOptions {
+            mode: WindowPaneSelectMode::SwapWithActive,
+            show_pane_ids: true,
+            alphabet: Some("12".to_owned()),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+        let pane_select = app
+            .pane_select
+            .as_ref()
+            .expect("pane select should be active");
+        assert_eq!(pane_select.mode, WindowPaneSelectMode::SwapWithActive);
+        assert!(pane_select.show_pane_ids);
+        assert_eq!(pane_select.labels[0].label, "1");
+        assert_eq!(pane_select.labels[1].label, "2");
+    }
+
+    #[test]
     fn window_app_dispatches_palette_pane_select_structured_show_ids_equals_query() {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::SplitPane {
@@ -71445,6 +71549,33 @@ mod tests {
                 alphabet: Some("ab".to_owned()),
                 help_text: None,
                 fuzzy_help_text: None,
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_show_launcher_args_wezterm_action_table_long_bracket_key_query()
+     {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.ShowLauncherArgs { [[=[flags]=]] = [[TABS|WORKSPACES]], [[=[title]=]] = [[Jump]], [[=[alphabet]=]] = [[ab]], [[=[help_text]=]] = [[Pick]], [[=[fuzzy_help_text]=]] = [[Filter]] }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags {
+                    tabs: true,
+                    workspaces: true,
+                    ..WindowShowLauncherFlags::default()
+                },
+                title: Some("Jump".to_owned()),
+                alphabet: Some("ab".to_owned()),
+                help_text: Some("Pick".to_owned()),
+                fuzzy_help_text: Some("Filter".to_owned()),
             })]
         );
     }
