@@ -1511,6 +1511,8 @@ struct NativeEffectiveConfig {
     command_palette_rows: Option<usize>,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_bg_color: Option<Color>,
+    char_select_fg_color: Option<Color>,
     launcher_alphabet: String,
     quick_select_alphabet: String,
     quick_select_patterns: Vec<String>,
@@ -1631,6 +1633,8 @@ struct NativeConfigOverrides {
     command_palette_rows: Option<usize>,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_bg_color: Option<Color>,
+    char_select_fg_color: Option<Color>,
     launcher_alphabet: Option<String>,
     quick_select_alphabet: Option<String>,
     quick_select_patterns: Option<Vec<String>>,
@@ -2109,6 +2113,18 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.command_palette_fg_color =
             Some(lua_opaque_color_from_query(&command_palette_fg_color)?);
+        parsed = true;
+    }
+    if let Some(char_select_bg_color) =
+        lua_config_string_assignment_from_query(config, "char_select_bg_color")
+    {
+        overrides.char_select_bg_color = Some(lua_opaque_color_from_query(&char_select_bg_color)?);
+        parsed = true;
+    }
+    if let Some(char_select_fg_color) =
+        lua_config_string_assignment_from_query(config, "char_select_fg_color")
+    {
+        overrides.char_select_fg_color = Some(lua_opaque_color_from_query(&char_select_fg_color)?);
         parsed = true;
     }
     if let Some(launcher_alphabet) =
@@ -3853,6 +3869,8 @@ struct NativeWindowApp {
     command_palette_rows: Option<usize>,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_bg_color: Option<Color>,
+    char_select_fg_color: Option<Color>,
     launcher_alphabet: String,
     quick_select_alphabet: String,
     quick_select_patterns: Vec<String>,
@@ -5091,6 +5109,8 @@ impl NativeWindowApp {
             command_palette_rows: None,
             command_palette_bg_color: None,
             command_palette_fg_color: None,
+            char_select_bg_color: None,
+            char_select_fg_color: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
@@ -6179,6 +6199,8 @@ impl NativeWindowApp {
         self.command_palette_rows = source.command_palette_rows;
         self.command_palette_bg_color = source.command_palette_bg_color;
         self.command_palette_fg_color = source.command_palette_fg_color;
+        self.char_select_bg_color = source.char_select_bg_color;
+        self.char_select_fg_color = source.char_select_fg_color;
         self.launcher_alphabet.clone_from(&source.launcher_alphabet);
         self.quick_select_alphabet
             .clone_from(&source.quick_select_alphabet);
@@ -12230,12 +12252,13 @@ impl NativeWindowApp {
             let foreground = if is_selected {
                 Color::Rgb(18, 18, 22)
             } else {
-                Color::Rgb(226, 234, 255)
+                self.char_select_fg_color
+                    .unwrap_or(Color::Rgb(226, 234, 255))
             };
             let background = if is_selected {
                 Color::Rgb(255, 209, 102)
             } else {
-                Color::Rgb(24, 32, 48)
+                self.char_select_bg_color.unwrap_or(Color::Rgb(24, 32, 48))
             };
             let row_start = cells.len();
             for column in 0..size.columns {
@@ -13035,6 +13058,8 @@ impl NativeWindowApp {
             command_palette_rows: self.command_palette_rows,
             command_palette_bg_color: self.command_palette_bg_color,
             command_palette_fg_color: self.command_palette_fg_color,
+            char_select_bg_color: self.char_select_bg_color,
+            char_select_fg_color: self.char_select_fg_color,
             launcher_alphabet: self.launcher_alphabet.clone(),
             quick_select_alphabet: self.quick_select_alphabet.clone(),
             quick_select_patterns: self.quick_select_patterns.clone(),
@@ -13188,6 +13213,8 @@ impl NativeWindowApp {
         self.command_palette_rows = overrides.command_palette_rows.filter(|rows| *rows > 0);
         self.command_palette_bg_color = overrides.command_palette_bg_color;
         self.command_palette_fg_color = overrides.command_palette_fg_color;
+        self.char_select_bg_color = overrides.char_select_bg_color;
+        self.char_select_fg_color = overrides.char_select_fg_color;
         self.launcher_alphabet = overrides
             .launcher_alphabet
             .filter(|alphabet| !alphabet.is_empty())
@@ -44538,6 +44565,8 @@ mod tests {
                 command_palette_rows: None,
                 command_palette_bg_color: None,
                 command_palette_fg_color: None,
+                char_select_bg_color: None,
+                char_select_fg_color: None,
                 launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
                 quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
                 quick_select_patterns: Vec::new(),
@@ -61012,6 +61041,36 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_char_select_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.char_select_bg_color = '#070809'
+            config.char_select_fg_color = '#0a0b0c'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm char select color config");
+        app.set_config_overrides(overrides);
+
+        app.enter_char_select_mode_with_options(WindowCharSelectOptions {
+            copy_on_select: false,
+            ..WindowCharSelectOptions::default()
+        });
+        let snapshot = app.render_snapshot();
+        let second_row =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS + 1, 0).expect("expected second char select row");
+
+        assert_eq!(second_row.background, rssh_terminal::Color::Rgb(7, 8, 9));
+        assert_eq!(second_row.foreground, rssh_terminal::Color::Rgb(10, 11, 12));
+    }
+
+    #[test]
     fn window_app_char_select_category_navigation_scrolls_beyond_visible_rows() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -62382,6 +62441,8 @@ mod tests {
             command_palette_rows: Some(12),
             command_palette_bg_color: Some(Color::Rgb(15, 16, 17)),
             command_palette_fg_color: Some(Color::Rgb(18, 19, 20)),
+            char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
+            char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
             launcher_alphabet: Some("12".to_owned()),
             quick_select_alphabet: Some("xy".to_owned()),
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
@@ -62572,6 +62633,8 @@ mod tests {
             command_palette_rows: Some(12),
             command_palette_bg_color: Some(Color::Rgb(15, 16, 17)),
             command_palette_fg_color: Some(Color::Rgb(18, 19, 20)),
+            char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
+            char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
             launcher_alphabet: "12".to_owned(),
             quick_select_alphabet: "xy".to_owned(),
             quick_select_patterns: vec!["ticket-[0-9]+".to_owned()],
@@ -62721,6 +62784,8 @@ mod tests {
             command_palette_rows: None,
             command_palette_bg_color: None,
             command_palette_fg_color: None,
+            char_select_bg_color: None,
+            char_select_fg_color: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
