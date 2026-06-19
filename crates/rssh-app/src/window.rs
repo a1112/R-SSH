@@ -191,6 +191,13 @@ const DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR: bool = false;
 const DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE: bool = false;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
+const DEFAULT_UI_KEY_CAP_RENDERING: NativeUiKeyCapRendering = if cfg!(target_os = "macos") {
+    NativeUiKeyCapRendering::AppleSymbols
+} else if cfg!(target_os = "windows") {
+    NativeUiKeyCapRendering::WindowsLong
+} else {
+    NativeUiKeyCapRendering::UnixLong
+};
 const DEFAULT_DETECT_PASSWORD_INPUT: bool = true;
 const DEFAULT_CANONICALIZE_PASTED_NEWLINES: NativeCanonicalizePastedNewlines = if cfg!(windows) {
     NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
@@ -1607,6 +1614,7 @@ struct NativeCommandPaletteEntry {
     brief: String,
     doc: Option<String>,
     icon: Option<String>,
+    key_assignment: Option<String>,
     action: WindowCommand,
 }
 
@@ -1982,6 +1990,7 @@ struct NativeEffectiveConfig {
     default_cwd: Option<String>,
     set_environment_variables: BTreeMap<String, String>,
     key_map_preference: NativeKeyMapPreference,
+    ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
@@ -2139,6 +2148,7 @@ struct NativeConfigOverrides {
     set_environment_variables: Option<BTreeMap<String, String>>,
     launch_menu: Option<Vec<NativeLaunchMenuItem>>,
     key_map_preference: Option<NativeKeyMapPreference>,
+    ui_key_cap_rendering: Option<NativeUiKeyCapRendering>,
     swap_backspace_and_delete: Option<bool>,
     enable_csi_u_key_encoding: Option<bool>,
     enable_kitty_keyboard: Option<bool>,
@@ -2796,6 +2806,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "key_map_preference")
     {
         overrides.key_map_preference = Some(NativeKeyMapPreference::parse(&key_map_preference)?);
+        parsed = true;
+    }
+    if let Some(ui_key_cap_rendering) =
+        lua_config_string_assignment_from_query(config, "ui_key_cap_rendering")
+    {
+        overrides.ui_key_cap_rendering =
+            Some(NativeUiKeyCapRendering::parse(&ui_key_cap_rendering)?);
         parsed = true;
     }
     if let Some(swap_backspace_and_delete) =
@@ -4451,6 +4468,29 @@ impl NativeKeyMapPreference {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeUiKeyCapRendering {
+    UnixLong,
+    Emacs,
+    AppleSymbols,
+    WindowsLong,
+    WindowsSymbols,
+}
+
+impl NativeUiKeyCapRendering {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "UnixLong" => Some(Self::UnixLong),
+            "Emacs" => Some(Self::Emacs),
+            "AppleSymbols" => Some(Self::AppleSymbols),
+            "WindowsLong" => Some(Self::WindowsLong),
+            "WindowsSymbols" => Some(Self::WindowsSymbols),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeTabTitle {
@@ -4742,6 +4782,7 @@ struct NativeWindowApp {
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
     key_map_preference: NativeKeyMapPreference,
+    ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
@@ -6176,6 +6217,7 @@ impl NativeWindowApp {
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
+            ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
@@ -7179,6 +7221,7 @@ impl NativeWindowApp {
             .clone_from(&self.set_environment_variables);
         detached_app.launch_menu.clone_from(&self.launch_menu);
         detached_app.key_map_preference = self.key_map_preference;
+        detached_app.ui_key_cap_rendering = self.ui_key_cap_rendering;
         detached_app.swap_backspace_and_delete = self.swap_backspace_and_delete;
         detached_app.enable_csi_u_key_encoding = self.enable_csi_u_key_encoding;
         detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
@@ -7379,6 +7422,7 @@ impl NativeWindowApp {
             .clone_from(&source.set_environment_variables);
         self.launch_menu.clone_from(&source.launch_menu);
         self.key_map_preference = source.key_map_preference;
+        self.ui_key_cap_rendering = source.ui_key_cap_rendering;
         self.swap_backspace_and_delete = source.swap_backspace_and_delete;
         self.enable_csi_u_key_encoding = source.enable_csi_u_key_encoding;
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
@@ -8254,6 +8298,7 @@ impl NativeWindowApp {
                     brief: "Spawn In Domain: local".to_owned(),
                     doc: None,
                     icon: None,
+                    key_assignment: None,
                     action: WindowCommand::NewTab,
                 },
             ));
@@ -8272,6 +8317,7 @@ impl NativeWindowApp {
                     brief: label,
                     doc: None,
                     icon: None,
+                    key_assignment: None,
                     action: item.command.window_command(),
                 })
             }));
@@ -8286,6 +8332,7 @@ impl NativeWindowApp {
                     brief: format!("Activate Tab: {title}"),
                     doc: None,
                     icon: None,
+                    key_assignment: None,
                     action: WindowCommand::ActivateTabId(tab.id()),
                 })
             }));
@@ -8297,6 +8344,7 @@ impl NativeWindowApp {
                     brief: format!("Switch To Workspace: {name}"),
                     doc: None,
                     icon: None,
+                    key_assignment: None,
                     action: WindowCommand::SwitchToWorkspaceName(name),
                 })
             }));
@@ -13609,7 +13657,7 @@ impl NativeWindowApp {
                 ));
             }
 
-            let label = entry.display_label(is_selected);
+            let label = entry.display_label(is_selected, self.ui_key_cap_rendering);
             for (column, ch) in label.chars().take(usize::from(columns)).enumerate() {
                 if let Some(cell) = cells.get_mut(row_start + column) {
                     cell.ch = ch;
@@ -14550,6 +14598,7 @@ impl NativeWindowApp {
             default_cwd: self.default_cwd.clone(),
             set_environment_variables: self.set_environment_variables.clone(),
             key_map_preference: self.key_map_preference,
+            ui_key_cap_rendering: self.ui_key_cap_rendering,
             swap_backspace_and_delete: self.swap_backspace_and_delete,
             enable_csi_u_key_encoding: self.enable_csi_u_key_encoding,
             enable_kitty_keyboard: self.enable_kitty_keyboard,
@@ -14847,6 +14896,9 @@ impl NativeWindowApp {
         self.apply_startup_default_prog_before_spawn();
         self.launch_menu = overrides.launch_menu.unwrap_or_default();
         self.key_map_preference = overrides.key_map_preference.unwrap_or_default();
+        self.ui_key_cap_rendering = overrides
+            .ui_key_cap_rendering
+            .unwrap_or(DEFAULT_UI_KEY_CAP_RENDERING);
         self.swap_backspace_and_delete = overrides.swap_backspace_and_delete.unwrap_or(false);
         self.enable_csi_u_key_encoding = overrides
             .enable_csi_u_key_encoding
@@ -30951,6 +31003,7 @@ fn window_key_assignment_entry(keys: &str, command: WindowCommand) -> WindowComm
         brief: format!("{keys}: {label}"),
         doc: None,
         icon: None,
+        key_assignment: Some(keys.to_owned()),
         action: command,
     })
 }
@@ -31919,12 +31972,16 @@ impl WindowCommandPaletteEntry {
         }
     }
 
-    fn display_label(&self, selected: bool) -> String {
+    fn display_label(
+        &self,
+        selected: bool,
+        ui_key_cap_rendering: NativeUiKeyCapRendering,
+    ) -> String {
         let prefix = if selected { '>' } else { ' ' };
         match self {
             Self::BuiltIn(command) => format!("{prefix} {}", command.label()),
             Self::Augmented(entry) => {
-                let brief = augmented_command_palette_brief_with_icon(entry);
+                let brief = augmented_command_palette_display_brief(entry, ui_key_cap_rendering);
                 match entry.doc.as_deref() {
                     Some(doc) if !doc.is_empty() => format!("{prefix} {brief} - {doc}"),
                     _ => format!("{prefix} {brief}"),
@@ -31941,10 +31998,99 @@ impl WindowCommandPaletteEntry {
     }
 }
 
-fn augmented_command_palette_brief_with_icon(entry: &NativeCommandPaletteEntry) -> String {
+fn augmented_command_palette_display_brief(
+    entry: &NativeCommandPaletteEntry,
+    ui_key_cap_rendering: NativeUiKeyCapRendering,
+) -> String {
+    let brief = if let Some(keys) = entry.key_assignment.as_deref() {
+        let label = entry
+            .brief
+            .strip_prefix(keys)
+            .and_then(|rest| rest.strip_prefix(": "))
+            .unwrap_or(&entry.brief);
+        format!(
+            "{}: {label}",
+            render_ui_key_caps(keys, ui_key_cap_rendering)
+        )
+    } else {
+        entry.brief.clone()
+    };
     match entry.icon.as_deref().and_then(nerd_font_icon_for_name) {
-        Some(icon) => format!("{icon} {}", entry.brief),
-        None => entry.brief.clone(),
+        Some(icon) => format!("{icon} {brief}"),
+        None => brief,
+    }
+}
+
+fn render_ui_key_caps(keys: &str, style: NativeUiKeyCapRendering) -> String {
+    let parts = keys.split('+').collect::<Vec<_>>();
+    if parts.is_empty() {
+        return String::new();
+    }
+    let key_index = parts.len().saturating_sub(1);
+    let mut rendered = Vec::with_capacity(parts.len());
+    for (index, part) in parts.iter().enumerate() {
+        let normalized = part.trim();
+        let is_key = index == key_index;
+        rendered.push(if is_key {
+            render_ui_key_cap_key(normalized, style)
+        } else {
+            render_ui_key_cap_modifier(normalized, style)
+        });
+    }
+
+    match style {
+        NativeUiKeyCapRendering::AppleSymbols => rendered.join(""),
+        NativeUiKeyCapRendering::Emacs => rendered.join("-"),
+        NativeUiKeyCapRendering::UnixLong
+        | NativeUiKeyCapRendering::WindowsLong
+        | NativeUiKeyCapRendering::WindowsSymbols => rendered.join("+"),
+    }
+}
+
+fn render_ui_key_cap_modifier(modifier: &str, style: NativeUiKeyCapRendering) -> String {
+    match (modifier.to_ascii_uppercase().as_str(), style) {
+        ("CTRL" | "CONTROL", NativeUiKeyCapRendering::Emacs) => "C".to_owned(),
+        ("CTRL" | "CONTROL", NativeUiKeyCapRendering::AppleSymbols) => "\u{2303}".to_owned(),
+        ("CTRL" | "CONTROL", _) => "Ctrl".to_owned(),
+        ("SHIFT", NativeUiKeyCapRendering::Emacs) => "S".to_owned(),
+        ("SHIFT", NativeUiKeyCapRendering::AppleSymbols) => "\u{21e7}".to_owned(),
+        ("SHIFT", _) => "Shift".to_owned(),
+        ("ALT" | "OPT" | "OPTION", NativeUiKeyCapRendering::Emacs) => "M".to_owned(),
+        ("ALT" | "OPT" | "OPTION", NativeUiKeyCapRendering::AppleSymbols) => "\u{2325}".to_owned(),
+        ("ALT" | "OPT" | "OPTION", _) => "Alt".to_owned(),
+        ("META", NativeUiKeyCapRendering::Emacs) => "M".to_owned(),
+        ("META", NativeUiKeyCapRendering::AppleSymbols) => "\u{2325}".to_owned(),
+        ("META", _) => "Meta".to_owned(),
+        ("SUPER" | "CMD" | "COMMAND", NativeUiKeyCapRendering::AppleSymbols) => {
+            "\u{2318}".to_owned()
+        }
+        ("SUPER" | "CMD" | "COMMAND", NativeUiKeyCapRendering::WindowsLong) => "Win".to_owned(),
+        ("SUPER" | "CMD" | "COMMAND", NativeUiKeyCapRendering::WindowsSymbols) => {
+            "\u{229e}".to_owned()
+        }
+        ("SUPER" | "CMD" | "COMMAND", _) => "Super".to_owned(),
+        _ => render_ui_key_cap_key(modifier, style),
+    }
+}
+
+fn render_ui_key_cap_key(key: &str, _style: NativeUiKeyCapRendering) -> String {
+    match key.to_ascii_uppercase().as_str() {
+        "SPACE" => "Space".to_owned(),
+        "TAB" => "Tab".to_owned(),
+        "ENTER" | "RETURN" => "Enter".to_owned(),
+        "ESC" | "ESCAPE" => "Escape".to_owned(),
+        "BACKSPACE" => "Backspace".to_owned(),
+        "DELETE" => "Delete".to_owned(),
+        "INSERT" => "Insert".to_owned(),
+        "HOME" => "Home".to_owned(),
+        "END" => "End".to_owned(),
+        "PAGEUP" => "PageUp".to_owned(),
+        "PAGEDOWN" => "PageDown".to_owned(),
+        "UPARROW" => "UpArrow".to_owned(),
+        "DOWNARROW" => "DownArrow".to_owned(),
+        "LEFTARROW" => "LeftArrow".to_owned(),
+        "RIGHTARROW" => "RightArrow".to_owned(),
+        _ => key.to_owned(),
     }
 }
 
@@ -37268,27 +37414,27 @@ mod tests {
         NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
         NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
         NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWindowApp, NativeWindowBell,
-        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
-        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
-        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
-        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
-        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUiKeyCapRendering,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
+        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
+        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
+        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
+        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
+        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
+        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
+        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
+        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -46600,6 +46746,7 @@ mod tests {
                 default_cwd: None,
                 set_environment_variables: BTreeMap::new(),
                 key_map_preference: NativeKeyMapPreference::Mapped,
+                ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
                 swap_backspace_and_delete: false,
                 enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
@@ -59088,6 +59235,54 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_ui_key_cap_rendering() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.ui_key_cap_rendering = 'Emacs'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ui_key_cap_rendering config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().ui_key_cap_rendering,
+            NativeUiKeyCapRendering::Emacs
+        );
+    }
+
+    #[test]
+    fn window_app_renders_key_assignments_with_configured_ui_key_caps() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(48, 8));
+        app.set_config_overrides(NativeConfigOverrides {
+            ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::key_assignments(),
+                title: Some("Pick Key".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        let snapshot = app.render_snapshot();
+        let first_row = snapshot_row_text(&snapshot, TAB_BAR_ROWS, 48);
+        assert!(
+            first_row.contains("> C-S-T: New Tab"),
+            "expected Emacs key cap rendering in first key-assignment row: {first_row:?}"
+        );
+    }
+
+    #[test]
     fn window_app_writes_ime_commit_text_when_ime_is_enabled() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -65383,6 +65578,7 @@ mod tests {
             default_cwd: Some("/tmp/default".to_owned()),
             set_environment_variables: Some(sample_environment()),
             key_map_preference: Some(NativeKeyMapPreference::Physical),
+            ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
             swap_backspace_and_delete: Some(true),
             enable_csi_u_key_encoding: Some(true),
             enable_kitty_keyboard: Some(true),
@@ -65621,6 +65817,7 @@ mod tests {
             default_cwd: Some("/tmp/default".to_owned()),
             set_environment_variables: sample_environment(),
             key_map_preference: NativeKeyMapPreference::Physical,
+            ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
             swap_backspace_and_delete: true,
             enable_csi_u_key_encoding: true,
             enable_kitty_keyboard: true,
@@ -65778,6 +65975,7 @@ mod tests {
             default_cwd: None,
             set_environment_variables: BTreeMap::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
+            ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
@@ -65868,6 +66066,7 @@ mod tests {
                 brief: "Zoom Native Pane".to_owned(),
                 doc: Some("Toggle zoom from an augmented native command palette entry".to_owned()),
                 icon: Some("md_magnify_plus".to_owned()),
+                key_assignment: None,
                 action: WindowCommand::TogglePaneZoom,
             }]
         });
@@ -65892,6 +66091,7 @@ mod tests {
                         "Toggle zoom from an augmented native command palette entry".to_owned()
                     ),
                     icon: Some("md_magnify_plus".to_owned()),
+                    key_assignment: None,
                     action: WindowCommand::TogglePaneZoom,
                 }
             )]
@@ -65922,6 +66122,7 @@ mod tests {
                 brief: "Zoom Native Pane".to_owned(),
                 doc: Some("Toggle zoom from an augmented native command palette entry".to_owned()),
                 icon: None,
+                key_assignment: None,
                 action: WindowCommand::TogglePaneZoom,
             }]
         });
@@ -65949,6 +66150,7 @@ mod tests {
                 brief: "Zoom Native Pane".to_owned(),
                 doc: None,
                 icon: Some("md_rename_box".to_owned()),
+                key_assignment: None,
                 action: WindowCommand::TogglePaneZoom,
             }]
         });

@@ -239,15 +239,17 @@ keyboard, mouse, paste, resize
   `CSI ? 9001 h/l` mode requests, and makes native-window and local console
   input emit Win32 key records for that mode before CSI-u/kitty encoding.
   Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
-  `enable_csi_u_key_encoding`, `enable_kitty_keyboard`,
+  `ui_key_cap_rendering`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`,
   `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
   `ime_preedit_rendering`, and `xim_im_name` parse into the native override
-  path. `treat_east_asian_ambiguous_width_as_wide` updates terminal character
-  width calculation for ambiguous East Asian width characters in active and new
-  panes. Static numeric `cell_widths` override tables parse from WezTerm-style
-  Lua and take priority over the ambiguous-width setting in active and new
-  panes. `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
+  path. `ui_key_cap_rendering` controls native command-palette key-assignment
+  display labels with UnixLong, Emacs, AppleSymbols, WindowsLong, and
+  WindowsSymbols styles. `treat_east_asian_ambiguous_width_as_wide` updates
+  terminal character width calculation for ambiguous East Asian width characters
+  in active and new panes. Static numeric `cell_widths` override tables parse
+  from WezTerm-style Lua and take priority over the ambiguous-width setting in
+  active and new panes. `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
   AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
   text renders through the Builtin overlay path at the active pane cursor.
   Platform IME/XIM connection, exact preedit cursor styling, exact left/right
@@ -744,7 +746,7 @@ keyboard, mouse, paste, resize
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
   `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
-  `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
+  `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
@@ -987,7 +989,7 @@ keyboard, mouse, paste, resize
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
   `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
-  `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
+  `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,

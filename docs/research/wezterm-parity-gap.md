@@ -1039,15 +1039,19 @@ what remains before WezTerm-style parity in key UX/composition areas.
   produced character is known, plus side-specific left/right Shift/Ctrl/Alt
   modifier-key records where the input backend exposes the side. Static
   WezTerm-style Lua snippets for `config.key_map_preference`,
-  `config.swap_backspace_and_delete`, `config.enable_csi_u_key_encoding`,
+  `config.swap_backspace_and_delete`, `config.ui_key_cap_rendering`,
+  `config.enable_csi_u_key_encoding`,
   `config.enable_kitty_keyboard`, `config.allow_win32_input_mode`,
   `config.treat_left_ctrlalt_as_altgr`,
   `config.treat_east_asian_ambiguous_width_as_wide`, `config.use_ime`,
   `config.ime_preedit_rendering`, and `config.xim_im_name` now parse into the
-  same native override path. The ambiguous-width option is applied to terminal
-  character width calculation for active and new panes; static numeric
-  `config.cell_widths` tables parse into the same native override path and take
-  priority over the ambiguous-width option. `treat_left_ctrlalt_as_altgr`
+  same native override path. `config.ui_key_cap_rendering` now changes native
+  command-palette key-assignment display labels across the documented UnixLong,
+  Emacs, AppleSymbols, WindowsLong, and WindowsSymbols styles. The
+  ambiguous-width option is applied to terminal character width calculation for
+  active and new panes; static numeric `config.cell_widths` tables parse into
+  the same native override path and take priority over the ambiguous-width
+  option. `treat_left_ctrlalt_as_altgr`
   routes Ctrl+Alt text key events as AltGr text input rather than triggering
   Ctrl+Alt key bindings. Native winit IME commit text writes to the active pane
   when `use_ime` is enabled and is ignored when disabled. Native winit IME
@@ -1640,7 +1644,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `command_palette_rows`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`,
   `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
-  `key_map_preference`, `swap_backspace_and_delete`,
+  `key_map_preference`, `ui_key_cap_rendering`, `swap_backspace_and_delete`,
   `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`, `quote_dropped_files`,
