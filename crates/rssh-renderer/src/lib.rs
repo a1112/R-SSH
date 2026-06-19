@@ -254,6 +254,7 @@ pub struct PixelRenderer {
     underline_position: Option<RenderUnderlinePosition>,
     strikethrough_position: Option<RenderStrikethroughPosition>,
     force_reverse_video_cursor: bool,
+    reverse_video_cursor_min_contrast: Option<u16>,
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     default_cursor_color: [u8; 4],
@@ -320,6 +321,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
@@ -346,6 +348,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
@@ -604,6 +607,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor,
+            reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
@@ -617,6 +621,16 @@ impl PixelRenderer {
 
     pub fn set_force_reverse_video_cursor(&mut self, force_reverse_video_cursor: bool) {
         self.force_reverse_video_cursor = force_reverse_video_cursor;
+    }
+
+    #[must_use]
+    pub fn with_reverse_video_cursor_min_contrast(mut self, min_contrast: f64) -> Self {
+        self.set_reverse_video_cursor_min_contrast(Some(min_contrast));
+        self
+    }
+
+    pub fn set_reverse_video_cursor_min_contrast(&mut self, min_contrast: Option<f64>) {
+        self.reverse_video_cursor_min_contrast = min_contrast.and_then(contrast_ratio_to_centi);
     }
 
     #[must_use]
@@ -634,6 +648,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
@@ -660,6 +675,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
@@ -770,6 +786,23 @@ impl PixelRenderer {
                 .cells()
                 .iter()
                 .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
+            let cursor_colors = cursor_colors(
+                snapshot,
+                cursor,
+                self.force_reverse_video_cursor,
+                self.reverse_video_cursor_min_contrast,
+                self.bold_brightens_ansi_colors,
+                self.default_foreground,
+                self.default_background,
+                self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
+                cursor_shape_default_color(
+                    cursor,
+                    self.default_cursor_color,
+                    self.default_cursor_border,
+                ),
+                self.default_cursor_foreground,
+            );
             render_cursor(
                 &mut surface,
                 cursor,
@@ -781,26 +814,8 @@ impl PixelRenderer {
                     opacity_alpha: self.cursor_opacity_alpha,
                     thickness: self.cursor_thickness,
                     window_dpi: self.window_dpi,
-                    color: cursor_color(
-                        snapshot,
-                        cursor,
-                        self.force_reverse_video_cursor,
-                        self.bold_brightens_ansi_colors,
-                        self.default_foreground,
-                        self.default_background,
-                        self.ansi_palette.as_ref(),
-                        self.indexed_palette.as_ref(),
-                        cursor_shape_default_color(
-                            cursor,
-                            self.default_cursor_color,
-                            self.default_cursor_border,
-                        ),
-                    ),
-                    foreground: if self.force_reverse_video_cursor {
-                        None
-                    } else {
-                        self.default_cursor_foreground
-                    },
+                    color: cursor_colors.color,
+                    foreground: cursor_colors.foreground,
                     border: configured_cursor_border(
                         snapshot,
                         self.force_reverse_video_cursor,
@@ -952,6 +967,23 @@ impl PixelRenderer {
                 .cells()
                 .iter()
                 .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
+            let cursor_colors = cursor_colors(
+                snapshot,
+                cursor,
+                self.force_reverse_video_cursor,
+                self.reverse_video_cursor_min_contrast,
+                self.bold_brightens_ansi_colors,
+                self.default_foreground,
+                self.default_background,
+                self.ansi_palette.as_ref(),
+                self.indexed_palette.as_ref(),
+                cursor_shape_default_color(
+                    cursor,
+                    self.default_cursor_color,
+                    self.default_cursor_border,
+                ),
+                self.default_cursor_foreground,
+            );
             render_cursor(
                 &mut surface,
                 cursor,
@@ -963,26 +995,8 @@ impl PixelRenderer {
                     opacity_alpha: self.cursor_opacity_alpha,
                     thickness: self.cursor_thickness,
                     window_dpi: self.window_dpi,
-                    color: cursor_color(
-                        snapshot,
-                        cursor,
-                        self.force_reverse_video_cursor,
-                        self.bold_brightens_ansi_colors,
-                        self.default_foreground,
-                        self.default_background,
-                        self.ansi_palette.as_ref(),
-                        self.indexed_palette.as_ref(),
-                        cursor_shape_default_color(
-                            cursor,
-                            self.default_cursor_color,
-                            self.default_cursor_border,
-                        ),
-                    ),
-                    foreground: if self.force_reverse_video_cursor {
-                        None
-                    } else {
-                        self.default_cursor_foreground
-                    },
+                    color: cursor_colors.color,
+                    foreground: cursor_colors.foreground,
                     border: configured_cursor_border(
                         snapshot,
                         self.force_reverse_video_cursor,
@@ -2001,44 +2015,107 @@ fn render_cursor_cell_foreground(
     }
 }
 
-fn cursor_color(
+#[derive(Clone, Copy)]
+struct CursorColors {
+    color: [u8; 4],
+    foreground: Option<[u8; 4]>,
+}
+
+fn cursor_colors(
     snapshot: &TerminalRenderSnapshot,
     cursor: RenderCursor,
     force_reverse_video_cursor: bool,
+    reverse_video_cursor_min_contrast: Option<u16>,
     bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     ansi_palette: Option<&[[u8; 4]; 16]>,
     indexed_palette: Option<&RenderIndexedPalette>,
     default_cursor_color: [u8; 4],
-) -> [u8; 4] {
+    default_cursor_foreground: Option<[u8; 4]>,
+) -> CursorColors {
     if let Some(color) = snapshot.cursor_color() {
-        return color_to_rgba_with_palette(
-            color,
-            default_foreground,
-            ansi_palette,
-            indexed_palette,
-        );
+        return CursorColors {
+            color: color_to_rgba_with_palette(
+                color,
+                default_foreground,
+                ansi_palette,
+                indexed_palette,
+            ),
+            foreground: None,
+        };
     }
 
-    if force_reverse_video_cursor {
-        snapshot
-            .cells()
-            .iter()
-            .find(|cell| cell.row == cursor.row && cell.column == cursor.column)
-            .map_or(default_foreground, |cell| {
-                effective_cell_colors(
-                    cell,
-                    bold_brightens_ansi_colors,
-                    default_foreground,
-                    default_background,
-                    ansi_palette,
-                    indexed_palette,
-                )
-                .0
-            })
+    if !force_reverse_video_cursor {
+        return CursorColors {
+            color: default_cursor_color,
+            foreground: default_cursor_foreground,
+        };
+    }
+
+    let Some(cell) = snapshot
+        .cells()
+        .iter()
+        .find(|cell| cell.row == cursor.row && cell.column == cursor.column)
+    else {
+        return CursorColors {
+            color: default_foreground,
+            foreground: None,
+        };
+    };
+    let (reverse_background, reverse_foreground) = effective_cell_colors(
+        cell,
+        bold_brightens_ansi_colors,
+        default_foreground,
+        default_background,
+        ansi_palette,
+        indexed_palette,
+    );
+
+    if reverse_video_cursor_min_contrast.is_some_and(|minimum| {
+        contrast_ratio(reverse_foreground, reverse_background) < f64::from(minimum) / 100.0
+    }) {
+        CursorColors {
+            color: default_cursor_color,
+            foreground: default_cursor_foreground,
+        }
     } else {
-        default_cursor_color
+        CursorColors {
+            color: reverse_background,
+            foreground: None,
+        }
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn contrast_ratio_to_centi(value: f64) -> Option<u16> {
+    if !value.is_finite() || value < 0.0 {
+        return None;
+    }
+    Some((value * 100.0).round().min(f64::from(u16::MAX)) as u16)
+}
+
+fn contrast_ratio(foreground: [u8; 4], background: [u8; 4]) -> f64 {
+    let foreground_luminance = relative_luminance(foreground);
+    let background_luminance = relative_luminance(background);
+    let light = foreground_luminance.max(background_luminance);
+    let dark = foreground_luminance.min(background_luminance);
+    (light + 0.05) / (dark + 0.05)
+}
+
+fn relative_luminance(color: [u8; 4]) -> f64 {
+    let red = linear_srgb_component(color[0]);
+    let green = linear_srgb_component(color[1]);
+    let blue = linear_srgb_component(color[2]);
+    0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+fn linear_srgb_component(channel: u8) -> f64 {
+    let value = f64::from(channel) / 255.0;
+    if value <= 0.03928 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
     }
 }
 
@@ -4830,6 +4907,23 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 8, 0, 0), [255, 0, 0, 255]);
         assert_eq!(pixel_at(&target, 8, 7, 7), [255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_reverse_video_cursor_min_contrast_uses_default_cursor_colors() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[38;2;17;17;17;48;2;16;16;16mA\x1b[1;1H");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut renderer = PixelRenderer::with_force_reverse_video_cursor(true)
+            .with_reverse_video_cursor_min_contrast(2.5);
+        renderer.set_default_cursor_color([7, 8, 9, 255]);
+        renderer.set_default_cursor_foreground(Some([1, 2, 3, 255]));
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert!(count_pixels(&target, [1, 2, 3, 255]) > 0);
+        assert!(count_pixels(&target, [7, 8, 9, 255]) > 0);
     }
 
     #[test]

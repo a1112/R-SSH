@@ -197,6 +197,8 @@ const DEFAULT_TEXT_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
     NativeTextBackgroundOpacity::ONE;
 const DEFAULT_WINDOW_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
     NativeTextBackgroundOpacity::ONE;
+const DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST: NativeContrastRatio =
+    NativeContrastRatio::from_centi(250);
 const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorations {
     title: true,
     resize: true,
@@ -493,6 +495,29 @@ struct NativeTextMinContrastRatio(u16);
 
 impl NativeTextMinContrastRatio {
     #[cfg(test)]
+    const fn from_centi(value: u16) -> Self {
+        Self(value)
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn from_f32(value: f32) -> Option<Self> {
+        if !value.is_finite() || value < 0.0 {
+            return None;
+        }
+        let centi = (value * 100.0).round().min(f32::from(u16::MAX));
+        Some(Self(centi as u16))
+    }
+
+    fn as_f64(self) -> f64 {
+        f64::from(self.0) / 100.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NativeContrastRatio(u16);
+
+impl NativeContrastRatio {
     const fn from_centi(value: u16) -> Self {
         Self(value)
     }
@@ -1529,6 +1554,7 @@ struct NativeEffectiveConfig {
     underline_position: Option<NativeUnderlinePosition>,
     strikethrough_position: Option<NativeStrikethroughPosition>,
     force_reverse_video_cursor: bool,
+    reverse_video_cursor_min_contrast: NativeContrastRatio,
     window_padding: NativeWindowPadding,
     initial_cols: u16,
     initial_rows: u16,
@@ -1652,6 +1678,7 @@ struct NativeConfigOverrides {
     underline_position: Option<NativeUnderlinePosition>,
     strikethrough_position: Option<NativeStrikethroughPosition>,
     force_reverse_video_cursor: Option<bool>,
+    reverse_video_cursor_min_contrast: Option<NativeContrastRatio>,
     window_padding: Option<NativeWindowPadding>,
     initial_cols: Option<u16>,
     initial_rows: Option<u16>,
@@ -2113,6 +2140,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "force_reverse_video_cursor")
     {
         overrides.force_reverse_video_cursor = Some(force_reverse_video_cursor);
+        parsed = true;
+    }
+    if let Some(reverse_video_cursor_min_contrast) =
+        lua_config_f32_assignment_from_query(config, "reverse_video_cursor_min_contrast")
+    {
+        overrides.reverse_video_cursor_min_contrast =
+            NativeContrastRatio::from_f32(reverse_video_cursor_min_contrast);
         parsed = true;
     }
     if let Some(text_min_contrast_ratio) =
@@ -4014,6 +4048,7 @@ struct NativeWindowApp {
     underline_position: Option<NativeUnderlinePosition>,
     strikethrough_position: Option<NativeStrikethroughPosition>,
     force_reverse_video_cursor: bool,
+    reverse_video_cursor_min_contrast: NativeContrastRatio,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     window_padding: NativeWindowPadding,
     cursor_blink_visible: bool,
@@ -5079,7 +5114,13 @@ impl NativeWindowApp {
             mouse_click_may_focus_window: false,
             window: None,
             pixels: None,
-            renderer: PixelRenderer::new(),
+            renderer: {
+                let mut renderer = PixelRenderer::new();
+                renderer.set_reverse_video_cursor_min_contrast(Some(
+                    DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST.as_f64(),
+                ));
+                renderer
+            },
             window_dpi: DEFAULT_WINDOW_DPI,
             runtime,
             snapshot,
@@ -5256,6 +5297,7 @@ impl NativeWindowApp {
             underline_position: DEFAULT_UNDERLINE_POSITION,
             strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
             force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+            reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
             text_min_contrast_ratio: None,
             window_padding: DEFAULT_WINDOW_PADDING,
             cursor_blink_visible: true,
@@ -6197,6 +6239,12 @@ impl NativeWindowApp {
         detached_app.apply_strikethrough_position_override(self.strikethrough_position);
         detached_app
             .apply_force_reverse_video_cursor_override(Some(self.force_reverse_video_cursor));
+        detached_app.reverse_video_cursor_min_contrast = self.reverse_video_cursor_min_contrast;
+        detached_app
+            .renderer
+            .set_reverse_video_cursor_min_contrast(Some(
+                self.reverse_video_cursor_min_contrast.as_f64(),
+            ));
         detached_app.unzoom_on_switch_pane = self.unzoom_on_switch_pane;
         detached_app.quit_when_all_windows_are_closed = self.quit_when_all_windows_are_closed;
         detached_app.exit_behavior = self.exit_behavior;
@@ -6374,6 +6422,7 @@ impl NativeWindowApp {
         self.underline_position = source.underline_position;
         self.strikethrough_position = source.strikethrough_position;
         self.force_reverse_video_cursor = source.force_reverse_video_cursor;
+        self.reverse_video_cursor_min_contrast = source.reverse_video_cursor_min_contrast;
         self.window_padding = source.window_padding;
         self.cursor_blink_visible = true;
         self.cursor_blink_opacity_alpha = u8::MAX;
@@ -6398,6 +6447,9 @@ impl NativeWindowApp {
         );
         self.renderer
             .set_force_reverse_video_cursor(self.force_reverse_video_cursor);
+        self.renderer.set_reverse_video_cursor_min_contrast(Some(
+            self.reverse_video_cursor_min_contrast.as_f64(),
+        ));
         self.frame_needs_full_repaint = true;
     }
 
@@ -13116,6 +13168,7 @@ impl NativeWindowApp {
             underline_position: self.underline_position,
             strikethrough_position: self.strikethrough_position,
             force_reverse_video_cursor: self.force_reverse_video_cursor,
+            reverse_video_cursor_min_contrast: self.reverse_video_cursor_min_contrast,
             window_padding: self.window_padding,
             initial_cols: self.initial_cols,
             initial_rows: self.initial_rows,
@@ -13262,6 +13315,12 @@ impl NativeWindowApp {
         self.apply_underline_position_override(overrides.underline_position);
         self.apply_strikethrough_position_override(overrides.strikethrough_position);
         self.apply_force_reverse_video_cursor_override(overrides.force_reverse_video_cursor);
+        self.reverse_video_cursor_min_contrast = overrides
+            .reverse_video_cursor_min_contrast
+            .unwrap_or(DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST);
+        self.renderer.set_reverse_video_cursor_min_contrast(Some(
+            self.reverse_video_cursor_min_contrast.as_f64(),
+        ));
         self.apply_window_padding_override(overrides.window_padding);
         self.apply_tab_bar_config_overrides(&overrides);
         self.apply_input_config_overrides(&overrides);
@@ -35623,7 +35682,8 @@ mod tests {
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_STRIKETHROUGH_POSITION,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_STRIKETHROUGH_POSITION,
         DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
@@ -35631,8 +35691,8 @@ mod tests {
         NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
         NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
         NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
-        NativeConfirmation, NativeCubicBezier, NativeCursorStyle, NativeCursorThickness,
-        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
+        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeHsbMultiplier, NativeInactivePaneHsb,
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
@@ -43026,7 +43086,7 @@ mod tests {
             force_reverse_video_cursor: Some(true),
             ..NativeConfigOverrides::default()
         });
-        app.handle_pty_output(b"\x1b[38;2;255;0;0;48;2;0;0;255mA\x1b[1;1H")
+        app.handle_pty_output(b"\x1b[38;2;255;255;255;48;2;0;0;0mA\x1b[1;1H")
             .unwrap();
 
         assert!(app.native_effective_config().force_reverse_video_cursor);
@@ -43037,7 +43097,7 @@ mod tests {
 
         assert_eq!(
             frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, terminal_origin_y),
-            [255, 0, 0, 255]
+            [255, 255, 255, 255]
         );
     }
 
@@ -43071,7 +43131,7 @@ mod tests {
             ..NativeConfigOverrides::default()
         });
         app.handle_pty_output(
-            b"\x1b]12;#00ff00\x07\x1b]112\x07\x1b[38;2;255;0;0;48;2;0;0;255mA\x1b[1;1H",
+            b"\x1b]12;#00ff00\x07\x1b]112\x07\x1b[38;2;255;255;255;48;2;0;0;0mA\x1b[1;1H",
         )
         .unwrap();
 
@@ -43081,7 +43141,7 @@ mod tests {
 
         assert_eq!(
             frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, terminal_origin_y),
-            [255, 0, 0, 255]
+            [255, 255, 255, 255]
         );
     }
 
@@ -44844,6 +44904,7 @@ mod tests {
                 underline_position: DEFAULT_UNDERLINE_POSITION,
                 strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
                 force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+                reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
                 window_padding: DEFAULT_WINDOW_PADDING,
                 initial_cols: TERMINAL_COLUMNS,
                 initial_rows: TERMINAL_ROWS,
@@ -57437,6 +57498,7 @@ mod tests {
             config.cursor_blink_ease_out = 'EaseOut'
             config.default_cursor_style = 'BlinkingBar'
             config.force_reverse_video_cursor = true
+            config.reverse_video_cursor_min_contrast = 3.25
 
             return config
             "#,
@@ -57468,6 +57530,10 @@ mod tests {
             NativeCursorStyle::BlinkingBar
         );
         assert!(effective.force_reverse_video_cursor);
+        assert_eq!(
+            effective.reverse_video_cursor_min_contrast,
+            NativeContrastRatio::from_centi(325)
+        );
     }
 
     #[test]
@@ -62745,6 +62811,7 @@ mod tests {
             underline_position: Some(NativeUnderlinePosition::Pixels(-2)),
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: Some(true),
+            reverse_video_cursor_min_contrast: Some(NativeContrastRatio::from_centi(325)),
             text_min_contrast_ratio: Some(NativeTextMinContrastRatio::from_centi(450)),
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(1),
@@ -62938,6 +63005,7 @@ mod tests {
             underline_position: Some(NativeUnderlinePosition::Pixels(-2)),
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: true,
+            reverse_video_cursor_min_contrast: NativeContrastRatio::from_centi(325),
             text_min_contrast_ratio: Some(NativeTextMinContrastRatio::from_centi(450)),
             window_padding: NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(1),
@@ -63099,6 +63167,7 @@ mod tests {
             underline_position: DEFAULT_UNDERLINE_POSITION,
             strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
             force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+            reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
             text_min_contrast_ratio: None,
             window_padding: DEFAULT_WINDOW_PADDING,
             initial_cols: TERMINAL_COLUMNS,
