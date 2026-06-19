@@ -225,6 +225,7 @@ pub struct PixelRenderer {
     underline_position: Option<RenderUnderlinePosition>,
     strikethrough_position: Option<RenderStrikethroughPosition>,
     force_reverse_video_cursor: bool,
+    default_background: [u8; 4],
     window_dpi: u32,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
@@ -284,6 +285,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            default_background: default_background(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -303,6 +305,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            default_background: default_background(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -513,6 +516,10 @@ impl PixelRenderer {
         self.window_dpi = dpi.max(1);
     }
 
+    pub fn set_default_background(&mut self, background: [u8; 4]) {
+        self.default_background = background;
+    }
+
     #[must_use]
     pub const fn with_force_reverse_video_cursor(force_reverse_video_cursor: bool) -> Self {
         Self {
@@ -526,6 +533,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor,
+            default_background: default_background(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -549,6 +557,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            default_background: default_background(),
             window_dpi: DEFAULT_DPI,
             animation_frame,
             animation_elapsed_ms: None,
@@ -568,6 +577,7 @@ impl PixelRenderer {
             underline_position: None,
             strikethrough_position: None,
             force_reverse_video_cursor: false,
+            default_background: default_background(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: Some(animation_elapsed_ms),
@@ -597,7 +607,7 @@ impl PixelRenderer {
             height: target_height,
         };
 
-        surface.fill(default_background());
+        surface.fill(self.default_background);
 
         render_inline_images_in_z_order(
             &mut surface,
@@ -618,6 +628,7 @@ impl PixelRenderer {
                 cell_width,
                 cell_height,
                 self.bold_brightens_ansi_colors,
+                self.default_background,
             );
         }
 
@@ -645,6 +656,7 @@ impl PixelRenderer {
                 self.strikethrough_position,
                 self.window_dpi,
                 self.bold_brightens_ansi_colors,
+                self.default_background,
             );
         }
 
@@ -676,6 +688,7 @@ impl PixelRenderer {
                         cursor,
                         self.force_reverse_video_cursor,
                         self.bold_brightens_ansi_colors,
+                        self.default_background,
                     ),
                 },
             );
@@ -736,7 +749,7 @@ impl PixelRenderer {
         for region in damage.iter().copied().filter(|region| !region.is_empty()) {
             surface.fill_rect(
                 damage_rect(region, geometry.cell_width, geometry.cell_height),
-                default_background(),
+                self.default_background,
             );
         }
 
@@ -765,6 +778,7 @@ impl PixelRenderer {
                 geometry.cell_width,
                 geometry.cell_height,
                 self.bold_brightens_ansi_colors,
+                self.default_background,
             );
         }
 
@@ -792,6 +806,7 @@ impl PixelRenderer {
                 self.strikethrough_position,
                 self.window_dpi,
                 self.bold_brightens_ansi_colors,
+                self.default_background,
             );
         }
 
@@ -826,6 +841,7 @@ impl PixelRenderer {
                         cursor,
                         self.force_reverse_video_cursor,
                         self.bold_brightens_ansi_colors,
+                        self.default_background,
                     ),
                 },
             );
@@ -1257,11 +1273,13 @@ fn render_cell_background(
     cell_width: u32,
     cell_height: u32,
     bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    default_background: [u8; 4],
 ) {
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
-    let (_, background) = effective_cell_colors(cell, bold_brightens_ansi_colors);
-    if background == default_background() {
+    let (_, background) =
+        effective_cell_colors(cell, bold_brightens_ansi_colors, default_background);
+    if background == default_background {
         return;
     }
 
@@ -1288,10 +1306,12 @@ fn render_cell_foreground(
     strikethrough_position: Option<RenderStrikethroughPosition>,
     window_dpi: u32,
     bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    default_background: [u8; 4],
 ) {
     let origin_x = u32::from(cell.column).saturating_mul(cell_width);
     let origin_y = u32::from(cell.row).saturating_mul(cell_height);
-    let (foreground, _) = effective_cell_colors(cell, bold_brightens_ansi_colors);
+    let (foreground, _) =
+        effective_cell_colors(cell, bold_brightens_ansi_colors, default_background);
     let foreground_alpha = text_foreground_alpha(
         cell,
         text_blink_opacity_alpha,
@@ -1394,12 +1414,13 @@ fn text_foreground_alpha(
 fn effective_cell_colors(
     cell: &RenderCell,
     bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    default_background: [u8; 4],
 ) -> ([u8; 4], [u8; 4]) {
     let foreground = color_to_rgba(
         effective_cell_foreground(cell, bold_brightens_ansi_colors),
         default_foreground(),
     );
-    let background = color_to_rgba(cell.background, default_background());
+    let background = color_to_rgba(cell.background, default_background);
     let (foreground, background) = if cell.inverse {
         (background, foreground)
     } else {
@@ -1699,6 +1720,7 @@ fn cursor_color(
     cursor: RenderCursor,
     force_reverse_video_cursor: bool,
     bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
+    default_background: [u8; 4],
 ) -> [u8; 4] {
     if let Some(color) = snapshot.cursor_color() {
         return color_to_rgba(color, default_foreground());
@@ -1710,7 +1732,7 @@ fn cursor_color(
             .iter()
             .find(|cell| cell.row == cursor.row && cell.column == cursor.column)
             .map_or(default_foreground(), |cell| {
-                effective_cell_colors(cell, bold_brightens_ansi_colors).0
+                effective_cell_colors(cell, bold_brightens_ansi_colors, default_background).0
             })
     } else {
         default_foreground()

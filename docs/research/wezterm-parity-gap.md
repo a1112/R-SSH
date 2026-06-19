@@ -1526,7 +1526,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   easing subset; `CursorColor` fades return to the current rendered cursor
   color, including `force_reverse_video_cursor` cursor-cell foreground
   behavior. Static WezTerm-style Lua `config.audible_bell`,
-  `config.visual_bell`, and `config.colors.visual_bell` snippets now parse into
+  `config.visual_bell`, `config.colors.background`, and
+  `config.colors.visual_bell` snippets now parse into
   the same native override path, including bracketed string table keys with
   long-bracket values for visual-bell fields, nested `CubicBezier` easing
   tables, and `colors.visual_bell`. Lua event wiring remains open.
@@ -1552,7 +1553,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`,
-  `term`, `audible_bell`, `visual_bell`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`,
+  `term`, `audible_bell`, `visual_bell`, `background_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`,
   `key_map_preference`, `swap_backspace_and_delete`,
   `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
@@ -1598,10 +1599,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `adjust_window_size_when_changing_font_size`, `cursor_blink_rate`,
   `cursor_blink_ease_in`, `cursor_blink_ease_out`, `default_cursor_style`, and
   `force_reverse_video_cursor`, `window_decorations`, plus the implemented bell/notification subset:
-  `audible_bell`, `visual_bell`, `colors.visual_bell`, and
+  `audible_bell`, `visual_bell`, `colors.background`, `colors.visual_bell`, and
   `notification_handling`, plus the implemented render color subset:
   `foreground_text_hsb`, `inactive_pane_hsb`, `bold_brightens_ansi_colors`,
-  `text_background_opacity`, and `window_background_opacity`, plus
+  `text_background_opacity`, `window_background_opacity`, and `colors.background`, plus
   `window_close_confirmation` and
   `skip_close_confirmation_for_processes_named`.
   `warn_about_missing_glyphs` is retained with WezTerm's default `true`.
@@ -1648,7 +1649,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`,
-  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
+  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `background_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
   `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`,
@@ -1863,6 +1864,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   backgrounds. Static WezTerm-style Lua `config.window_background_opacity`
   snippets now parse into the same native override path; dynamic palette-aware
   resolution for this option remains later parity work.
+- Native terminal rendering applies WezTerm-style `colors.background` as the
+  default framebuffer background for full and damage renders. Static
+  WezTerm-style Lua `config.colors.background` snippets now parse into the same
+  native override path; broader palette-table coverage remains later parity
+  work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
   macOS-specific flags in effective config snapshots. Fine-grained titlebar,
