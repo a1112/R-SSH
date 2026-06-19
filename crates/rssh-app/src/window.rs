@@ -10510,7 +10510,12 @@ impl NativeWindowApp {
         let snapshot = terminal_runtime_snapshot(&self.runtime, self.scrollback_offset);
         let size = self.runtime.terminal().grid().size();
         self.snapshot = if let Some(selection) = self.selection {
-            let selection_fg_color = if self.quick_select.is_some() {
+            let selection_fg_color = if self.copy_mode.is_some() {
+                self.copy_mode_active_highlight_fg
+                    .map(native_color_spec_to_render_color)
+                    .map(Some)
+                    .or(self.selection_fg_color)
+            } else if self.quick_select.is_some() {
                 self.quick_select_match_fg
                     .map(native_color_spec_to_render_color)
                     .map(Some)
@@ -10518,7 +10523,11 @@ impl NativeWindowApp {
             } else {
                 self.selection_fg_color
             };
-            let selection_bg_color = if self.quick_select.is_some() {
+            let selection_bg_color = if self.copy_mode.is_some() {
+                self.copy_mode_active_highlight_bg
+                    .map(native_color_spec_to_render_color)
+                    .or(self.selection_bg_color)
+            } else if self.quick_select.is_some() {
                 self.quick_select_match_bg
                     .map(native_color_spec_to_render_color)
                     .or(self.selection_bg_color)
@@ -45115,6 +45124,26 @@ mod tests {
 
         assert!(app.copy_mode.is_none());
         assert_eq!(copied.lock().unwrap().as_slice(), ["abcd"]);
+    }
+
+    #[test]
+    fn window_copy_mode_uses_configured_active_highlight_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
+        app.set_config_overrides(NativeConfigOverrides {
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
+            copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"abcd").unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("v".into()), ModifiersState::empty()));
+        let selected_cell = snapshot_cell(&app.snapshot, 0, 3).expect("copy-mode selected cell");
+
+        assert_eq!(selected_cell.foreground, Color::Indexed(4));
+        assert_eq!(selected_cell.background, Color::Rgb(1, 2, 3));
+        assert!(!selected_cell.inverse);
     }
 
     #[test]
