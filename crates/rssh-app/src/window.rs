@@ -95,6 +95,7 @@ const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
 const DEFAULT_FONT_HINTING: NativeFontHinting = NativeFontHinting::Full;
 const DEFAULT_FONT_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::FreeType;
+const DEFAULT_FREETYPE_LOAD_TARGET: NativeFreetypeTarget = NativeFreetypeTarget::Normal;
 const DEFAULT_CURSOR_BLINK_RATE: Duration = Duration::from_millis(800);
 const DEFAULT_CURSOR_BLINK_EASE_IN: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_CURSOR_BLINK_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
@@ -539,6 +540,29 @@ impl NativeFontRasterizer {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "FreeType" => Some(Self::FreeType),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeFreetypeTarget {
+    Normal,
+    Light,
+    Mono,
+    HorizontalLcd,
+    VerticalLcd,
+}
+
+impl NativeFreetypeTarget {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Normal" => Some(Self::Normal),
+            "Light" => Some(Self::Light),
+            "Mono" => Some(Self::Mono),
+            "HorizontalLcd" => Some(Self::HorizontalLcd),
+            "VerticalLcd" => Some(Self::VerticalLcd),
             _ => None,
         }
     }
@@ -1734,6 +1758,8 @@ struct NativeEffectiveConfig {
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
+    freetype_load_target: NativeFreetypeTarget,
+    freetype_render_target: NativeFreetypeTarget,
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -1873,6 +1899,8 @@ struct NativeConfigOverrides {
     font_antialias: Option<NativeFontAntialias>,
     font_hinting: Option<NativeFontHinting>,
     font_rasterizer: Option<NativeFontRasterizer>,
+    freetype_load_target: Option<NativeFreetypeTarget>,
+    freetype_render_target: Option<NativeFreetypeTarget>,
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -2218,6 +2246,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "font_rasterizer")
     {
         overrides.font_rasterizer = Some(NativeFontRasterizer::parse(&font_rasterizer)?);
+        parsed = true;
+    }
+    if let Some(freetype_load_target) =
+        lua_config_string_assignment_from_query(config, "freetype_load_target")
+    {
+        overrides.freetype_load_target = Some(NativeFreetypeTarget::parse(&freetype_load_target)?);
+        parsed = true;
+    }
+    if let Some(freetype_render_target) =
+        lua_config_string_assignment_from_query(config, "freetype_render_target")
+    {
+        overrides.freetype_render_target =
+            Some(NativeFreetypeTarget::parse(&freetype_render_target)?);
         parsed = true;
     }
     if let Some(foreground_text_hsb) =
@@ -4220,6 +4261,8 @@ struct NativeWindowApp {
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
+    freetype_load_target: NativeFreetypeTarget,
+    freetype_render_target: NativeFreetypeTarget,
     font_size_scale: f64,
     adjust_window_size_when_changing_font_size: bool,
     debug_overlay_active: bool,
@@ -5628,6 +5671,8 @@ impl NativeWindowApp {
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
+            freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
+            freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
             font_size_scale: DEFAULT_FONT_SIZE_SCALE,
             adjust_window_size_when_changing_font_size:
                 DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
@@ -6816,6 +6861,8 @@ impl NativeWindowApp {
         self.font_antialias = source.font_antialias;
         self.font_hinting = source.font_hinting;
         self.font_rasterizer = source.font_rasterizer;
+        self.freetype_load_target = source.freetype_load_target;
+        self.freetype_render_target = source.freetype_render_target;
         self.initial_cols = source.initial_cols;
         self.initial_rows = source.initial_rows;
         self.foreground_text_hsb = source.foreground_text_hsb;
@@ -13806,6 +13853,8 @@ impl NativeWindowApp {
             font_antialias: self.font_antialias,
             font_hinting: self.font_hinting,
             font_rasterizer: self.font_rasterizer,
+            freetype_load_target: self.freetype_load_target,
+            freetype_render_target: self.freetype_render_target,
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
             text_min_contrast_ratio: self.text_min_contrast_ratio,
@@ -13970,6 +14019,12 @@ impl NativeWindowApp {
         self.font_antialias = overrides.font_antialias.unwrap_or(DEFAULT_FONT_ANTIALIAS);
         self.font_hinting = overrides.font_hinting.unwrap_or(DEFAULT_FONT_HINTING);
         self.font_rasterizer = overrides.font_rasterizer.unwrap_or(DEFAULT_FONT_RASTERIZER);
+        self.freetype_load_target = overrides
+            .freetype_load_target
+            .unwrap_or(DEFAULT_FREETYPE_LOAD_TARGET);
+        self.freetype_render_target = overrides
+            .freetype_render_target
+            .unwrap_or(self.freetype_load_target);
         self.foreground_text_hsb = overrides
             .foreground_text_hsb
             .unwrap_or(DEFAULT_FOREGROUND_TEXT_HSB);
@@ -36374,12 +36429,12 @@ mod tests {
         DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
         DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
-        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
-        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
-        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
+        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
+        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_RESIZE_INCREMENTS,
         DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
@@ -36393,8 +36448,8 @@ mod tests {
         NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontRasterizer,
         NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
-        NativeFormatUnderline, NativeHorizontalContentAlignment, NativeHsbMultiplier,
-        NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
+        NativeFormatUnderline, NativeFreetypeTarget, NativeHorizontalContentAlignment,
+        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
         NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
         NativeRenderFrontEnd, NativeScrollBarHeight, NativeStrikethroughPosition,
@@ -45604,6 +45659,8 @@ mod tests {
                 font_antialias: DEFAULT_FONT_ANTIALIAS,
                 font_hinting: DEFAULT_FONT_HINTING,
                 font_rasterizer: DEFAULT_FONT_RASTERIZER,
+                freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
+                freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
                 text_min_contrast_ratio: None,
@@ -58364,6 +58421,54 @@ mod tests {
         assert_eq!(effective.font_antialias, NativeFontAntialias::Greyscale);
         assert_eq!(effective.font_hinting, NativeFontHinting::Full);
         assert_eq!(effective.font_rasterizer, NativeFontRasterizer::FreeType);
+        assert_eq!(effective.freetype_load_target, NativeFreetypeTarget::Normal);
+        assert_eq!(
+            effective.freetype_render_target,
+            NativeFreetypeTarget::Normal
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_freetype_target_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.freetype_load_target = 'Light'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm freetype load target config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.freetype_load_target, NativeFreetypeTarget::Light);
+        assert_eq!(
+            effective.freetype_render_target,
+            NativeFreetypeTarget::Light
+        );
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.freetype_load_target = 'Mono'
+            config.freetype_render_target = 'HorizontalLcd'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm freetype load/render target config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.freetype_load_target, NativeFreetypeTarget::Mono);
+        assert_eq!(
+            effective.freetype_render_target,
+            NativeFreetypeTarget::HorizontalLcd
+        );
     }
 
     #[test]
@@ -63769,6 +63874,8 @@ mod tests {
             font_antialias: Some(NativeFontAntialias::Subpixel),
             font_hinting: Some(NativeFontHinting::VerticalSubpixel),
             font_rasterizer: Some(NativeFontRasterizer::FreeType),
+            freetype_load_target: Some(NativeFreetypeTarget::Mono),
+            freetype_render_target: Some(NativeFreetypeTarget::HorizontalLcd),
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -63989,6 +64096,8 @@ mod tests {
             font_antialias: NativeFontAntialias::Subpixel,
             font_hinting: NativeFontHinting::VerticalSubpixel,
             font_rasterizer: NativeFontRasterizer::FreeType,
+            freetype_load_target: NativeFreetypeTarget::Mono,
+            freetype_render_target: NativeFreetypeTarget::HorizontalLcd,
             foreground_text_hsb: NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64181,6 +64290,8 @@ mod tests {
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
+            freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
+            freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
