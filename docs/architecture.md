@@ -784,8 +784,11 @@ keyboard, mouse, paste, resize
   adapter, EGL, and Wayland/X11 startup selection remain future parity work.
   `use_resize_increments` is
   stored with WezTerm's default `false` and included in effective config
-  snapshots; actual OS-specific window resize increment application remains
-  future parity work. `debug_key_events` and `log_unknown_escape_sequences` are
+  snapshots; when enabled on X11/Wayland/macOS-capable builds, native windows
+  set their resize increments to the current terminal cell size and refresh the
+  hint after font, `cell_width`, or `line_height` changes. Unsupported
+  platforms keep the WezTerm-style no-op behavior. `debug_key_events` and
+  `log_unknown_escape_sequences` are
   stored with WezTerm's default `false` and included in effective config
   snapshots. `treat_left_ctrlalt_as_altgr` is stored with WezTerm's default
   `false`; when enabled, Ctrl+Alt text key events are routed as AltGr text
@@ -1014,11 +1017,13 @@ keyboard, mouse, paste, resize
   Native key events are emitted as stderr `INFO key_event` diagnostics when
   `debug_key_events` is enabled. Missing glyph codepoints detected in rendered
   cells are emitted once per native window as stderr `CONFIG ERROR missing
-  glyph ...` diagnostics when `warn_about_missing_glyphs` is enabled. Lua event
-  wiring, full WezTerm-style configuration error window UI, actual OS-specific
-  resize increment application, actual Lua config reload, automatic file
-  watching, Lua `window:set_config_overrides` wiring, and broader config option
-  coverage remain future parity work.
+  glyph ...` diagnostics when `warn_about_missing_glyphs` is enabled.
+  `use_resize_increments` applies current cell-size resize hints on
+  X11/Wayland/macOS-capable builds and remains a WezTerm-style no-op on
+  unsupported platforms. Lua event wiring, full WezTerm-style configuration
+  error window UI, actual Lua config reload, automatic file watching, Lua
+  `window:set_config_overrides` wiring, and broader config option coverage
+  remain future parity work.
 - Implemented in v1: opening the command palette dispatches a typed native
   `augment-command-palette` hook with the window id and active pane id. Returned
   entries can add native `WindowCommand` actions to the same fuzzy-filtered

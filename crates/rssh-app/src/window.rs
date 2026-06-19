@@ -6647,6 +6647,7 @@ impl NativeWindowApp {
                 self.font_size_scale = DEFAULT_FONT_SIZE_SCALE;
             }
         }
+        self.apply_window_resize_increments();
         let requested_size = if self.adjust_window_size_when_changing_font_size {
             self.frame_size_for_terminal_size(terminal_size)
         } else {
@@ -6667,6 +6668,7 @@ impl NativeWindowApp {
 
     fn reset_font_and_window_size(&mut self) {
         self.font_size_scale = DEFAULT_FONT_SIZE_SCALE;
+        self.apply_window_resize_increments();
         let requested_size = self.initial_frame_size();
         let frame_size = self
             .window
@@ -6690,6 +6692,21 @@ impl NativeWindowApp {
             u32::from(terminal_size.columns) * self.cell_width(),
             u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS)) * self.cell_height(),
         )
+    }
+
+    fn window_resize_increment_cell_size(&self) -> PhysicalSize<u32> {
+        PhysicalSize::new(self.cell_width().max(1), self.cell_height().max(1))
+    }
+
+    fn window_resize_increments(&self) -> Option<PhysicalSize<u32>> {
+        (self.use_resize_increments && native_window_resize_increments_supported())
+            .then(|| self.window_resize_increment_cell_size())
+    }
+
+    fn apply_window_resize_increments(&self) {
+        if let Some(window) = &self.window {
+            window.set_resize_increments(self.window_resize_increments());
+        }
     }
 
     fn cell_width(&self) -> u32 {
@@ -11486,6 +11503,9 @@ impl NativeWindowApp {
             };
             window_attributes = window_attributes.with_position(resolved_position);
         }
+        if let Some(resize_increments) = self.window_resize_increments() {
+            window_attributes = window_attributes.with_resize_increments(resize_increments);
+        }
         window_attributes =
             window_attributes_with_class(window_attributes, self.initial_window_class.as_deref());
 
@@ -14617,6 +14637,7 @@ impl NativeWindowApp {
         self.use_resize_increments = overrides
             .use_resize_increments
             .unwrap_or(DEFAULT_USE_RESIZE_INCREMENTS);
+        self.apply_window_resize_increments();
         self.debug_key_events = overrides
             .debug_key_events
             .unwrap_or(DEFAULT_DEBUG_KEY_EVENTS);
@@ -36386,6 +36407,17 @@ fn scaled_cell_dimension(base: u32, scale: f64) -> u32 {
         .clamp(1.0, f64::from(u32::MAX)) as u32
 }
 
+fn native_window_resize_increments_supported() -> bool {
+    cfg!(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "dragonfly"
+    ))
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn window_dpi_from_scale_factor(scale_factor: f64) -> u32 {
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
@@ -36997,7 +37029,8 @@ mod tests {
         encode_window_key_with_kitty_event, encode_window_mouse_event,
         encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
-        nerd_font_icon_for_name, pane_select_activate_alphabet_from_query,
+        native_window_resize_increments_supported, nerd_font_icon_for_name,
+        pane_select_activate_alphabet_from_query,
         pane_select_activate_show_pane_ids_alphabet_from_query, pane_select_alphabet_from_query,
         pane_select_mode_alphabet_from_query, pane_select_mode_show_pane_ids_from_query,
         pane_select_options_from_query, pane_select_show_pane_ids_alphabet_from_query,
@@ -40762,6 +40795,45 @@ mod tests {
         });
 
         assert!(app.native_effective_config().use_resize_increments);
+    }
+
+    #[test]
+    fn window_app_uses_cell_geometry_for_resize_increments_when_configured() {
+        let mut app = NativeWindowApp::new(None);
+
+        assert_eq!(app.window_resize_increments(), None);
+
+        app.set_config_overrides(NativeConfigOverrides {
+            use_resize_increments: Some(true),
+            cell_width: Some(NativeCellWidth::from_per_mille(1_500)),
+            line_height: Some(NativeLineHeight::from_per_mille(1_250)),
+            ..NativeConfigOverrides::default()
+        });
+        let configured_increment_cell_size =
+            PhysicalSize::new(CELL_WIDTH * 3 / 2, CELL_HEIGHT * 5 / 4);
+        let expected_configured_increments =
+            native_window_resize_increments_supported().then_some(configured_increment_cell_size);
+
+        assert_eq!(
+            app.window_resize_increment_cell_size(),
+            configured_increment_cell_size
+        );
+        assert_eq!(
+            app.window_resize_increments(),
+            expected_configured_increments
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_execute(WindowCommand::IncreaseFontSize);
+        let scaled_increment_cell_size = PhysicalSize::new(app.cell_width(), app.cell_height());
+        let expected_scaled_increments =
+            native_window_resize_increments_supported().then_some(scaled_increment_cell_size);
+
+        assert_eq!(
+            app.window_resize_increment_cell_size(),
+            scaled_increment_cell_size
+        );
+        assert_eq!(app.window_resize_increments(), expected_scaled_increments);
     }
 
     #[test]
