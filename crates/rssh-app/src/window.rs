@@ -22979,7 +22979,17 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
     let mut long_bracket_end = None;
     let mut line_comment = false;
     let mut line_comment_field_start = None;
+    let mut block_comment_end = None;
     for (index, character) in table.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+            if table[start..end].trim().starts_with("--") {
+                start = end;
+            }
+        }
         if let Some(end) = long_bracket_end {
             if index < end {
                 continue;
@@ -23007,6 +23017,17 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
             continue;
         }
         if table[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&table[index + 2..])
+            {
+                let content_and_rest = &table[index + 2 + content_start..];
+                let close_index = content_and_rest.find(&closing)?;
+                if depth == 0 && table[start..index].trim().is_empty() {
+                    start = index;
+                }
+                block_comment_end = Some(index + 2 + content_start + close_index + closing.len());
+                continue;
+            }
             if depth == 0 && table[start..index].trim().is_empty() {
                 line_comment_field_start = Some(index);
             }
@@ -51975,6 +51996,43 @@ mod tests {
             config.default_prog = { 'nu', '--login' }
             config.set_environment_variables = {
               -- ignored, comment separator
+              PROJECT_MODE = 'dev',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_block_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {
+              --[=[
+              ignored, comment separator
+              ]=]
               PROJECT_MODE = 'dev',
             }
 
