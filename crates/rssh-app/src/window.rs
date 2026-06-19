@@ -2598,7 +2598,7 @@ fn native_launch_menu_lua_table_from_query(value: &str) -> Option<Vec<NativeLaun
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = field.split_once('=')
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
             && let Some(index) = split_lua_table_array_index_from_query(key.trim())
         {
             if !items.is_empty() || index == 0 || indexed_items.contains_key(&index) {
@@ -2698,7 +2698,7 @@ fn native_key_assignments_lua_table_from_query(
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = field.split_once('=')
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
             && let Some(index) = split_lua_table_array_index_from_query(key.trim())
         {
             if !assignments.is_empty() || index == 0 || indexed_assignments.contains_key(&index) {
@@ -19644,7 +19644,7 @@ fn multiple_table_commands_from_query(query: &str) -> Option<Vec<WindowCommand>>
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = field.split_once('=')
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
             && let Some(index) = split_lua_table_array_index_from_query(key.trim())
         {
             if !commands.is_empty() || indexed_commands.contains_key(&index) {
@@ -53400,6 +53400,59 @@ mod tests {
             Some(&"1".to_owned())
         );
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_indexed_launch_menu_value_prefix_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              [1] =
+                -- launch menu item
+                {
+                  label = 'System Monitor',
+                  args = { 'top', '-H' },
+                  cwd = '/tmp/project',
+                  set_environment_variables = {
+                    LAUNCH_MENU = '1',
+                  },
+                },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::launch_menu_items(),
+                title: None,
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "System Monitor");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-H"]);
+        assert_eq!(launch.cwd(), Some("/tmp/project"));
+        assert_eq!(
+            launch.environment().get("LAUNCH_MENU"),
+            Some(&"1".to_owned())
+        );
     }
 
     #[test]
