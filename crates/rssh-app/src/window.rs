@@ -22977,12 +22977,24 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
     let mut start = 0usize;
     let mut escape = false;
     let mut long_bracket_end = None;
+    let mut line_comment = false;
+    let mut line_comment_field_start = None;
     for (index, character) in table.char_indices() {
         if let Some(end) = long_bracket_end {
             if index < end {
                 continue;
             }
             long_bracket_end = None;
+        }
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+                if line_comment_field_start.is_some() {
+                    start = index + character.len_utf8();
+                    line_comment_field_start = None;
+                }
+            }
+            continue;
         }
         if let Some(quoted) = quote {
             if escape {
@@ -22992,6 +23004,13 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
             } else if character == quoted {
                 quote = None;
             }
+            continue;
+        }
+        if table[index..].starts_with("--") {
+            if depth == 0 && table[start..index].trim().is_empty() {
+                line_comment_field_start = Some(index);
+            }
+            line_comment = true;
             continue;
         }
         match character {
@@ -51943,6 +51962,41 @@ mod tests {
             app.default_cwd.as_deref(),
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev}ops"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_line_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {
+              -- ignored, comment separator
+              PROJECT_MODE = 'dev',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
     }
 
     #[test]
