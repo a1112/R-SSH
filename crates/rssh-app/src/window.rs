@@ -102,6 +102,7 @@ const DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH: NativeSquareGlyphOverflow =
 const DEFAULT_FREETYPE_LOAD_TARGET: NativeFreetypeTarget = NativeFreetypeTarget::Normal;
 const FREETYPE_LOAD_FLAGS_NO_HINTING_DPI_THRESHOLD: u32 = 100;
 const DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES: bool = false;
+const DEFAULT_DISPLAY_PIXEL_GEOMETRY: NativeDisplayPixelGeometry = NativeDisplayPixelGeometry::Rgb;
 const DEFAULT_CURSOR_BLINK_RATE: Duration = Duration::from_millis(800);
 const DEFAULT_CURSOR_BLINK_EASE_IN: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_CURSOR_BLINK_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
@@ -588,6 +589,23 @@ impl NativeFreetypeTarget {
             "Mono" => Some(Self::Mono),
             "HorizontalLcd" => Some(Self::HorizontalLcd),
             "VerticalLcd" => Some(Self::VerticalLcd),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeDisplayPixelGeometry {
+    Rgb,
+    Bgr,
+}
+
+impl NativeDisplayPixelGeometry {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "RGB" => Some(Self::Rgb),
+            "BGR" => Some(Self::Bgr),
             _ => None,
         }
     }
@@ -1831,6 +1849,7 @@ struct NativeEffectiveConfig {
     freetype_load_flags: NativeFreetypeLoadFlags,
     freetype_interpreter_version: Option<u32>,
     freetype_pcf_long_family_names: bool,
+    display_pixel_geometry: NativeDisplayPixelGeometry,
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -1978,6 +1997,7 @@ struct NativeConfigOverrides {
     freetype_load_flags: Option<NativeFreetypeLoadFlags>,
     freetype_interpreter_version: Option<u32>,
     freetype_pcf_long_family_names: Option<bool>,
+    display_pixel_geometry: Option<NativeDisplayPixelGeometry>,
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -2377,6 +2397,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "freetype_pcf_long_family_names")
     {
         overrides.freetype_pcf_long_family_names = Some(freetype_pcf_long_family_names);
+        parsed = true;
+    }
+    if let Some(display_pixel_geometry) =
+        lua_config_string_assignment_from_query(config, "display_pixel_geometry")
+    {
+        overrides.display_pixel_geometry =
+            Some(NativeDisplayPixelGeometry::parse(&display_pixel_geometry)?);
         parsed = true;
     }
     if let Some(foreground_text_hsb) =
@@ -4395,6 +4422,7 @@ struct NativeWindowApp {
     freetype_load_flags: Option<NativeFreetypeLoadFlags>,
     freetype_interpreter_version: Option<u32>,
     freetype_pcf_long_family_names: bool,
+    display_pixel_geometry: NativeDisplayPixelGeometry,
     font_size_scale: f64,
     adjust_window_size_when_changing_font_size: bool,
     debug_overlay_active: bool,
@@ -5811,6 +5839,7 @@ impl NativeWindowApp {
             freetype_load_flags: None,
             freetype_interpreter_version: None,
             freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+            display_pixel_geometry: DEFAULT_DISPLAY_PIXEL_GEOMETRY,
             font_size_scale: DEFAULT_FONT_SIZE_SCALE,
             adjust_window_size_when_changing_font_size:
                 DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
@@ -7007,6 +7036,7 @@ impl NativeWindowApp {
         self.freetype_load_flags = source.freetype_load_flags;
         self.freetype_interpreter_version = source.freetype_interpreter_version;
         self.freetype_pcf_long_family_names = source.freetype_pcf_long_family_names;
+        self.display_pixel_geometry = source.display_pixel_geometry;
         self.initial_cols = source.initial_cols;
         self.initial_rows = source.initial_rows;
         self.foreground_text_hsb = source.foreground_text_hsb;
@@ -14005,6 +14035,7 @@ impl NativeWindowApp {
             freetype_load_flags: self.effective_freetype_load_flags(),
             freetype_interpreter_version: self.freetype_interpreter_version,
             freetype_pcf_long_family_names: self.freetype_pcf_long_family_names,
+            display_pixel_geometry: self.display_pixel_geometry,
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
             text_min_contrast_ratio: self.text_min_contrast_ratio,
@@ -14194,6 +14225,9 @@ impl NativeWindowApp {
         self.freetype_pcf_long_family_names = overrides
             .freetype_pcf_long_family_names
             .unwrap_or(DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES);
+        self.display_pixel_geometry = overrides
+            .display_pixel_geometry
+            .unwrap_or(DEFAULT_DISPLAY_PIXEL_GEOMETRY);
         self.foreground_text_hsb = overrides
             .foreground_text_hsb
             .unwrap_or(DEFAULT_FOREGROUND_TEXT_HSB);
@@ -36597,8 +36631,9 @@ mod tests {
         DEFAULT_CELL_WIDTH, DEFAULT_CHECK_FOR_UPDATES, DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
         DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS, DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
-        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND,
-        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SIZE,
+        DEFAULT_DISPLAY_PIXEL_GEOMETRY, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
+        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
+        DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
@@ -36617,36 +36652,37 @@ mod tests {
         NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
         NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
         NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
-        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontRasterizer,
-        NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
-        NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
-        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
-        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
-        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
-        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
-        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
-        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
-        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
+        NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
+        NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontSize,
+        NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
+        NativeFreetypeLoadFlags, NativeFreetypeTarget, NativeHorizontalContentAlignment,
+        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
+        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
+        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWindowApp, NativeWindowBell,
+        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
+        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -45841,6 +45877,7 @@ mod tests {
                 freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
                 freetype_interpreter_version: None,
                 freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+                display_pixel_geometry: DEFAULT_DISPLAY_PIXEL_GEOMETRY,
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
                 text_min_contrast_ratio: None,
@@ -58617,6 +58654,10 @@ mod tests {
             NativeFreetypeLoadFlags::DEFAULT
         );
         assert_eq!(effective.freetype_interpreter_version, None);
+        assert_eq!(
+            effective.display_pixel_geometry,
+            NativeDisplayPixelGeometry::Rgb
+        );
 
         let mut high_dpi_app = NativeWindowApp::new(None);
         high_dpi_app.window_dpi = 144;
@@ -58750,6 +58791,28 @@ mod tests {
 
         let effective = app.native_effective_config();
         assert_eq!(effective.freetype_interpreter_version, Some(38));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_display_pixel_geometry() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.display_pixel_geometry = 'BGR'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm display pixel geometry config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.display_pixel_geometry,
+            NativeDisplayPixelGeometry::Bgr
+        );
     }
 
     #[test]
@@ -64191,6 +64254,7 @@ mod tests {
             ),
             freetype_interpreter_version: Some(38),
             freetype_pcf_long_family_names: Some(true),
+            display_pixel_geometry: Some(NativeDisplayPixelGeometry::Bgr),
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64420,6 +64484,7 @@ mod tests {
                 .union(NativeFreetypeLoadFlags::MONOCHROME),
             freetype_interpreter_version: Some(38),
             freetype_pcf_long_family_names: true,
+            display_pixel_geometry: NativeDisplayPixelGeometry::Bgr,
             foreground_text_hsb: NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64620,6 +64685,7 @@ mod tests {
             freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
             freetype_interpreter_version: None,
             freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+            display_pixel_geometry: DEFAULT_DISPLAY_PIXEL_GEOMETRY,
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
