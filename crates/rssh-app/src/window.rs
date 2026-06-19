@@ -66,6 +66,9 @@ const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 const DEFAULT_DOMAIN_NAME: &str = "local";
 const DEFAULT_WORKSPACE_NAME: &str = "default";
 const DEFAULT_AUTOMATICALLY_RELOAD_CONFIG: bool = true;
+const DEFAULT_CHECK_FOR_UPDATES: bool = true;
+const DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS: u64 = 86_400;
+const DEFAULT_SHOW_UPDATE_WINDOW: bool = false;
 const DEFAULT_USE_RESIZE_INCREMENTS: bool = false;
 const DEFAULT_DEBUG_KEY_EVENTS: bool = false;
 const DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES: bool = false;
@@ -1670,6 +1673,9 @@ struct NativeEffectiveConfig {
     default_domain: String,
     default_workspace: String,
     automatically_reload_config: bool,
+    check_for_updates: bool,
+    check_for_updates_interval_seconds: u64,
+    show_update_window: bool,
     use_resize_increments: bool,
     debug_key_events: bool,
     log_unknown_escape_sequences: bool,
@@ -1795,6 +1801,9 @@ struct NativeConfigOverrides {
     default_domain: Option<String>,
     default_workspace: Option<String>,
     automatically_reload_config: Option<bool>,
+    check_for_updates: Option<bool>,
+    check_for_updates_interval_seconds: Option<u64>,
+    show_update_window: Option<bool>,
     use_resize_increments: Option<bool>,
     debug_key_events: Option<bool>,
     log_unknown_escape_sequences: Option<bool>,
@@ -2402,6 +2411,25 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "automatically_reload_config")
     {
         overrides.automatically_reload_config = Some(automatically_reload_config);
+        parsed = true;
+    }
+    if let Some(check_for_updates) =
+        lua_config_bool_assignment_from_query(config, "check_for_updates")
+    {
+        overrides.check_for_updates = Some(check_for_updates);
+        parsed = true;
+    }
+    if let Some(check_for_updates_interval_seconds) =
+        lua_config_usize_assignment_from_query(config, "check_for_updates_interval_seconds")
+    {
+        overrides.check_for_updates_interval_seconds =
+            Some(u64::try_from(check_for_updates_interval_seconds).ok()?);
+        parsed = true;
+    }
+    if let Some(show_update_window) =
+        lua_config_bool_assignment_from_query(config, "show_update_window")
+    {
+        overrides.show_update_window = Some(show_update_window);
         parsed = true;
     }
     if let Some(use_resize_increments) =
@@ -4069,6 +4097,9 @@ struct NativeWindowApp {
     default_domain: String,
     default_workspace: String,
     automatically_reload_config: bool,
+    check_for_updates: bool,
+    check_for_updates_interval_seconds: u64,
+    show_update_window: bool,
     use_resize_increments: bool,
     debug_key_events: bool,
     log_unknown_escape_sequences: bool,
@@ -5469,6 +5500,9 @@ impl NativeWindowApp {
             default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
             default_workspace: DEFAULT_WORKSPACE_NAME.to_owned(),
             automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
+            check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
+            check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
+            show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
             use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
             debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
@@ -6430,6 +6464,9 @@ impl NativeWindowApp {
             .default_workspace
             .clone_from(&self.default_workspace);
         detached_app.automatically_reload_config = self.automatically_reload_config;
+        detached_app.check_for_updates = self.check_for_updates;
+        detached_app.check_for_updates_interval_seconds = self.check_for_updates_interval_seconds;
+        detached_app.show_update_window = self.show_update_window;
         detached_app.use_resize_increments = self.use_resize_increments;
         detached_app.debug_key_events = self.debug_key_events;
         detached_app.log_unknown_escape_sequences = self.log_unknown_escape_sequences;
@@ -6599,6 +6636,9 @@ impl NativeWindowApp {
         self.default_domain.clone_from(&source.default_domain);
         self.default_workspace.clone_from(&source.default_workspace);
         self.automatically_reload_config = source.automatically_reload_config;
+        self.check_for_updates = source.check_for_updates;
+        self.check_for_updates_interval_seconds = source.check_for_updates_interval_seconds;
+        self.show_update_window = source.show_update_window;
         self.use_resize_increments = source.use_resize_increments;
         self.debug_key_events = source.debug_key_events;
         self.log_unknown_escape_sequences = source.log_unknown_escape_sequences;
@@ -13542,6 +13582,9 @@ impl NativeWindowApp {
             default_domain: self.default_domain.clone(),
             default_workspace: self.default_workspace.clone(),
             automatically_reload_config: self.automatically_reload_config,
+            check_for_updates: self.check_for_updates,
+            check_for_updates_interval_seconds: self.check_for_updates_interval_seconds,
+            show_update_window: self.show_update_window,
             use_resize_increments: self.use_resize_increments,
             debug_key_events: self.debug_key_events,
             log_unknown_escape_sequences: self.log_unknown_escape_sequences,
@@ -13758,6 +13801,16 @@ impl NativeWindowApp {
         self.automatically_reload_config = overrides
             .automatically_reload_config
             .unwrap_or(DEFAULT_AUTOMATICALLY_RELOAD_CONFIG);
+        self.check_for_updates = overrides
+            .check_for_updates
+            .unwrap_or(DEFAULT_CHECK_FOR_UPDATES);
+        self.check_for_updates_interval_seconds = overrides
+            .check_for_updates_interval_seconds
+            .filter(|seconds| *seconds > 0)
+            .unwrap_or(DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS);
+        self.show_update_window = overrides
+            .show_update_window
+            .unwrap_or(DEFAULT_SHOW_UPDATE_WINDOW);
         self.use_resize_increments = overrides
             .use_resize_increments
             .unwrap_or(DEFAULT_USE_RESIZE_INCREMENTS);
@@ -36006,36 +36059,38 @@ mod tests {
         DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_ANSI_PALETTE_COLORS,
         DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR,
         DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS, DEFAULT_CANONICALIZE_PASTED_NEWLINES,
-        DEFAULT_CELL_WIDTH, DEFAULT_CURSOR_BG_COLOR, DEFAULT_DEBUG_KEY_EVENTS,
-        DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS, DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
-        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE,
-        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_CELL_WIDTH, DEFAULT_CHECK_FOR_UPDATES, DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
+        DEFAULT_CURSOR_BG_COLOR, DEFAULT_DEBUG_KEY_EVENTS, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
+        DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
+        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+        DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_STRIKETHROUGH_POSITION,
-        DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
-        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
-        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
-        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
-        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
-        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
-        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
-        NativeCursorStyle, NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig,
-        NativeExitBehavior, NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute,
-        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
-        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
-        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeScrollBarHeight, NativeStrikethroughPosition,
-        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
-        NativeTextMinContrastRatio, NativeUnderlinePosition, NativeUnderlineThickness,
-        NativeUserKeyAssignment, NativeVerticalContentAlignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
+        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_RESIZE_INCREMENTS,
+        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WINDOW_BACKGROUND_OPACITY,
+        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
+        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
+        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
+        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
+        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
+        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
+        NativeFormatItem, NativeFormatUnderline, NativeHorizontalContentAlignment,
+        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
+        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
+        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeScrollBarHeight, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
+        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget, NativeWindowApp,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
         NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
         NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
         NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
@@ -45288,6 +45343,9 @@ mod tests {
                 default_domain: "local".to_owned(),
                 default_workspace: "default".to_owned(),
                 automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
+                check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
+                check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
+                show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
                 use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
                 debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
                 log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
@@ -57744,6 +57802,40 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_update_check_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert!(effective.check_for_updates);
+        assert_eq!(effective.check_for_updates_interval_seconds, 86_400);
+        assert!(!effective.show_update_window);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_update_check_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.check_for_updates = false
+            config.check_for_updates_interval_seconds = 43200
+            config.show_update_window = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm update check config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.check_for_updates);
+        assert_eq!(effective.check_for_updates_interval_seconds, 43_200);
+        assert!(effective.show_update_window);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_palette_and_quick_select_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -63334,6 +63426,9 @@ mod tests {
             default_domain: Some("local".to_owned()),
             default_workspace: Some("ops".to_owned()),
             automatically_reload_config: Some(false),
+            check_for_updates: Some(false),
+            check_for_updates_interval_seconds: Some(43_200),
+            show_update_window: Some(true),
             use_resize_increments: Some(true),
             debug_key_events: Some(true),
             log_unknown_escape_sequences: Some(true),
@@ -63532,6 +63627,9 @@ mod tests {
             default_domain: "local".to_owned(),
             default_workspace: "ops".to_owned(),
             automatically_reload_config: false,
+            check_for_updates: false,
+            check_for_updates_interval_seconds: 43_200,
+            show_update_window: true,
             use_resize_increments: true,
             debug_key_events: true,
             log_unknown_escape_sequences: true,
@@ -63658,6 +63756,9 @@ mod tests {
             default_domain: "local".to_owned(),
             default_workspace: "default".to_owned(),
             automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
+            check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
+            check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
+            show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
             use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
             debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
