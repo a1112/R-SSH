@@ -2438,7 +2438,15 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
     let mut depth = 0u32;
     let mut quote = None;
     let mut escape = false;
+    let mut long_bracket_end = None;
     for (index, character) in query.char_indices() {
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
         if let Some(active_quote) = quote {
             if escape {
                 escape = false;
@@ -2452,6 +2460,20 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
 
         match character {
             '\'' | '"' => quote = Some(character),
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&query[index..])
+                {
+                    let content_and_rest = &query[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(query.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                }
+            }
             '{' => depth = depth.saturating_add(1),
             '}' => {
                 depth = depth.checked_sub(1)?;
@@ -51887,6 +51909,40 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_long_bracket_string_with_brace() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {
+              PROJECT_MODE = [=[dev}ops]=],
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev}ops"));
     }
 
     #[test]
