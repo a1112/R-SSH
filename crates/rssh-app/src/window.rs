@@ -95,6 +95,7 @@ const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
 const DEFAULT_FONT_HINTING: NativeFontHinting = NativeFontHinting::Full;
 const DEFAULT_FONT_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::FreeType;
+const DEFAULT_FONT_SHAPER: NativeFontShaper = NativeFontShaper::Harfbuzz;
 const DEFAULT_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH: NativeSquareGlyphOverflow =
@@ -547,6 +548,21 @@ impl NativeFontRasterizer {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "FreeType" => Some(Self::FreeType),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeFontShaper {
+    Harfbuzz,
+}
+
+impl NativeFontShaper {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Harfbuzz" => Some(Self::Harfbuzz),
             _ => None,
         }
     }
@@ -1841,6 +1857,7 @@ struct NativeEffectiveConfig {
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
+    font_shaper: NativeFontShaper,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -1989,6 +2006,7 @@ struct NativeConfigOverrides {
     font_antialias: Option<NativeFontAntialias>,
     font_hinting: Option<NativeFontHinting>,
     font_rasterizer: Option<NativeFontRasterizer>,
+    font_shaper: Option<NativeFontShaper>,
     custom_block_glyphs: Option<bool>,
     anti_alias_custom_block_glyphs: Option<bool>,
     allow_square_glyphs_to_overflow_width: Option<NativeSquareGlyphOverflow>,
@@ -2343,6 +2361,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "font_rasterizer")
     {
         overrides.font_rasterizer = Some(NativeFontRasterizer::parse(&font_rasterizer)?);
+        parsed = true;
+    }
+    if let Some(font_shaper) = lua_config_string_assignment_from_query(config, "font_shaper") {
+        overrides.font_shaper = Some(NativeFontShaper::parse(&font_shaper)?);
         parsed = true;
     }
     if let Some(custom_block_glyphs) =
@@ -4414,6 +4436,7 @@ struct NativeWindowApp {
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
+    font_shaper: NativeFontShaper,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -5831,6 +5854,7 @@ impl NativeWindowApp {
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
+            font_shaper: DEFAULT_FONT_SHAPER,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
@@ -7028,6 +7052,7 @@ impl NativeWindowApp {
         self.font_antialias = source.font_antialias;
         self.font_hinting = source.font_hinting;
         self.font_rasterizer = source.font_rasterizer;
+        self.font_shaper = source.font_shaper;
         self.custom_block_glyphs = source.custom_block_glyphs;
         self.anti_alias_custom_block_glyphs = source.anti_alias_custom_block_glyphs;
         self.allow_square_glyphs_to_overflow_width = source.allow_square_glyphs_to_overflow_width;
@@ -14027,6 +14052,7 @@ impl NativeWindowApp {
             font_antialias: self.font_antialias,
             font_hinting: self.font_hinting,
             font_rasterizer: self.font_rasterizer,
+            font_shaper: self.font_shaper,
             custom_block_glyphs: self.custom_block_glyphs,
             anti_alias_custom_block_glyphs: self.anti_alias_custom_block_glyphs,
             allow_square_glyphs_to_overflow_width: self.allow_square_glyphs_to_overflow_width,
@@ -14205,6 +14231,7 @@ impl NativeWindowApp {
         self.font_antialias = overrides.font_antialias.unwrap_or(DEFAULT_FONT_ANTIALIAS);
         self.font_hinting = overrides.font_hinting.unwrap_or(DEFAULT_FONT_HINTING);
         self.font_rasterizer = overrides.font_rasterizer.unwrap_or(DEFAULT_FONT_RASTERIZER);
+        self.font_shaper = overrides.font_shaper.unwrap_or(DEFAULT_FONT_SHAPER);
         self.custom_block_glyphs = overrides
             .custom_block_glyphs
             .unwrap_or(DEFAULT_CUSTOM_BLOCK_GLYPHS);
@@ -36633,7 +36660,7 @@ mod tests {
         DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS, DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
         DEFAULT_DISPLAY_PIXEL_GEOMETRY, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
         DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
-        DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SIZE,
+        DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
@@ -36654,35 +36681,35 @@ mod tests {
         NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
         NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
         NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
-        NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontSize,
-        NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
-        NativeFreetypeLoadFlags, NativeFreetypeTarget, NativeHorizontalContentAlignment,
-        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
-        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
-        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWindowApp, NativeWindowBell,
-        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
-        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
-        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
-        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
-        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontShaper,
+        NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
+        NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
+        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
+        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
+        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
+        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
+        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
+        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
+        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
+        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
+        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
+        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
+        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -45868,6 +45895,7 @@ mod tests {
                 font_antialias: DEFAULT_FONT_ANTIALIAS,
                 font_hinting: DEFAULT_FONT_HINTING,
                 font_rasterizer: DEFAULT_FONT_RASTERIZER,
+                font_shaper: DEFAULT_FONT_SHAPER,
                 custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
                 anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
                 allow_square_glyphs_to_overflow_width:
@@ -58638,6 +58666,7 @@ mod tests {
         assert_eq!(effective.font_antialias, NativeFontAntialias::Greyscale);
         assert_eq!(effective.font_hinting, NativeFontHinting::Full);
         assert_eq!(effective.font_rasterizer, NativeFontRasterizer::FreeType);
+        assert_eq!(effective.font_shaper, NativeFontShaper::Harfbuzz);
         assert!(effective.custom_block_glyphs);
         assert!(effective.anti_alias_custom_block_glyphs);
         assert_eq!(
@@ -58813,6 +58842,25 @@ mod tests {
             effective.display_pixel_geometry,
             NativeDisplayPixelGeometry::Bgr
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_shaper() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.font_shaper = 'Harfbuzz'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font shaper config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font_shaper, NativeFontShaper::Harfbuzz);
     }
 
     #[test]
@@ -64244,6 +64292,7 @@ mod tests {
             font_antialias: Some(NativeFontAntialias::Subpixel),
             font_hinting: Some(NativeFontHinting::VerticalSubpixel),
             font_rasterizer: Some(NativeFontRasterizer::FreeType),
+            font_shaper: Some(NativeFontShaper::Harfbuzz),
             custom_block_glyphs: Some(false),
             anti_alias_custom_block_glyphs: Some(false),
             allow_square_glyphs_to_overflow_width: Some(NativeSquareGlyphOverflow::Always),
@@ -64475,6 +64524,7 @@ mod tests {
             font_antialias: NativeFontAntialias::Subpixel,
             font_hinting: NativeFontHinting::VerticalSubpixel,
             font_rasterizer: NativeFontRasterizer::FreeType,
+            font_shaper: NativeFontShaper::Harfbuzz,
             custom_block_glyphs: false,
             anti_alias_custom_block_glyphs: false,
             allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow::Always,
@@ -64677,6 +64727,7 @@ mod tests {
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
+            font_shaper: DEFAULT_FONT_SHAPER,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
