@@ -252,6 +252,11 @@ impl TerminalRuntime {
         self.allow_win32_input_mode = allowed;
         self.mode_tracker.set_allow_win32_input_mode(allowed);
     }
+
+    pub(crate) fn set_treat_east_asian_ambiguous_width_as_wide(&mut self, enabled: bool) {
+        self.terminal
+            .set_treat_east_asian_ambiguous_width_as_wide(enabled);
+    }
 }
 
 struct TerminalOutputFilter {

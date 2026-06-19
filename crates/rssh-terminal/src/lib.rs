@@ -1974,6 +1974,19 @@ mod tests {
     }
 
     #[test]
+    fn terminal_can_treat_east_asian_ambiguous_width_as_wide() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.set_treat_east_asian_ambiguous_width_as_wide(true);
+
+        terminal.feed("☆x".as_bytes());
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '☆');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
     fn terminal_handles_split_utf8_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
         let bytes = "中".as_bytes();

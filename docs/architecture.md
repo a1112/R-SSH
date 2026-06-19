@@ -240,10 +240,14 @@ keyboard, mouse, paste, resize
   input emit Win32 key records for that mode before CSI-u/kitty encoding.
   Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
   `enable_csi_u_key_encoding`, `enable_kitty_keyboard`,
-  `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `use_ime`,
+  `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
+  `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
   `ime_preedit_rendering`, and `xim_im_name` parse into the native override
-  path; actual left Ctrl+Alt-to-AltGr input remapping, platform IME/XIM
-  connection, and preedit rendering remain future parity work.
+  path. `treat_east_asian_ambiguous_width_as_wide` updates terminal character
+  width calculation for ambiguous East Asian width characters in active and new
+  panes. Actual left Ctrl+Alt-to-AltGr input remapping, platform IME/XIM
+  connection, preedit rendering, and `cell_widths` override tables remain
+  future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -736,7 +740,9 @@ keyboard, mouse, paste, resize
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
-  `treat_left_ctrlalt_as_altgr`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`,
+  `treat_left_ctrlalt_as_altgr`,
+  `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
+  `ime_preedit_rendering`, `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`, `quote_dropped_files`,
@@ -779,7 +785,11 @@ keyboard, mouse, paste, resize
   stored with WezTerm's default `false` and included in effective config
   snapshots. `treat_left_ctrlalt_as_altgr` is stored with WezTerm's default
   `false`; actual left Ctrl+Alt-to-AltGr input remapping remains future parity
-  work. `use_ime` is stored with WezTerm's current default `true`,
+  work. `treat_east_asian_ambiguous_width_as_wide` is stored with WezTerm's
+  default `false` and, when enabled, makes the terminal runtime treat East
+  Asian ambiguous-width characters as two cells wide; exact `cell_widths`
+  override tables remain future parity work. `use_ime` is stored with
+  WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
   is retained as an optional XIM server name for X11-style IME configuration;
   actual platform IME/XIM connection and preedit rendering remain future parity
@@ -958,7 +968,9 @@ keyboard, mouse, paste, resize
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
-  `treat_left_ctrlalt_as_altgr`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`,
+  `treat_left_ctrlalt_as_altgr`,
+  `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
+  `ime_preedit_rendering`, `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,

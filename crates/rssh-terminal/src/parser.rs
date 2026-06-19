@@ -391,6 +391,7 @@ pub struct Terminal {
     damage: Vec<DamageRegion>,
     bell_count: u64,
     unknown_escape_sequences: Vec<TerminalUnknownEscapeSequence>,
+    treat_east_asian_ambiguous_width_as_wide: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -494,7 +495,12 @@ impl Terminal {
             damage: Vec::new(),
             bell_count: 0,
             unknown_escape_sequences: Vec::new(),
+            treat_east_asian_ambiguous_width_as_wide: false,
         }
+    }
+
+    pub fn set_treat_east_asian_ambiguous_width_as_wide(&mut self, enabled: bool) {
+        self.treat_east_asian_ambiguous_width_as_wide = enabled;
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
@@ -2879,7 +2885,7 @@ impl Terminal {
             return;
         }
         self.finish_pending_kitty_placeholder();
-        let width = display_width(ch);
+        let width = display_width(ch, self.treat_east_asian_ambiguous_width_as_wide);
         if width == 0 {
             return;
         }
@@ -5869,8 +5875,13 @@ fn saturating_u8(value: u16) -> u8 {
     u8::try_from(value).unwrap_or(u8::MAX)
 }
 
-fn display_width(ch: char) -> u16 {
-    match UnicodeWidthChar::width(ch) {
+fn display_width(ch: char, treat_east_asian_ambiguous_width_as_wide: bool) -> u16 {
+    let width = if treat_east_asian_ambiguous_width_as_wide {
+        UnicodeWidthChar::width_cjk(ch)
+    } else {
+        UnicodeWidthChar::width(ch)
+    };
+    match width {
         Some(0) => 0,
         Some(width) if width > usize::from(u16::MAX) => u16::MAX,
         Some(width) => u16::try_from(width).unwrap_or(1),

@@ -188,6 +188,7 @@ const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
 const DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR: bool = false;
+const DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE: bool = false;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
 const DEFAULT_DETECT_PASSWORD_INPUT: bool = true;
@@ -1967,6 +1968,7 @@ struct NativeEffectiveConfig {
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
+    treat_east_asian_ambiguous_width_as_wide: bool,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
@@ -2122,6 +2124,7 @@ struct NativeConfigOverrides {
     enable_kitty_keyboard: Option<bool>,
     allow_win32_input_mode: Option<bool>,
     treat_left_ctrlalt_as_altgr: Option<bool>,
+    treat_east_asian_ambiguous_width_as_wide: Option<bool>,
     use_ime: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
     xim_im_name: Option<String>,
@@ -2799,6 +2802,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "treat_left_ctrlalt_as_altgr")
     {
         overrides.treat_left_ctrlalt_as_altgr = Some(treat_left_ctrlalt_as_altgr);
+        parsed = true;
+    }
+    if let Some(treat_east_asian_ambiguous_width_as_wide) =
+        lua_config_bool_assignment_from_query(config, "treat_east_asian_ambiguous_width_as_wide")
+    {
+        overrides.treat_east_asian_ambiguous_width_as_wide =
+            Some(treat_east_asian_ambiguous_width_as_wide);
         parsed = true;
     }
     if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
@@ -4643,6 +4653,7 @@ struct NativeWindowApp {
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
+    treat_east_asian_ambiguous_width_as_wide: bool,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
@@ -6072,6 +6083,8 @@ impl NativeWindowApp {
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+            treat_east_asian_ambiguous_width_as_wide:
+                DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
@@ -7051,6 +7064,8 @@ impl NativeWindowApp {
         detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
         detached_app.allow_win32_input_mode = self.allow_win32_input_mode;
         detached_app.treat_left_ctrlalt_as_altgr = self.treat_left_ctrlalt_as_altgr;
+        detached_app.treat_east_asian_ambiguous_width_as_wide =
+            self.treat_east_asian_ambiguous_width_as_wide;
         detached_app.leader.clone_from(&self.leader);
         detached_app
             .key_assignments
@@ -7245,6 +7260,8 @@ impl NativeWindowApp {
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
         self.treat_left_ctrlalt_as_altgr = source.treat_left_ctrlalt_as_altgr;
+        self.treat_east_asian_ambiguous_width_as_wide =
+            source.treat_east_asian_ambiguous_width_as_wide;
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.xim_im_name.clone_from(&source.xim_im_name);
@@ -7411,6 +7428,9 @@ impl NativeWindowApp {
         replacement_runtime.set_terminal_name(self.term.clone());
         replacement_runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         replacement_runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
+        replacement_runtime.set_treat_east_asian_ambiguous_width_as_wide(
+            self.treat_east_asian_ambiguous_width_as_wide,
+        );
         replacement_runtime.set_scrollback_limit(self.scrollback_lines);
         replacement_runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let old_runtime = std::mem::replace(&mut self.runtime, replacement_runtime);
@@ -7435,6 +7455,9 @@ impl NativeWindowApp {
         runtime.set_terminal_name(self.term.clone());
         runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
+        runtime.set_treat_east_asian_ambiguous_width_as_wide(
+            self.treat_east_asian_ambiguous_width_as_wide,
+        );
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let snapshot = terminal_runtime_snapshot(&runtime, 0);
@@ -7463,6 +7486,9 @@ impl NativeWindowApp {
             .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         self.runtime
             .set_allow_win32_input_mode(self.allow_win32_input_mode);
+        self.runtime.set_treat_east_asian_ambiguous_width_as_wide(
+            self.treat_east_asian_ambiguous_width_as_wide,
+        );
         self.snapshot = runtime_snapshot;
         self.session = runtime.session.take();
         self.session_process_id = runtime.session_process_id.take();
@@ -14215,6 +14241,7 @@ impl NativeWindowApp {
             enable_kitty_keyboard: self.enable_kitty_keyboard,
             allow_win32_input_mode: self.allow_win32_input_mode,
             treat_left_ctrlalt_as_altgr: self.treat_left_ctrlalt_as_altgr,
+            treat_east_asian_ambiguous_width_as_wide: self.treat_east_asian_ambiguous_width_as_wide,
             use_ime: self.use_ime,
             ime_preedit_rendering: self.ime_preedit_rendering,
             xim_im_name: self.xim_im_name.clone(),
@@ -14515,6 +14542,9 @@ impl NativeWindowApp {
         self.treat_left_ctrlalt_as_altgr = overrides
             .treat_left_ctrlalt_as_altgr
             .unwrap_or(DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR);
+        self.treat_east_asian_ambiguous_width_as_wide = overrides
+            .treat_east_asian_ambiguous_width_as_wide
+            .unwrap_or(DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE);
         self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
@@ -14526,6 +14556,7 @@ impl NativeWindowApp {
             .detect_password_input
             .unwrap_or(DEFAULT_DETECT_PASSWORD_INPUT);
         self.apply_keyboard_protocol_config_to_runtimes();
+        self.apply_character_width_config_to_runtimes();
         self.leader = overrides.leader.filter(|leader| !leader.keys.is_empty());
         self.leader_active_since = None;
         self.adjust_window_size_when_changing_font_size = overrides
@@ -14616,6 +14647,19 @@ impl NativeWindowApp {
             runtime
                 .runtime
                 .set_allow_win32_input_mode(self.allow_win32_input_mode);
+        }
+    }
+
+    fn apply_character_width_config_to_runtimes(&mut self) {
+        self.runtime.set_treat_east_asian_ambiguous_width_as_wide(
+            self.treat_east_asian_ambiguous_width_as_wide,
+        );
+        for runtime in self.pane_runtimes.values_mut() {
+            runtime
+                .runtime
+                .set_treat_east_asian_ambiguous_width_as_wide(
+                    self.treat_east_asian_ambiguous_width_as_wide,
+                );
         }
     }
 
@@ -15815,6 +15859,9 @@ impl NativeWindowApp {
         runtime.set_terminal_name(self.term.clone());
         runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
+        runtime.set_treat_east_asian_ambiguous_width_as_wide(
+            self.treat_east_asian_ambiguous_width_as_wide,
+        );
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
         let snapshot = terminal_runtime_snapshot(&runtime, 0);
@@ -36763,17 +36810,17 @@ mod tests {
         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
-        DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR, DEFAULT_UNDERLINE_POSITION,
-        DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME, DEFAULT_USE_RESIZE_INCREMENTS,
-        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
-        DEFAULT_WEBGPU_POWER_PREFERENCE, DEFAULT_WINDOW_BACKGROUND_OPACITY,
-        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
-        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
-        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
-        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
-        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
-        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
-        NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
+        DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME,
+        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
+        DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
+        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
+        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
+        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
+        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
+        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
+        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
         NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
         NativeFontAntialias, NativeFontHinting, NativeFontRasterizer, NativeFontShaper,
         NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
@@ -46080,6 +46127,8 @@ mod tests {
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
                 treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+                treat_east_asian_ambiguous_width_as_wide:
+                    DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
                 use_ime: DEFAULT_USE_IME,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 xim_im_name: None,
@@ -58428,6 +58477,39 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_east_asian_ambiguous_width() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.treat_east_asian_ambiguous_width_as_wide = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ambiguous-width config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(effective.treat_east_asian_ambiguous_width_as_wide);
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 3));
+    }
+
+    #[test]
+    fn window_app_reports_default_wezterm_east_asian_ambiguous_width_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(
+            effective.treat_east_asian_ambiguous_width_as_wide,
+            DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE
+        );
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_ime_config() {
         let app = NativeWindowApp::new(None);
         let effective = app.native_effective_config();
@@ -64617,6 +64699,7 @@ mod tests {
             enable_kitty_keyboard: Some(true),
             allow_win32_input_mode: Some(false),
             treat_left_ctrlalt_as_altgr: Some(true),
+            treat_east_asian_ambiguous_width_as_wide: Some(true),
             use_ime: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             xim_im_name: Some("fcitx".to_owned()),
@@ -64853,6 +64936,7 @@ mod tests {
             enable_kitty_keyboard: true,
             allow_win32_input_mode: false,
             treat_left_ctrlalt_as_altgr: true,
+            treat_east_asian_ambiguous_width_as_wide: true,
             use_ime: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
             xim_im_name: Some("fcitx".to_owned()),
@@ -65008,6 +65092,8 @@ mod tests {
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+            treat_east_asian_ambiguous_width_as_wide:
+                DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
