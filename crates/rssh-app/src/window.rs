@@ -489,6 +489,30 @@ impl NativeTextBackgroundOpacity {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
+struct NativeTextMinContrastRatio(u16);
+
+impl NativeTextMinContrastRatio {
+    #[cfg(test)]
+    const fn from_centi(value: u16) -> Self {
+        Self(value)
+    }
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn from_f32(value: f32) -> Option<Self> {
+        if !value.is_finite() || value < 0.0 {
+            return None;
+        }
+        let centi = (value * 100.0).round().min(f32::from(u16::MAX));
+        Some(Self(centi as u16))
+    }
+
+    fn as_f64(self) -> f64 {
+        f64::from(self.0) / 100.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 struct NativeFontSize {
     millipoints: u32,
 }
@@ -1495,6 +1519,7 @@ struct NativeEffectiveConfig {
     line_height: NativeLineHeight,
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
+    text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
     window_decorations: NativeWindowDecorations,
@@ -1617,6 +1642,7 @@ struct NativeConfigOverrides {
     line_height: Option<NativeLineHeight>,
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
+    text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_decorations: Option<NativeWindowDecorations>,
@@ -2087,6 +2113,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "force_reverse_video_cursor")
     {
         overrides.force_reverse_video_cursor = Some(force_reverse_video_cursor);
+        parsed = true;
+    }
+    if let Some(text_min_contrast_ratio) =
+        lua_config_f32_assignment_from_query(config, "text_min_contrast_ratio")
+    {
+        overrides.text_min_contrast_ratio =
+            NativeTextMinContrastRatio::from_f32(text_min_contrast_ratio);
         parsed = true;
     }
     if let Some(status_update_interval) =
@@ -3981,6 +4014,7 @@ struct NativeWindowApp {
     underline_position: Option<NativeUnderlinePosition>,
     strikethrough_position: Option<NativeStrikethroughPosition>,
     force_reverse_video_cursor: bool,
+    text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     window_padding: NativeWindowPadding,
     cursor_blink_visible: bool,
     cursor_blink_opacity_alpha: u8,
@@ -5222,6 +5256,7 @@ impl NativeWindowApp {
             underline_position: DEFAULT_UNDERLINE_POSITION,
             strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
             force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+            text_min_contrast_ratio: None,
             window_padding: DEFAULT_WINDOW_PADDING,
             cursor_blink_visible: true,
             cursor_blink_opacity_alpha: u8::MAX,
@@ -6189,6 +6224,7 @@ impl NativeWindowApp {
         self.initial_rows = source.initial_rows;
         self.foreground_text_hsb = source.foreground_text_hsb;
         self.bold_brightens_ansi_colors = source.bold_brightens_ansi_colors;
+        self.text_min_contrast_ratio = source.text_min_contrast_ratio;
         self.text_background_opacity = source.text_background_opacity;
         self.window_background_opacity = source.window_background_opacity;
         self.window_decorations = source.window_decorations;
@@ -11493,6 +11529,15 @@ impl NativeWindowApp {
             let snapshot = text_background_opacity_snapshot(snapshot, self.text_background_opacity);
             let snapshot =
                 window_background_opacity_snapshot(snapshot, self.window_background_opacity);
+            let snapshot = text_min_contrast_snapshot(
+                snapshot,
+                self.text_min_contrast_ratio,
+                color_to_rgba(self.foreground_color, DEFAULT_RENDER_FOREGROUND_RGBA),
+                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+                self.bold_brightens_ansi_colors,
+                self.ansi_palette,
+                self.indexed_palette,
+            );
             let snapshot = self.apply_visual_bell_to_snapshot(
                 self.app_shell.active_pane_id(),
                 snapshot,
@@ -11529,6 +11574,15 @@ impl NativeWindowApp {
             if rect.pane_id != active_pane {
                 pane_snapshot = inactive_pane_snapshot(pane_snapshot, self.inactive_pane_hsb);
             }
+            pane_snapshot = text_min_contrast_snapshot(
+                pane_snapshot,
+                self.text_min_contrast_ratio,
+                color_to_rgba(self.foreground_color, DEFAULT_RENDER_FOREGROUND_RGBA),
+                color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+                self.bold_brightens_ansi_colors,
+                self.ansi_palette,
+                self.indexed_palette,
+            );
             pane_snapshot = self.apply_visual_bell_to_snapshot(
                 rect.pane_id,
                 pane_snapshot,
@@ -11549,8 +11603,18 @@ impl NativeWindowApp {
                     foreground_text_hsb_snapshot(self.snapshot.clone(), self.foreground_text_hsb);
                 let snapshot =
                     text_background_opacity_snapshot(snapshot, self.text_background_opacity);
-                window_background_opacity_snapshot(snapshot, self.window_background_opacity)
-                    .with_row_offset(self.terminal_frame_row_offset())
+                let snapshot =
+                    window_background_opacity_snapshot(snapshot, self.window_background_opacity);
+                text_min_contrast_snapshot(
+                    snapshot,
+                    self.text_min_contrast_ratio,
+                    color_to_rgba(self.foreground_color, DEFAULT_RENDER_FOREGROUND_RGBA),
+                    color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
+                    self.bold_brightens_ansi_colors,
+                    self.ansi_palette,
+                    self.indexed_palette,
+                )
+                .with_row_offset(self.terminal_frame_row_offset())
             })
             .with_overlay_cells(self.pane_separator_cells(&layout))
             .with_overlay_cells(self.pane_badge_cells(&layout))
@@ -13042,6 +13106,7 @@ impl NativeWindowApp {
             line_height: self.line_height,
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
+            text_min_contrast_ratio: self.text_min_contrast_ratio,
             text_background_opacity: self.text_background_opacity,
             window_background_opacity: self.window_background_opacity,
             window_decorations: self.window_decorations,
@@ -13181,6 +13246,7 @@ impl NativeWindowApp {
             .foreground_text_hsb
             .unwrap_or(DEFAULT_FOREGROUND_TEXT_HSB);
         self.apply_bold_brightens_ansi_colors_override(overrides.bold_brightens_ansi_colors);
+        self.text_min_contrast_ratio = overrides.text_min_contrast_ratio;
         self.text_background_opacity = overrides
             .text_background_opacity
             .unwrap_or(DEFAULT_TEXT_BACKGROUND_OPACITY);
@@ -31464,6 +31530,222 @@ fn window_background_opacity_snapshot(
     })
 }
 
+fn text_min_contrast_snapshot(
+    snapshot: TerminalRenderSnapshot,
+    ratio: Option<NativeTextMinContrastRatio>,
+    default_foreground: [u8; 4],
+    default_background: [u8; 4],
+    bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
+    ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
+) -> TerminalRenderSnapshot {
+    let Some(ratio) = ratio else {
+        return snapshot;
+    };
+    let min_ratio = ratio.as_f64();
+    if min_ratio <= 0.0 {
+        return snapshot;
+    }
+
+    snapshot.with_cells_mapped(|cell| {
+        text_min_contrast_cell(
+            cell,
+            min_ratio,
+            default_foreground,
+            default_background,
+            bold_brightens_ansi_colors,
+            ansi_palette,
+            indexed_palette,
+        )
+    })
+}
+
+fn text_min_contrast_cell(
+    mut cell: RenderCell,
+    min_ratio: f64,
+    default_foreground: [u8; 4],
+    default_background: [u8; 4],
+    bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
+    ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
+) -> RenderCell {
+    if cell.ch == ' ' || cell.conceal || cell.faint {
+        return cell;
+    }
+
+    let (foreground, background) = text_effective_cell_colors(
+        &cell,
+        default_foreground,
+        default_background,
+        bold_brightens_ansi_colors,
+        ansi_palette,
+        indexed_palette,
+    );
+    let Some(adjusted) = text_contrast_adjusted_foreground(foreground, background, min_ratio)
+    else {
+        return cell;
+    };
+    let adjusted = rgba_to_color(adjusted);
+
+    if cell.inverse {
+        cell.background = adjusted;
+    } else {
+        cell.foreground = adjusted;
+    }
+
+    cell
+}
+
+fn text_effective_cell_colors(
+    cell: &RenderCell,
+    default_foreground: [u8; 4],
+    default_background: [u8; 4],
+    bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
+    ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
+) -> ([u8; 4], [u8; 4]) {
+    let foreground_color = text_effective_cell_foreground(cell, bold_brightens_ansi_colors);
+    let foreground = native_color_to_rgba(
+        foreground_color,
+        default_foreground,
+        ansi_palette,
+        indexed_palette,
+    );
+    let background = native_color_to_rgba(
+        cell.background,
+        default_background,
+        ansi_palette,
+        indexed_palette,
+    );
+
+    if cell.inverse {
+        (background, foreground)
+    } else {
+        (foreground, background)
+    }
+}
+
+fn text_effective_cell_foreground(
+    cell: &RenderCell,
+    bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
+) -> Color {
+    let Color::Indexed(index @ 0..=7) = cell.foreground else {
+        return cell.foreground;
+    };
+
+    if cell.bold && bold_brightens_ansi_colors != NativeBoldBrightensAnsiColors::No {
+        Color::Indexed(index.saturating_add(8))
+    } else {
+        cell.foreground
+    }
+}
+
+fn native_color_to_rgba(
+    color: Color,
+    default: [u8; 4],
+    ansi_palette: Option<[Color; 16]>,
+    indexed_palette: Option<[Option<Color>; 256]>,
+) -> [u8; 4] {
+    match color {
+        Color::Indexed(index @ 0..=15) => ansi_palette
+            .and_then(|palette| palette.get(usize::from(index)).copied())
+            .map_or_else(
+                || color_to_rgba(color, default),
+                |color| color_to_rgba(color, default),
+            ),
+        Color::Indexed(index) => indexed_palette
+            .and_then(|palette| palette.get(usize::from(index)).copied().flatten())
+            .map_or_else(
+                || color_to_rgba(color, default),
+                |color| color_to_rgba(color, default),
+            ),
+        color => color_to_rgba(color, default),
+    }
+}
+
+fn text_contrast_adjusted_foreground(
+    foreground: [u8; 4],
+    background: [u8; 4],
+    min_ratio: f64,
+) -> Option<[u8; 4]> {
+    if foreground[..3] == background[..3] {
+        return None;
+    }
+
+    let current_ratio = contrast_ratio(foreground, background);
+    if current_ratio >= min_ratio {
+        return None;
+    }
+
+    let black = [0, 0, 0, foreground[3]];
+    let white = [u8::MAX, u8::MAX, u8::MAX, foreground[3]];
+    let target = if contrast_ratio(black, background) > contrast_ratio(white, background) {
+        black
+    } else {
+        white
+    };
+    if contrast_ratio(target, background) < min_ratio {
+        return Some(target);
+    }
+
+    let mut low = 0.0;
+    let mut high = 1.0;
+    for _ in 0..16 {
+        let mid = (low + high) / 2.0;
+        let candidate = interpolate_rgba(foreground, target, mid);
+        if contrast_ratio(candidate, background) >= min_ratio {
+            high = mid;
+        } else {
+            low = mid;
+        }
+    }
+
+    Some(interpolate_rgba(foreground, target, high))
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn interpolate_rgba(from: [u8; 4], to: [u8; 4], amount: f64) -> [u8; 4] {
+    let amount = amount.clamp(0.0, 1.0);
+    [
+        (f64::from(from[0]) + (f64::from(to[0]) - f64::from(from[0])) * amount).round() as u8,
+        (f64::from(from[1]) + (f64::from(to[1]) - f64::from(from[1])) * amount).round() as u8,
+        (f64::from(from[2]) + (f64::from(to[2]) - f64::from(from[2])) * amount).round() as u8,
+        from[3],
+    ]
+}
+
+fn contrast_ratio(foreground: [u8; 4], background: [u8; 4]) -> f64 {
+    let foreground_luminance = relative_luminance(foreground);
+    let background_luminance = relative_luminance(background);
+    let light = foreground_luminance.max(background_luminance);
+    let dark = foreground_luminance.min(background_luminance);
+    (light + 0.05) / (dark + 0.05)
+}
+
+fn relative_luminance(color: [u8; 4]) -> f64 {
+    let red = linear_srgb_component(color[0]);
+    let green = linear_srgb_component(color[1]);
+    let blue = linear_srgb_component(color[2]);
+    0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+fn linear_srgb_component(channel: u8) -> f64 {
+    let value = f64::from(channel) / 255.0;
+    if value <= 0.03928 {
+        value / 12.92
+    } else {
+        ((value + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+fn rgba_to_color(rgba: [u8; 4]) -> Color {
+    if rgba[3] == u8::MAX {
+        Color::Rgb(rgba[0], rgba[1], rgba[2])
+    } else {
+        Color::Rgba(rgba[0], rgba[1], rgba[2], rgba[3])
+    }
+}
+
 fn visual_bell_color_from_foreground(foreground: Color) -> Color {
     match foreground {
         Color::Default => visual_bell_default_foreground_color(),
@@ -35317,7 +35599,9 @@ mod tests {
     use winit::keyboard::{Key, KeyCode as WinitKeyCode, ModifiersState, NamedKey, PhysicalKey};
 
     use rssh_pty::PtyExitStatus;
-    use rssh_renderer::{RenderGeometry, RenderScrollbarThumbSize, SCROLLBAR_THUMB_COLOR};
+    use rssh_renderer::{
+        RenderGeometry, RenderScrollbarThumbSize, SCROLLBAR_THUMB_COLOR, color_to_rgba,
+    };
     use rssh_terminal::{Color, CursorShape};
 
     use crate::{
@@ -35355,24 +35639,25 @@ mod tests {
         NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
         NativeQuoteDroppedFiles, NativeScrollBarHeight, NativeStrikethroughPosition,
         NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWindowApp, NativeWindowBell,
-        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
-        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
-        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeTextMinContrastRatio, NativeUnderlinePosition, NativeUnderlineThickness,
+        NativeUserKeyAssignment, NativeVisualBell, NativeVisualBellTarget, NativeWindowApp,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -44549,6 +44834,7 @@ mod tests {
                 line_height: DEFAULT_LINE_HEIGHT,
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
+                text_min_contrast_ratio: None,
                 text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
                 window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
                 window_decorations: DEFAULT_WINDOW_DECORATIONS,
@@ -62209,6 +62495,40 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_text_min_contrast_ratio_to_render_snapshot() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.text_min_contrast_ratio = 4.5
+            config.colors = {
+              foreground = '#111111',
+              background = '#101010',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm text_min_contrast_ratio config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
+        let foreground = color_to_rgba(cell.foreground, [17, 17, 17, 255]);
+        let background = color_to_rgba(cell.background, [16, 16, 16, 255]);
+
+        assert_eq!(background, [16, 16, 16, 255]);
+        assert_ne!(foreground, [17, 17, 17, 255]);
+        assert!(
+            test_contrast_ratio(foreground, background) >= 4.5,
+            "foreground {foreground:?} background {background:?} did not reach 4.5 contrast"
+        );
+    }
+
+    #[test]
     fn window_app_applies_text_background_opacity_to_non_default_backgrounds() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
@@ -62425,6 +62745,7 @@ mod tests {
             underline_position: Some(NativeUnderlinePosition::Pixels(-2)),
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: Some(true),
+            text_min_contrast_ratio: Some(NativeTextMinContrastRatio::from_centi(450)),
             window_padding: Some(NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(1),
                 right: NativeWindowPaddingDimension::Pixels(2),
@@ -62617,6 +62938,7 @@ mod tests {
             underline_position: Some(NativeUnderlinePosition::Pixels(-2)),
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: true,
+            text_min_contrast_ratio: Some(NativeTextMinContrastRatio::from_centi(450)),
             window_padding: NativeWindowPadding {
                 left: NativeWindowPaddingDimension::Pixels(1),
                 right: NativeWindowPaddingDimension::Pixels(2),
@@ -62777,6 +63099,7 @@ mod tests {
             underline_position: DEFAULT_UNDERLINE_POSITION,
             strikethrough_position: DEFAULT_STRIKETHROUGH_POSITION,
             force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+            text_min_contrast_ratio: None,
             window_padding: DEFAULT_WINDOW_PADDING,
             initial_cols: TERMINAL_COLUMNS,
             initial_rows: TERMINAL_ROWS,
@@ -78753,6 +79076,30 @@ mod tests {
             .cells()
             .iter()
             .find(|cell| cell.row == row && cell.column == column)
+    }
+
+    fn test_contrast_ratio(foreground: [u8; 4], background: [u8; 4]) -> f64 {
+        let foreground_luminance = test_relative_luminance(foreground);
+        let background_luminance = test_relative_luminance(background);
+        let light = foreground_luminance.max(background_luminance);
+        let dark = foreground_luminance.min(background_luminance);
+        (light + 0.05) / (dark + 0.05)
+    }
+
+    fn test_relative_luminance(color: [u8; 4]) -> f64 {
+        let red = test_linear_srgb_component(color[0]);
+        let green = test_linear_srgb_component(color[1]);
+        let blue = test_linear_srgb_component(color[2]);
+        0.2126 * red + 0.7152 * green + 0.0722 * blue
+    }
+
+    fn test_linear_srgb_component(channel: u8) -> f64 {
+        let value = f64::from(channel) / 255.0;
+        if value <= 0.03928 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
     }
 
     fn frame_pixel_at(frame: &[u8], width: usize, x: usize, y: usize) -> [u8; 4] {

@@ -123,6 +123,9 @@ keyboard, mouse, paste, resize
   text underline decorations, WezTerm-style `underline_position` overrides for
   terminal text underline placement, WezTerm-style `strikethrough_position`
   overrides for terminal text strikethrough decorations,
+  WezTerm-style `text_min_contrast_ratio` foreground adjustment for textual
+  terminal cells whose foreground/background contrast falls below the configured
+  threshold,
   `text_background_opacity` alpha transforms for non-default terminal
   background cells, `window_background_opacity` alpha transforms for default
   terminal background cells, plus
