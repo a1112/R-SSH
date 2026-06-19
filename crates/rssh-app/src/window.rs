@@ -665,6 +665,56 @@ impl NativeBoldBrightensAnsiColors {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeAnsiColor {
+    Black,
+    Maroon,
+    Green,
+    Olive,
+    Navy,
+    Purple,
+    Teal,
+    Silver,
+    Grey,
+    Red,
+    Lime,
+    Yellow,
+    Blue,
+    Fuchsia,
+    Aqua,
+    White,
+}
+
+impl NativeAnsiColor {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "black" => Some(Self::Black),
+            "maroon" => Some(Self::Maroon),
+            "green" => Some(Self::Green),
+            "olive" => Some(Self::Olive),
+            "navy" => Some(Self::Navy),
+            "purple" => Some(Self::Purple),
+            "teal" => Some(Self::Teal),
+            "silver" => Some(Self::Silver),
+            "grey" | "gray" => Some(Self::Grey),
+            "red" => Some(Self::Red),
+            "lime" => Some(Self::Lime),
+            "yellow" => Some(Self::Yellow),
+            "blue" => Some(Self::Blue),
+            "fuchsia" => Some(Self::Fuchsia),
+            "aqua" => Some(Self::Aqua),
+            "white" => Some(Self::White),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeColorSpec {
+    Color(Color),
+    AnsiColor(NativeAnsiColor),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeCursorThickness {
     Pixels(u32),
@@ -1397,6 +1447,14 @@ struct NativeEffectiveConfig {
     quick_select_patterns: Vec<String>,
     disable_default_quick_select_patterns: bool,
     quick_select_remove_styling: bool,
+    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
+    quick_select_label_bg: Option<NativeColorSpec>,
+    quick_select_label_fg: Option<NativeColorSpec>,
+    quick_select_match_bg: Option<NativeColorSpec>,
+    quick_select_match_fg: Option<NativeColorSpec>,
     selection_word_boundary: String,
     term: String,
     audible_bell: NativeAudibleBell,
@@ -1498,6 +1556,14 @@ struct NativeConfigOverrides {
     quick_select_patterns: Option<Vec<String>>,
     disable_default_quick_select_patterns: Option<bool>,
     quick_select_remove_styling: Option<bool>,
+    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
+    quick_select_label_bg: Option<NativeColorSpec>,
+    quick_select_label_fg: Option<NativeColorSpec>,
+    quick_select_match_bg: Option<NativeColorSpec>,
+    quick_select_match_fg: Option<NativeColorSpec>,
     selection_word_boundary: Option<String>,
     term: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
@@ -1661,6 +1727,50 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
             overrides.visual_bell_color = Some(visual_bell_color);
+            parsed = true;
+        }
+        if let Some(color) =
+            color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_bg")?
+        {
+            overrides.copy_mode_active_highlight_bg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) =
+            color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_fg")?
+        {
+            overrides.copy_mode_active_highlight_fg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) =
+            color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_bg")?
+        {
+            overrides.copy_mode_inactive_highlight_bg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) =
+            color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_fg")?
+        {
+            overrides.copy_mode_inactive_highlight_fg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_bg")?
+        {
+            overrides.quick_select_label_bg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_fg")?
+        {
+            overrides.quick_select_label_fg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_bg")?
+        {
+            overrides.quick_select_match_bg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_fg")?
+        {
+            overrides.quick_select_match_fg = Some(color);
             parsed = true;
         }
     }
@@ -3595,6 +3705,14 @@ struct NativeWindowApp {
     quick_select_patterns: Vec<String>,
     disable_default_quick_select_patterns: bool,
     quick_select_remove_styling: bool,
+    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
+    quick_select_label_bg: Option<NativeColorSpec>,
+    quick_select_label_fg: Option<NativeColorSpec>,
+    quick_select_match_bg: Option<NativeColorSpec>,
+    quick_select_match_fg: Option<NativeColorSpec>,
     selection_word_boundary: String,
     term: String,
     audible_bell: NativeAudibleBell,
@@ -4814,6 +4932,14 @@ impl NativeWindowApp {
             quick_select_patterns: Vec::new(),
             disable_default_quick_select_patterns: false,
             quick_select_remove_styling: false,
+            copy_mode_active_highlight_bg: None,
+            copy_mode_active_highlight_fg: None,
+            copy_mode_inactive_highlight_bg: None,
+            copy_mode_inactive_highlight_fg: None,
+            quick_select_label_bg: None,
+            quick_select_label_fg: None,
+            quick_select_match_bg: None,
+            quick_select_match_fg: None,
             selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
             term: DEFAULT_TERM.to_owned(),
             audible_bell: DEFAULT_AUDIBLE_BELL,
@@ -5876,6 +6002,14 @@ impl NativeWindowApp {
             .clone_from(&source.quick_select_patterns);
         self.disable_default_quick_select_patterns = source.disable_default_quick_select_patterns;
         self.quick_select_remove_styling = source.quick_select_remove_styling;
+        self.copy_mode_active_highlight_bg = source.copy_mode_active_highlight_bg;
+        self.copy_mode_active_highlight_fg = source.copy_mode_active_highlight_fg;
+        self.copy_mode_inactive_highlight_bg = source.copy_mode_inactive_highlight_bg;
+        self.copy_mode_inactive_highlight_fg = source.copy_mode_inactive_highlight_fg;
+        self.quick_select_label_bg = source.quick_select_label_bg;
+        self.quick_select_label_fg = source.quick_select_label_fg;
+        self.quick_select_match_bg = source.quick_select_match_bg;
+        self.quick_select_match_fg = source.quick_select_match_fg;
         self.selection_word_boundary
             .clone_from(&source.selection_word_boundary);
         self.term.clone_from(&source.term);
@@ -12490,6 +12624,14 @@ impl NativeWindowApp {
             quick_select_patterns: self.quick_select_patterns.clone(),
             disable_default_quick_select_patterns: self.disable_default_quick_select_patterns,
             quick_select_remove_styling: self.quick_select_remove_styling,
+            copy_mode_active_highlight_bg: self.copy_mode_active_highlight_bg,
+            copy_mode_active_highlight_fg: self.copy_mode_active_highlight_fg,
+            copy_mode_inactive_highlight_bg: self.copy_mode_inactive_highlight_bg,
+            copy_mode_inactive_highlight_fg: self.copy_mode_inactive_highlight_fg,
+            quick_select_label_bg: self.quick_select_label_bg,
+            quick_select_label_fg: self.quick_select_label_fg,
+            quick_select_match_bg: self.quick_select_match_bg,
+            quick_select_match_fg: self.quick_select_match_fg,
             selection_word_boundary: self.selection_word_boundary.clone(),
             term: self.term.clone(),
             audible_bell: self.audible_bell,
@@ -12637,6 +12779,14 @@ impl NativeWindowApp {
             .disable_default_quick_select_patterns
             .unwrap_or(false);
         self.quick_select_remove_styling = overrides.quick_select_remove_styling.unwrap_or(false);
+        self.copy_mode_active_highlight_bg = overrides.copy_mode_active_highlight_bg;
+        self.copy_mode_active_highlight_fg = overrides.copy_mode_active_highlight_fg;
+        self.copy_mode_inactive_highlight_bg = overrides.copy_mode_inactive_highlight_bg;
+        self.copy_mode_inactive_highlight_fg = overrides.copy_mode_inactive_highlight_fg;
+        self.quick_select_label_bg = overrides.quick_select_label_bg;
+        self.quick_select_label_fg = overrides.quick_select_label_fg;
+        self.quick_select_match_bg = overrides.quick_select_match_bg;
+        self.quick_select_match_fg = overrides.quick_select_match_fg;
         self.selection_word_boundary = overrides
             .selection_word_boundary
             .unwrap_or_else(|| DEFAULT_SELECTION_WORD_BOUNDARY.to_owned());
@@ -23717,6 +23867,59 @@ fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Opt
     Some(color)
 }
 
+fn color_spec_lua_table_field_from_query(
+    value: &str,
+    field_name: &str,
+) -> Option<Option<NativeColorSpec>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut color = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != field_name {
+            continue;
+        }
+        if color.is_some() {
+            return None;
+        }
+        color = Some(lua_color_spec_from_query(value.trim())?);
+    }
+
+    Some(color)
+}
+
+fn lua_color_spec_from_query(value: &str) -> Option<NativeColorSpec> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut color = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if color.is_some() {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+        color = Some(match key.as_str() {
+            "Color" => NativeColorSpec::Color(lua_opaque_color_from_query(&value)?),
+            "AnsiColor" => NativeColorSpec::AnsiColor(NativeAnsiColor::parse(&value)?),
+            _ => return None,
+        });
+    }
+
+    color
+}
+
 fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<Color>>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut color = None;
@@ -34253,10 +34456,11 @@ mod tests {
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
         DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
-        NativeAudibleBell, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
-        NativeCellWidth, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
-        NativeConfigOverrides, NativeConfirmation, NativeCubicBezier, NativeCursorStyle,
-        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
+        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
+        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
+        NativeConfirmation, NativeCubicBezier, NativeCursorStyle, NativeCursorThickness,
+        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeHsbMultiplier, NativeInactivePaneHsb,
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
@@ -43088,6 +43292,14 @@ mod tests {
                 quick_select_patterns: Vec::new(),
                 disable_default_quick_select_patterns: false,
                 quick_select_remove_styling: false,
+                copy_mode_active_highlight_bg: None,
+                copy_mode_active_highlight_fg: None,
+                copy_mode_inactive_highlight_bg: None,
+                copy_mode_inactive_highlight_fg: None,
+                quick_select_label_bg: None,
+                quick_select_label_fg: None,
+                quick_select_match_bg: None,
+                quick_select_match_fg: None,
                 selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
                 term: "xterm-256color".to_owned(),
                 audible_bell: NativeAudibleBell::SystemBeep,
@@ -55444,6 +55656,66 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_copy_mode_and_quick_select_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              copy_mode_active_highlight_bg = { Color = '#010203' },
+              copy_mode_active_highlight_fg = { AnsiColor = 'Black' },
+              copy_mode_inactive_highlight_bg = { Color = 'peru' },
+              copy_mode_inactive_highlight_fg = { AnsiColor = 'White' },
+              quick_select_label_bg = { Color = '#040506' },
+              quick_select_label_fg = { Color = 'silver' },
+              quick_select_match_bg = { AnsiColor = 'Navy' },
+              quick_select_match_fg = { Color = '#070809' },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm copy-mode/quick-select color config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.copy_mode_active_highlight_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3)))
+        );
+        assert_eq!(
+            effective.copy_mode_active_highlight_fg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black))
+        );
+        assert_eq!(
+            effective.copy_mode_inactive_highlight_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(205, 133, 63)))
+        );
+        assert_eq!(
+            effective.copy_mode_inactive_highlight_fg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::White))
+        );
+        assert_eq!(
+            effective.quick_select_label_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6)))
+        );
+        assert_eq!(
+            effective.quick_select_label_fg,
+            Some(NativeColorSpec::Color(Color::Rgb(192, 192, 192)))
+        );
+        assert_eq!(
+            effective.quick_select_match_bg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy))
+        );
+        assert_eq!(
+            effective.quick_select_match_fg,
+            Some(NativeColorSpec::Color(Color::Rgb(7, 8, 9)))
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_font_and_cursor_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -60725,6 +60997,16 @@ mod tests {
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
             disable_default_quick_select_patterns: Some(true),
             quick_select_remove_styling: Some(true),
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(21, 22, 23))),
+            copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+            copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(24, 25, 26))),
+            copy_mode_inactive_highlight_fg: Some(NativeColorSpec::AnsiColor(
+                NativeAnsiColor::White,
+            )),
+            quick_select_label_bg: Some(NativeColorSpec::Color(Color::Rgb(27, 28, 29))),
+            quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(30, 31, 32))),
+            quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(33, 34, 35))),
             selection_word_boundary: Some(" :".to_owned()),
             term: Some("wezterm".to_owned()),
             audible_bell: Some(NativeAudibleBell::Disabled),
@@ -60874,6 +61156,16 @@ mod tests {
             quick_select_patterns: vec!["ticket-[0-9]+".to_owned()],
             disable_default_quick_select_patterns: true,
             quick_select_remove_styling: true,
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(21, 22, 23))),
+            copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+            copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(24, 25, 26))),
+            copy_mode_inactive_highlight_fg: Some(NativeColorSpec::AnsiColor(
+                NativeAnsiColor::White,
+            )),
+            quick_select_label_bg: Some(NativeColorSpec::Color(Color::Rgb(27, 28, 29))),
+            quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(30, 31, 32))),
+            quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(33, 34, 35))),
             selection_word_boundary: " :".to_owned(),
             term: "wezterm".to_owned(),
             audible_bell: NativeAudibleBell::Disabled,
@@ -60982,6 +61274,14 @@ mod tests {
             quick_select_patterns: Vec::new(),
             disable_default_quick_select_patterns: false,
             quick_select_remove_styling: false,
+            copy_mode_active_highlight_bg: None,
+            copy_mode_active_highlight_fg: None,
+            copy_mode_inactive_highlight_bg: None,
+            copy_mode_inactive_highlight_fg: None,
+            quick_select_label_bg: None,
+            quick_select_label_fg: None,
+            quick_select_match_bg: None,
+            quick_select_match_fg: None,
             selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
             term: "xterm-256color".to_owned(),
             audible_bell: NativeAudibleBell::SystemBeep,
