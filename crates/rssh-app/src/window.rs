@@ -23862,6 +23862,7 @@ fn lua_color_from_query(value: &str) -> Option<Color> {
     lua_hex_color_from_query(value)
         .or_else(|| lua_rgb_color_from_query(value))
         .or_else(|| lua_hsl_color_from_query(value))
+        .or_else(|| lua_hwb_color_from_query(value))
         .or_else(|| lua_hsv_color_from_query(value))
         .or_else(|| lua_rgba_color_from_query(value))
 }
@@ -23974,6 +23975,28 @@ fn lua_hsv_color_from_query(value: &str) -> Option<Color> {
     )
 }
 
+fn lua_hwb_color_from_query(value: &str) -> Option<Color> {
+    let components = lua_color_function_body(value, "hwb")?;
+    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let [hue, whiteness, blackness] = <[&str; 3]>::try_from(channels).ok()?;
+    let [red, green, blue] = hwb_to_rgb(
+        lua_css_hue_degrees_from_query(hue)?,
+        lua_css_percentage_from_query(whiteness)?,
+        lua_css_percentage_from_query(blackness)?,
+    );
+    alpha.map_or_else(
+        || Some(Color::Rgb(red, green, blue)),
+        |alpha| {
+            Some(Color::Rgba(
+                red,
+                green,
+                blue,
+                lua_css_alpha_from_query(alpha)?,
+            ))
+        },
+    )
+}
+
 fn lua_color_function_body<'a>(value: &'a str, function: &str) -> Option<&'a str> {
     let function = format!("{function}(");
     value
@@ -24066,6 +24089,25 @@ fn hsl_channel_to_u8(value: f64) -> u8 {
     {
         (value.clamp(0.0, 1.0) * f64::from(u8::MAX)).round() as u8
     }
+}
+
+fn hwb_to_rgb(hue_degrees: f64, whiteness: f64, blackness: f64) -> [u8; 3] {
+    let white_black_sum = whiteness + blackness;
+    if white_black_sum >= 1.0 {
+        let gray = whiteness / white_black_sum;
+        return [
+            round_rgb_component(gray),
+            round_rgb_component(gray),
+            round_rgb_component(gray),
+        ];
+    }
+    let [red, green, blue] = hsv_to_rgb(hue_degrees, 1.0, 1.0);
+    let chroma_scale = 1.0 - white_black_sum;
+    [
+        round_rgb_component((f64::from(red) / 255.0).mul_add(chroma_scale, whiteness)),
+        round_rgb_component((f64::from(green) / 255.0).mul_add(chroma_scale, whiteness)),
+        round_rgb_component((f64::from(blue) / 255.0).mul_add(chroma_scale, whiteness)),
+    ]
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
@@ -36753,6 +36795,76 @@ mod tests {
         assert!(
             plain_cell_uses_hsv_foreground,
             "foreground HSV color did not render"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hwb_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'hwb(0 0% 0% / 25%)',
+              background = 'hwb(120 0% 0% / 25%)',
+              selection_fg = 'hwb(480deg 0% 0%)',
+              selection_bg = 'hwb(240deg 0% 0% / 50%)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm HWB color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"AB").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_hwb_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 128, 127, 255]
+                })
+            });
+        let selected_cell_uses_hwb_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_opaque_hwb_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_opaque_hwb_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [255, 0, 0, 255])
+            });
+        assert!(
+            selected_cell_uses_hwb_background,
+            "selection_bg HWB alpha did not blend over the current background"
+        );
+        assert!(
+            selected_cell_uses_hwb_foreground,
+            "selection_fg HWB color did not render"
+        );
+        assert!(
+            plain_cell_uses_opaque_hwb_background,
+            "non-selection HWB background alpha was not ignored"
+        );
+        assert!(
+            plain_cell_uses_opaque_hwb_foreground,
+            "non-selection HWB foreground alpha was not ignored"
         );
     }
 
