@@ -2158,7 +2158,7 @@ fn lua_config_bracket_assignment_rest_from_query<'a>(
     }
 
     let target = source.get(start..)?;
-    let after_open = target.strip_prefix('[')?.trim_start();
+    let after_open = lua_trim_start_comments(target.strip_prefix('[')?)?;
     let key_literal = lua_quoted_string_literal_from_query(after_open)
         .or_else(|| lua_long_bracket_literal_from_query(after_open))?;
     let key = parse_maybe_quoted_query_text(key_literal)?;
@@ -2166,10 +2166,7 @@ fn lua_config_bracket_assignment_rest_from_query<'a>(
         return None;
     }
 
-    after_open
-        .get(key_literal.len()..)?
-        .trim_start()
-        .strip_prefix(']')
+    lua_trim_start_comments(after_open.get(key_literal.len()..)?)?.strip_prefix(']')
 }
 
 #[allow(dead_code)]
@@ -52039,6 +52036,32 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_bracket_key_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config[
+              -- launch command key
+              'default_prog' -- close bracket after comment
+            ] = { 'nu', '--login' }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
     }
 
     #[test]
