@@ -25146,6 +25146,9 @@ fn search_query_lua_action_from_query(query: &str) -> Option<WindowSearchCommand
     }
 
     if let Some(value) = strip_query_prefix_from_any(query, &["search "]) {
+        if value.trim_start().starts_with('{') {
+            return search_query_lua_table_from_query(value);
+        }
         let value = parse_maybe_quoted_query_text(value)?;
         if let Some(search_query) = search_query_lua_string_from_value(&value) {
             return Some(search_query);
@@ -25171,7 +25174,7 @@ fn search_query_lua_table_from_query(value: &str) -> Option<WindowSearchCommandQ
     let mut search_query = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
         if search_query.is_some() {
@@ -66814,6 +66817,35 @@ mod tests {
             assert!(app.copy_mode.is_none());
             assert!(app.quick_select.is_none());
         }
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_search_wezterm_action_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"Alpha 123 alpha").unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Search { [[=[Regex]=]] = [[\\d+]] }".to_owned(),
+        );
+        let commands = app.command_palette_filtered_commands();
+        let command = commands.first().cloned().expect("expected search command");
+        app.command_palette_execute(command);
+
+        let search = app.search.as_ref().expect("search mode should be active");
+        assert_eq!(search.query, "\\d+");
+        assert_eq!(search.match_type, WindowSearchMatchType::Regex);
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 6 },
+                SelectionCell { row: 0, column: 8 },
+            ))
+        );
+        assert!(app.command_palette.is_none());
+        assert!(app.copy_mode.is_none());
+        assert!(app.quick_select.is_none());
     }
 
     #[test]
