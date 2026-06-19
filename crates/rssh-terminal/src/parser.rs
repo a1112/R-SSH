@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use flate2::read::ZlibDecoder;
 use rssh_core::{DamageRegion, TerminalSize};
+use unicode_normalization::UnicodeNormalization;
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
@@ -393,6 +394,7 @@ pub struct Terminal {
     unknown_escape_sequences: Vec<TerminalUnknownEscapeSequence>,
     treat_east_asian_ambiguous_width_as_wide: bool,
     cell_width_overrides: Vec<CellWidthOverride>,
+    normalize_output_to_unicode_nfc: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -517,7 +519,12 @@ impl Terminal {
             unknown_escape_sequences: Vec::new(),
             treat_east_asian_ambiguous_width_as_wide: false,
             cell_width_overrides: Vec::new(),
+            normalize_output_to_unicode_nfc: false,
         }
+    }
+
+    pub fn set_normalize_output_to_unicode_nfc(&mut self, enabled: bool) {
+        self.normalize_output_to_unicode_nfc = enabled;
     }
 
     pub fn set_treat_east_asian_ambiguous_width_as_wide(&mut self, enabled: bool) {
@@ -546,7 +553,7 @@ impl Terminal {
                     FeedAdvance::Pending => break,
                 }
             } else {
-                index = self.consume_text_or_ascii_control(chars[index], index);
+                index = self.consume_text_run_or_ascii_control(&chars, index);
             }
         }
     }
@@ -664,7 +671,8 @@ impl Terminal {
         }
     }
 
-    fn consume_text_or_ascii_control(&mut self, ch: char, index: usize) -> usize {
+    fn consume_text_run_or_ascii_control(&mut self, chars: &[char], index: usize) -> usize {
+        let ch = chars[index];
         match ch {
             ch if is_ignored_c0_control(ch) => {
                 self.finish_pending_kitty_placeholder();
@@ -696,8 +704,28 @@ impl Terminal {
                 index + 1
             }
             ch => {
-                self.write_char(ch);
-                index + 1
+                if !self.normalize_output_to_unicode_nfc {
+                    self.write_char(ch);
+                    return index + 1;
+                }
+                let mut end = index + 1;
+                while end < chars.len()
+                    && !is_escape_or_c1_sequence_start(chars[end])
+                    && !is_ascii_control(chars[end])
+                {
+                    end += 1;
+                }
+                let text = chars[index..end].iter().collect::<String>();
+                if text.contains(KITTY_UNICODE_PLACEHOLDER) {
+                    for ch in text.chars() {
+                        self.write_char(ch);
+                    }
+                } else {
+                    for normalized in text.nfc() {
+                        self.write_char(normalized);
+                    }
+                }
+                end
             }
         }
     }
@@ -4560,6 +4588,10 @@ fn is_escape_or_c1_sequence_start(ch: char) -> bool {
 
 fn is_cancel_control(ch: char) -> bool {
     matches!(ch, '\u{18}' | '\u{1a}')
+}
+
+fn is_ascii_control(ch: char) -> bool {
+    matches!(ch, '\0'..='\u{1f}' | '\u{7f}')
 }
 
 fn is_ignored_c0_control(ch: char) -> bool {

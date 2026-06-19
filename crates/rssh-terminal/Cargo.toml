@@ -10,6 +10,7 @@ version.workspace = true
 base64 = "0.22"
 flate2 = "1"
 rssh-core = { path = "../rssh-core" }
+unicode-normalization = "0.1"
 unicode-width = "0.2"
 
 [lints]

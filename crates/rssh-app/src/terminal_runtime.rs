@@ -259,6 +259,10 @@ impl TerminalRuntime {
             .set_treat_east_asian_ambiguous_width_as_wide(enabled);
     }
 
+    pub(crate) fn set_normalize_output_to_unicode_nfc(&mut self, enabled: bool) {
+        self.terminal.set_normalize_output_to_unicode_nfc(enabled);
+    }
+
     pub(crate) fn set_cell_width_overrides(&mut self, overrides: Vec<CellWidthOverride>) {
         self.terminal.set_cell_width_overrides(overrides);
     }

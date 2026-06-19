@@ -189,6 +189,7 @@ const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
 const DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR: bool = false;
 const DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE: bool = false;
+const DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC: bool = false;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
 const DEFAULT_UI_KEY_CAP_RENDERING: NativeUiKeyCapRendering = if cfg!(target_os = "macos") {
@@ -1997,6 +1998,7 @@ struct NativeEffectiveConfig {
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
     treat_east_asian_ambiguous_width_as_wide: bool,
+    normalize_output_to_unicode_nfc: bool,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
@@ -2155,6 +2157,7 @@ struct NativeConfigOverrides {
     allow_win32_input_mode: Option<bool>,
     treat_left_ctrlalt_as_altgr: Option<bool>,
     treat_east_asian_ambiguous_width_as_wide: Option<bool>,
+    normalize_output_to_unicode_nfc: Option<bool>,
     use_ime: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
     xim_im_name: Option<String>,
@@ -2850,6 +2853,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.treat_east_asian_ambiguous_width_as_wide =
             Some(treat_east_asian_ambiguous_width_as_wide);
+        parsed = true;
+    }
+    if let Some(normalize_output_to_unicode_nfc) =
+        lua_config_bool_assignment_from_query(config, "normalize_output_to_unicode_nfc")
+    {
+        overrides.normalize_output_to_unicode_nfc = Some(normalize_output_to_unicode_nfc);
         parsed = true;
     }
     if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
@@ -4789,6 +4798,7 @@ struct NativeWindowApp {
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
     treat_east_asian_ambiguous_width_as_wide: bool,
+    normalize_output_to_unicode_nfc: bool,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     ime_preedit: Option<String>,
@@ -6225,6 +6235,7 @@ impl NativeWindowApp {
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
             treat_east_asian_ambiguous_width_as_wide:
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
+            normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             ime_preedit: None,
@@ -7229,6 +7240,7 @@ impl NativeWindowApp {
         detached_app.treat_left_ctrlalt_as_altgr = self.treat_left_ctrlalt_as_altgr;
         detached_app.treat_east_asian_ambiguous_width_as_wide =
             self.treat_east_asian_ambiguous_width_as_wide;
+        detached_app.normalize_output_to_unicode_nfc = self.normalize_output_to_unicode_nfc;
         detached_app.cell_widths.clone_from(&self.cell_widths);
         detached_app.leader.clone_from(&self.leader);
         detached_app
@@ -7430,6 +7442,7 @@ impl NativeWindowApp {
         self.treat_left_ctrlalt_as_altgr = source.treat_left_ctrlalt_as_altgr;
         self.treat_east_asian_ambiguous_width_as_wide =
             source.treat_east_asian_ambiguous_width_as_wide;
+        self.normalize_output_to_unicode_nfc = source.normalize_output_to_unicode_nfc;
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.ime_preedit = source.ime_preedit.clone();
@@ -7600,6 +7613,8 @@ impl NativeWindowApp {
         replacement_runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        replacement_runtime
+            .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
         replacement_runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         replacement_runtime.set_scrollback_limit(self.scrollback_lines);
         replacement_runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
@@ -7628,6 +7643,7 @@ impl NativeWindowApp {
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        runtime.set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
         runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
@@ -7660,6 +7676,8 @@ impl NativeWindowApp {
         self.runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        self.runtime
+            .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
         self.runtime
             .set_cell_width_overrides(self.terminal_cell_width_overrides());
         self.snapshot = runtime_snapshot;
@@ -14605,6 +14623,7 @@ impl NativeWindowApp {
             allow_win32_input_mode: self.allow_win32_input_mode,
             treat_left_ctrlalt_as_altgr: self.treat_left_ctrlalt_as_altgr,
             treat_east_asian_ambiguous_width_as_wide: self.treat_east_asian_ambiguous_width_as_wide,
+            normalize_output_to_unicode_nfc: self.normalize_output_to_unicode_nfc,
             use_ime: self.use_ime,
             ime_preedit_rendering: self.ime_preedit_rendering,
             xim_im_name: self.xim_im_name.clone(),
@@ -14915,6 +14934,9 @@ impl NativeWindowApp {
         self.treat_east_asian_ambiguous_width_as_wide = overrides
             .treat_east_asian_ambiguous_width_as_wide
             .unwrap_or(DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE);
+        self.normalize_output_to_unicode_nfc = overrides
+            .normalize_output_to_unicode_nfc
+            .unwrap_or(DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC);
         self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
@@ -14930,6 +14952,7 @@ impl NativeWindowApp {
             .unwrap_or(DEFAULT_DETECT_PASSWORD_INPUT);
         self.apply_keyboard_protocol_config_to_runtimes();
         self.apply_character_width_config_to_runtimes();
+        self.apply_unicode_normalization_config_to_runtimes();
         self.leader = overrides.leader.filter(|leader| !leader.keys.is_empty());
         self.leader_active_since = None;
         self.adjust_window_size_when_changing_font_size = overrides
@@ -15039,6 +15062,16 @@ impl NativeWindowApp {
             runtime
                 .runtime
                 .set_cell_width_overrides(cell_width_overrides.clone());
+        }
+    }
+
+    fn apply_unicode_normalization_config_to_runtimes(&mut self) {
+        self.runtime
+            .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+        for runtime in self.pane_runtimes.values_mut() {
+            runtime
+                .runtime
+                .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
         }
     }
 
@@ -16249,6 +16282,7 @@ impl NativeWindowApp {
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
             self.treat_east_asian_ambiguous_width_as_wide,
         );
+        runtime.set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
         runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
@@ -46754,6 +46788,7 @@ mod tests {
                 treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
                 treat_east_asian_ambiguous_width_as_wide:
                     DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
+                normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
                 use_ime: DEFAULT_USE_IME,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 xim_im_name: None,
@@ -59185,6 +59220,32 @@ mod tests {
     }
 
     #[test]
+    fn window_app_normalizes_output_to_unicode_nfc_when_configured() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.normalize_output_to_unicode_nfc = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Unicode normalization config");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output("e\u{0301}x".as_bytes()).unwrap();
+
+        let snapshot = app.render_snapshot();
+        let first_row = snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS);
+        assert!(
+            first_row.starts_with("éx"),
+            "expected NFC-normalized terminal output, got {first_row:?}"
+        );
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_east_asian_ambiguous_width_config() {
         let app = NativeWindowApp::new(None);
         let effective = app.native_effective_config();
@@ -65585,6 +65646,7 @@ mod tests {
             allow_win32_input_mode: Some(false),
             treat_left_ctrlalt_as_altgr: Some(true),
             treat_east_asian_ambiguous_width_as_wide: Some(true),
+            normalize_output_to_unicode_nfc: Some(true),
             use_ime: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             xim_im_name: Some("fcitx".to_owned()),
@@ -65824,6 +65886,7 @@ mod tests {
             allow_win32_input_mode: false,
             treat_left_ctrlalt_as_altgr: true,
             treat_east_asian_ambiguous_width_as_wide: true,
+            normalize_output_to_unicode_nfc: true,
             use_ime: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
             xim_im_name: Some("fcitx".to_owned()),
@@ -65983,6 +66046,7 @@ mod tests {
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
             treat_east_asian_ambiguous_width_as_wide:
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
+            normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,

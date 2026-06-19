@@ -241,7 +241,8 @@ keyboard, mouse, paste, resize
   Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
   `ui_key_cap_rendering`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`,
   `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
-  `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
+  `treat_east_asian_ambiguous_width_as_wide`,
+  `normalize_output_to_unicode_nfc`, `use_ime`,
   `ime_preedit_rendering`, and `xim_im_name` parse into the native override
   path. `ui_key_cap_rendering` controls native command-palette key-assignment
   display labels with UnixLong, Emacs, AppleSymbols, WindowsLong, and
@@ -249,7 +250,9 @@ keyboard, mouse, paste, resize
   terminal character width calculation for ambiguous East Asian width characters
   in active and new panes. Static numeric `cell_widths` override tables parse
   from WezTerm-style Lua and take priority over the ambiguous-width setting in
-  active and new panes. `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
+  active and new panes. `normalize_output_to_unicode_nfc` applies NFC
+  normalization to contiguous ordinary terminal output runs before rendering.
+  `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
   AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
   text renders through the Builtin overlay path at the active pane cursor.
   Platform IME/XIM connection, exact preedit cursor styling, exact left/right
@@ -749,7 +752,8 @@ keyboard, mouse, paste, resize
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
-  `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
+  `treat_east_asian_ambiguous_width_as_wide`,
+  `normalize_output_to_unicode_nfc`, `use_ime`,
   `ime_preedit_rendering`, `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
@@ -806,7 +810,9 @@ keyboard, mouse, paste, resize
   Asian ambiguous-width characters as two cells wide; static numeric
   `cell_widths` override tables are stored and applied with higher priority
   than that ambiguous-width setting, while dynamic Lua/exact nightly parity
-  remains future work. `use_ime` is stored with
+  remains future work. `normalize_output_to_unicode_nfc` is stored with
+  WezTerm's default `false` and, when enabled, normalizes contiguous ordinary
+  terminal output runs to Unicode NFC before the cells are written. `use_ime` is stored with
   WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
   is retained as an optional XIM server name for X11-style IME configuration.
@@ -992,7 +998,8 @@ keyboard, mouse, paste, resize
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
-  `treat_east_asian_ambiguous_width_as_wide`, `use_ime`,
+  `treat_east_asian_ambiguous_width_as_wide`,
+  `normalize_output_to_unicode_nfc`, `use_ime`,
   `ime_preedit_rendering`, `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
