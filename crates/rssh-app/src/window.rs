@@ -86,6 +86,7 @@ const DEFAULT_ANIMATION_FPS: usize = 10;
 const DEFAULT_RENDER_FRONT_END: NativeRenderFrontEnd = NativeRenderFrontEnd::OpenGl;
 const DEFAULT_WEBGPU_POWER_PREFERENCE: NativeWebGpuPowerPreference =
     NativeWebGpuPowerPreference::LowPower;
+const DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER: bool = false;
 const DEFAULT_PREFER_EGL: bool = true;
 const DEFAULT_ENABLE_WAYLAND: bool = true;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
@@ -443,6 +444,18 @@ impl NativeWebGpuPowerPreference {
             _ => None,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NativeWebGpuPreferredAdapter {
+    backend: Option<String>,
+    device: Option<u32>,
+    device_type: Option<String>,
+    driver: Option<String>,
+    driver_info: Option<String>,
+    name: Option<String>,
+    vendor: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1644,6 +1657,8 @@ struct NativeEffectiveConfig {
     animation_fps: usize,
     front_end: NativeRenderFrontEnd,
     webgpu_power_preference: NativeWebGpuPowerPreference,
+    webgpu_force_fallback_adapter: bool,
+    webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
     prefer_egl: bool,
     enable_wayland: bool,
     cursor_blink_rate_ms: u64,
@@ -1778,6 +1793,8 @@ struct NativeConfigOverrides {
     animation_fps: Option<usize>,
     front_end: Option<NativeRenderFrontEnd>,
     webgpu_power_preference: Option<NativeWebGpuPowerPreference>,
+    webgpu_force_fallback_adapter: Option<bool>,
+    webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
     prefer_egl: Option<bool>,
     enable_wayland: Option<bool>,
     cursor_blink_rate_ms: Option<u64>,
@@ -2310,6 +2327,20 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.webgpu_power_preference = Some(NativeWebGpuPowerPreference::parse(
             &webgpu_power_preference,
         )?);
+        parsed = true;
+    }
+    if let Some(webgpu_force_fallback_adapter) =
+        lua_config_bool_assignment_from_query(config, "webgpu_force_fallback_adapter")
+    {
+        overrides.webgpu_force_fallback_adapter = Some(webgpu_force_fallback_adapter);
+        parsed = true;
+    }
+    if let Some(webgpu_preferred_adapter) =
+        lua_config_table_assignment_from_query(config, "webgpu_preferred_adapter")
+    {
+        overrides.webgpu_preferred_adapter = Some(
+            native_webgpu_preferred_adapter_lua_table_from_query(webgpu_preferred_adapter)?,
+        );
         parsed = true;
     }
     if let Some(prefer_egl) = lua_config_bool_assignment_from_query(config, "prefer_egl") {
@@ -3398,6 +3429,56 @@ fn native_hsb_lua_table_from_query(value: &str) -> Option<NativeInactivePaneHsb>
 }
 
 #[allow(dead_code)]
+fn native_webgpu_preferred_adapter_lua_table_from_query(
+    value: &str,
+) -> Option<NativeWebGpuPreferredAdapter> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut adapter = NativeWebGpuPreferredAdapter {
+        backend: None,
+        device: None,
+        device_type: None,
+        driver: None,
+        driver_info: None,
+        name: None,
+        vendor: None,
+    };
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "backend" => adapter.backend = Some(parse_maybe_quoted_query_text(value)?),
+            "device" => {
+                adapter.device = Some(
+                    lua_unsigned_integer_literal_from_query(value)?
+                        .parse()
+                        .ok()?,
+                );
+            }
+            "device_type" => adapter.device_type = Some(parse_maybe_quoted_query_text(value)?),
+            "driver" => adapter.driver = Some(parse_maybe_quoted_query_text(value)?),
+            "driver_info" => adapter.driver_info = Some(parse_maybe_quoted_query_text(value)?),
+            "name" => adapter.name = Some(parse_maybe_quoted_query_text(value)?),
+            "vendor" => {
+                adapter.vendor = Some(
+                    lua_unsigned_integer_literal_from_query(value)?
+                        .parse()
+                        .ok()?,
+                );
+            }
+            _ => return None,
+        }
+    }
+
+    Some(adapter)
+}
+
+#[allow(dead_code)]
 fn native_window_padding_lua_table_from_query(value: &str) -> Option<NativeWindowPadding> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut padding = DEFAULT_WINDOW_PADDING;
@@ -4240,6 +4321,8 @@ struct NativeWindowApp {
     animation_fps: usize,
     front_end: NativeRenderFrontEnd,
     webgpu_power_preference: NativeWebGpuPowerPreference,
+    webgpu_force_fallback_adapter: bool,
+    webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
     prefer_egl: bool,
     enable_wayland: bool,
     last_status_update_at: Option<Instant>,
@@ -5650,6 +5733,8 @@ impl NativeWindowApp {
             animation_fps: DEFAULT_ANIMATION_FPS,
             front_end: DEFAULT_RENDER_FRONT_END,
             webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+            webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+            webgpu_preferred_adapter: None,
             prefer_egl: DEFAULT_PREFER_EGL,
             enable_wayland: DEFAULT_ENABLE_WAYLAND,
             last_status_update_at: None,
@@ -6659,6 +6744,9 @@ impl NativeWindowApp {
         self.animation_fps = source.animation_fps;
         self.front_end = source.front_end;
         self.webgpu_power_preference = source.webgpu_power_preference;
+        self.webgpu_force_fallback_adapter = source.webgpu_force_fallback_adapter;
+        self.webgpu_preferred_adapter
+            .clone_from(&source.webgpu_preferred_adapter);
         self.prefer_egl = source.prefer_egl;
         self.enable_wayland = source.enable_wayland;
         self.last_status_update_at = None;
@@ -13609,6 +13697,8 @@ impl NativeWindowApp {
             animation_fps: self.animation_fps,
             front_end: self.front_end,
             webgpu_power_preference: self.webgpu_power_preference,
+            webgpu_force_fallback_adapter: self.webgpu_force_fallback_adapter,
+            webgpu_preferred_adapter: self.webgpu_preferred_adapter.clone(),
             prefer_egl: self.prefer_egl,
             enable_wayland: self.enable_wayland,
             cursor_blink_rate_ms: u64::try_from(self.cursor_blink_rate.as_millis())
@@ -13764,6 +13854,10 @@ impl NativeWindowApp {
         self.webgpu_power_preference = overrides
             .webgpu_power_preference
             .unwrap_or(DEFAULT_WEBGPU_POWER_PREFERENCE);
+        self.webgpu_force_fallback_adapter = overrides
+            .webgpu_force_fallback_adapter
+            .unwrap_or(DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER);
+        self.webgpu_preferred_adapter = overrides.webgpu_preferred_adapter.clone();
         self.prefer_egl = overrides.prefer_egl.unwrap_or(DEFAULT_PREFER_EGL);
         self.enable_wayland = overrides.enable_wayland.unwrap_or(DEFAULT_ENABLE_WAYLAND);
         self.apply_cursor_blink_overrides(
@@ -36193,27 +36287,28 @@ mod tests {
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_RESIZE_INCREMENTS,
-        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_POWER_PREFERENCE,
-        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
-        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
-        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
-        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
-        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
-        NativeCursorStyle, NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig,
-        NativeExitBehavior, NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute,
-        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
-        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
-        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
-        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWindowApp,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+        DEFAULT_WEBGPU_POWER_PREFERENCE, DEFAULT_WINDOW_BACKGROUND_OPACITY,
+        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
+        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
+        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
+        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
+        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
+        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
+        NativeFormatItem, NativeFormatUnderline, NativeHorizontalContentAlignment,
+        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
+        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
+        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeRenderFrontEnd, NativeScrollBarHeight, NativeStrikethroughPosition,
+        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
+        NativeTextMinContrastRatio, NativeUnderlinePosition, NativeUnderlineThickness,
+        NativeUserKeyAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
+        NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
         NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
         NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
         NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
@@ -45394,6 +45489,8 @@ mod tests {
                 animation_fps: DEFAULT_ANIMATION_FPS,
                 front_end: DEFAULT_RENDER_FRONT_END,
                 webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+                webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+                webgpu_preferred_adapter: None,
                 prefer_egl: DEFAULT_PREFER_EGL,
                 enable_wayland: DEFAULT_ENABLE_WAYLAND,
                 cursor_blink_rate_ms: 800,
@@ -58005,6 +58102,8 @@ mod tests {
             effective.webgpu_power_preference,
             NativeWebGpuPowerPreference::LowPower
         );
+        assert!(!effective.webgpu_force_fallback_adapter);
+        assert_eq!(effective.webgpu_preferred_adapter, None);
         assert!(effective.prefer_egl);
         assert!(effective.enable_wayland);
     }
@@ -58019,6 +58118,16 @@ mod tests {
 
             config.front_end = 'WebGpu'
             config.webgpu_power_preference = 'HighPerformance'
+            config.webgpu_force_fallback_adapter = true
+            config.webgpu_preferred_adapter = {
+              backend = 'Vulkan',
+              device = 29730,
+              device_type = 'DiscreteGpu',
+              driver = 'radv',
+              driver_info = 'Mesa 22.3.4',
+              name = 'AMD Radeon Pro W6400 (RADV NAVI24)',
+              vendor = 4098,
+            }
             config.prefer_egl = false
             config.enable_wayland = false
 
@@ -58033,6 +58142,19 @@ mod tests {
         assert_eq!(
             effective.webgpu_power_preference,
             NativeWebGpuPowerPreference::HighPerformance
+        );
+        assert!(effective.webgpu_force_fallback_adapter);
+        assert_eq!(
+            effective.webgpu_preferred_adapter,
+            Some(NativeWebGpuPreferredAdapter {
+                backend: Some("Vulkan".to_owned()),
+                device: Some(29_730),
+                device_type: Some("DiscreteGpu".to_owned()),
+                driver: Some("radv".to_owned()),
+                driver_info: Some("Mesa 22.3.4".to_owned()),
+                name: Some("AMD Radeon Pro W6400 (RADV NAVI24)".to_owned()),
+                vendor: Some(4_098),
+            })
         );
         assert!(!effective.prefer_egl);
         assert!(!effective.enable_wayland);
@@ -63505,6 +63627,16 @@ mod tests {
             animation_fps: Some(24),
             front_end: Some(NativeRenderFrontEnd::WebGpu),
             webgpu_power_preference: Some(NativeWebGpuPowerPreference::HighPerformance),
+            webgpu_force_fallback_adapter: Some(true),
+            webgpu_preferred_adapter: Some(NativeWebGpuPreferredAdapter {
+                backend: Some("Vulkan".to_owned()),
+                device: Some(29_730),
+                device_type: Some("DiscreteGpu".to_owned()),
+                driver: Some("radv".to_owned()),
+                driver_info: Some("Mesa 22.3.4".to_owned()),
+                name: Some("AMD Radeon Pro W6400 (RADV NAVI24)".to_owned()),
+                vendor: Some(4_098),
+            }),
             prefer_egl: Some(false),
             enable_wayland: Some(false),
             cursor_blink_rate_ms: Some(375),
@@ -63712,6 +63844,16 @@ mod tests {
             animation_fps: 24,
             front_end: NativeRenderFrontEnd::WebGpu,
             webgpu_power_preference: NativeWebGpuPowerPreference::HighPerformance,
+            webgpu_force_fallback_adapter: true,
+            webgpu_preferred_adapter: Some(NativeWebGpuPreferredAdapter {
+                backend: Some("Vulkan".to_owned()),
+                device: Some(29_730),
+                device_type: Some("DiscreteGpu".to_owned()),
+                driver: Some("radv".to_owned()),
+                driver_info: Some("Mesa 22.3.4".to_owned()),
+                name: Some("AMD Radeon Pro W6400 (RADV NAVI24)".to_owned()),
+                vendor: Some(4_098),
+            }),
             prefer_egl: false,
             enable_wayland: false,
             cursor_blink_rate_ms: 375,
@@ -63899,6 +64041,8 @@ mod tests {
             animation_fps: DEFAULT_ANIMATION_FPS,
             front_end: DEFAULT_RENDER_FRONT_END,
             webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+            webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+            webgpu_preferred_adapter: None,
             prefer_egl: DEFAULT_PREFER_EGL,
             enable_wayland: DEFAULT_ENABLE_WAYLAND,
             cursor_blink_rate_ms: 800,
