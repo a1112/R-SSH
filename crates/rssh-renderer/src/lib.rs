@@ -228,6 +228,7 @@ pub struct PixelRenderer {
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     default_cursor_color: [u8; 4],
+    default_cursor_foreground: Option<[u8; 4]>,
     window_dpi: u32,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
@@ -290,6 +291,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -312,6 +314,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -534,6 +537,10 @@ impl PixelRenderer {
         self.default_cursor_color = color;
     }
 
+    pub fn set_default_cursor_foreground(&mut self, color: Option<[u8; 4]>) {
+        self.default_cursor_foreground = color;
+    }
+
     #[must_use]
     pub const fn with_force_reverse_video_cursor(force_reverse_video_cursor: bool) -> Self {
         Self {
@@ -550,6 +557,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -576,6 +584,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame,
             animation_elapsed_ms: None,
@@ -598,6 +607,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: Some(animation_elapsed_ms),
@@ -695,9 +705,14 @@ impl PixelRenderer {
         );
 
         if let Some(cursor) = snapshot.cursor() {
+            let cursor_cell = snapshot
+                .cells()
+                .iter()
+                .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
             render_cursor(
                 &mut surface,
                 cursor,
+                cursor_cell,
                 cell_width,
                 cell_height,
                 CursorRenderStyle {
@@ -714,6 +729,11 @@ impl PixelRenderer {
                         self.default_background,
                         self.default_cursor_color,
                     ),
+                    foreground: if self.force_reverse_video_cursor {
+                        None
+                    } else {
+                        self.default_cursor_foreground
+                    },
                 },
             );
         }
@@ -852,9 +872,14 @@ impl PixelRenderer {
             .cursor()
             .filter(|cursor| damage_contains_cell(damage, cursor.row, cursor.column))
         {
+            let cursor_cell = snapshot
+                .cells()
+                .iter()
+                .find(|cell| cell.row == cursor.row && cell.column == cursor.column);
             render_cursor(
                 &mut surface,
                 cursor,
+                cursor_cell,
                 geometry.cell_width,
                 geometry.cell_height,
                 CursorRenderStyle {
@@ -871,6 +896,11 @@ impl PixelRenderer {
                         self.default_background,
                         self.default_cursor_color,
                     ),
+                    foreground: if self.force_reverse_video_cursor {
+                        None
+                    } else {
+                        self.default_cursor_foreground
+                    },
                 },
             );
         }
@@ -911,6 +941,7 @@ struct CursorRenderStyle {
     thickness: Option<RenderCursorThickness>,
     window_dpi: u32,
     color: [u8; 4],
+    foreground: Option<[u8; 4]>,
 }
 
 impl Surface<'_> {
@@ -1728,6 +1759,7 @@ fn render_curly_underline(surface: &mut Surface<'_>, rect: Rect, color: [u8; 4],
 fn render_cursor(
     surface: &mut Surface<'_>,
     cursor: RenderCursor,
+    cell: Option<&RenderCell>,
     cell_width: u32,
     cell_height: u32,
     style: CursorRenderStyle,
@@ -1751,6 +1783,63 @@ fn render_cursor(
         surface.fill_rect_alpha(rect, style.color, style.opacity_alpha);
     } else {
         surface.fill_rect(rect, style.color);
+    }
+
+    if cursor.shape == CursorShape::Block
+        && let (Some(cell), Some(foreground)) = (cell, style.foreground)
+    {
+        render_cursor_cell_foreground(surface, cell, cell_width, cell_height, foreground);
+    }
+}
+
+fn render_cursor_cell_foreground(
+    surface: &mut Surface<'_>,
+    cell: &RenderCell,
+    cell_width: u32,
+    cell_height: u32,
+    foreground: [u8; 4],
+) {
+    if cell.conceal {
+        return;
+    }
+    let Some(glyph) = BASIC_FONTS.get(cell.ch) else {
+        return;
+    };
+
+    let origin_x = u32::from(cell.column).saturating_mul(cell_width);
+    let origin_y = u32::from(cell.row).saturating_mul(cell_height);
+    let scale_x = cell_width.max(8) / 8;
+    let scale_y = cell_height.max(8) / 8;
+
+    for (glyph_y, row_bits) in glyph.iter().enumerate() {
+        let row_offset = italic_row_offset(glyph_y, scale_x, cell.italic);
+        for glyph_x in 0..8 {
+            if row_bits & (1 << glyph_x) == 0 {
+                continue;
+            }
+
+            let draw_x = origin_x + glyph_x * scale_x + row_offset;
+            let Some(draw_y) = vertical_aligned_y(
+                origin_y,
+                cell_height,
+                u32::try_from(glyph_y).unwrap_or(0) * scale_y,
+                cell.vertical_align,
+            ) else {
+                continue;
+            };
+            let Some(width) = clipped_cell_width(draw_x, origin_x, cell_width, scale_x) else {
+                continue;
+            };
+            surface.fill_rect(
+                Rect {
+                    x: draw_x,
+                    y: draw_y,
+                    width,
+                    height: scale_y,
+                },
+                foreground,
+            );
+        }
     }
 }
 
