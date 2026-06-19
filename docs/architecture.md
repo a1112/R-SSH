@@ -699,7 +699,8 @@ keyboard, mouse, paste, resize
   queries dispatch the same command.
   A typed native `set_config_overrides`/`get_config_overrides` subset stores
   per-window overrides for implemented effective-config fields (`tab_max_width`,
-  `status_update_interval`, `max_fps`, `animation_fps`, `cursor_blink_rate`, `cursor_blink_ease_in`,
+  `status_update_interval`, `max_fps`, `animation_fps`, `front_end`,
+  `webgpu_power_preference`, `prefer_egl`, `enable_wayland`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
@@ -741,12 +742,15 @@ keyboard, mouse, paste, resize
   checks and update-window UI remain future parity work. `max_fps` is stored
   with WezTerm's default `60`, and `animation_fps` with the default `10`;
   actual frame pacing and animation redraw scheduling remain future parity
-  work. `use_resize_increments`
-  is stored with WezTerm's default `false`
-  and included in effective config snapshots; actual OS-specific window resize
-  increment application remains future parity work. `debug_key_events` and
-  `log_unknown_escape_sequences` are stored with WezTerm's default `false`
-  and included in effective config snapshots. `warn_about_missing_glyphs` is
+  work. `front_end` is stored with WezTerm's current default `OpenGL`,
+  `webgpu_power_preference` with `LowPower`, and `prefer_egl`/`enable_wayland`
+  with `true`; actual renderer front-end, WebGPU adapter, EGL, and Wayland/X11
+  startup selection remain future parity work. `use_resize_increments` is
+  stored with WezTerm's default `false` and included in effective config
+  snapshots; actual OS-specific window resize increment application remains
+  future parity work. `debug_key_events` and `log_unknown_escape_sequences` are
+  stored with WezTerm's default `false` and included in effective config
+  snapshots. `warn_about_missing_glyphs` is
   stored with WezTerm's default `true` and included in effective config
   snapshots. Missing glyph codepoints detected in rendered cells are emitted
   once per native window as stderr `CONFIG ERROR missing glyph ...`

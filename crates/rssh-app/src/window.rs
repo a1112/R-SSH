@@ -83,6 +83,11 @@ const DEFAULT_LEADER_TIMEOUT: Duration = Duration::from_millis(1_000);
 const DEFAULT_STATUS_UPDATE_INTERVAL: Duration = Duration::from_millis(1_000);
 const DEFAULT_MAX_FPS: usize = 60;
 const DEFAULT_ANIMATION_FPS: usize = 10;
+const DEFAULT_RENDER_FRONT_END: NativeRenderFrontEnd = NativeRenderFrontEnd::OpenGl;
+const DEFAULT_WEBGPU_POWER_PREFERENCE: NativeWebGpuPowerPreference =
+    NativeWebGpuPowerPreference::LowPower;
+const DEFAULT_PREFER_EGL: bool = true;
+const DEFAULT_ENABLE_WAYLAND: bool = true;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
@@ -399,6 +404,42 @@ impl NativeAudibleBell {
         match value {
             "SystemBeep" => Some(Self::SystemBeep),
             "Disabled" => Some(Self::Disabled),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeRenderFrontEnd {
+    OpenGl,
+    Software,
+    WebGpu,
+}
+
+impl NativeRenderFrontEnd {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "OpenGL" => Some(Self::OpenGl),
+            "Software" => Some(Self::Software),
+            "WebGpu" => Some(Self::WebGpu),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeWebGpuPowerPreference {
+    LowPower,
+    HighPerformance,
+}
+
+impl NativeWebGpuPowerPreference {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "LowPower" => Some(Self::LowPower),
+            "HighPerformance" => Some(Self::HighPerformance),
             _ => None,
         }
     }
@@ -1601,6 +1642,10 @@ struct NativeEffectiveConfig {
     status_update_interval_ms: u64,
     max_fps: usize,
     animation_fps: usize,
+    front_end: NativeRenderFrontEnd,
+    webgpu_power_preference: NativeWebGpuPowerPreference,
+    prefer_egl: bool,
+    enable_wayland: bool,
     cursor_blink_rate_ms: u64,
     cursor_blink_ease_in: NativeEasingFunction,
     cursor_blink_ease_out: NativeEasingFunction,
@@ -1731,6 +1776,10 @@ struct NativeConfigOverrides {
     status_update_interval_ms: Option<u64>,
     max_fps: Option<usize>,
     animation_fps: Option<usize>,
+    front_end: Option<NativeRenderFrontEnd>,
+    webgpu_power_preference: Option<NativeWebGpuPowerPreference>,
+    prefer_egl: Option<bool>,
+    enable_wayland: Option<bool>,
     cursor_blink_rate_ms: Option<u64>,
     cursor_blink_ease_in: Option<NativeEasingFunction>,
     cursor_blink_ease_out: Option<NativeEasingFunction>,
@@ -2249,6 +2298,26 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(animation_fps) = lua_config_usize_assignment_from_query(config, "animation_fps") {
         overrides.animation_fps = Some(animation_fps);
+        parsed = true;
+    }
+    if let Some(front_end) = lua_config_string_assignment_from_query(config, "front_end") {
+        overrides.front_end = Some(NativeRenderFrontEnd::parse(&front_end)?);
+        parsed = true;
+    }
+    if let Some(webgpu_power_preference) =
+        lua_config_string_assignment_from_query(config, "webgpu_power_preference")
+    {
+        overrides.webgpu_power_preference = Some(NativeWebGpuPowerPreference::parse(
+            &webgpu_power_preference,
+        )?);
+        parsed = true;
+    }
+    if let Some(prefer_egl) = lua_config_bool_assignment_from_query(config, "prefer_egl") {
+        overrides.prefer_egl = Some(prefer_egl);
+        parsed = true;
+    }
+    if let Some(enable_wayland) = lua_config_bool_assignment_from_query(config, "enable_wayland") {
+        overrides.enable_wayland = Some(enable_wayland);
         parsed = true;
     }
     if let Some(command_palette_rows) =
@@ -4169,6 +4238,10 @@ struct NativeWindowApp {
     status_update_interval: Duration,
     max_fps: usize,
     animation_fps: usize,
+    front_end: NativeRenderFrontEnd,
+    webgpu_power_preference: NativeWebGpuPowerPreference,
+    prefer_egl: bool,
+    enable_wayland: bool,
     last_status_update_at: Option<Instant>,
     cursor_blink_rate: Duration,
     cursor_blink_ease_in: NativeEasingFunction,
@@ -5575,6 +5648,10 @@ impl NativeWindowApp {
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
+            front_end: DEFAULT_RENDER_FRONT_END,
+            webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+            prefer_egl: DEFAULT_PREFER_EGL,
+            enable_wayland: DEFAULT_ENABLE_WAYLAND,
             last_status_update_at: None,
             cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
             cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
@@ -6580,6 +6657,10 @@ impl NativeWindowApp {
         self.status_update_interval = source.status_update_interval;
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
+        self.front_end = source.front_end;
+        self.webgpu_power_preference = source.webgpu_power_preference;
+        self.prefer_egl = source.prefer_egl;
+        self.enable_wayland = source.enable_wayland;
         self.last_status_update_at = None;
         self.command_palette_rows = source.command_palette_rows;
         self.command_palette_bg_color = source.command_palette_bg_color;
@@ -13526,6 +13607,10 @@ impl NativeWindowApp {
                 .unwrap_or(u64::MAX),
             max_fps: self.max_fps,
             animation_fps: self.animation_fps,
+            front_end: self.front_end,
+            webgpu_power_preference: self.webgpu_power_preference,
+            prefer_egl: self.prefer_egl,
+            enable_wayland: self.enable_wayland,
             cursor_blink_rate_ms: u64::try_from(self.cursor_blink_rate.as_millis())
                 .unwrap_or(u64::MAX),
             cursor_blink_ease_in: self.cursor_blink_ease_in,
@@ -13675,6 +13760,12 @@ impl NativeWindowApp {
             .animation_fps
             .filter(|fps| *fps > 0)
             .unwrap_or(DEFAULT_ANIMATION_FPS);
+        self.front_end = overrides.front_end.unwrap_or(DEFAULT_RENDER_FRONT_END);
+        self.webgpu_power_preference = overrides
+            .webgpu_power_preference
+            .unwrap_or(DEFAULT_WEBGPU_POWER_PREFERENCE);
+        self.prefer_egl = overrides.prefer_egl.unwrap_or(DEFAULT_PREFER_EGL);
+        self.enable_wayland = overrides.enable_wayland.unwrap_or(DEFAULT_ENABLE_WAYLAND);
         self.apply_cursor_blink_overrides(
             overrides.cursor_blink_rate_ms,
             overrides.cursor_blink_ease_in,
@@ -36092,32 +36183,34 @@ mod tests {
         DEFAULT_CELL_WIDTH, DEFAULT_CHECK_FOR_UPDATES, DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_DEBUG_KEY_EVENTS, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
-        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
-        DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_SIZE,
+        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET,
-        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
+        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_RESIZE_INCREMENTS,
-        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WINDOW_BACKGROUND_OPACITY,
-        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
-        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
-        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
-        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
-        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
-        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
-        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
-        NativeFormatItem, NativeFormatUnderline, NativeHorizontalContentAlignment,
-        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
-        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeScrollBarHeight, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
-        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget, NativeWindowApp,
+        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_POWER_PREFERENCE,
+        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
+        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
+        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
+        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
+        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
+        NativeCursorStyle, NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig,
+        NativeExitBehavior, NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute,
+        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
+        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
+        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWindowApp,
         NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
         NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
         NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
@@ -45299,6 +45392,10 @@ mod tests {
                 status_update_interval_ms: 1_250,
                 max_fps: DEFAULT_MAX_FPS,
                 animation_fps: DEFAULT_ANIMATION_FPS,
+                front_end: DEFAULT_RENDER_FRONT_END,
+                webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+                prefer_egl: DEFAULT_PREFER_EGL,
+                enable_wayland: DEFAULT_ENABLE_WAYLAND,
                 cursor_blink_rate_ms: 800,
                 cursor_blink_ease_in: NativeEasingFunction::Linear,
                 cursor_blink_ease_out: NativeEasingFunction::Linear,
@@ -57899,6 +57996,49 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_render_backend_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.front_end, NativeRenderFrontEnd::OpenGl);
+        assert_eq!(
+            effective.webgpu_power_preference,
+            NativeWebGpuPowerPreference::LowPower
+        );
+        assert!(effective.prefer_egl);
+        assert!(effective.enable_wayland);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_render_backend_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.front_end = 'WebGpu'
+            config.webgpu_power_preference = 'HighPerformance'
+            config.prefer_egl = false
+            config.enable_wayland = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm render-backend config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.front_end, NativeRenderFrontEnd::WebGpu);
+        assert_eq!(
+            effective.webgpu_power_preference,
+            NativeWebGpuPowerPreference::HighPerformance
+        );
+        assert!(!effective.prefer_egl);
+        assert!(!effective.enable_wayland);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_palette_and_quick_select_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -63363,6 +63503,10 @@ mod tests {
             status_update_interval_ms: Some(250),
             max_fps: Some(144),
             animation_fps: Some(24),
+            front_end: Some(NativeRenderFrontEnd::WebGpu),
+            webgpu_power_preference: Some(NativeWebGpuPowerPreference::HighPerformance),
+            prefer_egl: Some(false),
+            enable_wayland: Some(false),
             cursor_blink_rate_ms: Some(375),
             cursor_blink_ease_in: Some(NativeEasingFunction::EaseIn),
             cursor_blink_ease_out: Some(NativeEasingFunction::EaseOut),
@@ -63566,6 +63710,10 @@ mod tests {
             status_update_interval_ms: 250,
             max_fps: 144,
             animation_fps: 24,
+            front_end: NativeRenderFrontEnd::WebGpu,
+            webgpu_power_preference: NativeWebGpuPowerPreference::HighPerformance,
+            prefer_egl: false,
+            enable_wayland: false,
             cursor_blink_rate_ms: 375,
             cursor_blink_ease_in: NativeEasingFunction::EaseIn,
             cursor_blink_ease_out: NativeEasingFunction::EaseOut,
@@ -63749,6 +63897,10 @@ mod tests {
             status_update_interval_ms: 1_000,
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
+            front_end: DEFAULT_RENDER_FRONT_END,
+            webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
+            prefer_egl: DEFAULT_PREFER_EGL,
+            enable_wayland: DEFAULT_ENABLE_WAYLAND,
             cursor_blink_rate_ms: 800,
             cursor_blink_ease_in: NativeEasingFunction::Linear,
             cursor_blink_ease_out: NativeEasingFunction::Linear,
