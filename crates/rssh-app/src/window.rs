@@ -1441,6 +1441,10 @@ struct NativePaneInformation {
 struct NativeTabBarItemColors {
     fg_color: Option<Color>,
     bg_color: Option<Color>,
+    intensity: Option<NativeFormatIntensity>,
+    underline: Option<NativeFormatUnderline>,
+    italic: Option<bool>,
+    strikethrough: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12445,37 +12449,16 @@ impl NativeWindowApp {
                     default_background,
                     active,
                 );
-                write_tab_bar_segment(
-                    &mut cells,
-                    &mut column,
-                    &label.prefix,
-                    style.foreground,
-                    style.background,
-                    style.bold,
-                );
+                write_tab_bar_ansi_segment(&mut cells, &mut column, &label.prefix, style);
                 match title.as_ref() {
                     Some(NativeTabTitle::Format(items)) => {
                         write_tab_bar_format_items(&mut cells, &mut column, items, style);
                     }
                     Some(NativeTabTitle::Text(_)) | None => {
-                        write_tab_bar_segment(
-                            &mut cells,
-                            &mut column,
-                            &label.title,
-                            style.foreground,
-                            style.background,
-                            style.bold,
-                        );
+                        write_tab_bar_ansi_segment(&mut cells, &mut column, &label.title, style);
                     }
                 }
-                write_tab_bar_segment(
-                    &mut cells,
-                    &mut column,
-                    &label.suffix,
-                    style.foreground,
-                    style.background,
-                    style.bold,
-                );
+                write_tab_bar_ansi_segment(&mut cells, &mut column, &label.suffix, style);
             }
         }
 
@@ -12490,14 +12473,13 @@ impl NativeWindowApp {
             } else {
                 self.tab_bar_new_tab_colors
             };
-            write_tab_bar_segment(
-                &mut cells,
-                &mut column,
-                tab_bar_new_tab_label(),
-                new_tab_colors.fg_color.unwrap_or(Color::Rgb(230, 230, 230)),
-                new_tab_colors.bg_color.unwrap_or(Color::Rgb(46, 56, 48)),
+            let style = tab_bar_item_segment_style(
+                new_tab_colors,
+                Color::Rgb(230, 230, 230),
+                Color::Rgb(46, 56, 48),
                 true,
             );
+            write_tab_bar_ansi_segment(&mut cells, &mut column, tab_bar_new_tab_label(), style);
         }
 
         if !self.right_status.is_empty() {
@@ -24190,15 +24172,63 @@ fn tab_bar_item_colors_lua_table_from_query(
             continue;
         };
         let key = split_lua_table_key_from_query(key.trim())?;
-        let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = value.trim();
         match key.as_str() {
-            "fg_color" => colors.fg_color = Some(lua_opaque_color_from_query(&value)?),
-            "bg_color" => colors.bg_color = Some(lua_opaque_color_from_query(&value)?),
+            "fg_color" => {
+                colors.fg_color = Some(lua_opaque_color_from_query(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+            }
+            "bg_color" => {
+                colors.bg_color = Some(lua_opaque_color_from_query(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+            }
+            "intensity" => {
+                colors.intensity = Some(tab_bar_item_intensity_from_query(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+            }
+            "underline" => {
+                colors.underline = Some(tab_bar_item_underline_from_query(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+            }
+            "italic" => colors.italic = Some(lua_bool_literal_from_query(value)? == "true"),
+            "strikethrough" => {
+                colors.strikethrough = Some(lua_bool_literal_from_query(value)? == "true");
+            }
             _ => {}
         }
     }
 
-    Some((colors.fg_color.is_some() || colors.bg_color.is_some()).then_some(colors))
+    Some(
+        (colors.fg_color.is_some()
+            || colors.bg_color.is_some()
+            || colors.intensity.is_some()
+            || colors.underline.is_some()
+            || colors.italic.is_some()
+            || colors.strikethrough.is_some())
+        .then_some(colors),
+    )
+}
+
+fn tab_bar_item_intensity_from_query(value: &str) -> Option<NativeFormatIntensity> {
+    match value {
+        "Normal" => Some(NativeFormatIntensity::Normal),
+        "Bold" => Some(NativeFormatIntensity::Bold),
+        "Half" => Some(NativeFormatIntensity::Half),
+        _ => None,
+    }
+}
+
+fn tab_bar_item_underline_from_query(value: &str) -> Option<NativeFormatUnderline> {
+    match value {
+        "None" => Some(NativeFormatUnderline::None),
+        "Single" => Some(NativeFormatUnderline::Single),
+        "Double" => Some(NativeFormatUnderline::Double),
+        _ => None,
+    }
 }
 
 fn lua_table_field_value_from_query<'a>(
@@ -31549,13 +31579,13 @@ const fn tab_bar_segment_style(
     }
 }
 
-const fn tab_bar_item_segment_style(
+fn tab_bar_item_segment_style(
     colors: NativeTabBarItemColors,
     default_foreground: Color,
     default_background: Color,
     bold: bool,
 ) -> TabBarSegmentStyle {
-    tab_bar_segment_style(
+    let mut style = tab_bar_segment_style(
         match colors.fg_color {
             Some(color) => color,
             None => default_foreground,
@@ -31565,7 +31595,33 @@ const fn tab_bar_item_segment_style(
             None => default_background,
         },
         bold,
-    )
+    );
+    if let Some(intensity) = colors.intensity {
+        match intensity {
+            NativeFormatIntensity::Normal => {
+                style.bold = false;
+                style.faint = false;
+            }
+            NativeFormatIntensity::Bold => {
+                style.bold = true;
+                style.faint = false;
+            }
+            NativeFormatIntensity::Half => {
+                style.bold = false;
+                style.faint = true;
+            }
+        }
+    }
+    if let Some(underline) = colors.underline {
+        style.underline_style = underline_style_for_native_format(underline);
+    }
+    if let Some(italic) = colors.italic {
+        style.italic = italic;
+    }
+    if let Some(strikethrough) = colors.strikethrough {
+        style.strikethrough = strikethrough;
+    }
+    style
 }
 
 fn tab_bar_tab_label_segments(
@@ -41529,6 +41585,87 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_tab_bar_item_styles() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              tab_bar = {
+                active_tab = {
+                  intensity = 'Normal',
+                  underline = 'Single',
+                  italic = true,
+                  strikethrough = true,
+                },
+                inactive_tab = {
+                  intensity = 'Half',
+                  underline = 'Double',
+                  italic = true,
+                  strikethrough = true,
+                },
+                new_tab = {
+                  intensity = 'Half',
+                  underline = 'Single',
+                  italic = true,
+                  strikethrough = true,
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar item style config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let inactive_column = tab_bar
+            .find("1:1")
+            .expect("inactive tab label should be visible");
+        let active_column = tab_bar
+            .find("2:2*")
+            .expect("active tab label should be visible");
+        let new_tab_column = tab_bar.find('+').expect("new-tab button should be visible");
+        let inactive_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(inactive_column).unwrap()).unwrap();
+        let active_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+        let new_tab_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(new_tab_column).unwrap()).unwrap();
+
+        assert!(!active_cell.bold);
+        assert!(!active_cell.faint);
+        assert!(active_cell.italic);
+        assert!(active_cell.strikethrough);
+        assert_eq!(
+            active_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Single
+        );
+        assert!(!inactive_cell.bold);
+        assert!(inactive_cell.faint);
+        assert!(inactive_cell.italic);
+        assert!(inactive_cell.strikethrough);
+        assert_eq!(
+            inactive_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Double
+        );
+        assert!(!new_tab_cell.bold);
+        assert!(new_tab_cell.faint);
+        assert!(new_tab_cell.italic);
+        assert!(new_tab_cell.strikethrough);
+        assert_eq!(
+            new_tab_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Single
+        );
+    }
+
+    #[test]
     fn window_app_applies_wezterm_tab_bar_hover_item_colors() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -41545,6 +41682,10 @@ mod tests {
                 inactive_tab_hover = {
                   bg_color = '#070809',
                   fg_color = '#0a0b0c',
+                  intensity = 'Bold',
+                  underline = 'Double',
+                  italic = true,
+                  strikethrough = true,
                 },
                 new_tab = {
                   bg_color = '#0d0e0f',
@@ -41553,6 +41694,10 @@ mod tests {
                 new_tab_hover = {
                   bg_color = '#131415',
                   fg_color = '#161718',
+                  intensity = 'Normal',
+                  underline = 'Single',
+                  italic = true,
+                  strikethrough = true,
                 },
               },
             }
@@ -41582,6 +41727,14 @@ mod tests {
             rssh_terminal::Color::Rgb(10, 11, 12)
         );
         assert_eq!(inactive_cell.background, rssh_terminal::Color::Rgb(7, 8, 9));
+        assert!(inactive_cell.bold);
+        assert!(!inactive_cell.faint);
+        assert!(inactive_cell.italic);
+        assert!(inactive_cell.strikethrough);
+        assert_eq!(
+            inactive_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Double
+        );
 
         let new_tab_column = app
             .tab_bar_new_tab_column_start()
@@ -41600,6 +41753,14 @@ mod tests {
         assert_eq!(
             new_tab_cell.background,
             rssh_terminal::Color::Rgb(19, 20, 21)
+        );
+        assert!(!new_tab_cell.bold);
+        assert!(!new_tab_cell.faint);
+        assert!(new_tab_cell.italic);
+        assert!(new_tab_cell.strikethrough);
+        assert_eq!(
+            new_tab_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Single
         );
     }
 
@@ -61840,22 +62001,27 @@ mod tests {
             tab_bar_active_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(28, 29, 30)),
                 bg_color: Some(Color::Rgb(31, 32, 33)),
+                ..Default::default()
             },
             tab_bar_inactive_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(34, 35, 36)),
                 bg_color: Some(Color::Rgb(37, 38, 39)),
+                ..Default::default()
             },
             tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(46, 47, 48)),
                 bg_color: Some(Color::Rgb(49, 50, 51)),
+                ..Default::default()
             },
             tab_bar_new_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(40, 41, 42)),
                 bg_color: Some(Color::Rgb(43, 44, 45)),
+                ..Default::default()
             },
             tab_bar_new_tab_hover_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(52, 53, 54)),
                 bg_color: Some(Color::Rgb(55, 56, 57)),
+                ..Default::default()
             },
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
@@ -62022,22 +62188,27 @@ mod tests {
             tab_bar_active_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(28, 29, 30)),
                 bg_color: Some(Color::Rgb(31, 32, 33)),
+                ..Default::default()
             },
             tab_bar_inactive_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(34, 35, 36)),
                 bg_color: Some(Color::Rgb(37, 38, 39)),
+                ..Default::default()
             },
             tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(46, 47, 48)),
                 bg_color: Some(Color::Rgb(49, 50, 51)),
+                ..Default::default()
             },
             tab_bar_new_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(40, 41, 42)),
                 bg_color: Some(Color::Rgb(43, 44, 45)),
+                ..Default::default()
             },
             tab_bar_new_tab_hover_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(52, 53, 54)),
                 bg_color: Some(Color::Rgb(55, 56, 57)),
+                ..Default::default()
             },
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
