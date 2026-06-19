@@ -23022,11 +23022,13 @@ fn split_lua_table_f64_array(value: &str) -> Option<Vec<f64>> {
 }
 
 fn split_lua_table_array_index_from_query(key: &str) -> Option<usize> {
-    key.strip_prefix('[')?
-        .strip_suffix(']')?
-        .trim()
-        .parse()
-        .ok()
+    let index = lua_trim_start_comments(key.trim().strip_prefix('[')?)?;
+    let literal = lua_unsigned_integer_literal_from_query(index)?;
+    let close = lua_trim_start_comments(index.get(literal.len()..)?)?;
+    if close.trim_start() != "]" {
+        return None;
+    }
+    literal.parse().ok()
 }
 
 fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
@@ -52315,6 +52317,38 @@ mod tests {
             app.default_cwd.as_deref(),
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_numeric_index_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = {
+              [
+                -- program index
+                1 -- close bracket after comment
+              ] = 'nu',
+              [
+                -- argument index
+                2 -- close bracket after comment
+              ] = '--login',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
     }
 
     #[test]
