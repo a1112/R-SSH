@@ -23858,8 +23858,156 @@ fn lua_hex_color_from_query(value: &str) -> Option<Color> {
     Some(Color::Rgb(red, green, blue))
 }
 
+fn lua_named_color_from_query(value: &str) -> Option<Color> {
+    let color = match value.trim().to_ascii_lowercase().as_str() {
+        "aliceblue" => Color::Rgb(240, 248, 255),
+        "antiquewhite" => Color::Rgb(250, 235, 215),
+        "aqua" | "cyan" => Color::Rgb(0, 255, 255),
+        "aquamarine" => Color::Rgb(127, 255, 212),
+        "azure" => Color::Rgb(240, 255, 255),
+        "beige" => Color::Rgb(245, 245, 220),
+        "bisque" => Color::Rgb(255, 228, 196),
+        "black" => Color::Rgb(0, 0, 0),
+        "blanchedalmond" => Color::Rgb(255, 235, 205),
+        "blue" => Color::Rgb(0, 0, 255),
+        "blueviolet" => Color::Rgb(138, 43, 226),
+        "brown" => Color::Rgb(165, 42, 42),
+        "burlywood" => Color::Rgb(222, 184, 135),
+        "cadetblue" => Color::Rgb(95, 158, 160),
+        "chartreuse" => Color::Rgb(127, 255, 0),
+        "chocolate" => Color::Rgb(210, 105, 30),
+        "coral" => Color::Rgb(255, 127, 80),
+        "cornflowerblue" => Color::Rgb(100, 149, 237),
+        "cornsilk" => Color::Rgb(255, 248, 220),
+        "crimson" => Color::Rgb(220, 20, 60),
+        "darkblue" => Color::Rgb(0, 0, 139),
+        "darkcyan" => Color::Rgb(0, 139, 139),
+        "darkgoldenrod" => Color::Rgb(184, 134, 11),
+        "darkgray" | "darkgrey" => Color::Rgb(169, 169, 169),
+        "darkgreen" => Color::Rgb(0, 100, 0),
+        "darkkhaki" => Color::Rgb(189, 183, 107),
+        "darkmagenta" => Color::Rgb(139, 0, 139),
+        "darkolivegreen" => Color::Rgb(85, 107, 47),
+        "darkorange" => Color::Rgb(255, 140, 0),
+        "darkorchid" => Color::Rgb(153, 50, 204),
+        "darkred" => Color::Rgb(139, 0, 0),
+        "darksalmon" => Color::Rgb(233, 150, 122),
+        "darkseagreen" => Color::Rgb(143, 188, 143),
+        "darkslateblue" => Color::Rgb(72, 61, 139),
+        "darkslategray" | "darkslategrey" => Color::Rgb(47, 79, 79),
+        "darkturquoise" => Color::Rgb(0, 206, 209),
+        "darkviolet" => Color::Rgb(148, 0, 211),
+        "deeppink" => Color::Rgb(255, 20, 147),
+        "deepskyblue" => Color::Rgb(0, 191, 255),
+        "dimgray" | "dimgrey" => Color::Rgb(105, 105, 105),
+        "dodgerblue" => Color::Rgb(30, 144, 255),
+        "firebrick" => Color::Rgb(178, 34, 34),
+        "floralwhite" => Color::Rgb(255, 250, 240),
+        "forestgreen" => Color::Rgb(34, 139, 34),
+        "fuchsia" | "magenta" => Color::Rgb(255, 0, 255),
+        "gainsboro" => Color::Rgb(220, 220, 220),
+        "ghostwhite" => Color::Rgb(248, 248, 255),
+        "gold" => Color::Rgb(255, 215, 0),
+        "goldenrod" => Color::Rgb(218, 165, 32),
+        "gray" | "grey" => Color::Rgb(128, 128, 128),
+        "green" => Color::Rgb(0, 128, 0),
+        "greenyellow" => Color::Rgb(173, 255, 47),
+        "honeydew" => Color::Rgb(240, 255, 240),
+        "hotpink" => Color::Rgb(255, 105, 180),
+        "indianred" => Color::Rgb(205, 92, 92),
+        "indigo" => Color::Rgb(75, 0, 130),
+        "ivory" => Color::Rgb(255, 255, 240),
+        "khaki" => Color::Rgb(240, 230, 140),
+        "lavender" => Color::Rgb(230, 230, 250),
+        "lavenderblush" => Color::Rgb(255, 240, 245),
+        "lawngreen" => Color::Rgb(124, 252, 0),
+        "lemonchiffon" => Color::Rgb(255, 250, 205),
+        "lightblue" => Color::Rgb(173, 216, 230),
+        "lightcoral" => Color::Rgb(240, 128, 128),
+        "lightcyan" => Color::Rgb(224, 255, 255),
+        "lightgoldenrodyellow" => Color::Rgb(250, 250, 210),
+        "lightgray" | "lightgrey" => Color::Rgb(211, 211, 211),
+        "lightgreen" => Color::Rgb(144, 238, 144),
+        "lightpink" => Color::Rgb(255, 182, 193),
+        "lightsalmon" => Color::Rgb(255, 160, 122),
+        "lightseagreen" => Color::Rgb(32, 178, 170),
+        "lightskyblue" => Color::Rgb(135, 206, 250),
+        "lightslategray" | "lightslategrey" => Color::Rgb(119, 136, 153),
+        "lightsteelblue" => Color::Rgb(176, 196, 222),
+        "lightyellow" => Color::Rgb(255, 255, 224),
+        "lime" => Color::Rgb(0, 255, 0),
+        "limegreen" => Color::Rgb(50, 205, 50),
+        "linen" => Color::Rgb(250, 240, 230),
+        "maroon" => Color::Rgb(128, 0, 0),
+        "mediumaquamarine" => Color::Rgb(102, 205, 170),
+        "mediumblue" => Color::Rgb(0, 0, 205),
+        "mediumorchid" => Color::Rgb(186, 85, 211),
+        "mediumpurple" => Color::Rgb(147, 112, 219),
+        "mediumseagreen" => Color::Rgb(60, 179, 113),
+        "mediumslateblue" => Color::Rgb(123, 104, 238),
+        "mediumspringgreen" => Color::Rgb(0, 250, 154),
+        "mediumturquoise" => Color::Rgb(72, 209, 204),
+        "mediumvioletred" => Color::Rgb(199, 21, 133),
+        "midnightblue" => Color::Rgb(25, 25, 112),
+        "mintcream" => Color::Rgb(245, 255, 250),
+        "mistyrose" => Color::Rgb(255, 228, 225),
+        "moccasin" => Color::Rgb(255, 228, 181),
+        "navajowhite" => Color::Rgb(255, 222, 173),
+        "navy" => Color::Rgb(0, 0, 128),
+        "oldlace" => Color::Rgb(253, 245, 230),
+        "olive" => Color::Rgb(128, 128, 0),
+        "olivedrab" => Color::Rgb(107, 142, 35),
+        "orange" => Color::Rgb(255, 165, 0),
+        "orangered" => Color::Rgb(255, 69, 0),
+        "orchid" => Color::Rgb(218, 112, 214),
+        "palegoldenrod" => Color::Rgb(238, 232, 170),
+        "palegreen" => Color::Rgb(152, 251, 152),
+        "paleturquoise" => Color::Rgb(175, 238, 238),
+        "palevioletred" => Color::Rgb(219, 112, 147),
+        "papayawhip" => Color::Rgb(255, 239, 213),
+        "peachpuff" => Color::Rgb(255, 218, 185),
+        "peru" => Color::Rgb(205, 133, 63),
+        "pink" => Color::Rgb(255, 192, 203),
+        "plum" => Color::Rgb(221, 160, 221),
+        "powderblue" => Color::Rgb(176, 224, 230),
+        "purple" => Color::Rgb(128, 0, 128),
+        "rebeccapurple" => Color::Rgb(102, 51, 153),
+        "red" => Color::Rgb(255, 0, 0),
+        "rosybrown" => Color::Rgb(188, 143, 143),
+        "royalblue" => Color::Rgb(65, 105, 225),
+        "saddlebrown" => Color::Rgb(139, 69, 19),
+        "salmon" => Color::Rgb(250, 128, 114),
+        "sandybrown" => Color::Rgb(244, 164, 96),
+        "seagreen" => Color::Rgb(46, 139, 87),
+        "seashell" => Color::Rgb(255, 245, 238),
+        "sienna" => Color::Rgb(160, 82, 45),
+        "silver" => Color::Rgb(192, 192, 192),
+        "skyblue" => Color::Rgb(135, 206, 235),
+        "slateblue" => Color::Rgb(106, 90, 205),
+        "slategray" | "slategrey" => Color::Rgb(112, 128, 144),
+        "snow" => Color::Rgb(255, 250, 250),
+        "springgreen" => Color::Rgb(0, 255, 127),
+        "steelblue" => Color::Rgb(70, 130, 180),
+        "tan" => Color::Rgb(210, 180, 140),
+        "teal" => Color::Rgb(0, 128, 128),
+        "thistle" => Color::Rgb(216, 191, 216),
+        "tomato" => Color::Rgb(255, 99, 71),
+        "transparent" => Color::Rgba(0, 0, 0, 0),
+        "turquoise" => Color::Rgb(64, 224, 208),
+        "violet" => Color::Rgb(238, 130, 238),
+        "wheat" => Color::Rgb(245, 222, 179),
+        "white" => Color::Rgb(255, 255, 255),
+        "whitesmoke" => Color::Rgb(245, 245, 245),
+        "yellow" => Color::Rgb(255, 255, 0),
+        "yellowgreen" => Color::Rgb(154, 205, 50),
+        _ => return None,
+    };
+    Some(color)
+}
+
 fn lua_color_from_query(value: &str) -> Option<Color> {
     lua_hex_color_from_query(value)
+        .or_else(|| lua_named_color_from_query(value))
         .or_else(|| lua_rgb_color_from_query(value))
         .or_else(|| lua_hsl_color_from_query(value))
         .or_else(|| lua_hwb_color_from_query(value))
@@ -36865,6 +37013,76 @@ mod tests {
         assert!(
             plain_cell_uses_opaque_hwb_foreground,
             "non-selection HWB foreground alpha was not ignored"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_named_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'red',
+              background = 'lime',
+              selection_fg = 'silver',
+              selection_bg = 'navy',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm named color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"AB").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_named_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 0, 128, 255])
+            });
+        let selected_cell_uses_named_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [192, 192, 192, 255]
+                })
+            });
+        let plain_cell_uses_named_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_named_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [255, 0, 0, 255])
+            });
+        assert!(
+            selected_cell_uses_named_background,
+            "selection_bg named color did not render"
+        );
+        assert!(
+            selected_cell_uses_named_foreground,
+            "selection_fg named color did not render"
+        );
+        assert!(
+            plain_cell_uses_named_background,
+            "background named color did not render"
+        );
+        assert!(
+            plain_cell_uses_named_foreground,
+            "foreground named color did not render"
         );
     }
 
