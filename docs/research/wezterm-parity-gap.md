@@ -567,7 +567,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SwitchToWorkspace { name = ..., spawn = { ... } }` and
   `wezterm.action.SwitchToWorkspace({ name = ..., spawn = { ... } })` table
   queries dispatch the same implemented `name` plus native `SpawnCommand`
-  subset. Native `ShowLauncher` opens the default Launcher Menu for
+  subset, including bracketed string table keys with long-bracket values.
+  Native `ShowLauncher` opens the default Launcher Menu for
   local-domain spawning plus native
   launch-menu items. Native `ShowLauncherArgs` accepts WezTerm-style
   pipe-separated flags through `show launcher <FLAGS>` and action-name
@@ -672,7 +673,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SpawnTab('DefaultDomain')`,
   `wezterm.action.SpawnTab { DomainName = 'local' }`, and
   `wezterm.action.SpawnTab({ DomainName = 'local' })` queries dispatch the same
-  implemented local-domain subset. Remote/mux named domain spawning remains open.
+  implemented local-domain subset, including bracketed string table keys with
+  long-bracket values. Remote/mux named domain spawning remains open.
 - Native `AttachDomain`/`DetachDomain` action parsing now recognizes official
   WezTerm-style domain action forms including `AttachDomain 'devhost'`,
   `AttachDomain('devhost')`, `DetachDomain 'CurrentPaneDomain'`, and
@@ -714,10 +716,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SplitVertical({ ... })` parenthesized Lua table calls now
   dispatch through the same implemented split table payload parser, with
   `SplitHorizontal`/`SplitVertical` also accepting top-level SpawnCommand
-  fields such as `args`, `cwd`, and `set_environment_variables`. Native
-  `SplitPane` payloads also support `top_level = true` by splitting the full
-  active-tab root region and compressing the existing layout into the source
-  side. Full Lua table parsing remains open.
+  fields such as `args`, `cwd`, and `set_environment_variables`, including
+  bracketed string table keys with long-bracket values for the implemented
+  split, size, and spawn-command fields. Native `SplitPane` payloads also
+  support `top_level = true` by splitting the full active-tab root region and
+  compressing the existing layout into the source side. Full Lua table parsing
+  remains open.
 - Command palette now exposes WezTerm-style `ToggleFullScreen` as
   `Toggle Full Screen`, using the same native fullscreen toggle as the default
   `Alt+Enter` shortcut; action-name `togglefullscreen` queries dispatch the

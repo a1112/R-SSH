@@ -20757,7 +20757,7 @@ fn switch_workspace_options_lua_table_from_query(
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         let value = value.trim().trim_end_matches(',').trim();
         if key.eq_ignore_ascii_case("name") {
@@ -22102,7 +22102,7 @@ fn spawn_tab_domain_lua_table_from_query(value: &str) -> Option<WindowSpawnTabDo
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
             return None;
@@ -22449,7 +22449,7 @@ fn split_pane_table_apply_field(
     if field.is_empty() {
         return Some(());
     }
-    let (key, value) = field.split_once('=')?;
+    let (key, value) = split_lua_table_assignment_from_field(field)?;
     let key = split_lua_table_key_from_query(key.trim())?;
     let value = value.trim().trim_end_matches(',').trim();
     if key.eq_ignore_ascii_case("direction") {
@@ -22535,7 +22535,7 @@ fn spawn_command_table_from_query(
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         let value = value.trim();
         if key.eq_ignore_ascii_case("args") {
@@ -22946,7 +22946,7 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
 
 fn split_pane_table_size_from_query(value: &str) -> Option<WindowSplitPaneSize> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-    let (key, value) = table.split_once('=')?;
+    let (key, value) = split_lua_table_assignment_from_field(table)?;
     let key = split_lua_table_key_from_query(key.trim())?;
     let amount = value.trim().trim_end_matches(',').trim().parse().ok()?;
     match key.to_ascii_lowercase().as_str() {
@@ -46769,6 +46769,29 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_spawn_tab_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnTab { [[=[DomainName]=]] = [[local]] }".to_owned(),
+        );
+        let expected_command =
+            WindowCommand::SpawnTab(WindowSpawnTabDomain::DomainName("local".to_owned()));
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected_command.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected_command));
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_parses_wezterm_attach_domain_action_queries_as_unsupported_actions() {
         let mut app = NativeWindowApp::new(None);
 
@@ -59901,6 +59924,39 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_split_pane_wezterm_action_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SplitPane { [[=[direction]=]] = [[Left]], [[=[size]=]] = { [[=[Cells]=]] = 20 }, [[=[command]=]] = { [[=[cwd]=]] = [[C:/Project Dir]], [[=[args]=]] = { [[top]], [[-d]], [[1]] } } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SplitPane(WindowSplitPaneOptions {
+                direction: rssh_core::app_shell::SplitDirection::Left,
+                domain: None,
+                command: Some(WindowSpawnCommandQuery {
+                    program: "top".to_owned(),
+                    args: vec!["-d".to_owned(), "1".to_owned()],
+                    cwd: Some("C:/Project Dir".to_owned()),
+                    environment: BTreeMap::new(),
+                    domain: None,
+                    window_position: None,
+                }),
+                command_options: None,
+                size: Some(WindowSplitPaneSize::Cells(20)),
+                top_level: false,
+            })]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_native_split_horizontal_alias_payload() {
         let mut app = NativeWindowApp::new_with_command(
             None,
@@ -70804,6 +70860,29 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SwitchToWorkspace { name = \"monitoring\", spawn = { args = { \"top\", \"-d\", \"1\" }, cwd = \"C:/Mon\" } }"
+                .to_owned(),
+        );
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Switch To Workspace");
+        assert!(app.command_palette_execute(WindowCommand::SwitchToWorkspace));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.app_shell.workspaces().len(), 2);
+        assert_eq!(app.app_shell.active_workspace().name(), "monitoring");
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Mon"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn command_palette_switch_workspace_table_long_bracket_key_query_can_spawn_command() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SwitchToWorkspace { [[=[name]=]] = [[monitoring]], [[=[spawn]=]] = { [[=[args]=]] = { [[top]], [[-d]], [[1]] }, [[=[cwd]=]] = [[C:/Mon]] } }"
                 .to_owned(),
         );
         let entries = app.command_palette_filtered_entries();
