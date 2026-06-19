@@ -174,6 +174,8 @@ const DEFAULT_FOREGROUND_TEXT_HSB: NativeInactivePaneHsb = NativeInactivePaneHsb
 };
 const DEFAULT_TEXT_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
     NativeTextBackgroundOpacity::ONE;
+const DEFAULT_WINDOW_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
+    NativeTextBackgroundOpacity::ONE;
 const DEFAULT_QUICK_SELECT_ALPHABET: &str = "asdfqwerzxcvjklmiuopghtybn";
 const DEFAULT_LAUNCHER_ALPHABET: &str = "1234567890abcdefghilmnopqrstuvwxyz";
 const DEFAULT_LAUNCHER_HELP_TEXT: &str =
@@ -1293,6 +1295,7 @@ struct NativeEffectiveConfig {
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_background_opacity: NativeTextBackgroundOpacity,
+    window_background_opacity: NativeTextBackgroundOpacity,
     default_cursor_style: NativeCursorStyle,
     cursor_thickness: Option<NativeCursorThickness>,
     underline_thickness: Option<NativeUnderlineThickness>,
@@ -1383,6 +1386,7 @@ struct NativeConfigOverrides {
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
+    window_background_opacity: Option<NativeTextBackgroundOpacity>,
     default_cursor_style: Option<NativeCursorStyle>,
     cursor_thickness: Option<NativeCursorThickness>,
     underline_thickness: Option<NativeUnderlineThickness>,
@@ -1557,6 +1561,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.text_background_opacity = Some(native_text_background_opacity_from_alpha(
             text_background_opacity,
+        )?);
+        parsed = true;
+    }
+    if let Some(window_background_opacity) =
+        lua_config_f32_assignment_from_query(config, "window_background_opacity")
+    {
+        overrides.window_background_opacity = Some(native_text_background_opacity_from_alpha(
+            window_background_opacity,
         )?);
         parsed = true;
     }
@@ -3413,6 +3425,7 @@ struct NativeWindowApp {
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_background_opacity: NativeTextBackgroundOpacity,
+    window_background_opacity: NativeTextBackgroundOpacity,
     inactive_pane_hsb: NativeInactivePaneHsb,
     tab_max_width: usize,
     command_palette_rows: Option<usize>,
@@ -4621,6 +4634,7 @@ impl NativeWindowApp {
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
+            window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             tab_max_width: DEFAULT_TAB_MAX_WIDTH,
             command_palette_rows: None,
@@ -5527,6 +5541,7 @@ impl NativeWindowApp {
         detached_app
             .apply_bold_brightens_ansi_colors_override(Some(self.bold_brightens_ansi_colors));
         detached_app.text_background_opacity = self.text_background_opacity;
+        detached_app.window_background_opacity = self.window_background_opacity;
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
         detached_app.command_palette_rows = self.command_palette_rows;
         detached_app
@@ -5629,6 +5644,7 @@ impl NativeWindowApp {
         self.foreground_text_hsb = source.foreground_text_hsb;
         self.bold_brightens_ansi_colors = source.bold_brightens_ansi_colors;
         self.text_background_opacity = source.text_background_opacity;
+        self.window_background_opacity = source.window_background_opacity;
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
@@ -10799,6 +10815,8 @@ impl NativeWindowApp {
             let snapshot =
                 foreground_text_hsb_snapshot(self.snapshot.clone(), self.foreground_text_hsb);
             let snapshot = text_background_opacity_snapshot(snapshot, self.text_background_opacity);
+            let snapshot =
+                window_background_opacity_snapshot(snapshot, self.window_background_opacity);
             let snapshot = self.apply_visual_bell_to_snapshot(
                 self.app_shell.active_pane_id(),
                 snapshot,
@@ -10829,6 +10847,8 @@ impl NativeWindowApp {
                 foreground_text_hsb_snapshot(pane_snapshot.clone(), self.foreground_text_hsb);
             pane_snapshot =
                 text_background_opacity_snapshot(pane_snapshot, self.text_background_opacity);
+            pane_snapshot =
+                window_background_opacity_snapshot(pane_snapshot, self.window_background_opacity);
             if rect.pane_id != active_pane {
                 pane_snapshot = inactive_pane_snapshot(pane_snapshot, self.inactive_pane_hsb);
             }
@@ -10850,7 +10870,9 @@ impl NativeWindowApp {
             .unwrap_or_else(|| {
                 let snapshot =
                     foreground_text_hsb_snapshot(self.snapshot.clone(), self.foreground_text_hsb);
-                text_background_opacity_snapshot(snapshot, self.text_background_opacity)
+                let snapshot =
+                    text_background_opacity_snapshot(snapshot, self.text_background_opacity);
+                window_background_opacity_snapshot(snapshot, self.window_background_opacity)
                     .with_row_offset(self.terminal_frame_row_offset())
             })
             .with_overlay_cells(self.pane_separator_cells(&layout))
@@ -12191,6 +12213,7 @@ impl NativeWindowApp {
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
             text_background_opacity: self.text_background_opacity,
+            window_background_opacity: self.window_background_opacity,
             default_cursor_style: self.default_cursor_style,
             cursor_thickness: self.cursor_thickness,
             underline_thickness: self.underline_thickness,
@@ -12300,6 +12323,9 @@ impl NativeWindowApp {
         self.text_background_opacity = overrides
             .text_background_opacity
             .unwrap_or(DEFAULT_TEXT_BACKGROUND_OPACITY);
+        self.window_background_opacity = overrides
+            .window_background_opacity
+            .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY);
         self.apply_default_cursor_style_override(overrides.default_cursor_style);
         self.apply_cursor_thickness_override(overrides.cursor_thickness);
         self.apply_underline_thickness_override(overrides.underline_thickness);
@@ -29560,6 +29586,19 @@ fn text_background_opacity_snapshot(
         .with_cell_colors_mapped(|role, color| text_background_opacity_color(role, color, opacity))
 }
 
+fn window_background_opacity_snapshot(
+    snapshot: TerminalRenderSnapshot,
+    opacity: NativeTextBackgroundOpacity,
+) -> TerminalRenderSnapshot {
+    if opacity == DEFAULT_WINDOW_BACKGROUND_OPACITY {
+        return snapshot;
+    }
+
+    snapshot.with_cell_colors_mapped(|role, color| {
+        window_background_opacity_color(role, color, opacity)
+    })
+}
+
 fn visual_bell_color_from_foreground(foreground: Color) -> Color {
     match foreground {
         Color::Default => visual_bell_default_foreground_color(),
@@ -29807,6 +29846,27 @@ fn non_default_background_with_opacity(
             let [red, green, blue, _] = color_to_rgba(color, DEFAULT_RENDER_BACKGROUND_RGBA);
             Color::Rgba(red, green, blue, alpha)
         }
+    }
+}
+
+fn window_background_opacity_color(
+    role: RenderCellColorRole,
+    color: Color,
+    opacity: NativeTextBackgroundOpacity,
+) -> Color {
+    match role {
+        RenderCellColorRole::Background => default_background_with_opacity(color, opacity),
+        RenderCellColorRole::Foreground | RenderCellColorRole::Underline => color,
+    }
+}
+
+fn default_background_with_opacity(color: Color, opacity: NativeTextBackgroundOpacity) -> Color {
+    match color {
+        Color::Default => {
+            let [red, green, blue, _] = DEFAULT_RENDER_BACKGROUND_RGBA;
+            Color::Rgba(red, green, blue, opacity.as_alpha())
+        }
+        color => color,
     }
 }
 
@@ -33338,12 +33398,13 @@ mod tests {
         DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_STRIKETHROUGH_POSITION,
         DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
-        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WINDOW_PADDING,
-        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
-        NativeAudibleBell, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
-        NativeCellWidth, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
-        NativeConfigOverrides, NativeConfirmation, NativeCubicBezier, NativeCursorStyle,
-        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
+        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
+        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAudibleBell,
+        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
+        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
+        NativeConfirmation, NativeCubicBezier, NativeCursorStyle, NativeCursorThickness,
+        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeHsbMultiplier, NativeInactivePaneHsb,
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
@@ -41156,6 +41217,7 @@ mod tests {
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
                 text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
+                window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
                 default_cursor_style: NativeCursorStyle::SteadyBlock,
                 cursor_thickness: None,
                 underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
@@ -53736,6 +53798,29 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_window_background_opacity() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_background_opacity = 0.5
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window background opacity config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
+
+        assert_eq!(cell.background, Color::Rgba(12, 12, 12, 127));
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_hsb_table_long_bracket_key_query() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -58694,6 +58779,7 @@ mod tests {
             }),
             bold_brightens_ansi_colors: Some(NativeBoldBrightensAnsiColors::BrightOnly),
             text_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.4)),
+            window_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
             default_cursor_style: Some(NativeCursorStyle::BlinkingUnderline),
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
             underline_thickness: Some(NativeUnderlineThickness::Pixels(2)),
@@ -58824,6 +58910,7 @@ mod tests {
             },
             bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors::BrightOnly,
             text_background_opacity: NativeTextBackgroundOpacity::from_f32(0.4),
+            window_background_opacity: NativeTextBackgroundOpacity::from_f32(0.5),
             default_cursor_style: NativeCursorStyle::BlinkingUnderline,
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
             underline_thickness: Some(NativeUnderlineThickness::Pixels(2)),
@@ -58930,6 +59017,7 @@ mod tests {
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
+            window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
             default_cursor_style: NativeCursorStyle::SteadyBlock,
             cursor_thickness: None,
             underline_thickness: DEFAULT_UNDERLINE_THICKNESS,

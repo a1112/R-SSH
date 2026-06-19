@@ -124,7 +124,8 @@ keyboard, mouse, paste, resize
   terminal text underline placement, WezTerm-style `strikethrough_position`
   overrides for terminal text strikethrough decorations,
   `text_background_opacity` alpha transforms for non-default terminal
-  background cells, plus
+  background cells, `window_background_opacity` alpha transforms for default
+  terminal background cells, plus
   `inactive_pane_hsb` color transforms for inactive pane Default/Indexed/RGB/RGBA cells,
   click-to-focus with optional first-click swallowing honoring
   `swallow_mouse_click_on_pane_focus`, configurable window-focus click
@@ -889,7 +890,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
+  `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
@@ -970,7 +971,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
+  `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
