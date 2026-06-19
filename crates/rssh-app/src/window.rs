@@ -21930,27 +21930,7 @@ fn parse_lua_quoted_query_text(value: &str) -> Option<String> {
 
 fn parse_lua_long_bracket_query_text(value: &str) -> Option<String> {
     let value = value.trim();
-    let mut chars = value.char_indices();
-    let (_, first) = chars.next()?;
-    if first != '[' {
-        return None;
-    }
-
-    let mut level = 0usize;
-    let mut content_start = None;
-    for (index, character) in chars.by_ref() {
-        match character {
-            '=' => level += 1,
-            '[' => {
-                content_start = Some(index + character.len_utf8());
-                break;
-            }
-            _ => return None,
-        }
-    }
-
-    let content_start = content_start?;
-    let closing = format!("]{}]", "=".repeat(level));
+    let (content_start, closing) = parse_lua_long_bracket_delimiters(value)?;
     let content_and_rest = &value[content_start..];
     let close_index = content_and_rest.find(&closing)?;
     let mut content = &content_and_rest[..close_index];
@@ -21966,6 +21946,30 @@ fn parse_lua_long_bracket_query_text(value: &str) -> Option<String> {
     }
 
     Some(content.to_owned())
+}
+
+fn parse_lua_long_bracket_delimiters(value: &str) -> Option<(usize, String)> {
+    let mut chars = value.char_indices();
+    let (_, first) = chars.next()?;
+    if first != '[' {
+        return None;
+    }
+
+    let mut level = 0usize;
+    for (index, character) in chars {
+        match character {
+            '=' => level += 1,
+            '[' => {
+                return Some((
+                    index + character.len_utf8(),
+                    format!("]{}]", "=".repeat(level)),
+                ));
+            }
+            _ => return None,
+        }
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22851,7 +22855,14 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
     let mut quote = None;
     let mut start = 0usize;
     let mut escape = false;
+    let mut long_bracket_end = None;
     for (index, character) in table.char_indices() {
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
         if let Some(quoted) = quote {
             if escape {
                 escape = false;
@@ -22864,6 +22875,15 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
         }
         match character {
             '\'' | '"' => quote = Some(character),
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&table[index..])
+                {
+                    let content_and_rest = &table[index + content_start..];
+                    let close_index = content_and_rest.find(&closing)?;
+                    long_bracket_end = Some(index + content_start + close_index + closing.len());
+                }
+            }
             '{' => depth = depth.saturating_add(1),
             '}' => depth = depth.checked_sub(1)?,
             ',' | ';' if depth == 0 => {
@@ -68639,6 +68659,36 @@ mod tests {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_table_long_bracket_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SendString { string = [[alpha, beta]] }".to_owned(),
+        );
+
+        let expected = WindowCommand::SendString("alpha, beta".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"alpha, beta");
         assert_eq!(app.scrollback_offset, 0);
         assert!(app.command_palette.is_none());
     }
