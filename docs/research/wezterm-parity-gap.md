@@ -662,8 +662,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SpawnCommandInNewWindow` carries the WezTerm-style `position` payload into
   the detached native window's initial position, including Lua table
   `{ x = ..., y = ..., origin = ... }` values for screen, main-screen,
-  active-screen, and named-screen origins. Remote/mux domains and full Lua
-  parsing remain open.
+  active-screen, and named-screen origins, including bracketed string table keys
+  with long-bracket values on the position table and nested named-origin table.
+  Remote/mux domains and full Lua parsing remain open.
 - Native `SpawnTab` action payloads now carry a local-domain subset:
   `CurrentPaneDomain`, `DefaultDomain`, and `DomainName("local")` create and
   activate a new tab through the same native `NewTab` launch path. Structured

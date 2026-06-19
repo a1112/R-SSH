@@ -24999,7 +24999,7 @@ fn spawn_command_window_position_table_from_query(position: &str) -> Result<Wind
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=').ok_or(())?;
+        let (key, value) = split_lua_table_assignment_from_field(field).ok_or(())?;
         let key = split_lua_table_key_from_query(key.trim()).ok_or(())?;
         let value = value.trim();
         if key.eq_ignore_ascii_case("x") {
@@ -25049,7 +25049,7 @@ fn spawn_command_window_position_origin_from_query(
             if field.is_empty() {
                 continue;
             }
-            let (key, value) = field.split_once('=').ok_or(())?;
+            let (key, value) = split_lua_table_assignment_from_field(field).ok_or(())?;
             let key = split_lua_table_key_from_query(key.trim()).ok_or(())?;
             if !key.eq_ignore_ascii_case("named") || monitor.is_some() {
                 return Err(());
@@ -48177,6 +48177,42 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SpawnCommandInNewWindow { position = { x = 10, y = 300, origin = { Named = \"HDMI-1\" } }, args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::SpawnWindow]
+        );
+        assert!(app.command_palette_execute(WindowCommand::SpawnWindow));
+
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("spawn command table position query should request a pending detached window");
+        assert_eq!(
+            detached_app.initial_window_position(),
+            Some(crate::cli::WindowPosition {
+                origin: crate::cli::WindowPositionOrigin::Monitor("HDMI-1".to_owned()),
+                x: 10,
+                y: 300,
+            })
+        );
+        let launch = detached_app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_in_new_window_position_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewWindow { position = { [[=[x]=]] = 10, [[=[y]=]] = 300, [[=[origin]=]] = { [[=[Named]=]] = [[HDMI-1]] } }, args = { \"top\", \"-d\", \"1\" } }"
                 .to_owned(),
         );
 

@@ -160,7 +160,9 @@ runtime storage for tabs and split panes.
   launch paths, accept the local-domain subset `CurrentPaneDomain`,
   `DefaultDomain`, and `DomainName("local")`, and `SpawnCommandInNewWindow`
   carries the WezTerm-style `position` payload into the detached native
-  window's initial position.
+  window's initial position, including Lua table `{ x = ..., y = ...,
+  origin = ... }` values with bracketed string table keys and nested named
+  origins.
   No-argument action-name `spawnwindow` dispatches the same default
   `SpawnWindow` path as the command-palette entry.
   Split command-palette queries also accept explicit launch commands: `split
