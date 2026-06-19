@@ -23069,6 +23069,7 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     let mut line_comment = false;
     let mut block_comment_end = None;
     let mut key_end_before_comment = None;
+    let mut assignment = None;
     for (index, character) in field.char_indices() {
         if let Some(end) = block_comment_end {
             if index < end {
@@ -23099,6 +23100,9 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
             continue;
         }
         if depth == 0 && field[index..].starts_with("--") {
+            if let Some((key_end, value_start)) = assignment {
+                return Some((&field[..key_end], &field[value_start..index]));
+            }
             if key_end_before_comment.is_none() && !field[..index].trim().is_empty() {
                 key_end_before_comment = Some(index);
             }
@@ -23128,12 +23132,12 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
             '}' => depth = depth.checked_sub(1)?,
             '=' if depth == 0 => {
                 let key_end = key_end_before_comment.unwrap_or(index);
-                return Some((&field[..key_end], &field[index + character.len_utf8()..]));
+                assignment = Some((key_end, index + character.len_utf8()));
             }
             _ => {}
         }
     }
-    None
+    assignment.map(|(key_end, value_start)| (&field[..key_end], &field[value_start..]))
 }
 
 fn split_pane_table_size_from_query(value: &str) -> Option<WindowSplitPaneSize> {
@@ -52099,6 +52103,40 @@ mod tests {
             config.default_prog = { 'nu', '--login' }
             config.set_environment_variables = {
               PROJECT_MODE --[[ environment key ]] = 'dev',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_value_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {
+              PROJECT_MODE = 'dev' -- environment value
             }
 
             return config
