@@ -22918,8 +22918,15 @@ fn lua_hex_color_from_query(value: &str) -> Option<Color> {
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
-    if let Some(quoted) = key.strip_prefix('[').and_then(|key| key.strip_suffix(']')) {
-        let value = parse_maybe_quoted_query_text(quoted.trim())?;
+    if let Some(rest) = key.trim().strip_prefix('[') {
+        let quoted = lua_trim_start_comments(rest)?;
+        let literal = lua_quoted_string_literal_from_query(quoted)
+            .or_else(|| lua_long_bracket_literal_from_query(quoted))?;
+        let close = lua_trim_start_comments(quoted.get(literal.len()..)?)?;
+        if close.trim_start() != "]" {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(literal)?;
         return non_empty_spawn_command_option_value(&value).ok();
     }
     non_empty_spawn_command_option_value(key).ok()
@@ -23115,6 +23122,7 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
 
 fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     let mut depth = 0u32;
+    let mut bracket_depth = 0u32;
     let mut quote = None;
     let mut escape = false;
     let mut long_bracket_end = None;
@@ -23151,7 +23159,7 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
             }
             continue;
         }
-        if depth == 0 && field[index..].starts_with("--") {
+        if depth == 0 && bracket_depth == 0 && field[index..].starts_with("--") {
             if let Some((key_end, value_start)) = assignment {
                 return Some((&field[..key_end], &field[value_start..index]));
             }
@@ -23178,11 +23186,14 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
                     let content_and_rest = &field[index + content_start..];
                     let close_index = content_and_rest.find(&closing)?;
                     long_bracket_end = Some(index + content_start + close_index + closing.len());
+                } else {
+                    bracket_depth = bracket_depth.saturating_add(1);
                 }
             }
+            ']' if bracket_depth > 0 => bracket_depth -= 1,
             '{' => depth = depth.saturating_add(1),
             '}' => depth = depth.checked_sub(1)?,
-            '=' if depth == 0 => {
+            '=' if depth == 0 && bracket_depth == 0 => {
                 let key_end = key_end_before_comment.unwrap_or(index);
                 assignment = Some((key_end, index + character.len_utf8()));
             }
@@ -52246,6 +52257,43 @@ mod tests {
             config.default_prog = { 'nu', '--login' }
             config.set_environment_variables = {
               PROJECT_MODE --[[ environment key ]] = 'dev',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_table_bracket_key_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {
+              [
+                -- environment key
+                'PROJECT_MODE' -- close bracket after comment
+              ] = 'dev',
             }
 
             return config
