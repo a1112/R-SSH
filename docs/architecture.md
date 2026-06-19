@@ -805,9 +805,11 @@ keyboard, mouse, paste, resize
   remains future work. `use_ime` is stored with
   WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
-  is retained as an optional XIM server name for X11-style IME configuration;
-  actual platform IME/XIM connection and preedit rendering remain future parity
-  work. `detect_password_input` is stored with WezTerm's default `true`;
+  is retained as an optional XIM server name for X11-style IME configuration.
+  Native winit IME commit text is written to the active pane when `use_ime` is
+  enabled and ignored when disabled; preedit rendering and deeper platform
+  IME/XIM setup remain future parity work. `detect_password_input` is stored
+  with WezTerm's default `true`;
   actual Unix local-pane termios probing and lock-cursor rendering remain
   future parity work. `warn_about_missing_glyphs` is
   stored with WezTerm's default `true` and included in effective config

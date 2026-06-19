@@ -16240,6 +16240,15 @@ impl NativeWindowApp {
         )
     }
 
+    fn handle_ime_commit(&mut self, text: &str) -> io::Result<()> {
+        if !self.use_ime || text.is_empty() {
+            return Ok(());
+        }
+
+        self.hide_mouse_cursor_for_typing_if_needed();
+        self.write_pty_bytes(text.as_bytes())
+    }
+
     fn effective_kitty_keyboard_flags(&self) -> u16 {
         let mut flags = self.runtime.kitty_keyboard_flags();
         if self.enable_csi_u_key_encoding {
@@ -36813,6 +36822,12 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     event_loop.exit();
                 }
                 if self.take_application_quit_request() {
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::Ime(winit::event::Ime::Commit(text)) => {
+                if let Err(error) = self.handle_ime_commit(&text) {
+                    eprintln!("PTY IME input error: {error}");
                     event_loop.exit();
                 }
             }
@@ -58998,6 +59013,32 @@ mod tests {
             NativeImePreeditRendering::System
         );
         assert_eq!(effective.xim_im_name.as_deref(), Some("fcitx"));
+    }
+
+    #[test]
+    fn window_app_writes_ime_commit_text_when_ime_is_enabled() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.handle_ime_commit("かな").unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), "かな".as_bytes());
+    }
+
+    #[test]
+    fn window_app_ignores_ime_commit_text_when_ime_is_disabled() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            use_ime: Some(false),
+            ..NativeConfigOverrides::default()
+        });
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.handle_ime_commit("かな").unwrap();
+
+        assert!(written.lock().unwrap().is_empty());
     }
 
     #[test]
