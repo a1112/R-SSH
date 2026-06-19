@@ -18825,7 +18825,7 @@ fn input_selector_choice_lua_table_from_query(value: &str) -> Option<WindowInput
         if field.is_empty() {
             continue;
         }
-        let (name, value) = field.split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
         match name.to_ascii_lowercase().as_str() {
@@ -22604,7 +22604,7 @@ fn spawn_command_table_options_from_query(
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         let value = value.trim();
         if key.eq_ignore_ascii_case("args") {
@@ -22659,7 +22659,7 @@ fn split_lua_table_environment_from_query(value: &str) -> Option<BTreeMap<String
         if field.is_empty() {
             continue;
         }
-        let (name, value) = field.split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
         environment.insert(name, value);
@@ -23600,7 +23600,7 @@ fn quick_select_wrapped_key_assignment_action_from_value(
         return None;
     }
 
-    let (name, value) = field.split_once('=')?;
+    let (name, value) = split_lua_table_assignment_from_field(field)?;
     let name = split_lua_table_key_from_query(name.trim())?;
     match normalized_action_name_query(&name).as_str() {
         "copyto" => copy_destination_from_query(value).map(WindowQuickSelectAction::CopyTo),
@@ -53581,6 +53581,38 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_input_selector_choice_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = [[Pick Reply]], choices = { { [[=[label]=]] = [[No thanks]], [[=[id]=]] = [[decline]] }, { [[=[label]=]] = [[LGTM]], [[=[id]=]] = [[lgtm]] } }, alphabet = [[ab]], fuzzy = true }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::InputSelector(WindowInputSelectorOptions {
+                title: "Pick Reply".to_owned(),
+                choices: vec![
+                    WindowInputSelectorChoice {
+                        label: "No thanks".to_owned(),
+                        id: Some("decline".to_owned()),
+                    },
+                    WindowInputSelectorChoice {
+                        label: "LGTM".to_owned(),
+                        id: Some("lgtm".to_owned()),
+                    },
+                ],
+                alphabet: Some("ab".to_owned()),
+                description: None,
+                fuzzy_description: None,
+                fuzzy: true,
+            })]
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_input_selector_wezterm_action_parenthesized_table_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -63754,6 +63786,41 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_quick_select_wrapped_copy_to_long_bracket_key_query() {
+        let query = "wezterm.action.QuickSelectArgs { pattern = [[ticket-[0-9]+]], action = wezterm.action { [[=[CopyTo]=]] = [[PrimarySelection]] } }";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            action: Some(WindowQuickSelectAction::CopyTo(
+                WindowCopyDestination::PrimarySelection,
+            )),
+            ..WindowQuickSelectOptions::default()
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::EnterQuickSelect]
+        );
+        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(
+            quick_select.action,
+            WindowQuickSelectAction::CopyTo(WindowCopyDestination::PrimarySelection)
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+    }
+
+    #[test]
     fn window_app_dispatches_palette_quick_select_action_name_queries() {
         for (query, expected_options) in [
             (
@@ -70995,6 +71062,36 @@ mod tests {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-d", "1"]);
         assert_eq!(launch.cwd(), Some("C:/Mon"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn command_palette_switch_workspace_spawn_options_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SwitchToWorkspace { name = [[monitoring]], spawn = { [[=[cwd]=]] = [[C:/Project Dir]], [[=[set_environment_variables]=]] = { [[=[SPAWN_MODE]=]] = [[query]] } } }"
+                .to_owned(),
+        );
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Switch To Workspace");
+        assert!(app.command_palette_execute(WindowCommand::SwitchToWorkspace));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.app_shell.workspaces().len(), 2);
+        assert_eq!(app.app_shell.active_workspace().name(), "monitoring");
+        assert_eq!(launch.program(), "powershell");
+        assert_eq!(launch.args(), ["-NoProfile"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert_eq!(
+            launch.environment().get("SPAWN_MODE"),
+            Some(&"query".to_owned())
+        );
         assert!(app.command_palette.is_none());
     }
 

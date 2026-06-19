@@ -568,7 +568,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SwitchToWorkspace { name = ..., spawn = { ... } }` and
   `wezterm.action.SwitchToWorkspace({ name = ..., spawn = { ... } })` table
   queries dispatch the same implemented `name` plus native `SpawnCommand`
-  subset, including bracketed string table keys with long-bracket values.
+  subset, including bracketed string table keys with long-bracket values for
+  nested commandless spawn options and `set_environment_variables` entries.
   Native `ShowLauncher` opens the default Launcher Menu for
   local-domain spawning plus native
   launch-menu items. Native `ShowLauncherArgs` accepts WezTerm-style
@@ -818,7 +819,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   the `action` field now accepts nested implemented `CopyTo`
   KeyAssignment values such as `wezterm.action.CopyTo 'Clipboard'`,
   `act.CopyTo('PrimarySelection')`, and
-  `wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' }`, plus explicit
+  `wezterm.action { CopyTo = 'ClipboardAndPrimarySelection' }`, including
+  bracketed string keys on that nested wrapper table, plus explicit
   `Nop` KeyAssignments such as `wezterm.action.Nop` and `act.Nop()`, and
   destination-style `CompleteSelection`/`CompleteSelectionOrOpenLinkAtMouseCursor`
   KeyAssignments such as `wezterm.action.CompleteSelection 'Clipboard'` and
@@ -884,8 +886,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   also dispatch that native field subset, including bracketed string table keys
   with long-bracket values, when `choices` uses either the existing semicolon-
   delimited string form or WezTerm's Lua table-of-tables choice form with
-  `{ label = ..., id = ... }` entries. Lua `wezterm.action_callback` wiring
-  remains open.
+  `{ label = ..., id = ... }` entries, including bracketed string keys on those
+  nested choice tables. Lua `wezterm.action_callback` wiring remains open.
 - Native `Confirmation` action payloads now carry a message string, required Yes
   action, and optional No/cancel action. They open a modal confirmation overlay,
   dispatch typed native `accepted = true` events on Enter/`Y`/Space before

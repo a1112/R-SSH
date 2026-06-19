@@ -310,7 +310,11 @@ runtime storage for tabs and split panes.
   workspace spawn [--domain ...] [--cwd ...] [--env NAME=VALUE]
   [--set-environment-variables NAME=VALUE] [<program> [args...]]` creates a
   randomly named workspace with the requested launch
-  command or commandless spawn options. Native
+  command or commandless spawn options. WezTerm-style
+  `wezterm.action.SwitchToWorkspace { name = ..., spawn = { ... } }` table
+  queries dispatch the same implemented name and spawn subset, including
+  bracketed string keys for nested commandless spawn options and environment
+  entries. Native
   `ShowLauncher` opens the default Launcher Menu for
   local-domain spawning plus native launch-menu items, and action-name
   `showlauncher` queries dispatch that default launcher command. Native
@@ -425,7 +429,10 @@ runtime storage for tabs and split panes.
   `Ctrl+Shift+Space` key-assignment entry exposes `QuickSelect` with default
   native args, while `EnterQuickSelect` remains an internal command-palette
   query alias and action-name `enterquickselect` queries dispatch that default
-  entry. Lua option-table parsing and arbitrary custom callback actions
+  entry. WezTerm-style `wezterm.action.QuickSelectArgs { patterns = { ... },
+  alphabet = ..., label = ..., action = ... }` Lua table queries parse the same
+  implemented options, including bracketed string table keys and nested
+  `wezterm.action { CopyTo = ... }` wrapper keys. Arbitrary custom callback actions
   remain open.
 - `rssh-app` exposes a native WezTerm-style `PromptInputLine` action payload
   with `description`, `prompt`, and `initial_value`. It opens a modal line-input
@@ -468,8 +475,10 @@ runtime storage for tabs and split panes.
   `wezterm.action.InputSelector { title = ..., choices = "...", alphabet = ...,
   description = ..., fuzzy_description = ..., fuzzy = ... }` table-call queries
   also dispatch that native field subset when `choices` uses the existing
-  semicolon-delimited string form. Lua `wezterm.action_callback` wiring remains
-  later parity work.
+  semicolon-delimited string form or WezTerm's Lua table-of-tables choice form
+  with `{ label = ..., id = ... }` entries, including bracketed string keys on
+  those nested choice tables. Lua `wezterm.action_callback` wiring remains later
+  parity work.
 - `rssh-app` exposes a native WezTerm-style `Confirmation` action payload with a
   message string, required Yes action, and optional No/cancel action. It opens a
   modal confirmation overlay, dispatches a typed native handler with
