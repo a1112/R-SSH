@@ -23,13 +23,13 @@ use rssh_core::{
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
 use rssh_renderer::{
     PixelRenderer, RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole,
-    RenderCursorThickness, RenderGeometry, RenderScrollbarThumbSize, RenderStrikethroughPosition,
-    RenderUnderlinePosition, RenderUnderlineThickness, SCROLLBAR_WIDTH, ScrollbackScrollbar,
-    TerminalRenderSnapshot, color_to_rgba,
+    RenderCursorThickness, RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize,
+    RenderStrikethroughPosition, RenderUnderlinePosition, RenderUnderlineThickness,
+    SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot, color_to_rgba,
 };
 use rssh_terminal::{
-    CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, SemanticType, Terminal,
-    UnderlineStyle, VerticalAlign,
+    CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,
+    SemanticType, Terminal, UnderlineStyle, VerticalAlign,
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
@@ -4796,6 +4796,7 @@ struct NativeWindowApp {
     max_fps: usize,
     animation_fps: usize,
     last_redraw_request_at: Option<Instant>,
+    last_animation_redraw_request_at: Option<Instant>,
     front_end: NativeRenderFrontEnd,
     webgpu_power_preference: NativeWebGpuPowerPreference,
     webgpu_force_fallback_adapter: bool,
@@ -6230,6 +6231,7 @@ impl NativeWindowApp {
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
             last_redraw_request_at: None,
+            last_animation_redraw_request_at: None,
             front_end: DEFAULT_RENDER_FRONT_END,
             webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
             webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
@@ -7279,6 +7281,7 @@ impl NativeWindowApp {
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
         self.last_redraw_request_at = source.last_redraw_request_at;
+        self.last_animation_redraw_request_at = source.last_animation_redraw_request_at;
         self.front_end = source.front_end;
         self.webgpu_power_preference = source.webgpu_power_preference;
         self.webgpu_force_fallback_adapter = source.webgpu_force_fallback_adapter;
@@ -11640,6 +11643,10 @@ impl NativeWindowApp {
         Duration::from_secs_f64(1.0 / self.max_fps.max(1) as f64)
     }
 
+    fn animation_redraw_request_interval(&self) -> Duration {
+        Duration::from_secs_f64(1.0 / self.animation_fps.max(1) as f64)
+    }
+
     fn should_request_redraw_at(&mut self, now: Instant) -> bool {
         if self.last_redraw_request_at.is_some_and(|last| {
             now.saturating_duration_since(last) < self.redraw_request_interval()
@@ -11651,6 +11658,25 @@ impl NativeWindowApp {
         true
     }
 
+    fn should_request_animation_redraw_at(&mut self, now: Instant) -> bool {
+        if !self.has_active_animation_at(now) {
+            return false;
+        }
+
+        if self.last_animation_redraw_request_at.is_some_and(|last| {
+            now.saturating_duration_since(last) < self.animation_redraw_request_interval()
+        }) {
+            return false;
+        }
+
+        if !self.should_request_redraw_at(now) {
+            return false;
+        }
+
+        self.last_animation_redraw_request_at = Some(now);
+        true
+    }
+
     fn request_redraw_if_due(&mut self, now: Instant) {
         if !self.should_request_redraw_at(now) {
             return;
@@ -11658,6 +11684,94 @@ impl NativeWindowApp {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+
+    fn request_animation_redraw_if_due(&mut self, now: Instant) {
+        if !self.should_request_animation_redraw_at(now) {
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn has_active_animation_at(&self, now: Instant) -> bool {
+        self.has_active_cursor_blink_animation()
+            || self.has_active_text_blink_animation()
+            || self.has_active_visual_bell_at(now)
+            || self.has_active_inline_image_animation()
+    }
+
+    fn has_active_cursor_blink_animation(&self) -> bool {
+        !self.cursor_blink_rate.is_zero()
+            && self.snapshot.cursor().is_some_and(|cursor| cursor.blinking)
+    }
+
+    fn has_active_text_blink_animation(&self) -> bool {
+        let regular_blink_active = !self.text_blink_rate.is_zero();
+        let rapid_blink_active = !self.text_blink_rate_rapid.is_zero();
+        if !regular_blink_active && !rapid_blink_active {
+            return false;
+        }
+
+        self.pane_snapshots().any(|snapshot| {
+            snapshot_has_active_text_blink(snapshot, regular_blink_active, rapid_blink_active)
+        })
+    }
+
+    fn has_active_visual_bell_at(&self, now: Instant) -> bool {
+        if !self.visual_bell.is_enabled() {
+            return false;
+        }
+
+        self.visual_bell_started_at.values().any(|started| {
+            let Some(elapsed) = now.checked_duration_since(*started) else {
+                return true;
+            };
+            visual_bell_intensity(self.visual_bell, elapsed).is_some()
+        })
+    }
+
+    fn expire_visual_bells_if_due(&mut self, now: Instant) -> bool {
+        if self.visual_bell_started_at.is_empty() {
+            return false;
+        }
+
+        if !self.visual_bell.is_enabled() {
+            self.visual_bell_started_at.clear();
+            self.frame_needs_full_repaint = true;
+            return true;
+        }
+
+        let visual_bell = self.visual_bell;
+        let before = self.visual_bell_started_at.len();
+        self.visual_bell_started_at.retain(|_, started| {
+            let Some(elapsed) = now.checked_duration_since(*started) else {
+                return true;
+            };
+            visual_bell_intensity(visual_bell, elapsed).is_some()
+        });
+
+        if self.visual_bell_started_at.len() == before {
+            return false;
+        }
+
+        self.frame_needs_full_repaint = true;
+        true
+    }
+
+    fn has_active_inline_image_animation(&self) -> bool {
+        self.pane_snapshots().any(|snapshot| {
+            snapshot
+                .inline_images()
+                .iter()
+                .any(inline_image_may_animate)
+        })
+    }
+
+    fn pane_snapshots(&self) -> impl Iterator<Item = &TerminalRenderSnapshot> {
+        std::iter::once(&self.snapshot)
+            .chain(self.pane_runtimes.values().map(|runtime| &runtime.snapshot))
     }
 
     fn handle_pane_pty_output(
@@ -14460,6 +14574,7 @@ impl NativeWindowApp {
             .filter(|fps| *fps > 0)
             .unwrap_or(DEFAULT_ANIMATION_FPS);
         self.last_redraw_request_at = None;
+        self.last_animation_redraw_request_at = None;
         self.front_end = overrides.front_end.unwrap_or(DEFAULT_RENDER_FRONT_END);
         self.webgpu_power_preference = overrides
             .webgpu_power_preference
@@ -33262,6 +33377,23 @@ fn visual_bell_intensity(visual_bell: NativeVisualBell, elapsed: Duration) -> Op
     Some(1.0 - easing_value(visual_bell.fade_out_function, progress))
 }
 
+fn snapshot_has_active_text_blink(
+    snapshot: &TerminalRenderSnapshot,
+    regular_blink_active: bool,
+    rapid_blink_active: bool,
+) -> bool {
+    snapshot.cells().iter().any(|cell| {
+        cell.blink
+            && ((regular_blink_active && !cell.rapid_blink)
+                || (rapid_blink_active && cell.rapid_blink))
+    })
+}
+
+fn inline_image_may_animate(image: &RenderInlineImage) -> bool {
+    image.image_format == InlineImageFormat::Encoded
+        && (image.data.starts_with(b"GIF87a") || image.data.starts_with(b"GIF89a"))
+}
+
 fn duration_progress(elapsed: Duration, duration: Duration) -> f64 {
     let duration_ms = duration.as_millis();
     if duration_ms == 0 {
@@ -36581,12 +36713,23 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
 
         let now = Instant::now();
         for app in self.windows.values_mut() {
-            app.dispatch_update_status_if_due(now);
-            app.update_cursor_blink_phase_if_due(now);
-            app.update_text_blink_phase_if_due(now);
-            app.expire_key_table_stack_if_due(now);
-            app.expire_leader_key_if_due(now);
-            app.request_redraw_if_due(now);
+            let mut regular_redraw_needed =
+                app.frame_needs_full_repaint || !app.pending_frame_damage.is_empty();
+            regular_redraw_needed |= app.dispatch_update_status_if_due(now);
+            let cursor_animation_changed = app.update_cursor_blink_phase_if_due(now);
+            let text_animation_changed = app.update_text_blink_phase_if_due(now);
+            let animation_changed = cursor_animation_changed || text_animation_changed;
+            regular_redraw_needed |= app.expire_visual_bells_if_due(now);
+            regular_redraw_needed |= app.expire_key_table_stack_if_due(now);
+            regular_redraw_needed |= app.expire_leader_key_if_due(now);
+
+            let animation_active = app.has_active_animation_at(now);
+            if regular_redraw_needed || (animation_changed && !animation_active) {
+                app.request_redraw_if_due(now);
+            }
+            if animation_active {
+                app.request_animation_redraw_if_due(now);
+            }
         }
     }
 }
@@ -36736,12 +36879,23 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        self.dispatch_update_status_if_due(now);
-        self.update_cursor_blink_phase_if_due(now);
-        self.update_text_blink_phase_if_due(now);
-        self.expire_key_table_stack_if_due(now);
-        self.expire_leader_key_if_due(now);
-        self.request_redraw_if_due(now);
+        let mut regular_redraw_needed =
+            self.frame_needs_full_repaint || !self.pending_frame_damage.is_empty();
+        regular_redraw_needed |= self.dispatch_update_status_if_due(now);
+        let cursor_animation_changed = self.update_cursor_blink_phase_if_due(now);
+        let text_animation_changed = self.update_text_blink_phase_if_due(now);
+        let animation_changed = cursor_animation_changed || text_animation_changed;
+        regular_redraw_needed |= self.expire_visual_bells_if_due(now);
+        regular_redraw_needed |= self.expire_key_table_stack_if_due(now);
+        regular_redraw_needed |= self.expire_leader_key_if_due(now);
+
+        let animation_active = self.has_active_animation_at(now);
+        if regular_redraw_needed || (animation_changed && !animation_active) {
+            self.request_redraw_if_due(now);
+        }
+        if animation_active {
+            self.request_animation_redraw_if_due(now);
+        }
     }
 }
 
@@ -59073,6 +59227,65 @@ mod tests {
         assert!(app.should_request_redraw_at(next));
         assert!(!app.should_request_redraw_at(next + Duration::from_millis(6)));
         assert!(app.should_request_redraw_at(next + Duration::from_millis(7)));
+    }
+
+    #[test]
+    fn window_app_limits_animation_redraw_requests_to_configured_animation_fps() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            max_fps: Some(240),
+            ..NativeConfigOverrides::default()
+        });
+        let start = Instant::now();
+        app.visual_bell = NativeVisualBell {
+            fade_out_duration_ms: 1_000,
+            ..NativeVisualBell::default()
+        };
+        app.visual_bell_started_at
+            .insert(app.app_shell.active_pane_id(), start);
+
+        assert!(app.should_request_animation_redraw_at(start));
+        assert!(!app.should_request_animation_redraw_at(start + Duration::from_millis(99)));
+        assert!(app.should_request_animation_redraw_at(start + Duration::from_millis(100)));
+
+        app.set_config_overrides(NativeConfigOverrides {
+            animation_fps: Some(24),
+            max_fps: Some(240),
+            ..NativeConfigOverrides::default()
+        });
+        let next = start + Duration::from_millis(150);
+        app.visual_bell = NativeVisualBell {
+            fade_out_duration_ms: 1_000,
+            ..NativeVisualBell::default()
+        };
+        app.visual_bell_started_at
+            .insert(app.app_shell.active_pane_id(), next);
+
+        assert!(app.should_request_animation_redraw_at(next));
+        assert!(!app.should_request_animation_redraw_at(next + Duration::from_millis(41)));
+        assert!(app.should_request_animation_redraw_at(next + Duration::from_millis(42)));
+    }
+
+    #[test]
+    fn window_app_caps_animation_redraw_requests_by_max_fps() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            animation_fps: Some(240),
+            max_fps: Some(60),
+            ..NativeConfigOverrides::default()
+        });
+        let start = Instant::now();
+        app.visual_bell = NativeVisualBell {
+            fade_out_duration_ms: 1_000,
+            ..NativeVisualBell::default()
+        };
+        app.visual_bell_started_at
+            .insert(app.app_shell.active_pane_id(), start);
+
+        assert!(app.should_request_animation_redraw_at(start));
+        assert!(!app.should_request_animation_redraw_at(start + Duration::from_millis(5)));
+        assert!(!app.should_request_animation_redraw_at(start + Duration::from_millis(16)));
+        assert!(app.should_request_animation_redraw_at(start + Duration::from_millis(17)));
     }
 
     #[test]

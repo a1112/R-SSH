@@ -777,8 +777,10 @@ keyboard, mouse, paste, resize
   checks and update-window UI remain future parity work. `max_fps` is stored
   with WezTerm's default `60` and throttles native redraw requests from
   `about_to_wait` to the configured frame interval. `animation_fps` is stored
-  with the default `10`; dedicated animation redraw scheduling remains future
-  parity work. `front_end` is stored with WezTerm's current default `OpenGL`,
+  with the default `10` and drives dedicated redraw scheduling for active
+  cursor/text blink easing, visual bell fade, and animated inline-image frames,
+  while still respecting the global `max_fps` ceiling. `front_end` is stored
+  with WezTerm's current default `OpenGL`,
   `webgpu_power_preference` with `LowPower`, `webgpu_force_fallback_adapter`
   with `false`, optional static `webgpu_preferred_adapter` tables, and
   `prefer_egl`/`enable_wayland` with `true`; actual renderer front-end, WebGPU
