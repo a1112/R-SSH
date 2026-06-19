@@ -11264,6 +11264,7 @@ impl NativeWindowApp {
                 .with_overlay_cells(self.pane_badge_cells(&layout))
                 .with_overlay_cells(self.pane_select_cells(&layout))
                 .with_overlay_cells(self.tab_bar_cells())
+                .with_overlay_cells(self.quick_select_cells())
                 .with_overlay_cells(self.tab_navigator_cells())
                 .with_overlay_cells(self.command_palette_cells())
                 .with_overlay_cells(self.char_select_cells())
@@ -11315,6 +11316,7 @@ impl NativeWindowApp {
             .with_overlay_cells(self.pane_badge_cells(&layout))
             .with_overlay_cells(self.pane_select_cells(&layout))
             .with_overlay_cells(self.tab_bar_cells())
+            .with_overlay_cells(self.quick_select_cells())
             .with_overlay_cells(self.tab_navigator_cells())
             .with_overlay_cells(self.command_palette_cells())
             .with_overlay_cells(self.char_select_cells())
@@ -11640,6 +11642,63 @@ impl NativeWindowApp {
                     Color::Rgb(12, 12, 14),
                     Color::Rgb(255, 209, 102),
                     true,
+                ));
+            }
+        }
+
+        cells
+    }
+
+    fn quick_select_cells(&self) -> Vec<RenderCell> {
+        let Some(quick_select) = self.quick_select.as_ref() else {
+            return Vec::new();
+        };
+        if quick_select.matches.is_empty() {
+            return Vec::new();
+        }
+
+        let size = self.runtime.terminal().grid().size();
+        if size.rows == 0 || size.columns == 0 {
+            return Vec::new();
+        }
+
+        let history_len = self.runtime.terminal().scrollback().len();
+        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
+        let viewport_bottom = viewport_top.saturating_add(usize::from(size.rows));
+        let foreground = self
+            .quick_select_label_fg
+            .map(native_color_spec_to_render_color)
+            .unwrap_or(Color::Rgb(12, 12, 14));
+        let background = self
+            .quick_select_label_bg
+            .map(native_color_spec_to_render_color)
+            .unwrap_or(Color::Rgb(255, 209, 102));
+        let row_offset = self.terminal_frame_row_offset();
+        let mut cells = Vec::new();
+
+        for (matched, label) in quick_select.matches.iter().zip(&quick_select.labels) {
+            if label.is_empty()
+                || matched.source_row < viewport_top
+                || matched.source_row >= viewport_bottom
+            {
+                continue;
+            }
+            let row = matched
+                .source_row
+                .saturating_sub(viewport_top)
+                .try_into()
+                .unwrap_or(u16::MAX);
+            let row = row_offset.saturating_add(row);
+            let start_column = matched.start_column;
+
+            for (offset, ch) in label.chars().enumerate() {
+                let offset = u16::try_from(offset).unwrap_or(u16::MAX);
+                let column = start_column.saturating_add(offset);
+                if column >= size.columns {
+                    break;
+                }
+                cells.push(ui_render_cell(
+                    row, column, ch, foreground, background, true,
                 ));
             }
         }
@@ -44024,11 +44083,33 @@ mod tests {
         app.enter_quick_select_mode();
         let snapshot = app.render_snapshot();
         let match_cell =
-            snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("quick-select match cell");
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 1).expect("quick-select match cell");
 
         assert_eq!(match_cell.foreground, Color::Rgb(1, 2, 3));
         assert_eq!(match_cell.background, Color::Indexed(4));
         assert!(!match_cell.inverse);
+    }
+
+    #[test]
+    fn window_quick_select_renders_configured_label_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
+        app.set_config_overrides(NativeConfigOverrides {
+            quick_select_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"https://example.com").unwrap();
+
+        app.enter_quick_select_mode();
+        let snapshot = app.render_snapshot();
+        let label_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("quick-select label cell");
+
+        assert_eq!(label_cell.ch, 'a');
+        assert_eq!(label_cell.foreground, Color::Rgb(4, 5, 6));
+        assert_eq!(label_cell.background, Color::Indexed(4));
+        assert!(!label_cell.inverse);
     }
 
     #[test]

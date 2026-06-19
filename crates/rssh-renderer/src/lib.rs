@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::{collections::HashSet, io::Cursor};
 
 use font8x8::{BASIC_FONTS, UnicodeFonts};
 use image::AnimationDecoder;
@@ -2429,6 +2429,16 @@ impl TerminalRenderSnapshot {
 
     #[must_use]
     pub fn with_overlay_cells(mut self, cells: impl IntoIterator<Item = RenderCell>) -> Self {
+        let cells = cells.into_iter().collect::<Vec<_>>();
+        if cells.is_empty() {
+            return self;
+        }
+        let overlay_positions = cells
+            .iter()
+            .map(|cell| (cell.row, cell.column))
+            .collect::<HashSet<_>>();
+        self.cells
+            .retain(|cell| !overlay_positions.contains(&(cell.row, cell.column)));
         self.cells.extend(cells);
         self.cells.sort_by_key(|cell| (cell.row, cell.column));
         self
@@ -3270,10 +3280,32 @@ mod tests {
                 vertical_align: VerticalAlign::Baseline,
                 inverse: false,
                 hyperlink: None,
+            }])
+            .with_overlay_cells([RenderCell {
+                row: 1,
+                column: 0,
+                ch: 'O',
+                foreground: Color::Default,
+                background: Color::Default,
+                underline_color: Color::Default,
+                underline_style: UnderlineStyle::None,
+                bold: false,
+                faint: false,
+                italic: false,
+                blink: false,
+                rapid_blink: false,
+                underline: false,
+                double_underline: false,
+                conceal: false,
+                strikethrough: false,
+                overline: false,
+                vertical_align: VerticalAlign::Baseline,
+                inverse: false,
+                hyperlink: None,
             }]);
 
         assert_eq!(snapshot_char(&snapshot, 0, 0), Some('T'));
-        assert_eq!(snapshot_char(&snapshot, 1, 0), Some('a'));
+        assert_eq!(snapshot_char(&snapshot, 1, 0), Some('O'));
         assert_eq!(snapshot_char(&snapshot, 1, 2), Some('c'));
     }
 
