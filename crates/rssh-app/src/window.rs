@@ -1405,6 +1405,8 @@ struct NativeEffectiveConfig {
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
     indexed_palette: Option<[Option<Color>; 256]>,
+    selection_fg_color: Option<Color>,
+    selection_bg_color: Option<Color>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -1504,6 +1506,8 @@ struct NativeConfigOverrides {
     background_color: Option<Color>,
     ansi_palette: Option<[Color; 16]>,
     indexed_palette: Option<[Option<Color>; 256]>,
+    selection_fg_color: Option<Color>,
+    selection_bg_color: Option<Color>,
     cursor_bg_color: Option<Color>,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -1631,6 +1635,16 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(indexed_palette) = indexed_palette_lua_table_field_from_query(colors)? {
             overrides.indexed_palette = Some(indexed_palette);
+            parsed = true;
+        }
+        if let Some(selection_fg_color) = color_lua_table_field_from_query(colors, "selection_fg")?
+        {
+            overrides.selection_fg_color = Some(selection_fg_color);
+            parsed = true;
+        }
+        if let Some(selection_bg_color) = color_lua_table_field_from_query(colors, "selection_bg")?
+        {
+            overrides.selection_bg_color = Some(selection_bg_color);
             parsed = true;
         }
         if let Some(cursor_bg_color) = color_lua_table_field_from_query(colors, "cursor_bg")? {
@@ -3591,6 +3605,8 @@ struct NativeWindowApp {
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
     indexed_palette: Option<[Option<Color>; 256]>,
+    selection_fg_color: Option<Color>,
+    selection_bg_color: Option<Color>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -4808,6 +4824,8 @@ impl NativeWindowApp {
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
             indexed_palette: None,
+            selection_fg_color: None,
+            selection_bg_color: None,
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
@@ -5739,6 +5757,8 @@ impl NativeWindowApp {
         detached_app
             .renderer
             .set_indexed_palette(self.indexed_palette.map(native_indexed_palette_to_rgba));
+        detached_app.selection_fg_color = self.selection_fg_color;
+        detached_app.selection_bg_color = self.selection_bg_color;
         detached_app.cursor_bg_color = self.cursor_bg_color;
         detached_app
             .renderer
@@ -5879,6 +5899,8 @@ impl NativeWindowApp {
         self.indexed_palette = source.indexed_palette;
         self.renderer
             .set_indexed_palette(source.indexed_palette.map(native_indexed_palette_to_rgba));
+        self.selection_fg_color = source.selection_fg_color;
+        self.selection_bg_color = source.selection_bg_color;
         self.cursor_bg_color = source.cursor_bg_color;
         self.renderer.set_default_cursor_color(color_to_rgba(
             source.cursor_bg_color,
@@ -10328,7 +10350,11 @@ impl NativeWindowApp {
         let snapshot = terminal_runtime_snapshot(&self.runtime, self.scrollback_offset);
         let size = self.runtime.terminal().grid().size();
         self.snapshot = if let Some(selection) = self.selection {
-            snapshot.with_inverse_overlay(|row, column| selection.contains(row, column, size))
+            snapshot.with_selection_colors_overlay(
+                |row, column| selection.contains(row, column, size),
+                self.selection_fg_color,
+                self.selection_bg_color,
+            )
         } else {
             snapshot
         };
@@ -12474,6 +12500,8 @@ impl NativeWindowApp {
             background_color: self.background_color,
             ansi_palette: self.ansi_palette,
             indexed_palette: self.indexed_palette,
+            selection_fg_color: self.selection_fg_color,
+            selection_bg_color: self.selection_bg_color,
             cursor_bg_color: self.cursor_bg_color,
             cursor_border_color: self.cursor_border_color,
             cursor_fg_color: self.cursor_fg_color,
@@ -12638,6 +12666,8 @@ impl NativeWindowApp {
         self.indexed_palette = overrides.indexed_palette;
         self.renderer
             .set_indexed_palette(self.indexed_palette.map(native_indexed_palette_to_rgba));
+        self.selection_fg_color = overrides.selection_fg_color;
+        self.selection_bg_color = overrides.selection_bg_color;
         self.cursor_bg_color = overrides.cursor_bg_color.unwrap_or(DEFAULT_CURSOR_BG_COLOR);
         self.renderer.set_default_cursor_color(color_to_rgba(
             self.cursor_bg_color,
@@ -36021,6 +36051,55 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_selection_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              selection_fg = '#010203',
+              selection_bg = '#040506',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm selection color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_configured_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [4, 5, 6, 255])
+            });
+        let selected_cell_uses_configured_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [1, 2, 3, 255])
+            });
+        assert!(
+            selected_cell_uses_configured_background,
+            "selection did not use colors.selection_bg"
+        );
+        assert!(
+            selected_cell_uses_configured_foreground,
+            "selection did not use colors.selection_fg"
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_cursor_bg_for_framebuffer() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -41938,6 +42017,8 @@ mod tests {
                 background_color: DEFAULT_BACKGROUND_COLOR,
                 ansi_palette: None,
                 indexed_palette: None,
+                selection_fg_color: None,
+                selection_bg_color: None,
                 cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 cursor_border_color: None,
                 cursor_fg_color: None,
@@ -59579,6 +59660,8 @@ mod tests {
             background_color: Some(Color::Rgb(4, 5, 6)),
             ansi_palette: Some(sample_ansi_palette()),
             indexed_palette: Some(sample_indexed_palette()),
+            selection_fg_color: Some(Color::Rgb(61, 62, 63)),
+            selection_bg_color: Some(Color::Rgb(71, 72, 73)),
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
@@ -59726,6 +59809,8 @@ mod tests {
             background_color: Color::Rgb(4, 5, 6),
             ansi_palette: Some(sample_ansi_palette()),
             indexed_palette: Some(sample_indexed_palette()),
+            selection_fg_color: Some(Color::Rgb(61, 62, 63)),
+            selection_bg_color: Some(Color::Rgb(71, 72, 73)),
             cursor_bg_color: Color::Rgb(10, 11, 12),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
@@ -59826,6 +59911,8 @@ mod tests {
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
             indexed_palette: None,
+            selection_fg_color: None,
+            selection_bg_color: None,
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,

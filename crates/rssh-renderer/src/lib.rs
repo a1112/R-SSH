@@ -2516,6 +2516,30 @@ impl TerminalRenderSnapshot {
 
         self
     }
+
+    #[must_use]
+    pub fn with_selection_colors_overlay(
+        mut self,
+        mut selected: impl FnMut(u16, u16) -> bool,
+        selection_foreground: Option<Color>,
+        selection_background: Option<Color>,
+    ) -> Self {
+        if selection_foreground.is_none() && selection_background.is_none() {
+            return self.with_inverse_overlay(selected);
+        }
+
+        for cell in &mut self.cells {
+            if selected(cell.row, cell.column) {
+                let inverse_foreground = cell.background;
+                let inverse_background = cell.foreground;
+                cell.foreground = selection_foreground.unwrap_or(inverse_foreground);
+                cell.background = selection_background.unwrap_or(inverse_background);
+                cell.inverse = false;
+            }
+        }
+
+        self
+    }
 }
 
 fn render_inline_images_from_terminal(
