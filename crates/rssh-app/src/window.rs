@@ -2106,7 +2106,7 @@ fn lua_config_assignment_from_query<'a>(
         if source[index..].starts_with(field)
             && lua_config_assignment_field_has_boundaries(source, index, field)
         {
-            let rest = source[index + field.len()..].trim_start();
+            let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
             if let Some(rest) = rest.strip_prefix('=') {
                 if let Some(value) = literal_from_query(rest.trim_start()) {
                     return Some(value);
@@ -2116,7 +2116,7 @@ fn lua_config_assignment_from_query<'a>(
 
         if character == '['
             && let Some(rest) = lua_config_bracket_assignment_rest_from_query(source, index, field)
-            && let Some(rest) = rest.trim_start().strip_prefix('=')
+            && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
             && let Some(value) = literal_from_query(rest.trim_start())
         {
             return Some(value);
@@ -2124,6 +2124,27 @@ fn lua_config_assignment_from_query<'a>(
     }
 
     None
+}
+
+#[allow(dead_code)]
+fn lua_trim_start_comments(mut source: &str) -> Option<&str> {
+    loop {
+        let trimmed = source.trim_start();
+        let rest = trimmed.strip_prefix("--");
+        let Some(rest) = rest else {
+            return Some(trimmed);
+        };
+
+        if let Some((content_start, closing)) = parse_lua_long_bracket_delimiters(rest) {
+            let content_and_rest = &rest[content_start..];
+            let close_index = content_and_rest.find(&closing)?;
+            source = &content_and_rest[close_index + closing.len()..];
+            continue;
+        }
+
+        let newline = rest.find('\n')?;
+        source = &rest[newline + '\n'.len_utf8()..];
+    }
 }
 
 #[allow(dead_code)]
@@ -51984,6 +52005,41 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_assignment_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog -- launch command
+              = { 'nu', '--login' }
+            config.default_cwd -- launch cwd
+              = 'C:/Project Dir'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
     }
 
     #[test]
