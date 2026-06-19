@@ -10507,8 +10507,29 @@ impl NativeWindowApp {
         self.scrollback_offset = self
             .scrollback_offset
             .min(self.runtime.terminal().scrollback().len());
-        let snapshot = terminal_runtime_snapshot(&self.runtime, self.scrollback_offset);
         let size = self.runtime.terminal().grid().size();
+        let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
+        let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.scrollback_offset);
+
+        if !inactive_search_selections.is_empty() {
+            let inactive_fg_color = self
+                .copy_mode_inactive_highlight_fg
+                .map(native_color_spec_to_render_color)
+                .map(Some);
+            let inactive_bg_color = self
+                .copy_mode_inactive_highlight_bg
+                .map(native_color_spec_to_render_color);
+            snapshot = snapshot.with_selection_colors_overlay(
+                |row, column| {
+                    inactive_search_selections
+                        .iter()
+                        .any(|selection| selection.contains(row, column, size))
+                },
+                inactive_fg_color,
+                inactive_bg_color,
+            );
+        }
+
         self.snapshot = if let Some(selection) = self.selection {
             let selection_fg_color = if self.copy_mode.is_some() {
                 self.copy_mode_active_highlight_fg
@@ -10542,6 +10563,29 @@ impl NativeWindowApp {
         } else {
             snapshot
         };
+    }
+
+    fn copy_mode_inactive_search_selections(
+        &self,
+        size: rssh_core::TerminalSize,
+    ) -> Vec<WindowSelection> {
+        if self.copy_mode.is_none() || size.rows == 0 || size.columns == 0 {
+            return Vec::new();
+        }
+        let Some(search) = self.search.as_ref() else {
+            return Vec::new();
+        };
+        if search.query.is_empty() {
+            return Vec::new();
+        }
+
+        let history_len = self.runtime.terminal().scrollback().len();
+        let viewport_top = copy_mode_viewport_top(history_len, self.scrollback_offset);
+        window_search_matches_with_type(self.runtime.terminal(), &search.query, search.match_type)
+            .into_iter()
+            .filter(|matched| Some(*matched) != search.current)
+            .filter_map(|matched| matched.viewport_selection_for_top(viewport_top, size))
+            .collect()
     }
 
     fn refresh_snapshot_after_terminal_damage(&mut self, damage: &[DamageRegion]) {
@@ -30139,6 +30183,57 @@ impl WindowSearchMatch {
             ),
         )
     }
+
+    fn viewport_selection_for_top(
+        self,
+        viewport_top: usize,
+        size: rssh_core::TerminalSize,
+    ) -> Option<WindowSelection> {
+        if size.rows == 0 || size.columns == 0 {
+            return None;
+        }
+
+        let viewport_bottom = viewport_top.saturating_add(usize::from(size.rows));
+        if self.end_source_row < viewport_top || self.source_row >= viewport_bottom {
+            return None;
+        }
+
+        let last_row = size.rows.saturating_sub(1);
+        let last_column = size.columns.saturating_sub(1);
+        let start_row = self
+            .source_row
+            .saturating_sub(viewport_top)
+            .try_into()
+            .unwrap_or(u16::MAX)
+            .min(last_row);
+        let end_row = self
+            .end_source_row
+            .saturating_sub(viewport_top)
+            .try_into()
+            .unwrap_or(u16::MAX)
+            .min(last_row);
+        let start_column = if self.source_row < viewport_top {
+            0
+        } else {
+            self.start_column.min(last_column)
+        };
+        let end_column = if self.end_source_row >= viewport_bottom {
+            last_column
+        } else {
+            self.end_column.min(last_column)
+        };
+
+        Some(WindowSelection::new(
+            SelectionCell {
+                row: start_row,
+                column: start_column,
+            },
+            SelectionCell {
+                row: end_row,
+                column: end_column,
+            },
+        ))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45144,6 +45239,44 @@ mod tests {
         assert_eq!(selected_cell.foreground, Color::Indexed(4));
         assert_eq!(selected_cell.background, Color::Rgb(1, 2, 3));
         assert!(!selected_cell.inverse);
+    }
+
+    #[test]
+    fn window_copy_mode_search_uses_configured_inactive_highlight_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 3));
+        app.set_config_overrides(NativeConfigOverrides {
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
+            copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
+            copy_mode_inactive_highlight_fg: Some(NativeColorSpec::AnsiColor(
+                NativeAnsiColor::White,
+            )),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"foo one\r\nmiddle\r\nfoo two")
+            .unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Character("/".into()), ModifiersState::empty()));
+        for character in ["f", "o", "o"] {
+            assert!(
+                app.handle_copy_mode_key(
+                    &Key::Character(character.into()),
+                    ModifiersState::empty()
+                )
+            );
+        }
+
+        let active_cell = snapshot_cell(&app.snapshot, 0, 0).expect("active copy-mode match");
+        let inactive_cell = snapshot_cell(&app.snapshot, 2, 0).expect("inactive copy-mode match");
+
+        assert_eq!(active_cell.foreground, Color::Indexed(4));
+        assert_eq!(active_cell.background, Color::Rgb(1, 2, 3));
+        assert_eq!(inactive_cell.foreground, Color::Indexed(15));
+        assert_eq!(inactive_cell.background, Color::Rgb(4, 5, 6));
+        assert!(!active_cell.inverse);
+        assert!(!inactive_cell.inverse);
     }
 
     #[test]

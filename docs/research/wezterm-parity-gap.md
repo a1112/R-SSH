@@ -1913,10 +1913,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   alpha blending over the current cell background. Copy-mode/quick-select
   label/match `Color`/`AnsiColor` tables now parse into native/effective config,
   `copy_mode_active_highlight_bg`/`copy_mode_active_highlight_fg` apply to
-  copy-mode selections, and `quick_select_label_bg`/`quick_select_label_fg`
-  plus `quick_select_match_bg`/`quick_select_match_fg` apply to quick-select
-  label and match rendering. Copy-mode inactive highlight colors remain later
-  overlay parity work.
+  copy-mode selections, `copy_mode_inactive_highlight_bg`/
+  `copy_mode_inactive_highlight_fg` apply to non-current copy-mode search
+  matches, and `quick_select_label_bg`/`quick_select_label_fg` plus
+  `quick_select_match_bg`/`quick_select_match_fg` apply to quick-select label
+  and match rendering.
 - Native cursor rendering applies WezTerm-style `colors.cursor_bg` as the
   default block cursor fill, `colors.cursor_border` as block-cursor border and
   bar/underline cursor color, and `colors.cursor_fg` as block-cursor text
@@ -1925,10 +1926,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.colors.cursor_border`, and `config.colors.cursor_fg` snippets now
   parse into the same native override path; copy-mode/quick-select
   `Color`/`AnsiColor` tables also parse into native/effective config, and
-  copy-mode active highlight plus quick-select label/match colors apply to
-  overlay rendering, while copy-mode inactive highlights, split, scrollbar,
-  compose, tab-bar, and other non-terminal color fields remain later parity
-  work.
+  copy-mode active/inactive highlight plus quick-select label/match colors
+  apply to overlay rendering, while split, scrollbar, compose, tab-bar, and
+  other non-terminal color fields remain later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
   macOS-specific flags in effective config snapshots. Fine-grained titlebar,
