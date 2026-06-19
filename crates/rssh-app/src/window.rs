@@ -4750,6 +4750,7 @@ struct NativeWindowApp {
     treat_east_asian_ambiguous_width_as_wide: bool,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
+    ime_preedit: Option<String>,
     xim_im_name: Option<String>,
     detect_password_input: bool,
     leader: Option<NativeLeaderKey>,
@@ -6184,6 +6185,7 @@ impl NativeWindowApp {
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
+            ime_preedit: None,
             xim_im_name: None,
             detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
             leader: None,
@@ -7386,6 +7388,7 @@ impl NativeWindowApp {
             source.treat_east_asian_ambiguous_width_as_wide;
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
+        self.ime_preedit = source.ime_preedit.clone();
         self.xim_im_name.clone_from(&source.xim_im_name);
         self.detect_password_input = source.detect_password_input;
         self.leader.clone_from(&source.leader);
@@ -12845,6 +12848,7 @@ impl NativeWindowApp {
                 .with_row_offset(self.terminal_frame_row_offset())
                 .with_overlay_cells(self.pane_badge_cells(&layout))
                 .with_overlay_cells(self.pane_select_cells(&layout))
+                .with_overlay_cells(self.ime_preedit_cells(&layout))
                 .with_overlay_cells(self.tab_bar_cells())
                 .with_overlay_cells(self.quick_select_cells())
                 .with_overlay_cells(self.tab_navigator_cells())
@@ -12916,6 +12920,7 @@ impl NativeWindowApp {
             .with_overlay_cells(self.pane_separator_cells(&layout))
             .with_overlay_cells(self.pane_badge_cells(&layout))
             .with_overlay_cells(self.pane_select_cells(&layout))
+            .with_overlay_cells(self.ime_preedit_cells(&layout))
             .with_overlay_cells(self.tab_bar_cells())
             .with_overlay_cells(self.quick_select_cells())
             .with_overlay_cells(self.tab_navigator_cells())
@@ -13197,6 +13202,50 @@ impl NativeWindowApp {
                     ));
                 }
             }
+        }
+        cells
+    }
+
+    fn ime_preedit_cells(&self, layout: &PaneRenderLayout) -> Vec<RenderCell> {
+        if !self.use_ime || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin {
+            return Vec::new();
+        }
+        let Some(preedit) = self.ime_preedit.as_deref().filter(|text| !text.is_empty()) else {
+            return Vec::new();
+        };
+        let active_pane = self.app_shell.active_pane_id();
+        let Some(rect) = layout
+            .panes
+            .iter()
+            .find(|rect| rect.pane_id == active_pane)
+            .copied()
+        else {
+            return Vec::new();
+        };
+        if rect.rows == 0 || rect.columns == 0 {
+            return Vec::new();
+        }
+
+        let (cursor_row, cursor_column) = self.runtime.terminal().cursor();
+        let row = rect
+            .row
+            .saturating_add(cursor_row.min(rect.rows.saturating_sub(1)));
+        let start_column = rect
+            .column
+            .saturating_add(cursor_column.min(rect.columns.saturating_sub(1)));
+        let end_column = rect.column.saturating_add(rect.columns);
+
+        let mut cells = Vec::new();
+        for (offset, ch) in preedit.chars().enumerate() {
+            let offset = u16::try_from(offset).unwrap_or(u16::MAX);
+            let column = start_column.saturating_add(offset);
+            if column >= end_column {
+                break;
+            }
+            let mut cell = ui_render_cell(row, column, ch, Color::Default, Color::Default, false);
+            cell.underline = true;
+            cell.underline_style = UnderlineStyle::Single;
+            cells.push(cell);
         }
         cells
     }
@@ -14818,6 +14867,9 @@ impl NativeWindowApp {
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
             .unwrap_or(DEFAULT_IME_PREEDIT_RENDERING);
+        if !self.use_ime || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin {
+            self.ime_preedit = None;
+        }
         self.xim_im_name = overrides
             .xim_im_name
             .filter(|xim_im_name| !xim_im_name.is_empty());
@@ -16241,12 +16293,25 @@ impl NativeWindowApp {
     }
 
     fn handle_ime_commit(&mut self, text: &str) -> io::Result<()> {
+        self.ime_preedit = None;
         if !self.use_ime || text.is_empty() {
             return Ok(());
         }
 
         self.hide_mouse_cursor_for_typing_if_needed();
         self.write_pty_bytes(text.as_bytes())
+    }
+
+    fn handle_ime_preedit(&mut self, text: &str) {
+        if !self.use_ime
+            || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin
+            || text.is_empty()
+        {
+            self.ime_preedit = None;
+            return;
+        }
+
+        self.ime_preedit = Some(text.to_owned());
     }
 
     fn effective_kitty_keyboard_flags(&self) -> u16 {
@@ -36831,6 +36896,12 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
                     event_loop.exit();
                 }
             }
+            WindowEvent::Ime(winit::event::Ime::Preedit(text, _cursor)) => {
+                self.handle_ime_preedit(&text);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
             }
@@ -37141,7 +37212,8 @@ mod tests {
 
     use rssh_pty::PtyExitStatus;
     use rssh_renderer::{
-        RenderGeometry, RenderScrollbarThumbSize, SCROLLBAR_THUMB_COLOR, color_to_rgba,
+        RenderGeometry, RenderScrollbarThumbSize, SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot,
+        color_to_rgba,
     };
     use rssh_terminal::{Color, CursorShape};
 
@@ -59039,6 +59111,50 @@ mod tests {
         app.handle_ime_commit("かな").unwrap();
 
         assert!(written.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_renders_builtin_ime_preedit_at_cursor() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.feed_pty_output(b"ab");
+        app.snapshot = TerminalRenderSnapshot::from_terminal(app.runtime.terminal());
+
+        app.handle_ime_preedit("kan");
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot_row_text(&snapshot, TAB_BAR_ROWS, 6), "abkan ");
+    }
+
+    #[test]
+    fn window_app_does_not_render_system_ime_preedit() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.feed_pty_output(b"ab");
+        app.snapshot = TerminalRenderSnapshot::from_terminal(app.runtime.terminal());
+        app.set_config_overrides(NativeConfigOverrides {
+            ime_preedit_rendering: Some(NativeImePreeditRendering::System),
+            ..NativeConfigOverrides::default()
+        });
+
+        app.handle_ime_preedit("kan");
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot_row_text(&snapshot, TAB_BAR_ROWS, 6), "ab    ");
+    }
+
+    #[test]
+    fn window_app_clears_ime_preedit_on_commit() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.feed_pty_output(b"ab");
+        app.snapshot = TerminalRenderSnapshot::from_terminal(app.runtime.terminal());
+        app.handle_ime_preedit("kan");
+
+        app.handle_ime_commit("か").unwrap();
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot_row_text(&snapshot, TAB_BAR_ROWS, 6), "ab    ");
+        assert_eq!(written.lock().unwrap().as_slice(), "か".as_bytes());
     }
 
     #[test]

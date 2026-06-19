@@ -248,9 +248,11 @@ keyboard, mouse, paste, resize
   panes. Static numeric `cell_widths` override tables parse from WezTerm-style
   Lua and take priority over the ambiguous-width setting in active and new
   panes. `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
-  AltGr text path rather than Ctrl+Alt key bindings. Platform IME/XIM
-  connection, preedit rendering, exact left/right modifier source tracking, and
-  broader dynamic `cell_widths` Lua parity remain future parity work.
+  AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
+  text renders through the Builtin overlay path at the active pane cursor.
+  Platform IME/XIM connection, exact preedit cursor styling, exact left/right
+  modifier source tracking, and broader dynamic `cell_widths` Lua parity remain
+  future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -807,8 +809,11 @@ keyboard, mouse, paste, resize
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
   is retained as an optional XIM server name for X11-style IME configuration.
   Native winit IME commit text is written to the active pane when `use_ime` is
-  enabled and ignored when disabled; preedit rendering and deeper platform
-  IME/XIM setup remain future parity work. `detect_password_input` is stored
+  enabled and ignored when disabled; native winit IME preedit text is rendered
+  as a Builtin overlay at the active pane cursor and suppressed for `System` or
+  disabled IME, with commit/empty preedit clearing the overlay. Exact preedit
+  cursor styling and deeper platform IME/XIM setup remain future parity work.
+  `detect_password_input` is stored
   with WezTerm's default `true`;
   actual Unix local-pane termios probing and lock-cursor rendering remain
   future parity work. `warn_about_missing_glyphs` is
