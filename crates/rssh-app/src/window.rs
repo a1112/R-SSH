@@ -22941,7 +22941,7 @@ fn split_lua_table_string_array(value: &str) -> Option<Vec<String>> {
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = field.split_once('=') {
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field) {
             if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
                 if !values.is_empty() || index == 0 || indexed_values.contains_key(&index) {
                     return None;
@@ -22972,7 +22972,7 @@ fn split_lua_table_u32_array(value: &str) -> Option<Vec<u32>> {
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = field.split_once('=') {
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field) {
             if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
                 if index == 0 || indexed_values.contains_key(&index) {
                     return None;
@@ -23001,7 +23001,7 @@ fn split_lua_table_f64_array(value: &str) -> Option<Vec<f64>> {
         if field.is_empty() {
             continue;
         }
-        if let Some((key, value)) = field.split_once('=') {
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field) {
             if let Some(index) = split_lua_table_array_index_from_query(key.trim()) {
                 if index == 0 || indexed_values.contains_key(&index) {
                     return None;
@@ -52404,6 +52404,36 @@ mod tests {
             app.default_cwd.as_deref(),
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_indexed_table_value_prefix_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = {
+              [1] =
+                -- program value
+                'nu',
+              [2] =
+                -- argument value
+                '--login',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
     }
 
     #[test]
