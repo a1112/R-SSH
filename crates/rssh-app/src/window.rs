@@ -1437,6 +1437,12 @@ struct NativePaneInformation {
     progress: PaneProgress,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NativeTabBarItemColors {
+    fg_color: Option<Color>,
+    bg_color: Option<Color>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -1499,6 +1505,9 @@ struct NativeEffectiveConfig {
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
+    tab_bar_active_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_colors: NativeTabBarItemColors,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -1611,6 +1620,9 @@ struct NativeConfigOverrides {
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
+    tab_bar_active_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_colors: NativeTabBarItemColors,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
@@ -1771,6 +1783,22 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(tab_bar_background_color) = tab_bar_background_lua_table_from_query(colors)? {
             overrides.tab_bar_background_color = Some(tab_bar_background_color);
+            parsed = true;
+        }
+        if let Some(active_tab_colors) =
+            tab_bar_item_colors_lua_table_from_query(colors, "active_tab")?
+        {
+            overrides.tab_bar_active_tab_colors = active_tab_colors;
+            parsed = true;
+        }
+        if let Some(inactive_tab_colors) =
+            tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab")?
+        {
+            overrides.tab_bar_inactive_tab_colors = inactive_tab_colors;
+            parsed = true;
+        }
+        if let Some(new_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "new_tab")? {
+            overrides.tab_bar_new_tab_colors = new_tab_colors;
             parsed = true;
         }
         if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
@@ -3777,6 +3805,9 @@ struct NativeWindowApp {
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
+    tab_bar_active_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_colors: NativeTabBarItemColors,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -5007,6 +5038,9 @@ impl NativeWindowApp {
             split_color: None,
             scrollbar_thumb_color: None,
             tab_bar_background_color: None,
+            tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
@@ -5957,6 +5991,9 @@ impl NativeWindowApp {
         detached_app.split_color = self.split_color;
         detached_app.scrollbar_thumb_color = self.scrollbar_thumb_color;
         detached_app.tab_bar_background_color = self.tab_bar_background_color;
+        detached_app.tab_bar_active_tab_colors = self.tab_bar_active_tab_colors;
+        detached_app.tab_bar_inactive_tab_colors = self.tab_bar_inactive_tab_colors;
+        detached_app.tab_bar_new_tab_colors = self.tab_bar_new_tab_colors;
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
@@ -6110,6 +6147,9 @@ impl NativeWindowApp {
         self.split_color = source.split_color;
         self.scrollbar_thumb_color = source.scrollbar_thumb_color;
         self.tab_bar_background_color = source.tab_bar_background_color;
+        self.tab_bar_active_tab_colors = source.tab_bar_active_tab_colors;
+        self.tab_bar_inactive_tab_colors = source.tab_bar_inactive_tab_colors;
+        self.tab_bar_new_tab_colors = source.tab_bar_new_tab_colors;
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
         self.default_prog.clone_from(&source.default_prog);
@@ -12336,40 +12376,39 @@ impl NativeWindowApp {
             let active_tab_id = self.app_shell.active_tab_id();
             for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
                 let active = tab.id() == active_tab_id;
-                let style = TabBarSegmentStyle {
-                    foreground: if active {
-                        Color::Rgb(20, 20, 20)
-                    } else {
-                        Color::Rgb(210, 210, 210)
-                    },
-                    background: if active {
-                        Color::Rgb(238, 238, 238)
-                    } else {
-                        Color::Rgb(58, 58, 64)
-                    },
-                    underline_color: Color::Default,
-                    bold: active,
-                    faint: false,
-                    italic: false,
-                    blink: false,
-                    rapid_blink: false,
-                    inverse: false,
-                    conceal: false,
-                    strikethrough: false,
-                    overline: false,
-                    underline_style: UnderlineStyle::None,
+                let default_foreground = if active {
+                    Color::Rgb(20, 20, 20)
+                } else {
+                    Color::Rgb(210, 210, 210)
                 };
+                let default_background = if active {
+                    Color::Rgb(238, 238, 238)
+                } else {
+                    Color::Rgb(58, 58, 64)
+                };
+                let item_colors = if active {
+                    self.tab_bar_active_tab_colors
+                } else {
+                    self.tab_bar_inactive_tab_colors
+                };
+                let style = tab_bar_item_segment_style(
+                    item_colors,
+                    default_foreground,
+                    default_background,
+                    active,
+                );
                 self.write_tab_bar_label_for_tab(&mut cells, &mut column, index, tab, style);
             }
         }
 
         if self.show_new_tab_button_in_tab_bar {
+            let new_tab_colors = self.tab_bar_new_tab_colors;
             write_tab_bar_segment(
                 &mut cells,
                 &mut column,
                 tab_bar_new_tab_label(),
-                Color::Rgb(230, 230, 230),
-                Color::Rgb(46, 56, 48),
+                new_tab_colors.fg_color.unwrap_or(Color::Rgb(230, 230, 230)),
+                new_tab_colors.bg_color.unwrap_or(Color::Rgb(46, 56, 48)),
                 true,
             );
         }
@@ -12832,6 +12871,9 @@ impl NativeWindowApp {
             split_color: self.split_color,
             scrollbar_thumb_color: self.scrollbar_thumb_color,
             tab_bar_background_color: self.tab_bar_background_color,
+            tab_bar_active_tab_colors: self.tab_bar_active_tab_colors,
+            tab_bar_inactive_tab_colors: self.tab_bar_inactive_tab_colors,
+            tab_bar_new_tab_colors: self.tab_bar_new_tab_colors,
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
@@ -13021,6 +13063,9 @@ impl NativeWindowApp {
         self.split_color = overrides.split_color;
         self.scrollbar_thumb_color = overrides.scrollbar_thumb_color;
         self.tab_bar_background_color = overrides.tab_bar_background_color;
+        self.tab_bar_active_tab_colors = overrides.tab_bar_active_tab_colors;
+        self.tab_bar_inactive_tab_colors = overrides.tab_bar_inactive_tab_colors;
+        self.tab_bar_new_tab_colors = overrides.tab_bar_new_tab_colors;
         self.visual_bell_color = overrides.visual_bell_color;
         self.notification_handling = overrides
             .notification_handling
@@ -24062,6 +24107,70 @@ fn tab_bar_background_lua_table_from_query(value: &str) -> Option<Option<Color>>
     Some(color)
 }
 
+fn tab_bar_item_colors_lua_table_from_query(
+    value: &str,
+    item_name: &str,
+) -> Option<Option<NativeTabBarItemColors>> {
+    let tab_bar = lua_table_field_value_from_query(value, "tab_bar")?;
+    let Some(tab_bar) = tab_bar else {
+        return Some(None);
+    };
+    let item = lua_table_field_value_from_query(tab_bar, item_name)?;
+    let Some(item) = item else {
+        return Some(None);
+    };
+
+    let mut colors = NativeTabBarItemColors::default();
+    for field in
+        split_lua_table_top_level_fields(item.trim().strip_prefix('{')?.strip_suffix('}')?.trim())?
+    {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+        match key.as_str() {
+            "fg_color" => colors.fg_color = Some(lua_opaque_color_from_query(&value)?),
+            "bg_color" => colors.bg_color = Some(lua_opaque_color_from_query(&value)?),
+            _ => {}
+        }
+    }
+
+    Some((colors.fg_color.is_some() || colors.bg_color.is_some()).then_some(colors))
+}
+
+fn lua_table_field_value_from_query<'a>(
+    value: &'a str,
+    field_name: &str,
+) -> Option<Option<&'a str>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut found = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != field_name {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        found = Some(value.trim());
+    }
+
+    Some(found)
+}
+
 fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Option<Color>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut color = None;
@@ -31382,6 +31491,25 @@ const fn tab_bar_segment_style(
     }
 }
 
+const fn tab_bar_item_segment_style(
+    colors: NativeTabBarItemColors,
+    default_foreground: Color,
+    default_background: Color,
+    bold: bool,
+) -> TabBarSegmentStyle {
+    tab_bar_segment_style(
+        match colors.fg_color {
+            Some(color) => color,
+            None => default_foreground,
+        },
+        match colors.bg_color {
+            Some(color) => color,
+            None => default_background,
+        },
+        bold,
+    )
+}
+
 fn tab_bar_tab_label_segments(
     position: usize,
     tab_id: rssh_core::TabId,
@@ -34738,11 +34866,11 @@ mod tests {
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
         NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
         NativeQuoteDroppedFiles, NativeScrollBarHeight, NativeStrikethroughPosition,
-        NativeTabTitle, NativeTextBackgroundOpacity, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeTabBarItemColors, NativeTabTitle, NativeTextBackgroundOpacity,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWindowApp, NativeWindowBell,
+        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
         NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
         NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
         NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
@@ -41276,6 +41404,73 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_tab_bar_item_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              tab_bar = {
+                background = '#202122',
+                active_tab = {
+                  bg_color = '#010203',
+                  fg_color = '#040506',
+                },
+                inactive_tab = {
+                  bg_color = '#070809',
+                  fg_color = '#0a0b0c',
+                },
+                new_tab = {
+                  bg_color = '#0d0e0f',
+                  fg_color = '#101112',
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar item color config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let inactive_column = tab_bar
+            .find("1:1")
+            .expect("inactive tab label should be visible");
+        let active_column = tab_bar
+            .find("2:2*")
+            .expect("active tab label should be visible");
+        let new_tab_column = tab_bar.find('+').expect("new-tab button should be visible");
+        let inactive_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(inactive_column).unwrap()).unwrap();
+        let active_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+        let new_tab_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(new_tab_column).unwrap()).unwrap();
+
+        assert_eq!(active_cell.foreground, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert_eq!(active_cell.background, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(
+            inactive_cell.foreground,
+            rssh_terminal::Color::Rgb(10, 11, 12)
+        );
+        assert_eq!(inactive_cell.background, rssh_terminal::Color::Rgb(7, 8, 9));
+        assert_eq!(
+            new_tab_cell.foreground,
+            rssh_terminal::Color::Rgb(16, 17, 18)
+        );
+        assert_eq!(
+            new_tab_cell.background,
+            rssh_terminal::Color::Rgb(13, 14, 15)
+        );
+    }
+
+    #[test]
     fn window_app_status_text_applies_sgr_indexed_colors() {
         let mut app = NativeWindowApp::new(None);
         app.left_status = "\x1b[31;104mANSI\x1b[0m".to_owned();
@@ -43687,6 +43882,9 @@ mod tests {
                 split_color: None,
                 scrollbar_thumb_color: None,
                 tab_bar_background_color: None,
+                tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
+                tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
+                tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
@@ -61504,6 +61702,18 @@ mod tests {
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
+            tab_bar_active_tab_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(28, 29, 30)),
+                bg_color: Some(Color::Rgb(31, 32, 33)),
+            },
+            tab_bar_inactive_tab_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(34, 35, 36)),
+                bg_color: Some(Color::Rgb(37, 38, 39)),
+            },
+            tab_bar_new_tab_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(40, 41, 42)),
+                bg_color: Some(Color::Rgb(43, 44, 45)),
+            },
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61666,6 +61876,18 @@ mod tests {
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
+            tab_bar_active_tab_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(28, 29, 30)),
+                bg_color: Some(Color::Rgb(31, 32, 33)),
+            },
+            tab_bar_inactive_tab_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(34, 35, 36)),
+                bg_color: Some(Color::Rgb(37, 38, 39)),
+            },
+            tab_bar_new_tab_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(40, 41, 42)),
+                bg_color: Some(Color::Rgb(43, 44, 45)),
+            },
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61779,6 +62001,9 @@ mod tests {
             split_color: None,
             scrollbar_thumb_color: None,
             tab_bar_background_color: None,
+            tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
