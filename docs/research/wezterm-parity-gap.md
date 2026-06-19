@@ -152,8 +152,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `CloseCurrentTab` / `CloseCurrentPane` payloads. WezTerm-style
   `wezterm.action.CloseCurrentPane { confirm = ... }` and
   `wezterm.action.CloseCurrentTab { confirm = ... }` table-call queries
-  dispatch the same payloads. Action-name `closepane` and `closetab` queries
-  dispatch the no-argument immediate-close aliases.
+  dispatch the same payloads, including bracketed string table keys with
+  long-bracket values. Action-name `closepane` and `closetab` queries dispatch
+  the no-argument immediate-close aliases.
 - Native window state now exposes WezTerm-style `ToggleFullScreen`: the default
   `Alt+Enter` shortcut and command-palette `Toggle Full Screen` entry toggle
   the native window fullscreen state and dispatch the typed resize hook with
@@ -1158,7 +1159,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - WezTerm-style close-current table actions now accept parenthesized Lua table
   calls such as `wezterm.action.CloseCurrentPane({ confirm = false })` and
   `wezterm.action.CloseCurrentTab({ confirm = true })`, in addition to the
-  existing `Action { confirm = ... }` form.
+  existing `Action { confirm = ... }` form, including bracketed string table
+  keys with long-bracket values.
 - WezTerm-style clear-scrollback table actions now accept parenthesized Lua
   table calls such as
   `wezterm.action.ClearScrollback({ mode = "ScrollbackOnly" })`, in addition
@@ -1719,7 +1721,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   same copy-mode helpers. WezTerm-style
   `wezterm.action.CopyMode { SetSelectionMode = 'Block' }` table forms now
   route the documented `Cell`, `Word`, `Line`, `Block`, and `SemanticZone`
-  selection modes. Search
+  selection modes, including bracketed string table keys with long-bracket
+  values. Search
   `NextMatch`, `PriorMatch`, `NextMatchPage`, `PriorMatchPage`, `ClearPattern`,
   and `CycleMatchType` assignment values dispatch the same copy-mode search
   helpers as the default key table. `PageUp`, `PageDown`, and
@@ -1728,7 +1731,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   assignment values reuse the same repeat/reverse jump path as `;` and `,`.
   `JumpForward = { prev_char = ... }` and
   `JumpBackward = { prev_char = ... }` assignment tables start the same
-  target-character jump flow as `f`/`t`/`F`/`T`.
+  target-character jump flow as `f`/`t`/`F`/`T`, including bracketed string
+  table keys with long-bracket values.
   `MoveForwardSemanticZoneOfType = 'Input'` and
   `MoveBackwardSemanticZoneOfType = 'Prompt'` assignment values reuse the
   typed OSC 133 semantic-zone movement path.

@@ -18347,7 +18347,7 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
         return None;
     }
 
-    if let Some((name, value)) = field.split_once('=') {
+    if let Some((name, value)) = split_lua_table_assignment_from_field(field) {
         let name = split_lua_table_key_from_query(name.trim())?;
         match normalized_action_name_query(&name).as_str() {
             "movebypage" => scroll_by_page_amount_from_query(value.trim())
@@ -18387,7 +18387,7 @@ fn copy_mode_jump_assignment_lua_table_from_query(
     let mut prev_char = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         match normalized_action_name_query(&name).as_str() {
             "prevchar" => {
@@ -18531,7 +18531,7 @@ fn close_current_confirm_lua_table_from_query(value: &str) -> Option<bool> {
     let mut confirm = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "confirm" => {
@@ -42921,6 +42921,44 @@ mod tests {
     }
 
     #[test]
+    fn window_copy_mode_dispatches_wezterm_lua_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(b"abcd\r\nefgh").unwrap();
+
+        app.enter_copy_mode();
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode { [[=[SetSelectionMode]=]] = [[Cell]] }",
+        )
+        .expect("expected CopyMode SetSelectionMode query");
+        app.command_palette_apply_command(command)
+            .expect("copy mode assignment should dispatch");
+        assert!(matches!(
+            app.copy_mode
+                .as_ref()
+                .map(|copy_mode| copy_mode.selection_mode),
+            Some(super::WindowCopySelectionMode::Cell)
+        ));
+        assert!(app.selection.is_some());
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_lua_jump_table_long_bracket_key_query() {
+        let assignment = super::copy_mode_assignment_from_query(
+            "wezterm.action.CopyMode { [[=[JumpForward]=]] = { [[=[prev_char]=]] = true } }",
+        )
+        .expect("expected CopyMode JumpForward query");
+
+        assert_eq!(
+            assignment,
+            super::WindowCopyModeAssignment::StartJump {
+                forward: true,
+                prev_char: true,
+            }
+        );
+    }
+
+    #[test]
     fn window_copy_mode_alt_m_uses_line_content_start_binding() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
@@ -65813,6 +65851,35 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_close_current_pane_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        assert_eq!(app.app_shell.pane_ids().len(), 2);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CloseCurrentPane { [[=[confirm]=]] = false }".to_owned(),
+        );
+
+        let expected = WindowCommand::CloseCurrentPane { confirm: false };
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+
+        assert_eq!(app.app_shell.pane_ids(), vec![rssh_core::PaneId::new(1)]);
+        assert!(app.command_palette.is_none());
+        assert!(!app.window_close_requested_for_test());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_close_current_pane_confirm_equals_false_query() {
         let mut app = NativeWindowApp::new(None);
         app.dispatch_app_action(AppAction::SplitPane {
@@ -65908,6 +65975,38 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.CloseCurrentTab { confirm = true }".to_owned(),
+        );
+
+        let expected = WindowCommand::CloseCurrentTab { confirm: true };
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:2 pane:2] - Close Current Tab? Enter/Y=yes Esc/N=no"
+        );
+        assert!(app.command_palette.is_none());
+        assert!(!app.window_close_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_close_current_tab_table_long_bracket_key_query() {
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("python.exe"));
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CloseCurrentTab { [[=[confirm]=]] = true }".to_owned(),
         );
 
         let expected = WindowCommand::CloseCurrentTab { confirm: true };
