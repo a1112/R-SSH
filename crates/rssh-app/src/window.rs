@@ -1507,7 +1507,9 @@ struct NativeEffectiveConfig {
     tab_bar_background_color: Option<Color>,
     tab_bar_active_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
     tab_bar_new_tab_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -1622,7 +1624,9 @@ struct NativeConfigOverrides {
     tab_bar_background_color: Option<Color>,
     tab_bar_active_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
     tab_bar_new_tab_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
@@ -1797,8 +1801,20 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             overrides.tab_bar_inactive_tab_colors = inactive_tab_colors;
             parsed = true;
         }
+        if let Some(inactive_tab_hover_colors) =
+            tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab_hover")?
+        {
+            overrides.tab_bar_inactive_tab_hover_colors = inactive_tab_hover_colors;
+            parsed = true;
+        }
         if let Some(new_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "new_tab")? {
             overrides.tab_bar_new_tab_colors = new_tab_colors;
+            parsed = true;
+        }
+        if let Some(new_tab_hover_colors) =
+            tab_bar_item_colors_lua_table_from_query(colors, "new_tab_hover")?
+        {
+            overrides.tab_bar_new_tab_hover_colors = new_tab_hover_colors;
             parsed = true;
         }
         if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
@@ -3807,7 +3823,9 @@ struct NativeWindowApp {
     tab_bar_background_color: Option<Color>,
     tab_bar_active_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_colors: NativeTabBarItemColors,
+    tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
     tab_bar_new_tab_colors: NativeTabBarItemColors,
+    tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -5040,7 +5058,9 @@ impl NativeWindowApp {
             tab_bar_background_color: None,
             tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
             tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
@@ -5993,7 +6013,9 @@ impl NativeWindowApp {
         detached_app.tab_bar_background_color = self.tab_bar_background_color;
         detached_app.tab_bar_active_tab_colors = self.tab_bar_active_tab_colors;
         detached_app.tab_bar_inactive_tab_colors = self.tab_bar_inactive_tab_colors;
+        detached_app.tab_bar_inactive_tab_hover_colors = self.tab_bar_inactive_tab_hover_colors;
         detached_app.tab_bar_new_tab_colors = self.tab_bar_new_tab_colors;
+        detached_app.tab_bar_new_tab_hover_colors = self.tab_bar_new_tab_hover_colors;
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
@@ -6149,7 +6171,9 @@ impl NativeWindowApp {
         self.tab_bar_background_color = source.tab_bar_background_color;
         self.tab_bar_active_tab_colors = source.tab_bar_active_tab_colors;
         self.tab_bar_inactive_tab_colors = source.tab_bar_inactive_tab_colors;
+        self.tab_bar_inactive_tab_hover_colors = source.tab_bar_inactive_tab_hover_colors;
         self.tab_bar_new_tab_colors = source.tab_bar_new_tab_colors;
+        self.tab_bar_new_tab_hover_colors = source.tab_bar_new_tab_hover_colors;
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
         self.default_prog.clone_from(&source.default_prog);
@@ -12372,10 +12396,32 @@ impl NativeWindowApp {
             );
         }
 
+        let hover_column = self.tab_bar_hover_column();
         if self.show_tabs_in_tab_bar {
             let active_tab_id = self.app_shell.active_tab_id();
             for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
                 let active = tab.id() == active_tab_id;
+                let title = self.formatted_tab_title_for_tab(index, tab);
+                let title_text = title.as_ref().map(NativeTabTitle::plain_text);
+                let label = tab_bar_tab_label_segments(
+                    index,
+                    tab.id(),
+                    tab.panes().len(),
+                    active,
+                    title_text.as_deref(),
+                    Self::tab_progress_for_tab(tab),
+                    self.tab_bar_label_options(),
+                );
+                let label_width = label
+                    .prefix
+                    .chars()
+                    .count()
+                    .saturating_add(label.title.chars().count())
+                    .saturating_add(label.suffix.chars().count());
+                let hovered = hover_column.is_some_and(|hover_column| {
+                    let end = column.saturating_add(u16::try_from(label_width).unwrap_or(u16::MAX));
+                    !active && hover_column >= column && hover_column < end
+                });
                 let default_foreground = if active {
                     Color::Rgb(20, 20, 20)
                 } else {
@@ -12388,6 +12434,8 @@ impl NativeWindowApp {
                 };
                 let item_colors = if active {
                     self.tab_bar_active_tab_colors
+                } else if hovered {
+                    self.tab_bar_inactive_tab_hover_colors
                 } else {
                     self.tab_bar_inactive_tab_colors
                 };
@@ -12397,12 +12445,51 @@ impl NativeWindowApp {
                     default_background,
                     active,
                 );
-                self.write_tab_bar_label_for_tab(&mut cells, &mut column, index, tab, style);
+                write_tab_bar_segment(
+                    &mut cells,
+                    &mut column,
+                    &label.prefix,
+                    style.foreground,
+                    style.background,
+                    style.bold,
+                );
+                match title.as_ref() {
+                    Some(NativeTabTitle::Format(items)) => {
+                        write_tab_bar_format_items(&mut cells, &mut column, items, style);
+                    }
+                    Some(NativeTabTitle::Text(_)) | None => {
+                        write_tab_bar_segment(
+                            &mut cells,
+                            &mut column,
+                            &label.title,
+                            style.foreground,
+                            style.background,
+                            style.bold,
+                        );
+                    }
+                }
+                write_tab_bar_segment(
+                    &mut cells,
+                    &mut column,
+                    &label.suffix,
+                    style.foreground,
+                    style.background,
+                    style.bold,
+                );
             }
         }
 
         if self.show_new_tab_button_in_tab_bar {
-            let new_tab_colors = self.tab_bar_new_tab_colors;
+            let new_tab_width = u16::try_from(tab_bar_new_tab_label().chars().count()).unwrap_or(0);
+            let new_tab_hovered = hover_column.is_some_and(|hover_column| {
+                let end = column.saturating_add(new_tab_width);
+                hover_column >= column && hover_column < end
+            });
+            let new_tab_colors = if new_tab_hovered {
+                self.tab_bar_new_tab_hover_colors
+            } else {
+                self.tab_bar_new_tab_colors
+            };
             write_tab_bar_segment(
                 &mut cells,
                 &mut column,
@@ -12536,6 +12623,26 @@ impl NativeWindowApp {
         column >= start && column < start.saturating_add(width)
     }
 
+    fn tab_bar_hover_column(&self) -> Option<u16> {
+        let Some(position) = self.mouse_pixel_position else {
+            return None;
+        };
+        if !position.x.is_finite()
+            || !position.y.is_finite()
+            || position.x < 0.0
+            || position.y < f64::from(self.tab_bar_pixel_top())
+            || position.y
+                >= f64::from(
+                    self.tab_bar_pixel_top()
+                        .saturating_add(self.tab_bar_pixel_height()),
+                )
+        {
+            return None;
+        }
+
+        pixel_axis_to_cell(position.x, self.cell_width())
+    }
+
     fn tab_bar_new_tab_column_start(&self) -> Option<u16> {
         let mut cursor = self.tab_bar_left_prefix_width()?;
         if !self.show_tabs_in_tab_bar {
@@ -12598,59 +12705,6 @@ impl NativeWindowApp {
             progress,
             self.tab_bar_label_options(),
         )
-    }
-
-    fn write_tab_bar_label_for_tab(
-        &self,
-        cells: &mut [RenderCell],
-        column: &mut u16,
-        position: usize,
-        tab: &rssh_core::app_shell::Tab,
-        style: TabBarSegmentStyle,
-    ) {
-        let title = self.formatted_tab_title_for_tab(position, tab);
-        let title_text = title.as_ref().map(NativeTabTitle::plain_text);
-        let label = tab_bar_tab_label_segments(
-            position,
-            tab.id(),
-            tab.panes().len(),
-            tab.id() == self.app_shell.active_tab_id(),
-            title_text.as_deref(),
-            Self::tab_progress_for_tab(tab),
-            self.tab_bar_label_options(),
-        );
-
-        write_tab_bar_segment(
-            cells,
-            column,
-            &label.prefix,
-            style.foreground,
-            style.background,
-            style.bold,
-        );
-        match title.as_ref() {
-            Some(NativeTabTitle::Format(items)) => {
-                write_tab_bar_format_items(cells, column, items, style);
-            }
-            Some(NativeTabTitle::Text(_)) | None => {
-                write_tab_bar_segment(
-                    cells,
-                    column,
-                    &label.title,
-                    style.foreground,
-                    style.background,
-                    style.bold,
-                );
-            }
-        }
-        write_tab_bar_segment(
-            cells,
-            column,
-            &label.suffix,
-            style.foreground,
-            style.background,
-            style.bold,
-        );
     }
 
     fn default_tab_bar_label_for_tab(
@@ -12873,7 +12927,9 @@ impl NativeWindowApp {
             tab_bar_background_color: self.tab_bar_background_color,
             tab_bar_active_tab_colors: self.tab_bar_active_tab_colors,
             tab_bar_inactive_tab_colors: self.tab_bar_inactive_tab_colors,
+            tab_bar_inactive_tab_hover_colors: self.tab_bar_inactive_tab_hover_colors,
             tab_bar_new_tab_colors: self.tab_bar_new_tab_colors,
+            tab_bar_new_tab_hover_colors: self.tab_bar_new_tab_hover_colors,
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
@@ -13065,7 +13121,9 @@ impl NativeWindowApp {
         self.tab_bar_background_color = overrides.tab_bar_background_color;
         self.tab_bar_active_tab_colors = overrides.tab_bar_active_tab_colors;
         self.tab_bar_inactive_tab_colors = overrides.tab_bar_inactive_tab_colors;
+        self.tab_bar_inactive_tab_hover_colors = overrides.tab_bar_inactive_tab_hover_colors;
         self.tab_bar_new_tab_colors = overrides.tab_bar_new_tab_colors;
+        self.tab_bar_new_tab_hover_colors = overrides.tab_bar_new_tab_hover_colors;
         self.visual_bell_color = overrides.visual_bell_color;
         self.notification_handling = overrides
             .notification_handling
@@ -41471,6 +41529,81 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_tab_bar_hover_item_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              tab_bar = {
+                inactive_tab = {
+                  bg_color = '#010203',
+                  fg_color = '#040506',
+                },
+                inactive_tab_hover = {
+                  bg_color = '#070809',
+                  fg_color = '#0a0b0c',
+                },
+                new_tab = {
+                  bg_color = '#0d0e0f',
+                  fg_color = '#101112',
+                },
+                new_tab_hover = {
+                  bg_color = '#131415',
+                  fg_color = '#161718',
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar hover item color config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let first_tab_column = app.tab_bar_workspace_label().chars().count() + 1;
+        let first_tab_x = u32::try_from(first_tab_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(first_tab_x), 0.0))
+            .unwrap();
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let inactive_column = tab_bar
+            .find("1:1")
+            .expect("inactive tab label should be visible");
+        let inactive_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(inactive_column).unwrap()).unwrap();
+
+        assert_eq!(
+            inactive_cell.foreground,
+            rssh_terminal::Color::Rgb(10, 11, 12)
+        );
+        assert_eq!(inactive_cell.background, rssh_terminal::Color::Rgb(7, 8, 9));
+
+        let new_tab_column = app
+            .tab_bar_new_tab_column_start()
+            .expect("new-tab button should be visible")
+            + 1;
+        let new_tab_x = u32::from(new_tab_column) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(new_tab_x), 0.0))
+            .unwrap();
+        let snapshot = app.render_snapshot();
+        let new_tab_cell = snapshot_cell(&snapshot, 0, new_tab_column).unwrap();
+
+        assert_eq!(
+            new_tab_cell.foreground,
+            rssh_terminal::Color::Rgb(22, 23, 24)
+        );
+        assert_eq!(
+            new_tab_cell.background,
+            rssh_terminal::Color::Rgb(19, 20, 21)
+        );
+    }
+
+    #[test]
     fn window_app_status_text_applies_sgr_indexed_colors() {
         let mut app = NativeWindowApp::new(None);
         app.left_status = "\x1b[31;104mANSI\x1b[0m".to_owned();
@@ -43884,7 +44017,9 @@ mod tests {
                 tab_bar_background_color: None,
                 tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
                 tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
+                tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
                 tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
+                tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
@@ -61710,9 +61845,17 @@ mod tests {
                 fg_color: Some(Color::Rgb(34, 35, 36)),
                 bg_color: Some(Color::Rgb(37, 38, 39)),
             },
+            tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(46, 47, 48)),
+                bg_color: Some(Color::Rgb(49, 50, 51)),
+            },
             tab_bar_new_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(40, 41, 42)),
                 bg_color: Some(Color::Rgb(43, 44, 45)),
+            },
+            tab_bar_new_tab_hover_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(52, 53, 54)),
+                bg_color: Some(Color::Rgb(55, 56, 57)),
             },
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
@@ -61884,9 +62027,17 @@ mod tests {
                 fg_color: Some(Color::Rgb(34, 35, 36)),
                 bg_color: Some(Color::Rgb(37, 38, 39)),
             },
+            tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(46, 47, 48)),
+                bg_color: Some(Color::Rgb(49, 50, 51)),
+            },
             tab_bar_new_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(40, 41, 42)),
                 bg_color: Some(Color::Rgb(43, 44, 45)),
+            },
+            tab_bar_new_tab_hover_colors: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(52, 53, 54)),
+                bg_color: Some(Color::Rgb(55, 56, 57)),
             },
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
@@ -62003,7 +62154,9 @@ mod tests {
             tab_bar_background_color: None,
             tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
             tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
+            tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,

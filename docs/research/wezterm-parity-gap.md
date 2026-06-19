@@ -121,14 +121,17 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `colors.tab_bar.background` for blank tab-bar cells, and active-tab,
   inactive-tab, plus new-tab button labels honor the corresponding
   `colors.tab_bar.active_tab`, `colors.tab_bar.inactive_tab`, and
-  `colors.tab_bar.new_tab` `fg_color`/`bg_color` entries. Static Lua config parsing covers
+  `colors.tab_bar.new_tab` `fg_color`/`bg_color` entries; inactive-tab hover
+  and new-tab button hover labels honor `colors.tab_bar.inactive_tab_hover`
+  and `colors.tab_bar.new_tab_hover` `fg_color`/`bg_color`. Static Lua config parsing covers
   `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`,
   `tab_bar_at_bottom`, `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`, `switch_to_last_active_tab_when_closing_tab`,
   `quit_when_all_windows_are_closed`, `show_close_tab_button_in_tabs`,
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`,
   `show_tabs_in_tab_bar`, `colors.tab_bar.background`,
-  `colors.tab_bar.active_tab`/`inactive_tab`/`new_tab` `fg_color`/`bg_color`.
+  `colors.tab_bar.active_tab`/`inactive_tab`/`inactive_tab_hover`/`new_tab`/
+  `new_tab_hover` `fg_color`/`bg_color`.
 - App-shell state now exposes WezTerm-style `SpawnWindow`: the default
   `Ctrl+Shift+N` and `Super+N` shortcuts plus command-palette `Spawn Window`
   entry create a pending native-window app with a fresh default-launch tab and
@@ -1934,12 +1937,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `colors.scrollbar_thumb` parses into native/effective config and applies to
   scrollbar thumb rendering; `colors.tab_bar.background` parses into
   native/effective config and applies to blank retro tab-bar cells; retro
-  tab-bar `active_tab`, `inactive_tab`, and `new_tab` `fg_color`/`bg_color`
-  entries parse into native/effective config and apply to tab/new-tab labels;
+  tab-bar `active_tab`, `inactive_tab`, `inactive_tab_hover`, `new_tab`, and
+  `new_tab_hover` `fg_color`/`bg_color` entries parse into native/effective
+  config and apply to tab/new-tab labels;
   copy-mode/quick-select `Color`/`AnsiColor` tables also parse into
   native/effective config, and copy-mode active/inactive highlight plus
   quick-select label/match colors apply to overlay rendering, while compose,
-  hover tab-bar styles, tab-bar intensity/underline/italic/strikethrough, and
+  tab-bar intensity/underline/italic/strikethrough, and
   other non-terminal color fields remain later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
