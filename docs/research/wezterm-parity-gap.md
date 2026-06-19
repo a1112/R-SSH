@@ -117,13 +117,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `show_tab_index_in_tab_bar`, configurable zero-based tab index labels honoring
   `tab_and_split_indices_are_zero_based`, configurable tab-label visibility honoring
   `show_tabs_in_tab_bar`, and a configurable new-tab button honoring
-  `show_new_tab_button_in_tab_bar`. Static Lua config parsing covers
+  `show_new_tab_button_in_tab_bar`. The retro tab bar strip honors
+  `colors.tab_bar.background` for blank tab-bar cells. Static Lua config parsing covers
   `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`,
   `tab_bar_at_bottom`, `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`, `switch_to_last_active_tab_when_closing_tab`,
   `quit_when_all_windows_are_closed`, `show_close_tab_button_in_tabs`,
-  `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`, and
-  `show_tabs_in_tab_bar`.
+  `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`,
+  `show_tabs_in_tab_bar`, and `colors.tab_bar.background`.
 - App-shell state now exposes WezTerm-style `SpawnWindow`: the default
   `Ctrl+Shift+N` and `Super+N` shortcuts plus command-palette `Spawn Window`
   entry create a pending native-window app with a fresh default-launch tab and
@@ -1927,11 +1928,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   parse into the same native override path; `colors.split` also parses into
   native/effective config and applies to pane separator rendering;
   `colors.scrollbar_thumb` parses into native/effective config and applies to
-  scrollbar thumb rendering; copy-mode/quick-select `Color`/`AnsiColor` tables
-  also parse into native/effective config, and copy-mode active/inactive
-  highlight plus quick-select label/match colors apply to overlay rendering,
-  while compose, tab-bar, and other non-terminal color fields remain later
-  parity work.
+  scrollbar thumb rendering; `colors.tab_bar.background` parses into
+  native/effective config and applies to blank retro tab-bar cells;
+  copy-mode/quick-select `Color`/`AnsiColor` tables also parse into
+  native/effective config, and copy-mode active/inactive highlight plus
+  quick-select label/match colors apply to overlay rendering, while compose,
+  remaining tab-bar item styles, and other non-terminal color fields remain
+  later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
   macOS-specific flags in effective config snapshots. Fine-grained titlebar,

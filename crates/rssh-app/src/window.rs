@@ -1498,6 +1498,7 @@ struct NativeEffectiveConfig {
     cursor_fg_color: Option<Color>,
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
+    tab_bar_background_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -1609,6 +1610,7 @@ struct NativeConfigOverrides {
     cursor_fg_color: Option<Color>,
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
+    tab_bar_background_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
@@ -1765,6 +1767,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             color_lua_table_field_from_query(colors, "scrollbar_thumb")?
         {
             overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
+            parsed = true;
+        }
+        if let Some(tab_bar_background_color) = tab_bar_background_lua_table_from_query(colors)? {
+            overrides.tab_bar_background_color = Some(tab_bar_background_color);
             parsed = true;
         }
         if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
@@ -3770,6 +3776,7 @@ struct NativeWindowApp {
     cursor_fg_color: Option<Color>,
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
+    tab_bar_background_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -4999,6 +5006,7 @@ impl NativeWindowApp {
             cursor_fg_color: None,
             split_color: None,
             scrollbar_thumb_color: None,
+            tab_bar_background_color: None,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
@@ -5948,6 +5956,7 @@ impl NativeWindowApp {
         );
         detached_app.split_color = self.split_color;
         detached_app.scrollbar_thumb_color = self.scrollbar_thumb_color;
+        detached_app.tab_bar_background_color = self.tab_bar_background_color;
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
@@ -6100,6 +6109,7 @@ impl NativeWindowApp {
         );
         self.split_color = source.split_color;
         self.scrollbar_thumb_color = source.scrollbar_thumb_color;
+        self.tab_bar_background_color = source.tab_bar_background_color;
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
         self.default_prog.clone_from(&source.default_prog);
@@ -12295,15 +12305,12 @@ impl NativeWindowApp {
         }
 
         let columns = self.runtime.terminal().grid().size().columns;
+        let background = self
+            .tab_bar_background_color
+            .unwrap_or(Color::Rgb(34, 34, 38));
         let mut cells = (0..columns)
             .map(|column| {
-                tab_bar_render_cell(
-                    column,
-                    ' ',
-                    Color::Rgb(198, 198, 198),
-                    Color::Rgb(34, 34, 38),
-                    false,
-                )
+                tab_bar_render_cell(column, ' ', Color::Rgb(198, 198, 198), background, false)
             })
             .collect::<Vec<_>>();
 
@@ -12824,6 +12831,7 @@ impl NativeWindowApp {
             cursor_fg_color: self.cursor_fg_color,
             split_color: self.split_color,
             scrollbar_thumb_color: self.scrollbar_thumb_color,
+            tab_bar_background_color: self.tab_bar_background_color,
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
@@ -13012,6 +13020,7 @@ impl NativeWindowApp {
         );
         self.split_color = overrides.split_color;
         self.scrollbar_thumb_color = overrides.scrollbar_thumb_color;
+        self.tab_bar_background_color = overrides.tab_bar_background_color;
         self.visual_bell_color = overrides.visual_bell_color;
         self.notification_handling = overrides
             .notification_handling
@@ -24026,6 +24035,31 @@ fn native_visual_bell_lua_table_from_query(value: &str) -> Option<NativeVisualBe
 
 fn visual_bell_color_lua_table_from_query(value: &str) -> Option<Option<Color>> {
     color_lua_table_field_from_query(value, "visual_bell")
+}
+
+fn tab_bar_background_lua_table_from_query(value: &str) -> Option<Option<Color>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut color = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != "tab_bar" {
+            continue;
+        }
+        if color.is_some() {
+            return None;
+        }
+        color = color_lua_table_field_from_query(value.trim(), "background")?;
+    }
+
+    Some(color)
 }
 
 fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Option<Color>> {
@@ -41214,6 +41248,34 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_tab_bar_background_color_to_blank_cells() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              tab_bar = {
+                background = '#010203',
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar background config");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let blank_cell = snapshot_cell(&snapshot, 0, TERMINAL_COLUMNS - 1)
+            .expect("expected trailing tab bar cell");
+
+        assert_eq!(blank_cell.ch, ' ');
+        assert_eq!(blank_cell.background, rssh_terminal::Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
     fn window_app_status_text_applies_sgr_indexed_colors() {
         let mut app = NativeWindowApp::new(None);
         app.left_status = "\x1b[31;104mANSI\x1b[0m".to_owned();
@@ -43624,6 +43686,7 @@ mod tests {
                 cursor_fg_color: None,
                 split_color: None,
                 scrollbar_thumb_color: None,
+                tab_bar_background_color: None,
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
@@ -61440,6 +61503,7 @@ mod tests {
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
+            tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61601,6 +61665,7 @@ mod tests {
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
+            tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61713,6 +61778,7 @@ mod tests {
             cursor_fg_color: None,
             split_color: None,
             scrollbar_thumb_color: None,
+            tab_bar_background_color: None,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
