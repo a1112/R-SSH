@@ -1911,8 +1911,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   current cell foreground, plus `selection_bg = 'rgba(r,g,b,a)'`,
   `selection_bg = 'hsla(h,s,l,a)'`, `hwb(h w b / a)`, and `hsv(h s v / a)`
   alpha blending over the current cell background. Copy-mode/quick-select
-  label/match `Color`/`AnsiColor` tables now parse into native/effective config;
-  applying those tables to overlay rendering remains later parity work.
+  label/match `Color`/`AnsiColor` tables now parse into native/effective config,
+  and `quick_select_match_bg`/`quick_select_match_fg` apply to quick-select
+  match rendering. Copy-mode highlight colors and quick-select label colors
+  remain later overlay parity work.
 - Native cursor rendering applies WezTerm-style `colors.cursor_bg` as the
   default block cursor fill, `colors.cursor_border` as block-cursor border and
   bar/underline cursor color, and `colors.cursor_fg` as block-cursor text
@@ -1920,9 +1922,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   precedence. Static WezTerm-style Lua `config.colors.cursor_bg`,
   `config.colors.cursor_border`, and `config.colors.cursor_fg` snippets now
   parse into the same native override path; copy-mode/quick-select
-  `Color`/`AnsiColor` tables also parse into native/effective config, while
-  applying those tables to overlay rendering plus split, scrollbar, compose,
-  tab-bar, and other non-terminal color fields remain later parity work.
+  `Color`/`AnsiColor` tables also parse into native/effective config, and
+  quick-select match colors apply to match rendering, while copy-mode
+  highlights, quick-select labels, split, scrollbar, compose, tab-bar, and
+  other non-terminal color fields remain later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
   macOS-specific flags in effective config snapshots. Fine-grained titlebar,

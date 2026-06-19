@@ -706,12 +706,40 @@ impl NativeAnsiColor {
             _ => None,
         }
     }
+
+    const fn palette_index(self) -> u8 {
+        match self {
+            Self::Black => 0,
+            Self::Maroon => 1,
+            Self::Green => 2,
+            Self::Olive => 3,
+            Self::Navy => 4,
+            Self::Purple => 5,
+            Self::Teal => 6,
+            Self::Silver => 7,
+            Self::Grey => 8,
+            Self::Red => 9,
+            Self::Lime => 10,
+            Self::Yellow => 11,
+            Self::Blue => 12,
+            Self::Fuchsia => 13,
+            Self::Aqua => 14,
+            Self::White => 15,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeColorSpec {
     Color(Color),
     AnsiColor(NativeAnsiColor),
+}
+
+fn native_color_spec_to_render_color(color: NativeColorSpec) -> Color {
+    match color {
+        NativeColorSpec::Color(color) => color,
+        NativeColorSpec::AnsiColor(color) => Color::Indexed(color.palette_index()),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -10482,10 +10510,25 @@ impl NativeWindowApp {
         let snapshot = terminal_runtime_snapshot(&self.runtime, self.scrollback_offset);
         let size = self.runtime.terminal().grid().size();
         self.snapshot = if let Some(selection) = self.selection {
+            let selection_fg_color = if self.quick_select.is_some() {
+                self.quick_select_match_fg
+                    .map(native_color_spec_to_render_color)
+                    .map(Some)
+                    .or(self.selection_fg_color)
+            } else {
+                self.selection_fg_color
+            };
+            let selection_bg_color = if self.quick_select.is_some() {
+                self.quick_select_match_bg
+                    .map(native_color_spec_to_render_color)
+                    .or(self.selection_bg_color)
+            } else {
+                self.selection_bg_color
+            };
             snapshot.with_selection_colors_overlay(
                 |row, column| selection.contains(row, column, size),
-                self.selection_fg_color,
-                self.selection_bg_color,
+                selection_fg_color,
+                selection_bg_color,
             )
         } else {
             snapshot
@@ -43965,6 +44008,27 @@ mod tests {
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:1 pane:1]"
         );
+    }
+
+    #[test]
+    fn window_quick_select_uses_configured_match_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
+        app.set_config_overrides(NativeConfigOverrides {
+            quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"https://example.com").unwrap();
+
+        app.enter_quick_select_mode();
+        let snapshot = app.render_snapshot();
+        let match_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("quick-select match cell");
+
+        assert_eq!(match_cell.foreground, Color::Rgb(1, 2, 3));
+        assert_eq!(match_cell.background, Color::Indexed(4));
+        assert!(!match_cell.inverse);
     }
 
     #[test]
