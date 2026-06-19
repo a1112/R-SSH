@@ -2026,8 +2026,16 @@ fn lua_config_assignment_from_query<'a>(
     let mut quote = None;
     let mut escape = false;
     let mut line_comment = false;
+    let mut block_comment_end = None;
 
     for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
         if line_comment {
             if character == '\n' {
                 line_comment = false;
@@ -2047,6 +2055,19 @@ fn lua_config_assignment_from_query<'a>(
         }
 
         if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
             line_comment = true;
             continue;
         }
@@ -51843,6 +51864,42 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_long_block_comments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            --[[
+            config.default_prog = { 'bad-shell', '--bad' }
+            config.default_cwd = 'C:/Ignored'
+            ]]
+
+            config.default_prog = { 'nu', '--login' }
+            config.default_cwd = 'C:/Project Dir'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
     }
 
     #[test]
