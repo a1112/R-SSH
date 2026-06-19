@@ -602,9 +602,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   silently discarding them. Static WezTerm-style `config.launch_menu` snippets
   now feed native launch-menu entries for the implemented `SpawnCommand`
   subset (`label`, optional `args`, `cwd`, `set_environment_variables`, and the
-  local-domain selector), including default-program launch entries when `args`
-  is omitted. Remote/mux domains, richer default-mode UI styling,
-  broader Lua key assignment/config parsing, dynamic Lua `launch_menu`
+  local-domain selector), including bracketed string table keys with
+  long-bracket values for launch-menu item fields and environment entries, plus
+  default-program launch entries when `args` is omitted. Remote/mux domains,
+  richer default-mode UI styling, broader Lua key assignment/config parsing,
+  dynamic Lua `launch_menu`
   construction, Lua `ShowLauncherArgs` config/event wiring, Lua
   `PromptInputLine` callback wiring, and Lua event/config wiring remain open.
 - Command palette now exposes WezTerm-style `ActivateCommandPalette`, matching
@@ -946,9 +948,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   including implemented `CopyMode` assignment payloads. WezTerm-style static
   Lua snippets for `config.keys`, `config.key_tables`, and `config.leader`
   now parse native key assignment tables and leader configuration into the same
-  override/runtime path for the implemented action subset; full Lua config
-  evaluation, default key-table merging, and config-file reload wiring remain
-  open.
+  override/runtime path for the implemented action subset, including bracketed
+  string table keys with long-bracket values for leader fields, key-table names,
+  and nested assignment fields; full Lua config evaluation, default key-table
+  merging, and config-file reload wiring remain open.
 - Native `Nop` action payloads now map to the no-effect app-shell action, so a
   native key/palette action can consume a trigger without mutating window state.
   Structured command-palette `nop` queries dispatch the same payload directly.
@@ -991,7 +994,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `LEADER` assignments match while active, and unmatched keys are swallowed
   before normal input resumes. Static WezTerm-style `config.leader` snippets
   now parse `key`, `mods`, and optional `timeout_milliseconds` into the same
-  native leader runtime; full keys config-file wiring remains open.
+  native leader runtime, including bracketed string table keys with
+  long-bracket values; full keys config-file wiring remains open.
 - Native `DisableDefaultAssignment` action payloads now suppress matching
   built-in default app-shell, window-level, and scrollback shortcuts from native
   user key assignments, leaving the key for the later input path. Structured
@@ -1744,9 +1748,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   typed copy-mode search input edits the current search pattern. WezTerm-style
   static Lua snippets for `config.keys`, `config.key_tables`, and
   `config.leader` now parse the implemented native assignment subset and
-  leader configuration into runtime key-table overrides; full Lua config
-  evaluation, default key-table merging, and config-file reload wiring remain
-  open.
+  leader configuration into runtime key-table overrides, including bracketed
+  string table keys with long-bracket values for key-table names and nested
+  assignment fields; full Lua config evaluation, default key-table merging, and
+  config-file reload wiring remain open.
 - Copy mode semantic-zone movement can scroll into retained history and supports
   typed Prompt/Input/Output filters.
 - Copy mode source-row selection anchors now preserve and copy selections that

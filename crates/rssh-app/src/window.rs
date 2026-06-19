@@ -2378,7 +2378,7 @@ fn native_leader_lua_table_from_query(value: &str) -> Option<NativeLeaderKey> {
         if field.is_empty() {
             continue;
         }
-        let (name, value) = field.split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = value.trim();
         if name.eq_ignore_ascii_case("key") {
@@ -2462,7 +2462,7 @@ fn native_launch_menu_item_lua_table_from_query(value: &str) -> Option<NativeLau
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         if key.eq_ignore_ascii_case("label") {
             if label.is_some() {
@@ -2499,7 +2499,7 @@ fn native_key_tables_lua_table_from_query(
         if field.is_empty() {
             continue;
         }
-        let (name, value) = field.split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         if key_tables.contains_key(&name) {
             return None;
@@ -2564,7 +2564,7 @@ fn native_user_key_assignment_lua_table_from_query(value: &str) -> Option<Native
         if field.is_empty() {
             continue;
         }
-        let (name, value) = field.split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = value.trim();
         match name.to_ascii_lowercase().as_str() {
@@ -51504,6 +51504,62 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_key_tables_config_long_bracket_key_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              [[=[resize_pane]=]] = {
+                { [[=[key]=]] = 'h', [[=[action]=]] = act.SendString 'left' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"left");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_leader_into_runtime_assignments() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -51513,6 +51569,55 @@ mod tests {
             local config = {}
 
             config.leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 }
+
+            config.keys = {
+              {
+                key = '|',
+                mods = 'LEADER|SHIFT',
+                action = act.ShowDebugOverlay,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm leader config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert!(!app.debug_overlay_active_for_test());
+
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("|".into()),
+            PhysicalKey::Code(WinitKeyCode::Backslash),
+            Some("|"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_leader_config_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.leader = { [[=[key]=]] = 'a', [[=[mods]=]] = 'CTRL', [[=[timeout_milliseconds]=]] = 1000 }
 
             config.keys = {
               {
@@ -52325,6 +52430,59 @@ mod tests {
                 cwd = '/tmp/project',
                 set_environment_variables = {
                   LAUNCH_MENU = '1',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::launch_menu_items(),
+                title: Some("Pick Launch".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        app.command_palette_set_query("monitor".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "System Monitor");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-H"]);
+        assert_eq!(launch.cwd(), Some("/tmp/project"));
+        assert_eq!(
+            launch.environment().get("LAUNCH_MENU"),
+            Some(&"1".to_owned())
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_config_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                [[=[label]=]] = 'System Monitor',
+                [[=[args]=]] = { 'top', '-H' },
+                [[=[cwd]=]] = '/tmp/project',
+                [[=[set_environment_variables]=]] = {
+                  [[=[LAUNCH_MENU]=]] = '1',
                 },
               },
             }

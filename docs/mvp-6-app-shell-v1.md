@@ -261,8 +261,10 @@ runtime storage for tabs and split panes.
   key assignments. Pressing the configured leader key arms the virtual
   `LEADER` modifier until the next key press or `timeout_milliseconds`; while
   active, only `LEADER` assignments are matched and unmatched keys are
-  swallowed before normal input resumes. Lua `leader`/`keys` parsing remains
-  future config parity work.
+  swallowed before normal input resumes. Static WezTerm-style `config.leader`
+  snippets parse `key`, `mods`, and optional `timeout_milliseconds`, including
+  bracketed string table keys with long-bracket values. Broader Lua config
+  evaluation remains future config parity work.
 - `rssh-app` exposes a native WezTerm-style `DisableDefaultAssignment` action
   for user key assignments. Matching key strings suppress built-in app-shell,
   window-level, and scrollback shortcuts so the key continues through the later
@@ -350,8 +352,11 @@ runtime storage for tabs and split panes.
   single-space default prompt strings when omitted.
   Structured `show launcher <FLAGS>` queries reject unknown top-level fields
   instead of silently discarding them.
-  Remote/mux domains, Lua key assignment/config parsing, Lua
-  `ShowLauncherArgs`/`launch_menu` parsing, richer default-mode UI styling, Lua
+  Static WezTerm-style `config.launch_menu` snippets feed native launch-menu
+  entries for the implemented `SpawnCommand` subset, including bracketed string
+  table keys with long-bracket values for launch-menu item fields and
+  environment entries. Remote/mux domains, broader Lua key assignment/config
+  parsing, Lua `ShowLauncherArgs` wiring, richer default-mode UI styling, Lua
   `PromptInputLine` callback wiring, and Lua event/config wiring remain later
   parity work.
 - `rssh-core` supports WezTerm's close-tab selection policy: callers can keep
@@ -529,8 +534,12 @@ runtime storage for tabs and split panes.
   `popkeytable` and `clearkeytablestack` dispatch the same stack mutations as
   their spaced query forms.
   Native `key_tables` overrides now match table entries from the activation
-  stack top downward and execute the matched native action. Lua `key_tables`
-  parsing remains later parity work.
+  stack top downward and execute the matched native action. Static
+  WezTerm-style `config.keys` and `config.key_tables` snippets parse the
+  implemented native assignment subset into runtime key-table overrides,
+  including bracketed string table keys with long-bracket values for key-table
+  names and nested assignment fields. Full Lua config evaluation remains later
+  parity work.
 - `rssh-app` includes a WezTerm-style `PaneSelect` overlay from the command
   palette entry `Pane Select`. It labels panes with the WezTerm default
   selection alphabet (`a`, `s`, `d`, ...) and honors the native effective
