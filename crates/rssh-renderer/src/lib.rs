@@ -2521,7 +2521,7 @@ impl TerminalRenderSnapshot {
     pub fn with_selection_colors_overlay(
         mut self,
         mut selected: impl FnMut(u16, u16) -> bool,
-        selection_foreground: Option<Color>,
+        selection_foreground: Option<Option<Color>>,
         selection_background: Option<Color>,
     ) -> Self {
         if selection_foreground.is_none() && selection_background.is_none() {
@@ -2532,7 +2532,11 @@ impl TerminalRenderSnapshot {
             if selected(cell.row, cell.column) {
                 let inverse_foreground = cell.background;
                 let inverse_background = cell.foreground;
-                cell.foreground = selection_foreground.unwrap_or(inverse_foreground);
+                cell.foreground = match selection_foreground {
+                    Some(Some(color)) => color,
+                    Some(None) => cell.foreground,
+                    None => inverse_foreground,
+                };
                 cell.background = selection_background.unwrap_or(inverse_background);
                 cell.inverse = false;
             }

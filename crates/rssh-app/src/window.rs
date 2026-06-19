@@ -1405,7 +1405,7 @@ struct NativeEffectiveConfig {
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
     indexed_palette: Option<[Option<Color>; 256]>,
-    selection_fg_color: Option<Color>,
+    selection_fg_color: Option<Option<Color>>,
     selection_bg_color: Option<Color>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
@@ -1506,7 +1506,7 @@ struct NativeConfigOverrides {
     background_color: Option<Color>,
     ansi_palette: Option<[Color; 16]>,
     indexed_palette: Option<[Option<Color>; 256]>,
-    selection_fg_color: Option<Color>,
+    selection_fg_color: Option<Option<Color>>,
     selection_bg_color: Option<Color>,
     cursor_bg_color: Option<Color>,
     cursor_border_color: Option<Color>,
@@ -1637,8 +1637,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             overrides.indexed_palette = Some(indexed_palette);
             parsed = true;
         }
-        if let Some(selection_fg_color) = color_lua_table_field_from_query(colors, "selection_fg")?
-        {
+        if let Some(selection_fg_color) = selection_fg_lua_table_field_from_query(colors)? {
             overrides.selection_fg_color = Some(selection_fg_color);
             parsed = true;
         }
@@ -3605,7 +3604,7 @@ struct NativeWindowApp {
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
     indexed_palette: Option<[Option<Color>; 256]>,
-    selection_fg_color: Option<Color>,
+    selection_fg_color: Option<Option<Color>>,
     selection_bg_color: Option<Color>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
@@ -23719,6 +23718,36 @@ fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Opt
     Some(color)
 }
 
+fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<Color>>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut color = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != "selection_fg" {
+            continue;
+        }
+        if color.is_some() {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+        color = Some(if value.eq_ignore_ascii_case("none") {
+            None
+        } else {
+            Some(lua_hex_color_from_query(&value)?)
+        });
+    }
+
+    Some(color)
+}
+
 fn color_array_lua_table_field_from_query(
     value: &str,
     field_name: &str,
@@ -36096,6 +36125,56 @@ mod tests {
         assert!(
             selected_cell_uses_configured_foreground,
             "selection did not use colors.selection_fg"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_selection_fg_none_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#090a0b',
+              selection_fg = 'none',
+              selection_bg = '#040506',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm selection_fg none config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_configured_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [4, 5, 6, 255])
+            });
+        let selected_cell_uses_current_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [9, 10, 11, 255])
+            });
+        assert!(
+            selected_cell_uses_configured_background,
+            "selection did not use colors.selection_bg"
+        );
+        assert!(
+            selected_cell_uses_current_foreground,
+            "selection_fg none did not preserve the current text foreground"
         );
     }
 
@@ -59660,7 +59739,7 @@ mod tests {
             background_color: Some(Color::Rgb(4, 5, 6)),
             ansi_palette: Some(sample_ansi_palette()),
             indexed_palette: Some(sample_indexed_palette()),
-            selection_fg_color: Some(Color::Rgb(61, 62, 63)),
+            selection_fg_color: Some(Some(Color::Rgb(61, 62, 63))),
             selection_bg_color: Some(Color::Rgb(71, 72, 73)),
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
@@ -59809,7 +59888,7 @@ mod tests {
             background_color: Color::Rgb(4, 5, 6),
             ansi_palette: Some(sample_ansi_palette()),
             indexed_palette: Some(sample_indexed_palette()),
-            selection_fg_color: Some(Color::Rgb(61, 62, 63)),
+            selection_fg_color: Some(Some(Color::Rgb(61, 62, 63))),
             selection_bg_color: Some(Color::Rgb(71, 72, 73)),
             cursor_bg_color: Color::Rgb(10, 11, 12),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),

@@ -1893,8 +1893,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `colors.selection_fg` and `colors.selection_bg` to selected cells. Static
   WezTerm-style Lua `config.colors.selection_fg` and
   `config.colors.selection_bg` snippets now parse into the same native override
-  path for hex RGB colors; CSS alpha values, `none`, and copy-mode/quick-select
-  label/match color tables remain later parity work.
+  path for hex RGB colors, including `selection_fg = 'none'` preserving the
+  current cell foreground; selection background alpha blending and
+  copy-mode/quick-select label/match color tables remain later parity work.
 - Native cursor rendering applies WezTerm-style `colors.cursor_bg` as the
   default block cursor fill, `colors.cursor_border` as block-cursor border and
   bar/underline cursor color, and `colors.cursor_fg` as block-cursor text
