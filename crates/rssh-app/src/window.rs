@@ -23711,7 +23711,7 @@ fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Opt
             return None;
         }
         let value = parse_maybe_quoted_query_text(value.trim())?;
-        color = Some(lua_hex_color_from_query(&value)?);
+        color = Some(lua_color_from_query(&value)?);
     }
 
     Some(color)
@@ -23740,7 +23740,7 @@ fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<
         color = Some(if value.eq_ignore_ascii_case("none") {
             None
         } else {
-            Some(lua_hex_color_from_query(&value)?)
+            Some(lua_color_from_query(&value)?)
         });
     }
 
@@ -23767,8 +23767,7 @@ fn selection_bg_lua_table_field_from_query(value: &str) -> Option<Option<Color>>
             return None;
         }
         let value = parse_maybe_quoted_query_text(value.trim())?;
-        color =
-            Some(lua_hex_color_from_query(&value).or_else(|| lua_rgba_color_from_query(&value))?);
+        color = Some(lua_color_from_query(&value)?);
     }
 
     Some(color)
@@ -23799,7 +23798,7 @@ fn color_array_lua_table_field_from_query(
         let values = split_lua_table_string_array(value.trim())?;
         let parsed = values
             .iter()
-            .map(|value| lua_hex_color_from_query(value))
+            .map(|value| lua_color_from_query(value))
             .collect::<Option<Vec<_>>>()?;
         colors = Some(<[Color; 8]>::try_from(parsed).ok()?);
     }
@@ -23840,7 +23839,7 @@ fn indexed_palette_lua_table_field_from_query(value: &str) -> Option<Option<[Opt
                 return None;
             }
             let color = parse_maybe_quoted_query_text(color.trim())?;
-            palette[index] = Some(lua_hex_color_from_query(&color)?);
+            palette[index] = Some(lua_color_from_query(&color)?);
         }
         indexed_palette = Some(palette);
     }
@@ -23859,10 +23858,23 @@ fn lua_hex_color_from_query(value: &str) -> Option<Color> {
     Some(Color::Rgb(red, green, blue))
 }
 
+fn lua_color_from_query(value: &str) -> Option<Color> {
+    lua_hex_color_from_query(value)
+        .or_else(|| lua_rgb_color_from_query(value))
+        .or_else(|| lua_rgba_color_from_query(value))
+}
+
+fn lua_rgb_color_from_query(value: &str) -> Option<Color> {
+    let [red, green, blue] = lua_color_function_components::<3>(value, "rgb")?;
+    Some(Color::Rgb(
+        red.parse::<u8>().ok()?,
+        green.parse::<u8>().ok()?,
+        blue.parse::<u8>().ok()?,
+    ))
+}
+
 fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
-    let components = value.trim().strip_prefix("rgba(")?.strip_suffix(')')?;
-    let components = components.split(',').map(str::trim).collect::<Vec<_>>();
-    let [red, green, blue, alpha] = <[&str; 4]>::try_from(components).ok()?;
+    let [red, green, blue, alpha] = lua_color_function_components::<4>(value, "rgba")?;
     let red = red.parse::<u8>().ok()?;
     let green = green.parse::<u8>().ok()?;
     let blue = blue.parse::<u8>().ok()?;
@@ -23870,6 +23882,23 @@ fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let alpha = (alpha * f64::from(u8::MAX)) as u8;
     Some(Color::Rgba(red, green, blue, alpha))
+}
+
+fn lua_color_function_components<'a, const N: usize>(
+    value: &'a str,
+    function: &str,
+) -> Option<[&'a str; N]> {
+    let function = format!("{function}(");
+    let components = value
+        .trim()
+        .strip_prefix(function.as_str())?
+        .strip_suffix(')')?;
+    components
+        .split(',')
+        .map(str::trim)
+        .collect::<Vec<_>>()
+        .try_into()
+        .ok()
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
@@ -36164,6 +36193,76 @@ mod tests {
         assert!(
             selected_cell_uses_configured_foreground,
             "selection did not use colors.selection_fg"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_rgb_function_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'rgb(1,2,3)',
+              background = 'rgb(4,5,6)',
+              selection_fg = 'rgb(7,8,9)',
+              selection_bg = 'rgb(10,11,12)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm rgb function color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"AB").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_rgb_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [10, 11, 12, 255]
+                })
+            });
+        let selected_cell_uses_rgb_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [7, 8, 9, 255])
+            });
+        let plain_cell_uses_rgb_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [4, 5, 6, 255])
+            });
+        let plain_cell_uses_rgb_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [1, 2, 3, 255])
+            });
+        assert!(
+            selected_cell_uses_rgb_background,
+            "selection_bg rgb() did not render"
+        );
+        assert!(
+            selected_cell_uses_rgb_foreground,
+            "selection_fg rgb() did not render"
+        );
+        assert!(
+            plain_cell_uses_rgb_background,
+            "background rgb() did not render"
+        );
+        assert!(
+            plain_cell_uses_rgb_foreground,
+            "foreground rgb() did not render"
         );
     }
 
