@@ -994,8 +994,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   same typed payload path. Quoted action strings decode Lua-style escapes such
   as `\x1b`, `\027`, `\u{1b}`, and `\z` whitespace elision before dispatching
   the payload bytes, and accept Lua long bracket strings such as `[[text]]`,
-  including inside Lua action table fields, bracketed string table keys, and
-  indexed action forms such as `act["SendString"] [[text]]`.
+  including inside Lua action payload table fields, bracketed string table keys,
+  and indexed action forms such as `act["SendString"] [[text]]`.
 - Native `SendKey` action payloads now encode the specified key and modifiers
   through the active terminal input mode, write the resulting bytes directly to
   the active PTY input path, and do not re-match key assignments. Structured

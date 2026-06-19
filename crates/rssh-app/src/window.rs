@@ -19617,7 +19617,7 @@ fn send_string_lua_table_from_query(value: &str) -> Option<String> {
     let mut string = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = field.trim().split_once('=')?;
+        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value)?;
         match name.to_ascii_lowercase().as_str() {
@@ -68765,6 +68765,36 @@ mod tests {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha, beta");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_table_long_bracket_key_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SendString { [[=[string]=]] = [[alpha beta]] }".to_owned(),
+        );
+
+        let expected = WindowCommand::SendString("alpha beta".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
         assert_eq!(app.scrollback_offset, 0);
         assert!(app.command_palette.is_none());
     }
