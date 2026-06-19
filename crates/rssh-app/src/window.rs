@@ -23862,6 +23862,7 @@ fn lua_color_from_query(value: &str) -> Option<Color> {
     lua_hex_color_from_query(value)
         .or_else(|| lua_rgb_color_from_query(value))
         .or_else(|| lua_hsl_color_from_query(value))
+        .or_else(|| lua_hsv_color_from_query(value))
         .or_else(|| lua_rgba_color_from_query(value))
 }
 
@@ -23937,6 +23938,28 @@ fn lua_hsl_color_from_query(value: &str) -> Option<Color> {
         lua_css_hue_degrees_from_query(hue)?,
         lua_css_percentage_from_query(saturation)?,
         lua_css_percentage_from_query(lightness)?,
+    );
+    alpha.map_or_else(
+        || Some(Color::Rgb(red, green, blue)),
+        |alpha| {
+            Some(Color::Rgba(
+                red,
+                green,
+                blue,
+                lua_css_alpha_from_query(alpha)?,
+            ))
+        },
+    )
+}
+
+fn lua_hsv_color_from_query(value: &str) -> Option<Color> {
+    let components = lua_color_function_body(value, "hsv")?;
+    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let [hue, saturation, value] = <[&str; 3]>::try_from(channels).ok()?;
+    let [red, green, blue] = hsv_to_rgb(
+        lua_css_hue_degrees_from_query(hue)?,
+        lua_css_percentage_from_query(saturation)?,
+        lua_css_percentage_from_query(value)?,
     );
     alpha.map_or_else(
         || Some(Color::Rgb(red, green, blue)),
@@ -36660,6 +36683,76 @@ mod tests {
         assert!(
             plain_cell_uses_opaque_hsla_foreground,
             "non-selection HSLA foreground alpha was not ignored"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hsv_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'hsv(0,100%,100%)',
+              background = 'hsv(120,100%,100%)',
+              selection_fg = 'hsv(120deg 100% 100%)',
+              selection_bg = 'hsv(240deg 100% 100% / 50%)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm HSV color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"AB").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_hsv_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 128, 127, 255]
+                })
+            });
+        let selected_cell_uses_hsv_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_hsv_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_hsv_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [255, 0, 0, 255])
+            });
+        assert!(
+            selected_cell_uses_hsv_background,
+            "selection_bg HSV alpha did not blend over the current background"
+        );
+        assert!(
+            selected_cell_uses_hsv_foreground,
+            "selection_fg HSV color did not render"
+        );
+        assert!(
+            plain_cell_uses_hsv_background,
+            "background HSV color did not render"
+        );
+        assert!(
+            plain_cell_uses_hsv_foreground,
+            "foreground HSV color did not render"
         );
     }
 
