@@ -81,6 +81,8 @@ const FRAME_HEIGHT: u32 = (TERMINAL_ROWS as u32 + TAB_BAR_ROWS as u32) * CELL_HE
 const DOUBLE_CLICK_MAX_INTERVAL: Duration = Duration::from_millis(500);
 const DEFAULT_LEADER_TIMEOUT: Duration = Duration::from_millis(1_000);
 const DEFAULT_STATUS_UPDATE_INTERVAL: Duration = Duration::from_millis(1_000);
+const DEFAULT_MAX_FPS: usize = 60;
+const DEFAULT_ANIMATION_FPS: usize = 10;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
@@ -1597,6 +1599,8 @@ const DEFAULT_WINDOW_CONTENT_ALIGNMENT: NativeWindowContentAlignment =
 struct NativeEffectiveConfig {
     tab_max_width: usize,
     status_update_interval_ms: u64,
+    max_fps: usize,
+    animation_fps: usize,
     cursor_blink_rate_ms: u64,
     cursor_blink_ease_in: NativeEasingFunction,
     cursor_blink_ease_out: NativeEasingFunction,
@@ -1725,6 +1729,8 @@ struct NativeEffectiveConfig {
 struct NativeConfigOverrides {
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
+    max_fps: Option<usize>,
+    animation_fps: Option<usize>,
     cursor_blink_rate_ms: Option<u64>,
     cursor_blink_ease_in: Option<NativeEasingFunction>,
     cursor_blink_ease_out: Option<NativeEasingFunction>,
@@ -2235,6 +2241,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_usize_assignment_from_query(config, "status_update_interval")
     {
         overrides.status_update_interval_ms = Some(u64::try_from(status_update_interval).ok()?);
+        parsed = true;
+    }
+    if let Some(max_fps) = lua_config_usize_assignment_from_query(config, "max_fps") {
+        overrides.max_fps = Some(max_fps);
+        parsed = true;
+    }
+    if let Some(animation_fps) = lua_config_usize_assignment_from_query(config, "animation_fps") {
+        overrides.animation_fps = Some(animation_fps);
         parsed = true;
     }
     if let Some(command_palette_rows) =
@@ -4153,6 +4167,8 @@ struct NativeWindowApp {
     left_status: String,
     right_status: String,
     status_update_interval: Duration,
+    max_fps: usize,
+    animation_fps: usize,
     last_status_update_at: Option<Instant>,
     cursor_blink_rate: Duration,
     cursor_blink_ease_in: NativeEasingFunction,
@@ -5557,6 +5573,8 @@ impl NativeWindowApp {
             left_status: String::new(),
             right_status: String::new(),
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
+            max_fps: DEFAULT_MAX_FPS,
+            animation_fps: DEFAULT_ANIMATION_FPS,
             last_status_update_at: None,
             cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
             cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
@@ -6560,6 +6578,8 @@ impl NativeWindowApp {
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
+        self.max_fps = source.max_fps;
+        self.animation_fps = source.animation_fps;
         self.last_status_update_at = None;
         self.command_palette_rows = source.command_palette_rows;
         self.command_palette_bg_color = source.command_palette_bg_color;
@@ -13504,6 +13524,8 @@ impl NativeWindowApp {
             tab_max_width: self.tab_max_width,
             status_update_interval_ms: u64::try_from(self.status_update_interval.as_millis())
                 .unwrap_or(u64::MAX),
+            max_fps: self.max_fps,
+            animation_fps: self.animation_fps,
             cursor_blink_rate_ms: u64::try_from(self.cursor_blink_rate.as_millis())
                 .unwrap_or(u64::MAX),
             cursor_blink_ease_in: self.cursor_blink_ease_in,
@@ -13645,6 +13667,14 @@ impl NativeWindowApp {
         self.config_overrides = overrides.clone();
         self.tab_max_width = overrides.tab_max_width.unwrap_or(DEFAULT_TAB_MAX_WIDTH);
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
+        self.max_fps = overrides
+            .max_fps
+            .filter(|fps| *fps > 0)
+            .unwrap_or(DEFAULT_MAX_FPS);
+        self.animation_fps = overrides
+            .animation_fps
+            .filter(|fps| *fps > 0)
+            .unwrap_or(DEFAULT_ANIMATION_FPS);
         self.apply_cursor_blink_overrides(
             overrides.cursor_blink_rate_ms,
             overrides.cursor_blink_ease_in,
@@ -36056,8 +36086,8 @@ mod tests {
     use super::{
         AppAction, AppShellError, CELL_HEIGHT, CELL_WIDTH,
         DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE, DEFAULT_ALLOW_WIN32_INPUT_MODE,
-        DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_ANSI_PALETTE_COLORS,
-        DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR,
+        DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_ANIMATION_FPS,
+        DEFAULT_ANSI_PALETTE_COLORS, DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR,
         DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS, DEFAULT_CANONICALIZE_PASTED_NEWLINES,
         DEFAULT_CELL_WIDTH, DEFAULT_CHECK_FOR_UPDATES, DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_DEBUG_KEY_EVENTS, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
@@ -36066,9 +36096,9 @@ mod tests {
         DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_RESIZE_INCREMENTS,
         DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WINDOW_BACKGROUND_OPACITY,
@@ -45267,6 +45297,8 @@ mod tests {
             [NativeEffectiveConfig {
                 tab_max_width: 28,
                 status_update_interval_ms: 1_250,
+                max_fps: DEFAULT_MAX_FPS,
+                animation_fps: DEFAULT_ANIMATION_FPS,
                 cursor_blink_rate_ms: 800,
                 cursor_blink_ease_in: NativeEasingFunction::Linear,
                 cursor_blink_ease_out: NativeEasingFunction::Linear,
@@ -57836,6 +57868,37 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_frame_rate_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.max_fps, 60);
+        assert_eq!(effective.animation_fps, 10);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_frame_rate_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.max_fps = 144
+            config.animation_fps = 24
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm frame-rate config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.max_fps, 144);
+        assert_eq!(effective.animation_fps, 24);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_palette_and_quick_select_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -63298,6 +63361,8 @@ mod tests {
         NativeConfigOverrides {
             tab_max_width: Some(32),
             status_update_interval_ms: Some(250),
+            max_fps: Some(144),
+            animation_fps: Some(24),
             cursor_blink_rate_ms: Some(375),
             cursor_blink_ease_in: Some(NativeEasingFunction::EaseIn),
             cursor_blink_ease_out: Some(NativeEasingFunction::EaseOut),
@@ -63499,6 +63564,8 @@ mod tests {
         NativeEffectiveConfig {
             tab_max_width: 32,
             status_update_interval_ms: 250,
+            max_fps: 144,
+            animation_fps: 24,
             cursor_blink_rate_ms: 375,
             cursor_blink_ease_in: NativeEasingFunction::EaseIn,
             cursor_blink_ease_out: NativeEasingFunction::EaseOut,
@@ -63680,6 +63747,8 @@ mod tests {
         NativeEffectiveConfig {
             tab_max_width: 16,
             status_update_interval_ms: 1_000,
+            max_fps: DEFAULT_MAX_FPS,
+            animation_fps: DEFAULT_ANIMATION_FPS,
             cursor_blink_rate_ms: 800,
             cursor_blink_ease_in: NativeEasingFunction::Linear,
             cursor_blink_ease_out: NativeEasingFunction::Linear,

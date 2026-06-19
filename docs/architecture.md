@@ -699,7 +699,7 @@ keyboard, mouse, paste, resize
   queries dispatch the same command.
   A typed native `set_config_overrides`/`get_config_overrides` subset stores
   per-window overrides for implemented effective-config fields (`tab_max_width`,
-  `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
+  `status_update_interval`, `max_fps`, `animation_fps`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
@@ -738,7 +738,10 @@ keyboard, mouse, paste, resize
   snapshots. `check_for_updates` is stored with WezTerm's default `true`,
   `check_for_updates_interval_seconds` with the default `86400`, and
   `show_update_window` with the compatibility default `false`; actual update
-  checks and update-window UI remain future parity work. `use_resize_increments`
+  checks and update-window UI remain future parity work. `max_fps` is stored
+  with WezTerm's default `60`, and `animation_fps` with the default `10`;
+  actual frame pacing and animation redraw scheduling remain future parity
+  work. `use_resize_increments`
   is stored with WezTerm's default `false`
   and included in effective config snapshots; actual OS-specific window resize
   increment application remains future parity work. `debug_key_events` and
@@ -904,7 +907,7 @@ keyboard, mouse, paste, resize
   with the window id and active pane id.
   A typed native `set_config_overrides`/`get_config_overrides` subset stores
   per-window overrides for `tab_max_width`, `status_update_interval`,
-  `cursor_blink_rate`, `cursor_blink_ease_in`, `cursor_blink_ease_out`,
+  `max_fps`, `animation_fps`, `cursor_blink_rate`, `cursor_blink_ease_in`, `cursor_blink_ease_out`,
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
@@ -986,7 +989,7 @@ keyboard, mouse, paste, resize
   state, local domain name, tty name when known, user vars, and progress. The
   typed event carries an effective config snapshot for implemented window
   options including `tab_max_width`, `status_update_interval`,
-  `cursor_blink_rate`, `cursor_blink_ease_in`, `cursor_blink_ease_out`,
+  `max_fps`, `animation_fps`, `cursor_blink_rate`, `cursor_blink_ease_in`, `cursor_blink_ease_out`,
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
