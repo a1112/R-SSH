@@ -176,6 +176,15 @@ const DEFAULT_TEXT_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
     NativeTextBackgroundOpacity::ONE;
 const DEFAULT_WINDOW_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
     NativeTextBackgroundOpacity::ONE;
+const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorations {
+    title: true,
+    resize: true,
+    integrated_buttons: false,
+    macos_force_disable_shadow: false,
+    macos_force_enable_shadow: false,
+    macos_force_square_corners: false,
+    macos_use_background_color_as_titlebar_color: false,
+};
 const DEFAULT_QUICK_SELECT_ALPHABET: &str = "asdfqwerzxcvjklmiuopghtybn";
 const DEFAULT_LAUNCHER_ALPHABET: &str = "1234567890abcdefghilmnopqrstuvwxyz";
 const DEFAULT_LAUNCHER_HELP_TEXT: &str =
@@ -733,6 +742,60 @@ impl NativeWindowCloseConfirmation {
             "NeverPrompt" => Some(Self::NeverPrompt),
             _ => None,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NativeWindowDecorations {
+    title: bool,
+    resize: bool,
+    integrated_buttons: bool,
+    macos_force_disable_shadow: bool,
+    macos_force_enable_shadow: bool,
+    macos_force_square_corners: bool,
+    macos_use_background_color_as_titlebar_color: bool,
+}
+
+impl NativeWindowDecorations {
+    fn parse(value: &str) -> Option<Self> {
+        let mut decorations = Self {
+            title: false,
+            resize: false,
+            integrated_buttons: false,
+            macos_force_disable_shadow: false,
+            macos_force_enable_shadow: false,
+            macos_force_square_corners: false,
+            macos_use_background_color_as_titlebar_color: false,
+        };
+        let mut saw_flag = false;
+
+        for flag in value.split('|') {
+            let flag = flag.trim();
+            if flag.is_empty() {
+                continue;
+            }
+            saw_flag = true;
+            match flag {
+                "NONE" => {}
+                "TITLE" => decorations.title = true,
+                "RESIZE" => decorations.resize = true,
+                "INTEGRATED_BUTTONS" => decorations.integrated_buttons = true,
+                "MACOS_FORCE_DISABLE_SHADOW" => decorations.macos_force_disable_shadow = true,
+                "MACOS_FORCE_ENABLE_SHADOW" => decorations.macos_force_enable_shadow = true,
+                "MACOS_FORCE_SQUARE_CORNERS" => decorations.macos_force_square_corners = true,
+                "MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR" => {
+                    decorations.macos_use_background_color_as_titlebar_color = true;
+                }
+                _ => return None,
+            }
+        }
+
+        saw_flag.then_some(decorations)
+    }
+
+    const fn winit_decorations_enabled(self) -> bool {
+        self.title || self.resize
     }
 }
 
@@ -1296,6 +1359,7 @@ struct NativeEffectiveConfig {
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    window_decorations: NativeWindowDecorations,
     default_cursor_style: NativeCursorStyle,
     cursor_thickness: Option<NativeCursorThickness>,
     underline_thickness: Option<NativeUnderlineThickness>,
@@ -1387,6 +1451,7 @@ struct NativeConfigOverrides {
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
+    window_decorations: Option<NativeWindowDecorations>,
     default_cursor_style: Option<NativeCursorStyle>,
     cursor_thickness: Option<NativeCursorThickness>,
     underline_thickness: Option<NativeUnderlineThickness>,
@@ -1570,6 +1635,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.window_background_opacity = Some(native_text_background_opacity_from_alpha(
             window_background_opacity,
         )?);
+        parsed = true;
+    }
+    if let Some(window_decorations) =
+        lua_config_string_assignment_from_query(config, "window_decorations")
+    {
+        overrides.window_decorations = Some(NativeWindowDecorations::parse(&window_decorations)?);
         parsed = true;
     }
     if let Some(initial_cols) = lua_config_usize_assignment_from_query(config, "initial_cols") {
@@ -3426,6 +3497,7 @@ struct NativeWindowApp {
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    window_decorations: NativeWindowDecorations,
     inactive_pane_hsb: NativeInactivePaneHsb,
     tab_max_width: usize,
     command_palette_rows: Option<usize>,
@@ -4635,6 +4707,7 @@ impl NativeWindowApp {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            window_decorations: DEFAULT_WINDOW_DECORATIONS,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             tab_max_width: DEFAULT_TAB_MAX_WIDTH,
             command_palette_rows: None,
@@ -5542,6 +5615,7 @@ impl NativeWindowApp {
             .apply_bold_brightens_ansi_colors_override(Some(self.bold_brightens_ansi_colors));
         detached_app.text_background_opacity = self.text_background_opacity;
         detached_app.window_background_opacity = self.window_background_opacity;
+        detached_app.window_decorations = self.window_decorations;
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
         detached_app.command_palette_rows = self.command_palette_rows;
         detached_app
@@ -5645,6 +5719,7 @@ impl NativeWindowApp {
         self.bold_brightens_ansi_colors = source.bold_brightens_ansi_colors;
         self.text_background_opacity = source.text_background_opacity;
         self.window_background_opacity = source.window_background_opacity;
+        self.window_decorations = source.window_decorations;
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
@@ -9756,7 +9831,8 @@ impl NativeWindowApp {
             .with_inner_size(LogicalSize::new(
                 f64::from(self.initial_frame_size().width),
                 f64::from(self.initial_frame_size().height),
-            ));
+            ))
+            .with_decorations(self.window_decorations.winit_decorations_enabled());
         if let Some(position) = self.initial_window_position.as_ref() {
             let primary_monitor_position = event_loop
                 .primary_monitor()
@@ -12214,6 +12290,7 @@ impl NativeWindowApp {
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
             text_background_opacity: self.text_background_opacity,
             window_background_opacity: self.window_background_opacity,
+            window_decorations: self.window_decorations,
             default_cursor_style: self.default_cursor_style,
             cursor_thickness: self.cursor_thickness,
             underline_thickness: self.underline_thickness,
@@ -12326,6 +12403,9 @@ impl NativeWindowApp {
         self.window_background_opacity = overrides
             .window_background_opacity
             .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY);
+        self.window_decorations = overrides
+            .window_decorations
+            .unwrap_or(DEFAULT_WINDOW_DECORATIONS);
         self.apply_default_cursor_style_override(overrides.default_cursor_style);
         self.apply_cursor_thickness_override(overrides.cursor_thickness);
         self.apply_underline_thickness_override(overrides.underline_thickness);
@@ -33399,12 +33479,12 @@ mod tests {
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_STRIKETHROUGH_POSITION,
         DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
-        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
-        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAudibleBell,
-        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
-        NativeConfirmation, NativeCubicBezier, NativeCursorStyle, NativeCursorThickness,
-        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
+        NativeAudibleBell, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
+        NativeCellWidth, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeCubicBezier, NativeCursorStyle,
+        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeHsbMultiplier, NativeInactivePaneHsb,
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
@@ -33413,22 +33493,22 @@ mod tests {
         NativeTabTitle, NativeTextBackgroundOpacity, NativeUnderlinePosition,
         NativeUnderlineThickness, NativeUserKeyAssignment, NativeVisualBell,
         NativeVisualBellTarget, NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowEmitEvent, NativeWindowFocusChange,
-        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
-        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
-        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
-        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeWindowConfigReloaded, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
+        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
+        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
+        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
+        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
+        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
+        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -41218,6 +41298,7 @@ mod tests {
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
                 text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
                 window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+                window_decorations: DEFAULT_WINDOW_DECORATIONS,
                 default_cursor_style: NativeCursorStyle::SteadyBlock,
                 cursor_thickness: None,
                 underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
@@ -53821,6 +53902,41 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_window_decorations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_decorations = 'NONE'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window decorations config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_decorations,
+            NativeWindowDecorations {
+                title: false,
+                resize: false,
+                integrated_buttons: false,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }
+        );
+        assert!(
+            !app.native_effective_config()
+                .window_decorations
+                .winit_decorations_enabled()
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_hsb_table_long_bracket_key_query() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -58780,6 +58896,15 @@ mod tests {
             bold_brightens_ansi_colors: Some(NativeBoldBrightensAnsiColors::BrightOnly),
             text_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.4)),
             window_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: true,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: true,
+            }),
             default_cursor_style: Some(NativeCursorStyle::BlinkingUnderline),
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
             underline_thickness: Some(NativeUnderlineThickness::Pixels(2)),
@@ -58911,6 +59036,15 @@ mod tests {
             bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors::BrightOnly,
             text_background_opacity: NativeTextBackgroundOpacity::from_f32(0.4),
             window_background_opacity: NativeTextBackgroundOpacity::from_f32(0.5),
+            window_decorations: NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: true,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: true,
+            },
             default_cursor_style: NativeCursorStyle::BlinkingUnderline,
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
             underline_thickness: Some(NativeUnderlineThickness::Pixels(2)),
@@ -59018,6 +59152,7 @@ mod tests {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            window_decorations: DEFAULT_WINDOW_DECORATIONS,
             default_cursor_style: NativeCursorStyle::SteadyBlock,
             cursor_thickness: None,
             underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
