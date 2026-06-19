@@ -1525,6 +1525,70 @@ impl NativeTabBarStyle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeHorizontalContentAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+impl NativeHorizontalContentAlignment {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Left" => Some(Self::Left),
+            "Center" => Some(Self::Center),
+            "Right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+
+    fn offset(self, gap: u32) -> u32 {
+        match self {
+            Self::Left => 0,
+            Self::Center => gap / 2,
+            Self::Right => gap,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeVerticalContentAlignment {
+    Top,
+    Center,
+    Bottom,
+}
+
+impl NativeVerticalContentAlignment {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Top" => Some(Self::Top),
+            "Center" => Some(Self::Center),
+            "Bottom" => Some(Self::Bottom),
+            _ => None,
+        }
+    }
+
+    fn offset(self, gap: u32) -> u32 {
+        match self {
+            Self::Top => 0,
+            Self::Center => gap / 2,
+            Self::Bottom => gap,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeWindowContentAlignment {
+    horizontal: NativeHorizontalContentAlignment,
+    vertical: NativeVerticalContentAlignment,
+}
+
+const DEFAULT_WINDOW_CONTENT_ALIGNMENT: NativeWindowContentAlignment =
+    NativeWindowContentAlignment {
+        horizontal: NativeHorizontalContentAlignment::Left,
+        vertical: NativeVerticalContentAlignment::Top,
+    };
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -1556,6 +1620,7 @@ struct NativeEffectiveConfig {
     force_reverse_video_cursor: bool,
     reverse_video_cursor_min_contrast: NativeContrastRatio,
     window_padding: NativeWindowPadding,
+    window_content_alignment: NativeWindowContentAlignment,
     initial_cols: u16,
     initial_rows: u16,
     inactive_pane_hsb: NativeInactivePaneHsb,
@@ -1680,6 +1745,7 @@ struct NativeConfigOverrides {
     force_reverse_video_cursor: Option<bool>,
     reverse_video_cursor_min_contrast: Option<NativeContrastRatio>,
     window_padding: Option<NativeWindowPadding>,
+    window_content_alignment: Option<NativeWindowContentAlignment>,
     initial_cols: Option<u16>,
     initial_rows: Option<u16>,
     inactive_pane_hsb: Option<NativeInactivePaneHsb>,
@@ -2403,6 +2469,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     if let Some(window_padding) = lua_config_table_assignment_from_query(config, "window_padding") {
         overrides.window_padding =
             Some(native_window_padding_lua_table_from_query(window_padding)?);
+        parsed = true;
+    }
+    if let Some(window_content_alignment) =
+        lua_config_table_assignment_from_query(config, "window_content_alignment")
+    {
+        overrides.window_content_alignment = Some(
+            native_window_content_alignment_lua_table_from_query(window_content_alignment)?,
+        );
         parsed = true;
     }
     if let Some(enable_tab_bar) = lua_config_bool_assignment_from_query(config, "enable_tab_bar") {
@@ -3244,6 +3318,22 @@ fn native_window_padding_lua_table_from_query(value: &str) -> Option<NativeWindo
 }
 
 #[allow(dead_code)]
+fn native_window_content_alignment_lua_table_from_query(
+    value: &str,
+) -> Option<NativeWindowContentAlignment> {
+    let mut alignment = DEFAULT_WINDOW_CONTENT_ALIGNMENT;
+    if let Some(horizontal) = lua_table_field_value_from_query(value, "horizontal")? {
+        let horizontal = parse_maybe_quoted_query_text(horizontal.trim())?;
+        alignment.horizontal = NativeHorizontalContentAlignment::parse(&horizontal)?;
+    }
+    if let Some(vertical) = lua_table_field_value_from_query(value, "vertical")? {
+        let vertical = parse_maybe_quoted_query_text(vertical.trim())?;
+        alignment.vertical = NativeVerticalContentAlignment::parse(&vertical)?;
+    }
+    Some(alignment)
+}
+
+#[allow(dead_code)]
 fn native_hsb_multiplier_from_ratio(ratio: f32) -> Option<NativeHsbMultiplier> {
     native_non_negative_ratio_to_per_mille(ratio).map(NativeHsbMultiplier::from_per_mille)
 }
@@ -4051,6 +4141,7 @@ struct NativeWindowApp {
     reverse_video_cursor_min_contrast: NativeContrastRatio,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     window_padding: NativeWindowPadding,
+    window_content_alignment: NativeWindowContentAlignment,
     cursor_blink_visible: bool,
     cursor_blink_opacity_alpha: u8,
     last_cursor_blink_at: Option<Instant>,
@@ -4896,6 +4987,23 @@ fn terminal_runtime_snapshot(
         .with_cursor_color(runtime.cursor_color_override())
 }
 
+#[derive(Clone, Copy)]
+struct NativeFrameContentPlacement {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+}
+
+impl NativeFrameContentPlacement {
+    fn is_full_frame(self, geometry: RenderGeometry) -> bool {
+        self.x == 0
+            && self.y == 0
+            && self.width == geometry.target_width
+            && self.height == geometry.target_height
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_framebuffer_with_state(
     renderer: &PixelRenderer,
@@ -4906,7 +5014,25 @@ fn render_framebuffer_with_state(
     frame: &mut [u8],
     geometry: RenderGeometry,
     damage_row_offset: u16,
+    placement: NativeFrameContentPlacement,
+    background: [u8; 4],
 ) -> FrameRenderMode {
+    if !placement.is_full_frame(geometry) {
+        render_aligned_framebuffer(
+            renderer,
+            snapshot,
+            scrollbar,
+            frame,
+            geometry,
+            placement,
+            damage_row_offset,
+            background,
+        );
+        pending_frame_damage.clear();
+        *frame_needs_full_repaint = false;
+        return FrameRenderMode::Full;
+    }
+
     if *frame_needs_full_repaint || pending_frame_damage.is_empty() {
         renderer.render(
             snapshot,
@@ -4932,6 +5058,122 @@ fn render_framebuffer_with_state(
         redraw_frame_ui_rows(renderer, snapshot, frame, geometry, damage_row_offset);
     }
     FrameRenderMode::Damage
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_aligned_framebuffer(
+    renderer: &PixelRenderer,
+    snapshot: &TerminalRenderSnapshot,
+    scrollbar: Option<ScrollbackScrollbar>,
+    frame: &mut [u8],
+    geometry: RenderGeometry,
+    placement: NativeFrameContentPlacement,
+    damage_row_offset: u16,
+    background: [u8; 4],
+) {
+    fill_framebuffer(frame, background);
+    if placement.width == 0 || placement.height == 0 {
+        return;
+    }
+
+    let Some(content_len) = usize::try_from(
+        u64::from(placement.width)
+            .saturating_mul(u64::from(placement.height))
+            .saturating_mul(4),
+    )
+    .ok() else {
+        return;
+    };
+    let mut content = vec![0; content_len];
+    let content_geometry = RenderGeometry::new(
+        placement.width,
+        placement.height,
+        geometry.cell_width,
+        geometry.cell_height,
+    );
+    renderer.render(
+        snapshot,
+        &mut content,
+        placement.width,
+        placement.height,
+        geometry.cell_width,
+        geometry.cell_height,
+    );
+    if let Some(scrollbar) = scrollbar {
+        renderer.render_scrollbar(scrollbar, &mut content, content_geometry);
+        redraw_frame_ui_rows(
+            renderer,
+            snapshot,
+            &mut content,
+            content_geometry,
+            damage_row_offset,
+        );
+    }
+    blit_framebuffer(
+        &content,
+        placement.width,
+        placement.height,
+        frame,
+        geometry.target_width,
+        geometry.target_height,
+        placement.x,
+        placement.y,
+    );
+}
+
+fn fill_framebuffer(frame: &mut [u8], color: [u8; 4]) {
+    for pixel in frame.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&color);
+    }
+}
+
+fn blit_framebuffer(
+    source: &[u8],
+    source_width: u32,
+    source_height: u32,
+    target: &mut [u8],
+    target_width: u32,
+    target_height: u32,
+    target_x: u32,
+    target_y: u32,
+) {
+    let copy_width = source_width.min(target_width.saturating_sub(target_x));
+    let copy_height = source_height.min(target_height.saturating_sub(target_y));
+    let (
+        Ok(source_width),
+        Ok(copy_width),
+        Ok(copy_height),
+        Ok(target_width),
+        Ok(target_x),
+        Ok(target_y),
+    ) = (
+        usize::try_from(source_width),
+        usize::try_from(copy_width),
+        usize::try_from(copy_height),
+        usize::try_from(target_width),
+        usize::try_from(target_x),
+        usize::try_from(target_y),
+    )
+    else {
+        return;
+    };
+    for row in 0..copy_height {
+        let source_start = row.saturating_mul(source_width).saturating_mul(4);
+        let source_end = source_start.saturating_add(copy_width.saturating_mul(4));
+        let target_start = target_y
+            .saturating_add(row)
+            .saturating_mul(target_width)
+            .saturating_add(target_x)
+            .saturating_mul(4);
+        let target_end = target_start.saturating_add(copy_width.saturating_mul(4));
+        let Some(source_row) = source.get(source_start..source_end) else {
+            return;
+        };
+        let Some(target_row) = target.get_mut(target_start..target_end) else {
+            return;
+        };
+        target_row.copy_from_slice(source_row);
+    }
 }
 
 fn redraw_frame_ui_rows(
@@ -5300,6 +5542,7 @@ impl NativeWindowApp {
             reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
             text_min_contrast_ratio: None,
             window_padding: DEFAULT_WINDOW_PADDING,
+            window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
             cursor_blink_visible: true,
             cursor_blink_opacity_alpha: u8::MAX,
             last_cursor_blink_at: None,
@@ -6276,6 +6519,7 @@ impl NativeWindowApp {
         self.text_background_opacity = source.text_background_opacity;
         self.window_background_opacity = source.window_background_opacity;
         self.window_decorations = source.window_decorations;
+        self.window_content_alignment = source.window_content_alignment;
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
@@ -10511,6 +10755,7 @@ impl NativeWindowApp {
         self.refresh_renderer_animation_clock();
         let scrollbar = self.scrollback_scrollbar();
         let geometry = self.render_geometry();
+        let placement = self.frame_content_placement();
         let snapshot = self.render_snapshot();
         self.record_missing_glyph_warnings(&snapshot);
         let damage_row_offset = self.terminal_frame_row_offset();
@@ -10531,6 +10776,8 @@ impl NativeWindowApp {
             pixels.frame_mut(),
             geometry,
             damage_row_offset,
+            placement,
+            color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
         );
         self.metrics.record_frame_render_mode(mode);
 
@@ -10555,6 +10802,7 @@ impl NativeWindowApp {
         self.refresh_renderer_animation_clock();
         let scrollbar = self.scrollback_scrollbar();
         let geometry = self.render_geometry();
+        let placement = self.frame_content_placement();
         let snapshot = self.render_snapshot();
         self.record_missing_glyph_warnings(&snapshot);
         let damage_row_offset = self.terminal_frame_row_offset();
@@ -10570,6 +10818,8 @@ impl NativeWindowApp {
             frame,
             geometry,
             damage_row_offset,
+            placement,
+            color_to_rgba(self.background_color, DEFAULT_RENDER_BACKGROUND_RGBA),
         );
         self.metrics.record_frame_render_mode(mode);
         mode
@@ -11075,9 +11325,15 @@ impl NativeWindowApp {
         let Some(position) = self.mouse_pixel_position else {
             return false;
         };
+        let content_left = f64::from(self.frame_content_pixel_left());
+        let content_right = f64::from(
+            self.frame_content_pixel_left()
+                .saturating_add(self.frame_content_placement().width),
+        );
         position.x.is_finite()
             && position.y.is_finite()
-            && position.x >= 0.0
+            && position.x >= content_left
+            && position.x < content_right
             && position.y >= f64::from(self.tab_bar_pixel_top())
             && position.y
                 < f64::from(
@@ -11104,9 +11360,10 @@ impl NativeWindowApp {
         &self,
         position: PhysicalPosition<f64>,
     ) -> Option<(u16, u16)> {
+        let x = position.x - f64::from(self.frame_content_pixel_left());
         let terminal_y = position.y - f64::from(self.terminal_pixel_top());
         Some((
-            mouse_report_pixel_coordinate(position.x)?,
+            mouse_report_pixel_coordinate(x)?,
             mouse_report_pixel_coordinate(terminal_y)?,
         ))
     }
@@ -11408,8 +11665,9 @@ impl NativeWindowApp {
     }
 
     fn scrollbar_hit_test(&self, position: PhysicalPosition<f64>) -> bool {
+        let placement = self.frame_content_placement();
         if self.scrollback_scrollbar().is_none()
-            || self.frame_width < SCROLLBAR_WIDTH
+            || placement.width < SCROLLBAR_WIDTH
             || self.frame_height == 0
             || !position.x.is_finite()
             || !position.y.is_finite()
@@ -11421,8 +11679,13 @@ impl NativeWindowApp {
             return false;
         }
 
-        let track_left = f64::from(self.frame_width.saturating_sub(SCROLLBAR_WIDTH));
-        position.x >= track_left && position.x < f64::from(self.frame_width)
+        let track_left = f64::from(
+            placement
+                .x
+                .saturating_add(placement.width.saturating_sub(SCROLLBAR_WIDTH)),
+        );
+        let track_right = f64::from(placement.x.saturating_add(placement.width));
+        position.x >= track_left && position.x < track_right
     }
 
     fn scroll_to_scrollbar_position(&mut self, position: PhysicalPosition<f64>) -> bool {
@@ -11468,9 +11731,7 @@ impl NativeWindowApp {
         if y < 0.0 {
             return None;
         }
-        let content_height = self
-            .frame_height
-            .saturating_sub(self.tab_bar_pixel_height());
+        let content_height = self.terminal_content_pixel_height();
         let y = y.clamp(0.0, f64::from(content_height.saturating_sub(1)));
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let y = y.floor() as u32;
@@ -11494,6 +11755,64 @@ impl NativeWindowApp {
             self.cell_width(),
             self.cell_height(),
         )
+    }
+
+    fn frame_content_placement(&self) -> NativeFrameContentPlacement {
+        if !self.window_content_alignment_is_configured() {
+            return NativeFrameContentPlacement {
+                x: 0,
+                y: 0,
+                width: self.frame_width,
+                height: self.frame_height,
+            };
+        }
+
+        let content_width = u32::from(self.runtime.terminal().grid().size().columns)
+            .saturating_mul(self.cell_width())
+            .min(self.frame_width);
+        let content_height = u32::from(
+            self.runtime
+                .terminal()
+                .grid()
+                .size()
+                .rows
+                .saturating_add(self.tab_bar_rows()),
+        )
+        .saturating_mul(self.cell_height())
+        .min(self.frame_height);
+        let horizontal_gap = self.frame_width.saturating_sub(content_width);
+        let vertical_gap = self.frame_height.saturating_sub(content_height);
+        NativeFrameContentPlacement {
+            x: self
+                .window_content_alignment
+                .horizontal
+                .offset(horizontal_gap),
+            y: self.window_content_alignment.vertical.offset(vertical_gap),
+            width: content_width,
+            height: content_height,
+        }
+    }
+
+    fn window_content_alignment_is_configured(&self) -> bool {
+        self.config_overrides.window_content_alignment.is_some()
+    }
+
+    fn frame_content_pixel_left(&self) -> u32 {
+        self.frame_content_placement().x
+    }
+
+    fn frame_content_pixel_top(&self) -> u32 {
+        self.frame_content_placement().y
+    }
+
+    fn terminal_content_pixel_height(&self) -> u32 {
+        if !self.window_content_alignment_is_configured() {
+            return self
+                .frame_height
+                .saturating_sub(self.tab_bar_pixel_height());
+        }
+
+        u32::from(self.runtime.terminal().grid().size().rows).saturating_mul(self.cell_height())
     }
 
     fn terminal_frame_row_offset(&self) -> u16 {
@@ -11525,18 +11844,18 @@ impl NativeWindowApp {
     }
 
     fn tab_bar_pixel_top(&self) -> u32 {
-        u32::from(self.tab_bar_frame_row()) * self.cell_height()
+        self.frame_content_pixel_top()
+            .saturating_add(u32::from(self.tab_bar_frame_row()) * self.cell_height())
     }
 
     fn terminal_pixel_top(&self) -> u32 {
-        u32::from(self.terminal_frame_row_offset()) * self.cell_height()
+        self.frame_content_pixel_top()
+            .saturating_add(u32::from(self.terminal_frame_row_offset()) * self.cell_height())
     }
 
     fn terminal_pixel_bottom(&self) -> u32 {
-        self.terminal_pixel_top().saturating_add(
-            self.frame_height
-                .saturating_sub(self.tab_bar_pixel_height()),
-        )
+        self.terminal_pixel_top()
+            .saturating_add(self.terminal_content_pixel_height())
     }
 
     fn tab_bar_is_visible(&self) -> bool {
@@ -11546,21 +11865,20 @@ impl NativeWindowApp {
     }
 
     fn window_mouse_cell(&self, position: PhysicalPosition<f64>) -> Option<(u16, u16)> {
+        let x = position.x - f64::from(self.frame_content_pixel_left());
+        if x < 0.0 {
+            return None;
+        }
         let terminal_y = position.y - f64::from(self.terminal_pixel_top());
         if terminal_y < 0.0 {
             return None;
         }
-        if terminal_y
-            >= f64::from(
-                self.frame_height
-                    .saturating_sub(self.tab_bar_pixel_height()),
-            )
-        {
+        if terminal_y >= f64::from(self.terminal_content_pixel_height()) {
             return None;
         }
 
         Some((
-            pixel_axis_to_cell(position.x, self.cell_width())?,
+            pixel_axis_to_cell(x, self.cell_width())?,
             pixel_axis_to_cell(terminal_y, self.cell_height())?,
         ))
     }
@@ -12807,7 +13125,7 @@ impl NativeWindowApp {
         };
         if !position.x.is_finite()
             || !position.y.is_finite()
-            || position.x < 0.0
+            || position.x < f64::from(self.frame_content_pixel_left())
             || position.y < f64::from(self.tab_bar_pixel_top())
             || position.y
                 >= f64::from(
@@ -12818,7 +13136,8 @@ impl NativeWindowApp {
             return false;
         }
 
-        let Some(column) = pixel_axis_to_cell(position.x, self.cell_width()) else {
+        let x = position.x - f64::from(self.frame_content_pixel_left());
+        let Some(column) = pixel_axis_to_cell(x, self.cell_width()) else {
             return false;
         };
         if self.new_tab_button_for_tab_bar_column(column) {
@@ -12905,7 +13224,7 @@ impl NativeWindowApp {
         };
         if !position.x.is_finite()
             || !position.y.is_finite()
-            || position.x < 0.0
+            || position.x < f64::from(self.frame_content_pixel_left())
             || position.y < f64::from(self.tab_bar_pixel_top())
             || position.y
                 >= f64::from(
@@ -12916,7 +13235,10 @@ impl NativeWindowApp {
             return None;
         }
 
-        pixel_axis_to_cell(position.x, self.cell_width())
+        pixel_axis_to_cell(
+            position.x - f64::from(self.frame_content_pixel_left()),
+            self.cell_width(),
+        )
     }
 
     fn tab_bar_new_tab_column_start(&self) -> Option<u16> {
@@ -13170,6 +13492,7 @@ impl NativeWindowApp {
             force_reverse_video_cursor: self.force_reverse_video_cursor,
             reverse_video_cursor_min_contrast: self.reverse_video_cursor_min_contrast,
             window_padding: self.window_padding,
+            window_content_alignment: self.window_content_alignment,
             initial_cols: self.initial_cols,
             initial_rows: self.initial_rows,
             inactive_pane_hsb: self.inactive_pane_hsb,
@@ -13322,6 +13645,9 @@ impl NativeWindowApp {
             self.reverse_video_cursor_min_contrast.as_f64(),
         ));
         self.apply_window_padding_override(overrides.window_padding);
+        self.window_content_alignment = overrides
+            .window_content_alignment
+            .unwrap_or(DEFAULT_WINDOW_CONTENT_ALIGNMENT);
         self.apply_tab_bar_config_overrides(&overrides);
         self.apply_input_config_overrides(&overrides);
         self.initial_cols = overrides
@@ -16928,9 +17254,14 @@ impl NativeWindowApp {
             cell_width,
             cell_height,
         );
-        self.frame_width = u32::from(terminal_size.columns) * cell_width;
-        self.frame_height =
-            u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS)) * cell_height;
+        if self.config_overrides.window_content_alignment.is_some() {
+            self.frame_width = size.width;
+            self.frame_height = size.height;
+        } else {
+            self.frame_width = u32::from(terminal_size.columns) * cell_width;
+            self.frame_height =
+                u32::from(terminal_size.rows.saturating_add(TAB_BAR_ROWS)) * cell_height;
+        }
 
         if let Some(pixels) = self.pixels.as_mut() {
             pixels.resize_buffer(self.frame_width, self.frame_height)?;
@@ -35686,38 +36017,39 @@ mod tests {
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_STRIKETHROUGH_POSITION,
         DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
-        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
-        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
-        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
-        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeColorSpec,
-        NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
-        NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
-        NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
-        NativeFormatItem, NativeFormatUnderline, NativeHsbMultiplier, NativeInactivePaneHsb,
+        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
+        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
+        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
+        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
+        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
+        NativeCursorStyle, NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig,
+        NativeExitBehavior, NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute,
+        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
         NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
         NativeQuoteDroppedFiles, NativeScrollBarHeight, NativeStrikethroughPosition,
         NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
         NativeTextMinContrastRatio, NativeUnderlinePosition, NativeUnderlineThickness,
-        NativeUserKeyAssignment, NativeVisualBell, NativeVisualBellTarget, NativeWindowApp,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
-        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
-        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
-        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeUserKeyAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
+        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
+        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
+        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
+        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
+        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
+        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -44906,6 +45238,7 @@ mod tests {
                 force_reverse_video_cursor: DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
                 reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
                 window_padding: DEFAULT_WINDOW_PADDING,
+                window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
                 initial_cols: TERMINAL_COLUMNS,
                 initial_rows: TERMINAL_ROWS,
                 inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
@@ -57341,6 +57674,34 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_window_content_alignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_content_alignment = {
+              horizontal = 'Center',
+              vertical = 'Bottom',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window content alignment config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_content_alignment,
+            NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Center,
+                vertical: NativeVerticalContentAlignment::Bottom,
+            }
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_diagnostics_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -62595,6 +62956,75 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_window_content_alignment_to_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_content_alignment = {
+              horizontal = 'Center',
+              vertical = 'Bottom',
+            }
+            config.colors = {
+              background = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm window content alignment config");
+        app.set_config_overrides(overrides);
+        app.handle_window_resize(PhysicalSize::new(FRAME_WIDTH + 5, FRAME_HEIGHT + 7))
+            .unwrap();
+        app.handle_pty_output(b"\x1b[48;2;10;20;30m \x1b[0m")
+            .unwrap();
+        let (frame_width, frame_height) = app.frame_size_for_test();
+        let mut frame =
+            vec![0; usize::try_from(frame_width.saturating_mul(frame_height) * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = usize::try_from(frame_width).unwrap();
+        let content_x = 2usize;
+        let content_y = 7usize;
+        let first_terminal_cell_y = content_y + usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, first_terminal_cell_y),
+            [1, 2, 3, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, content_x, first_terminal_cell_y),
+            [10, 20, 30, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_maps_mouse_through_wezterm_window_content_alignment_gap() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_content_alignment: Some(NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Center,
+                vertical: NativeVerticalContentAlignment::Bottom,
+            }),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_window_resize(PhysicalSize::new(FRAME_WIDTH + 5, FRAME_HEIGHT + 7))
+            .unwrap();
+        let first_terminal_cell_y = 7.0 + f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT);
+
+        assert_eq!(
+            app.window_mouse_cell(PhysicalPosition::new(1.0, first_terminal_cell_y)),
+            None
+        );
+        assert_eq!(
+            app.window_mouse_cell(PhysicalPosition::new(2.0, first_terminal_cell_y)),
+            Some((0, 0))
+        );
+    }
+
+    #[test]
     fn window_app_applies_text_background_opacity_to_non_default_backgrounds() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
@@ -62819,6 +63249,10 @@ mod tests {
                 top: NativeWindowPaddingDimension::Pixels(3),
                 bottom: NativeWindowPaddingDimension::Pixels(4),
             }),
+            window_content_alignment: Some(NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Center,
+                vertical: NativeVerticalContentAlignment::Bottom,
+            }),
             initial_cols: Some(100),
             initial_rows: Some(30),
             inactive_pane_hsb: Some(NativeInactivePaneHsb {
@@ -63013,6 +63447,10 @@ mod tests {
                 top: NativeWindowPaddingDimension::Pixels(3),
                 bottom: NativeWindowPaddingDimension::Pixels(4),
             },
+            window_content_alignment: NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Center,
+                vertical: NativeVerticalContentAlignment::Bottom,
+            },
             initial_cols: 100,
             initial_rows: 30,
             inactive_pane_hsb: NativeInactivePaneHsb {
@@ -63170,6 +63608,7 @@ mod tests {
             reverse_video_cursor_min_contrast: DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
             text_min_contrast_ratio: None,
             window_padding: DEFAULT_WINDOW_PADDING,
+            window_content_alignment: DEFAULT_WINDOW_CONTENT_ALIGNMENT,
             initial_cols: TERMINAL_COLUMNS,
             initial_rows: TERMINAL_ROWS,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
