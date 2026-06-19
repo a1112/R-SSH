@@ -1275,7 +1275,11 @@ runtime storage for tabs and split panes.
   using the native Constant/Linear/Ease/EaseIn/EaseOut/EaseInOut/CubicBezier
   easing subset; `CursorColor` fades return to the current rendered cursor
   color, including `force_reverse_video_cursor` cursor-cell foreground
-  behavior. Lua event wiring and Lua config parsing remain later parity work.
+  behavior. Static WezTerm-style `config.visual_bell` and
+  `config.colors.visual_bell` snippets parse into the same native override path,
+  including bracketed string table keys with long-bracket values for
+  visual-bell fields, nested `CubicBezier` easing tables, and
+  `colors.visual_bell`; Lua event wiring remains later parity work.
 - `rssh-app` preserves CSI focus-reporting writes on window focus changes and
   dispatches a typed native-window focus-change hook with the window id, active
   pane id, and focused/unfocused state. Lua event wiring remains later parity

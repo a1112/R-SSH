@@ -2195,7 +2195,7 @@ fn native_hsb_lua_table_from_query(value: &str) -> Option<NativeInactivePaneHsb>
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         let value = lua_unsigned_number_literal_from_query(value.trim())?
             .parse::<f32>()
@@ -2270,7 +2270,7 @@ fn native_easing_lua_table_from_query(value: &str) -> Option<NativeEasingFunctio
     let [field] = fields.as_slice() else {
         return None;
     };
-    let (key, value) = field.trim().split_once('=')?;
+    let (key, value) = split_lua_table_assignment_from_field(field.trim())?;
     let key = split_lua_table_key_from_query(key.trim())?;
     if key != "CubicBezier" {
         return None;
@@ -22676,7 +22676,7 @@ fn native_visual_bell_lua_table_from_query(value: &str) -> Option<NativeVisualBe
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         let value = value.trim();
         match key.as_str() {
@@ -22716,7 +22716,7 @@ fn visual_bell_color_lua_table_from_query(value: &str) -> Option<Option<Color>> 
         if field.is_empty() {
             continue;
         }
-        let Some((key, value)) = field.split_once('=') else {
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
         let key = split_lua_table_key_from_query(key.trim())?;
@@ -52037,6 +52037,50 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_visual_bell_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.visual_bell = {
+              [[=[fade_in_duration_ms]=]] = 0,
+              [[=[fade_out_duration_ms]=]] = 150,
+              [[=[fade_in_function]=]] = 'EaseIn',
+              [[=[fade_out_function]=]] = { [[=[CubicBezier]=]] = { 0.0, 0.0, 0.58, 1.0 } },
+              [[=[target]=]] = 'BackgroundColor',
+            }
+            config.colors = {
+              [[=[visual_bell]=]] = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm visual bell config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.visual_bell,
+            NativeVisualBell {
+                fade_in_duration_ms: 0,
+                fade_out_duration_ms: 150,
+                fade_in_function: NativeEasingFunction::EaseIn,
+                fade_out_function: NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                    x1_per_mille: 0,
+                    y1_per_mille: 0,
+                    x2_per_mille: 580,
+                    y2_per_mille: 1_000,
+                }),
+                target: NativeVisualBellTarget::BackgroundColor,
+            }
+        );
+        assert_eq!(effective.visual_bell_color, Some(Color::Rgb(1, 2, 3)));
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_render_color_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -52096,6 +52140,50 @@ mod tests {
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
         assert_eq!(cell.foreground, Color::Rgb(50, 75, 100));
         assert_eq!(cell.background, Color::Rgba(20, 40, 60, 102));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hsb_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.foreground_text_hsb = {
+              [[=[hue]=]] = 1.0,
+              [[=[saturation]=]] = 1.0,
+              [[=[brightness]=]] = 0.5,
+            }
+            config.inactive_pane_hsb = {
+              [[=[hue]=]] = 1.0,
+              [[=[saturation]=]] = 0.8,
+              [[=[brightness]=]] = 0.7,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm HSB config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.foreground_text_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(1.0),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            }
+        );
+        assert_eq!(
+            effective.inactive_pane_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.8),
+                brightness: NativeHsbMultiplier::from_f32(0.7),
+            }
+        );
     }
 
     #[test]

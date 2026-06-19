@@ -1525,7 +1525,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   color, including `force_reverse_video_cursor` cursor-cell foreground
   behavior. Static WezTerm-style Lua `config.audible_bell`,
   `config.visual_bell`, and `config.colors.visual_bell` snippets now parse into
-  the same native override path. Lua event wiring remains open.
+  the same native override path, including bracketed string table keys with
+  long-bracket values for visual-bell fields, nested `CubicBezier` easing
+  tables, and `colors.visual_bell`. Lua event wiring remains open.
 - Native window now dispatches a typed focus-change hook with the window id,
   active pane id, and focused/unfocused state while preserving CSI
   focus-reporting writes.
@@ -1835,14 +1837,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   (`saturation = 0.9`, `brightness = 0.8`) and native overrides to inactive
   pane Default/Indexed/RGB/RGBA cell colors while leaving the active pane
   unchanged. Static WezTerm-style Lua `config.inactive_pane_hsb` snippets now
-  parse into the same native override path; dynamic palette-aware resolution for
-  this option remains later parity work.
+  parse into the same native override path, including bracketed string table
+  keys with long-bracket values; dynamic palette-aware resolution for this
+  option remains later parity work.
 - Native terminal rendering applies WezTerm-style `foreground_text_hsb`
   overrides to foreground and underline Default/Indexed/RGB/RGBA cell colors
   while preserving background colors. Static WezTerm-style Lua
   `config.foreground_text_hsb` snippets now parse into the same native override
-  path; dynamic palette-aware resolution for this option remains later parity
-  work.
+  path, including bracketed string table keys with long-bracket values; dynamic
+  palette-aware resolution for this option remains later parity work.
 - Native terminal rendering applies WezTerm-style `bold_brightens_ansi_colors`
   to bold ANSI 0-7 foreground colors, defaulting to `BrightAndBold` and
   supporting `No` plus `BrightOnly`. Static WezTerm-style Lua
