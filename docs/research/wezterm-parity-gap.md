@@ -896,7 +896,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `message`/`action`/`cancel` fields accept both `field <text>` and
   `field=<text>` forms. WezTerm-style
   `wezterm.action.Confirmation { message = ..., action = ..., cancel = ... }`
-  table-call queries also dispatch the same native nested-command subset. Lua
+  table-call queries also dispatch the same native nested-command subset,
+  including bracketed string table keys with long-bracket values. Lua
   `wezterm.action_callback` wiring remains open.
 - Native `EmitEvent` action payloads now carry a custom event name and dispatch
   it through a typed native handler with the active window id and pane id.
