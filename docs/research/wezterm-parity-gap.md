@@ -1872,37 +1872,39 @@ what remains before WezTerm-style parity in key UX/composition areas.
   default framebuffer background for full and damage renders. Static
   WezTerm-style Lua `config.colors.background` snippets now parse into the same
   native override path for `#RRGGBB` and CSS-style `rgb(...)` color strings
-  with comma or space separators, percentage channels, and ignored non-selection
-  alpha; copy-mode, split, scrollbar, compose, tab-bar, and other non-terminal
-  color fields remain later parity work.
+  with comma or space separators, percentage channels, ignored non-selection
+  alpha, plus WezTerm `hsl:` and CSS-style `hsl(...)` color strings; copy-mode,
+  split, scrollbar, compose, tab-bar, and other non-terminal color fields
+  remain later parity work.
 - Native terminal rendering applies WezTerm-style `colors.foreground` as the
   default text foreground for full and damage renders. Static WezTerm-style Lua
   `config.colors.foreground` snippets now parse into the same native override
   path for `#RRGGBB` and CSS-style `rgb(...)` color strings with comma or space
-  separators, percentage channels, and ignored non-selection alpha; copy-mode,
-  split, scrollbar, compose, tab-bar, and other non-terminal color fields
-  remain later parity work.
+  separators, percentage channels, ignored non-selection alpha, plus WezTerm
+  `hsl:` and CSS-style `hsl(...)` color strings; copy-mode, split, scrollbar,
+  compose, tab-bar, and other non-terminal color fields remain later parity
+  work.
 - Native terminal rendering applies WezTerm-style `colors.ansi` and
   `colors.brights` as the ANSI 0-15 palette for foreground, background,
   underline, bold-brightening, and force-reverse cursor color resolution.
   Static WezTerm-style Lua `config.colors.ansi` and `config.colors.brights`
   snippets now parse into the same native override path for `#RRGGBB` and the
-  implemented CSS-style `rgb(...)` color-string subset.
+  implemented CSS-style `rgb(...)`/`hsl(...)` color-string subset.
 - Native terminal rendering applies WezTerm-style `colors.indexed` entries for
   indexed palette slots 16-255 for foreground, background, underline, and
   force-reverse cursor color resolution. Static WezTerm-style Lua
   `config.colors.indexed = { [136] = '#af8700' }` snippets now parse into the
-  same native override path, including the implemented CSS-style `rgb(...)`
-  color-string subset; unspecified indexed entries continue to use the xterm
-  256-color cube/grayscale mapping.
+  same native override path, including the implemented CSS-style
+  `rgb(...)`/`hsl(...)` color-string subset; unspecified indexed entries
+  continue to use the xterm 256-color cube/grayscale mapping.
 - Native terminal selection rendering applies WezTerm-style
   `colors.selection_fg` and `colors.selection_bg` to selected cells. Static
   WezTerm-style Lua `config.colors.selection_fg` and
   `config.colors.selection_bg` snippets now parse into the same native override
-  path for `#RRGGBB` and the implemented CSS-style `rgb(...)` subset, including
-  slash alpha for `selection_bg`, `selection_fg = 'none'` preserving the current
-  cell foreground, plus `selection_bg = 'rgba(r,g,b,a)'` alpha blending over the
-  current cell background. Broader CSS color parsing and
+  path for `#RRGGBB` and the implemented CSS-style `rgb(...)`/`hsl(...)` subset,
+  including slash alpha for `selection_bg`, `selection_fg = 'none'` preserving
+  the current cell foreground, plus `selection_bg = 'rgba(r,g,b,a)'` alpha
+  blending over the current cell background. Broader CSS color parsing and
   copy-mode/quick-select label/match color tables remain later parity work.
 - Native cursor rendering applies WezTerm-style `colors.cursor_bg` as the
   default block cursor fill, `colors.cursor_border` as block-cursor border and

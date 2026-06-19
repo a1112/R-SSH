@@ -23861,6 +23861,7 @@ fn lua_hex_color_from_query(value: &str) -> Option<Color> {
 fn lua_color_from_query(value: &str) -> Option<Color> {
     lua_hex_color_from_query(value)
         .or_else(|| lua_rgb_color_from_query(value))
+        .or_else(|| lua_hsl_color_from_query(value))
         .or_else(|| lua_rgba_color_from_query(value))
 }
 
@@ -23914,6 +23915,32 @@ fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
     Some(Color::Rgba(red, green, blue, alpha))
 }
 
+fn lua_hsl_color_from_query(value: &str) -> Option<Color> {
+    let (channels, alpha) = if let Some(components) = value.trim().strip_prefix("hsl:") {
+        (components.split_whitespace().collect::<Vec<_>>(), None)
+    } else {
+        let components = lua_color_function_body(value, "hsl")?;
+        split_lua_css_rgb_channels_and_alpha(components)?
+    };
+    let [hue, saturation, lightness] = <[&str; 3]>::try_from(channels).ok()?;
+    let [red, green, blue] = hsl_to_rgb(
+        lua_css_hue_degrees_from_query(hue)?,
+        lua_css_percentage_from_query(saturation)?,
+        lua_css_percentage_from_query(lightness)?,
+    );
+    alpha.map_or_else(
+        || Some(Color::Rgb(red, green, blue)),
+        |alpha| {
+            Some(Color::Rgba(
+                red,
+                green,
+                blue,
+                lua_css_alpha_from_query(alpha)?,
+            ))
+        },
+    )
+}
+
 fn lua_color_function_body<'a>(value: &'a str, function: &str) -> Option<&'a str> {
     let function = format!("{function}(");
     value
@@ -23955,6 +23982,57 @@ fn lua_css_alpha_from_query(value: &str) -> Option<u8> {
     let alpha = parse_finite_f64(value)?.clamp(0.0, 1.0);
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Some((alpha * f64::from(u8::MAX)) as u8)
+}
+
+fn lua_css_hue_degrees_from_query(value: &str) -> Option<f64> {
+    let value = value.trim();
+    let degrees = if let Some(degrees) = value.strip_suffix("deg") {
+        parse_finite_f64(degrees)?
+    } else if let Some(turns) = value.strip_suffix("turn") {
+        parse_finite_f64(turns)? * 360.0
+    } else if let Some(grads) = value.strip_suffix("grad") {
+        parse_finite_f64(grads)? * 0.9
+    } else if let Some(radians) = value.strip_suffix("rad") {
+        parse_finite_f64(radians)? * 180.0 / std::f64::consts::PI
+    } else {
+        parse_finite_f64(value)?
+    };
+    Some(degrees.rem_euclid(360.0))
+}
+
+fn lua_css_percentage_from_query(value: &str) -> Option<f64> {
+    let value = value.trim();
+    let percent = value
+        .strip_suffix('%')
+        .map_or_else(|| parse_finite_f64(value), parse_finite_f64)?;
+    Some((percent / 100.0).clamp(0.0, 1.0))
+}
+
+fn hsl_to_rgb(hue_degrees: f64, saturation: f64, lightness: f64) -> [u8; 3] {
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let hue_sector = hue_degrees / 60.0;
+    let x = chroma * (1.0 - (hue_sector.rem_euclid(2.0) - 1.0).abs());
+    let [red, green, blue] = match hue_sector as u8 {
+        0 => [chroma, x, 0.0],
+        1 => [x, chroma, 0.0],
+        2 => [0.0, chroma, x],
+        3 => [0.0, x, chroma],
+        4 => [x, 0.0, chroma],
+        _ => [chroma, 0.0, x],
+    };
+    let m = lightness - chroma / 2.0;
+    [
+        hsl_channel_to_u8(red + m),
+        hsl_channel_to_u8(green + m),
+        hsl_channel_to_u8(blue + m),
+    ]
+}
+
+fn hsl_channel_to_u8(value: f64) -> u8 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    {
+        (value.clamp(0.0, 1.0) * f64::from(u8::MAX)).round() as u8
+    }
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
@@ -36433,6 +36511,75 @@ mod tests {
         assert!(
             cell_uses_opaque_foreground,
             "non-selection foreground alpha was not ignored"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hsl_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'hsl:0 100 50',
+              background = 'hsl(120,100%,50%)',
+              selection_fg = 'hsl(-240 100% 50%)',
+              selection_bg = 'hsl(240deg 100% 50%)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm HSL color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"AB").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_hsl_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 0, 255, 255])
+            });
+        let selected_cell_uses_hsl_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_hsl_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_hsl_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [255, 0, 0, 255])
+            });
+        assert!(
+            selected_cell_uses_hsl_background,
+            "selection_bg HSL color did not render"
+        );
+        assert!(
+            selected_cell_uses_hsl_foreground,
+            "selection_fg HSL color did not render"
+        );
+        assert!(
+            plain_cell_uses_hsl_background,
+            "background HSL color did not render"
+        );
+        assert!(
+            plain_cell_uses_hsl_foreground,
+            "foreground HSL color did not render"
         );
     }
 
