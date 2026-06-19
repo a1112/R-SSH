@@ -92,6 +92,7 @@ const DEFAULT_TEXT_BLINK_RAPID_EASE_IN: NativeEasingFunction = NativeEasingFunct
 const DEFAULT_TEXT_BLINK_RAPID_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_RENDER_FOREGROUND_RGBA: [u8; 4] = [229, 229, 229, 255];
 const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [12, 12, 12, 255];
+const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(229, 229, 229);
 const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(12, 12, 12);
 const DEFAULT_CURSOR_STYLE: NativeCursorStyle = NativeCursorStyle::SteadyBlock;
 const DEFAULT_CURSOR_THICKNESS: Option<NativeCursorThickness> = None;
@@ -1381,6 +1382,7 @@ struct NativeEffectiveConfig {
     term: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    foreground_color: Color,
     background_color: Color,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
@@ -1474,6 +1476,7 @@ struct NativeConfigOverrides {
     term: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
     visual_bell: Option<NativeVisualBell>,
+    foreground_color: Option<Color>,
     background_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
@@ -1573,6 +1576,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(colors) = lua_config_table_assignment_from_query(config, "colors") {
+        if let Some(foreground_color) = color_lua_table_field_from_query(colors, "foreground")? {
+            overrides.foreground_color = Some(foreground_color);
+            parsed = true;
+        }
         if let Some(background_color) = color_lua_table_field_from_query(colors, "background")? {
             overrides.background_color = Some(background_color);
             parsed = true;
@@ -3517,6 +3524,7 @@ struct NativeWindowApp {
     term: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    foreground_color: Color,
     background_color: Color,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
@@ -4728,6 +4736,7 @@ impl NativeWindowApp {
             term: DEFAULT_TERM.to_owned(),
             audible_bell: DEFAULT_AUDIBLE_BELL,
             visual_bell: NativeVisualBell::default(),
+            foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
@@ -5639,6 +5648,11 @@ impl NativeWindowApp {
         detached_app.term.clone_from(&self.term);
         detached_app.audible_bell = self.audible_bell;
         detached_app.visual_bell = self.visual_bell;
+        detached_app.foreground_color = self.foreground_color;
+        detached_app.renderer.set_default_foreground(color_to_rgba(
+            self.foreground_color,
+            DEFAULT_RENDER_FOREGROUND_RGBA,
+        ));
         detached_app.background_color = self.background_color;
         detached_app.renderer.set_default_background(color_to_rgba(
             self.background_color,
@@ -5751,6 +5765,11 @@ impl NativeWindowApp {
         self.term.clone_from(&source.term);
         self.audible_bell = source.audible_bell;
         self.visual_bell = source.visual_bell;
+        self.foreground_color = source.foreground_color;
+        self.renderer.set_default_foreground(color_to_rgba(
+            source.foreground_color,
+            DEFAULT_RENDER_FOREGROUND_RGBA,
+        ));
         self.background_color = source.background_color;
         self.renderer.set_default_background(color_to_rgba(
             source.background_color,
@@ -12330,6 +12349,7 @@ impl NativeWindowApp {
             term: self.term.clone(),
             audible_bell: self.audible_bell,
             visual_bell: self.visual_bell,
+            foreground_color: self.foreground_color,
             background_color: self.background_color,
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
@@ -12472,6 +12492,13 @@ impl NativeWindowApp {
         self.apply_terminal_name_config_to_runtimes();
         self.audible_bell = overrides.audible_bell.unwrap_or(DEFAULT_AUDIBLE_BELL);
         self.visual_bell = overrides.visual_bell.unwrap_or_default();
+        self.foreground_color = overrides
+            .foreground_color
+            .unwrap_or(DEFAULT_FOREGROUND_COLOR);
+        self.renderer.set_default_foreground(color_to_rgba(
+            self.foreground_color,
+            DEFAULT_RENDER_FOREGROUND_RGBA,
+        ));
         self.background_color = overrides
             .background_color
             .unwrap_or(DEFAULT_BACKGROUND_COLOR);
@@ -33503,7 +33530,7 @@ mod tests {
         DEFAULT_CANONICALIZE_PASTED_NEWLINES, DEFAULT_CELL_WIDTH, DEFAULT_DEBUG_KEY_EVENTS,
         DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS, DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
         DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE,
-        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
@@ -35600,6 +35627,40 @@ mod tests {
                 terminal_origin_y
             ),
             [1, 2, 3, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_foreground_color_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#040506',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors.foreground config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let uses_configured_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [4, 5, 6, 255])
+            });
+        assert!(
+            uses_configured_foreground,
+            "default text foreground did not use colors.foreground"
         );
     }
 
@@ -41383,6 +41444,7 @@ mod tests {
                 term: "xterm-256color".to_owned(),
                 audible_bell: NativeAudibleBell::SystemBeep,
                 visual_bell: NativeVisualBell::default(),
+                foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
@@ -59005,6 +59067,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
+            foreground_color: Some(Color::Rgb(7, 8, 9)),
             background_color: Some(Color::Rgb(4, 5, 6)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
@@ -59146,6 +59209,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             },
+            foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
@@ -59240,6 +59304,7 @@ mod tests {
             term: "xterm-256color".to_owned(),
             audible_bell: NativeAudibleBell::SystemBeep,
             visual_bell: NativeVisualBell::default(),
+            foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
