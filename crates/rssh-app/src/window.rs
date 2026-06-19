@@ -17810,7 +17810,7 @@ fn strip_wezterm_action_index_prefix(query: &str) -> Option<String> {
         if name.is_empty() {
             return None;
         }
-        if tail.starts_with('"') || tail.starts_with('\'') {
+        if tail.starts_with('"') || tail.starts_with('\'') || tail.starts_with('[') {
             Some(format!("{name} {tail}"))
         } else {
             Some(format!("{name}{tail}"))
@@ -68689,6 +68689,62 @@ mod tests {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha, beta");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_table_wrapper_long_bracket_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action { SendString = [[alpha beta]] }".to_owned());
+
+        let expected = WindowCommand::SendString("alpha beta".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_index_long_bracket_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("act[\"SendString\"] [[alpha beta]]".to_owned());
+
+        let expected = WindowCommand::SendString("alpha beta".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
         assert_eq!(app.scrollback_offset, 0);
         assert!(app.command_palette.is_none());
     }
