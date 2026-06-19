@@ -228,6 +228,7 @@ pub struct PixelRenderer {
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     default_cursor_color: [u8; 4],
+    default_cursor_border: Option<[u8; 4]>,
     default_cursor_foreground: Option<[u8; 4]>,
     window_dpi: u32,
     animation_frame: usize,
@@ -291,6 +292,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_border: None,
             default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
@@ -314,6 +316,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_border: None,
             default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
@@ -537,6 +540,10 @@ impl PixelRenderer {
         self.default_cursor_color = color;
     }
 
+    pub fn set_default_cursor_border(&mut self, color: Option<[u8; 4]>) {
+        self.default_cursor_border = color;
+    }
+
     pub fn set_default_cursor_foreground(&mut self, color: Option<[u8; 4]>) {
         self.default_cursor_foreground = color;
     }
@@ -557,6 +564,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_border: None,
             default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
@@ -584,6 +592,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_border: None,
             default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame,
@@ -607,6 +616,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_cursor_color: default_foreground(),
+            default_cursor_border: None,
             default_cursor_foreground: None,
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
@@ -727,13 +737,22 @@ impl PixelRenderer {
                         self.bold_brightens_ansi_colors,
                         self.default_foreground,
                         self.default_background,
-                        self.default_cursor_color,
+                        cursor_shape_default_color(
+                            cursor,
+                            self.default_cursor_color,
+                            self.default_cursor_border,
+                        ),
                     ),
                     foreground: if self.force_reverse_video_cursor {
                         None
                     } else {
                         self.default_cursor_foreground
                     },
+                    border: configured_cursor_border(
+                        snapshot,
+                        self.force_reverse_video_cursor,
+                        self.default_cursor_border,
+                    ),
                 },
             );
         }
@@ -894,13 +913,22 @@ impl PixelRenderer {
                         self.bold_brightens_ansi_colors,
                         self.default_foreground,
                         self.default_background,
-                        self.default_cursor_color,
+                        cursor_shape_default_color(
+                            cursor,
+                            self.default_cursor_color,
+                            self.default_cursor_border,
+                        ),
                     ),
                     foreground: if self.force_reverse_video_cursor {
                         None
                     } else {
                         self.default_cursor_foreground
                     },
+                    border: configured_cursor_border(
+                        snapshot,
+                        self.force_reverse_video_cursor,
+                        self.default_cursor_border,
+                    ),
                 },
             );
         }
@@ -942,6 +970,7 @@ struct CursorRenderStyle {
     window_dpi: u32,
     color: [u8; 4],
     foreground: Option<[u8; 4]>,
+    border: Option<[u8; 4]>,
 }
 
 impl Surface<'_> {
@@ -989,6 +1018,41 @@ impl Surface<'_> {
                     pixel[3] = u8::MAX;
                 }
             }
+        }
+    }
+
+    fn stroke_rect(&mut self, rect: Rect, color: [u8; 4], alpha: u8) {
+        if rect.width == 0 || rect.height == 0 || alpha == 0 {
+            return;
+        }
+        if rect.width == 1 || rect.height == 1 {
+            self.fill_rect_alpha(rect, color, alpha);
+            return;
+        }
+
+        self.fill_rect_alpha(Rect { height: 1, ..rect }, color, alpha);
+        if rect.height > 1 {
+            self.fill_rect_alpha(
+                Rect {
+                    y: rect.y + rect.height - 1,
+                    height: 1,
+                    ..rect
+                },
+                color,
+                alpha,
+            );
+        }
+        if rect.width > 1 {
+            self.fill_rect_alpha(Rect { width: 1, ..rect }, color, alpha);
+            self.fill_rect_alpha(
+                Rect {
+                    x: rect.x + rect.width - 1,
+                    width: 1,
+                    ..rect
+                },
+                color,
+                alpha,
+            );
         }
     }
 
@@ -1779,10 +1843,21 @@ fn render_cursor(
         style.thickness,
         style.window_dpi,
     );
-    if cursor.blinking && style.opacity_alpha < u8::MAX {
-        surface.fill_rect_alpha(rect, style.color, style.opacity_alpha);
+    let cursor_alpha = if cursor.blinking {
+        style.opacity_alpha
+    } else {
+        u8::MAX
+    };
+    if cursor_alpha < u8::MAX {
+        surface.fill_rect_alpha(rect, style.color, cursor_alpha);
     } else {
         surface.fill_rect(rect, style.color);
+    }
+
+    if cursor.shape == CursorShape::Block
+        && let Some(border) = style.border
+    {
+        surface.stroke_rect(rect, border, cursor_alpha);
     }
 
     if cursor.shape == CursorShape::Block
@@ -1872,6 +1947,30 @@ fn cursor_color(
             })
     } else {
         default_cursor_color
+    }
+}
+
+fn cursor_shape_default_color(
+    cursor: RenderCursor,
+    default_cursor_color: [u8; 4],
+    default_cursor_border: Option<[u8; 4]>,
+) -> [u8; 4] {
+    if cursor.shape == CursorShape::Block {
+        default_cursor_color
+    } else {
+        default_cursor_border.unwrap_or(default_cursor_color)
+    }
+}
+
+fn configured_cursor_border(
+    snapshot: &TerminalRenderSnapshot,
+    force_reverse_video_cursor: bool,
+    default_cursor_border: Option<[u8; 4]>,
+) -> Option<[u8; 4]> {
+    if force_reverse_video_cursor || snapshot.cursor_color().is_some() {
+        None
+    } else {
+        default_cursor_border
     }
 }
 
@@ -4400,6 +4499,21 @@ mod tests {
                 .any(|pixel| pixel == [229, 229, 229, 255]),
             "renderer did not draw a visible cursor block"
         );
+    }
+
+    #[test]
+    fn pixel_renderer_draws_configured_block_cursor_border() {
+        let terminal = Terminal::new(TerminalSize::new(1, 1));
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut renderer = PixelRenderer::new();
+        renderer.set_default_cursor_color([7, 8, 9, 255]);
+        renderer.set_default_cursor_border(Some([1, 2, 3, 255]));
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [1, 2, 3, 255]);
+        assert_eq!(pixel_at(&target, 8, 1, 1), [7, 8, 9, 255]);
     }
 
     #[test]
