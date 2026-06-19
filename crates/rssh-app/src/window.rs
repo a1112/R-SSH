@@ -96,6 +96,7 @@ const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greysca
 const DEFAULT_FONT_HINTING: NativeFontHinting = NativeFontHinting::Full;
 const DEFAULT_FONT_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::FreeType;
 const DEFAULT_FREETYPE_LOAD_TARGET: NativeFreetypeTarget = NativeFreetypeTarget::Normal;
+const FREETYPE_LOAD_FLAGS_NO_HINTING_DPI_THRESHOLD: u32 = 100;
 const DEFAULT_CURSOR_BLINK_RATE: Duration = Duration::from_millis(800);
 const DEFAULT_CURSOR_BLINK_EASE_IN: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_CURSOR_BLINK_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
@@ -565,6 +566,46 @@ impl NativeFreetypeTarget {
             "VerticalLcd" => Some(Self::VerticalLcd),
             _ => None,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NativeFreetypeLoadFlags(u8);
+
+impl NativeFreetypeLoadFlags {
+    const DEFAULT: Self = Self(0);
+    const NO_HINTING: Self = Self(1 << 0);
+    const NO_BITMAP: Self = Self(1 << 1);
+    const FORCE_AUTOHINT: Self = Self(1 << 2);
+    const MONOCHROME: Self = Self(1 << 3);
+    const NO_AUTOHINT: Self = Self(1 << 4);
+
+    const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        let mut flags = Self::DEFAULT;
+        let mut saw_flag = false;
+
+        for flag in value.split('|').map(str::trim) {
+            if flag.is_empty() {
+                return None;
+            }
+            flags = flags.union(match flag {
+                "DEFAULT" => Self::DEFAULT,
+                "NO_HINTING" => Self::NO_HINTING,
+                "NO_BITMAP" => Self::NO_BITMAP,
+                "FORCE_AUTOHINT" => Self::FORCE_AUTOHINT,
+                "MONOCHROME" => Self::MONOCHROME,
+                "NO_AUTOHINT" => Self::NO_AUTOHINT,
+                _ => return None,
+            });
+            saw_flag = true;
+        }
+
+        saw_flag.then_some(flags)
     }
 }
 
@@ -1760,6 +1801,7 @@ struct NativeEffectiveConfig {
     font_rasterizer: NativeFontRasterizer,
     freetype_load_target: NativeFreetypeTarget,
     freetype_render_target: NativeFreetypeTarget,
+    freetype_load_flags: NativeFreetypeLoadFlags,
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -1901,6 +1943,7 @@ struct NativeConfigOverrides {
     font_rasterizer: Option<NativeFontRasterizer>,
     freetype_load_target: Option<NativeFreetypeTarget>,
     freetype_render_target: Option<NativeFreetypeTarget>,
+    freetype_load_flags: Option<NativeFreetypeLoadFlags>,
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -2259,6 +2302,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.freetype_render_target =
             Some(NativeFreetypeTarget::parse(&freetype_render_target)?);
+        parsed = true;
+    }
+    if let Some(freetype_load_flags) =
+        lua_config_string_assignment_from_query(config, "freetype_load_flags")
+    {
+        overrides.freetype_load_flags = Some(NativeFreetypeLoadFlags::parse(&freetype_load_flags)?);
         parsed = true;
     }
     if let Some(foreground_text_hsb) =
@@ -3516,6 +3565,14 @@ fn native_line_height_from_ratio(ratio: f32) -> Option<NativeLineHeight> {
     native_ratio_to_per_mille(ratio).map(NativeLineHeight::from_per_mille)
 }
 
+fn default_freetype_load_flags_for_dpi(dpi: u32) -> NativeFreetypeLoadFlags {
+    if dpi >= FREETYPE_LOAD_FLAGS_NO_HINTING_DPI_THRESHOLD {
+        NativeFreetypeLoadFlags::NO_HINTING
+    } else {
+        NativeFreetypeLoadFlags::DEFAULT
+    }
+}
+
 #[allow(dead_code)]
 fn native_hsb_lua_table_from_query(value: &str) -> Option<NativeInactivePaneHsb> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -4263,6 +4320,7 @@ struct NativeWindowApp {
     font_rasterizer: NativeFontRasterizer,
     freetype_load_target: NativeFreetypeTarget,
     freetype_render_target: NativeFreetypeTarget,
+    freetype_load_flags: Option<NativeFreetypeLoadFlags>,
     font_size_scale: f64,
     adjust_window_size_when_changing_font_size: bool,
     debug_overlay_active: bool,
@@ -5673,6 +5731,7 @@ impl NativeWindowApp {
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
             freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
+            freetype_load_flags: None,
             font_size_scale: DEFAULT_FONT_SIZE_SCALE,
             adjust_window_size_when_changing_font_size:
                 DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
@@ -6863,6 +6922,7 @@ impl NativeWindowApp {
         self.font_rasterizer = source.font_rasterizer;
         self.freetype_load_target = source.freetype_load_target;
         self.freetype_render_target = source.freetype_render_target;
+        self.freetype_load_flags = source.freetype_load_flags;
         self.initial_cols = source.initial_cols;
         self.initial_rows = source.initial_rows;
         self.foreground_text_hsb = source.foreground_text_hsb;
@@ -13855,6 +13915,7 @@ impl NativeWindowApp {
             font_rasterizer: self.font_rasterizer,
             freetype_load_target: self.freetype_load_target,
             freetype_render_target: self.freetype_render_target,
+            freetype_load_flags: self.effective_freetype_load_flags(),
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
             text_min_contrast_ratio: self.text_min_contrast_ratio,
@@ -13972,6 +14033,11 @@ impl NativeWindowApp {
         }
     }
 
+    fn effective_freetype_load_flags(&self) -> NativeFreetypeLoadFlags {
+        self.freetype_load_flags
+            .unwrap_or_else(|| default_freetype_load_flags_for_dpi(self.window_dpi))
+    }
+
     #[allow(dead_code)]
     fn get_config_overrides(&self) -> NativeConfigOverrides {
         self.config_overrides.clone()
@@ -14025,6 +14091,7 @@ impl NativeWindowApp {
         self.freetype_render_target = overrides
             .freetype_render_target
             .unwrap_or(self.freetype_load_target);
+        self.freetype_load_flags = overrides.freetype_load_flags;
         self.foreground_text_hsb = overrides
             .foreground_text_hsb
             .unwrap_or(DEFAULT_FOREGROUND_TEXT_HSB);
@@ -36448,32 +36515,33 @@ mod tests {
         NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
         NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontRasterizer,
         NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
-        NativeFormatUnderline, NativeFreetypeTarget, NativeHorizontalContentAlignment,
-        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
-        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeRenderFrontEnd, NativeScrollBarHeight, NativeStrikethroughPosition,
-        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
-        NativeTextMinContrastRatio, NativeUnderlinePosition, NativeUnderlineThickness,
-        NativeUserKeyAssignment, NativeVerticalContentAlignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
-        NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
-        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
-        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeInactivePaneHsb,
+        NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
+        NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUserKeyAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWindowApp, NativeWindowBell,
+        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
+        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -45661,6 +45729,7 @@ mod tests {
                 font_rasterizer: DEFAULT_FONT_RASTERIZER,
                 freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
                 freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
+                freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
                 text_min_contrast_ratio: None,
@@ -58426,6 +58495,19 @@ mod tests {
             effective.freetype_render_target,
             NativeFreetypeTarget::Normal
         );
+        assert_eq!(
+            effective.freetype_load_flags,
+            NativeFreetypeLoadFlags::DEFAULT
+        );
+
+        let mut high_dpi_app = NativeWindowApp::new(None);
+        high_dpi_app.window_dpi = 144;
+        let effective = high_dpi_app.native_effective_config();
+
+        assert_eq!(
+            effective.freetype_load_flags,
+            NativeFreetypeLoadFlags::NO_HINTING
+        );
     }
 
     #[test]
@@ -58468,6 +58550,48 @@ mod tests {
         assert_eq!(
             effective.freetype_render_target,
             NativeFreetypeTarget::HorizontalLcd
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_freetype_load_flags() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.freetype_load_flags = 'NO_HINTING|MONOCHROME'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm freetype load flags config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.freetype_load_flags,
+            NativeFreetypeLoadFlags::NO_HINTING.union(NativeFreetypeLoadFlags::MONOCHROME)
+        );
+
+        let mut high_dpi_app = NativeWindowApp::new(None);
+        high_dpi_app.window_dpi = 144;
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.freetype_load_flags = 'DEFAULT'
+
+            return config
+            "#,
+        )
+        .expect("expected explicit WezTerm default freetype load flags config");
+        high_dpi_app.set_config_overrides(overrides);
+
+        let effective = high_dpi_app.native_effective_config();
+        assert_eq!(
+            effective.freetype_load_flags,
+            NativeFreetypeLoadFlags::DEFAULT
         );
     }
 
@@ -63876,6 +64000,9 @@ mod tests {
             font_rasterizer: Some(NativeFontRasterizer::FreeType),
             freetype_load_target: Some(NativeFreetypeTarget::Mono),
             freetype_render_target: Some(NativeFreetypeTarget::HorizontalLcd),
+            freetype_load_flags: Some(
+                NativeFreetypeLoadFlags::NO_HINTING.union(NativeFreetypeLoadFlags::MONOCHROME),
+            ),
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64098,6 +64225,8 @@ mod tests {
             font_rasterizer: NativeFontRasterizer::FreeType,
             freetype_load_target: NativeFreetypeTarget::Mono,
             freetype_render_target: NativeFreetypeTarget::HorizontalLcd,
+            freetype_load_flags: NativeFreetypeLoadFlags::NO_HINTING
+                .union(NativeFreetypeLoadFlags::MONOCHROME),
             foreground_text_hsb: NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64292,6 +64421,7 @@ mod tests {
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
             freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
+            freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
