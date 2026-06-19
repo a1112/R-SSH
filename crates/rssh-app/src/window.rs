@@ -23711,7 +23711,7 @@ fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Opt
             return None;
         }
         let value = parse_maybe_quoted_query_text(value.trim())?;
-        color = Some(lua_color_from_query(&value)?);
+        color = Some(lua_opaque_color_from_query(&value)?);
     }
 
     Some(color)
@@ -23740,7 +23740,7 @@ fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<
         color = Some(if value.eq_ignore_ascii_case("none") {
             None
         } else {
-            Some(lua_color_from_query(&value)?)
+            lua_selection_foreground_color_from_query(&value)?
         });
     }
 
@@ -23798,7 +23798,7 @@ fn color_array_lua_table_field_from_query(
         let values = split_lua_table_string_array(value.trim())?;
         let parsed = values
             .iter()
-            .map(|value| lua_color_from_query(value))
+            .map(|value| lua_opaque_color_from_query(value))
             .collect::<Option<Vec<_>>>()?;
         colors = Some(<[Color; 8]>::try_from(parsed).ok()?);
     }
@@ -23839,7 +23839,7 @@ fn indexed_palette_lua_table_field_from_query(value: &str) -> Option<Option<[Opt
                 return None;
             }
             let color = parse_maybe_quoted_query_text(color.trim())?;
-            palette[index] = Some(lua_color_from_query(&color)?);
+            palette[index] = Some(lua_opaque_color_from_query(&color)?);
         }
         indexed_palette = Some(palette);
     }
@@ -23864,41 +23864,97 @@ fn lua_color_from_query(value: &str) -> Option<Color> {
         .or_else(|| lua_rgba_color_from_query(value))
 }
 
+fn lua_opaque_color_from_query(value: &str) -> Option<Color> {
+    Some(opaque_color(lua_color_from_query(value)?))
+}
+
+fn lua_selection_foreground_color_from_query(value: &str) -> Option<Option<Color>> {
+    let color = lua_color_from_query(value)?;
+    match color {
+        Color::Rgba(_, _, _, 0) => Some(None),
+        color => Some(Some(color)),
+    }
+}
+
+fn opaque_color(color: Color) -> Color {
+    match color {
+        Color::Rgba(red, green, blue, _) => Color::Rgb(red, green, blue),
+        color => color,
+    }
+}
+
 fn lua_rgb_color_from_query(value: &str) -> Option<Color> {
-    let [red, green, blue] = lua_color_function_components::<3>(value, "rgb")?;
-    Some(Color::Rgb(
-        red.parse::<u8>().ok()?,
-        green.parse::<u8>().ok()?,
-        blue.parse::<u8>().ok()?,
-    ))
+    let components = lua_color_function_body(value, "rgb")?;
+    let (channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+    let [red, green, blue] = <[&str; 3]>::try_from(channels).ok()?;
+    let red = lua_css_rgb_channel_from_query(red)?;
+    let green = lua_css_rgb_channel_from_query(green)?;
+    let blue = lua_css_rgb_channel_from_query(blue)?;
+    alpha.map_or_else(
+        || Some(Color::Rgb(red, green, blue)),
+        |alpha| {
+            Some(Color::Rgba(
+                red,
+                green,
+                blue,
+                lua_css_alpha_from_query(alpha)?,
+            ))
+        },
+    )
 }
 
 fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
-    let [red, green, blue, alpha] = lua_color_function_components::<4>(value, "rgba")?;
-    let red = red.parse::<u8>().ok()?;
-    let green = green.parse::<u8>().ok()?;
-    let blue = blue.parse::<u8>().ok()?;
-    let alpha = parse_finite_f64(alpha)?.clamp(0.0, 1.0);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let alpha = (alpha * f64::from(u8::MAX)) as u8;
+    let components = lua_color_function_body(value, "rgba")?;
+    let components = components.split(',').map(str::trim).collect::<Vec<_>>();
+    let [red, green, blue, alpha] = <[&str; 4]>::try_from(components).ok()?;
+    let red = lua_css_rgb_channel_from_query(red)?;
+    let green = lua_css_rgb_channel_from_query(green)?;
+    let blue = lua_css_rgb_channel_from_query(blue)?;
+    let alpha = lua_css_alpha_from_query(alpha)?;
     Some(Color::Rgba(red, green, blue, alpha))
 }
 
-fn lua_color_function_components<'a, const N: usize>(
-    value: &'a str,
-    function: &str,
-) -> Option<[&'a str; N]> {
+fn lua_color_function_body<'a>(value: &'a str, function: &str) -> Option<&'a str> {
     let function = format!("{function}(");
-    let components = value
+    value
         .trim()
         .strip_prefix(function.as_str())?
-        .strip_suffix(')')?;
-    components
-        .split(',')
+        .strip_suffix(')')
         .map(str::trim)
-        .collect::<Vec<_>>()
-        .try_into()
-        .ok()
+}
+
+fn split_lua_css_rgb_channels_and_alpha(components: &str) -> Option<(Vec<&str>, Option<&str>)> {
+    if components.contains(',') {
+        let components = components.split(',').map(str::trim).collect::<Vec<_>>();
+        return Some((components, None));
+    }
+    let (channels, alpha) = components
+        .split_once('/')
+        .map_or((components, None), |(channels, alpha)| {
+            (channels, Some(alpha.trim()))
+        });
+    let channels = channels.split_whitespace().collect::<Vec<_>>();
+    Some((channels, alpha))
+}
+
+fn lua_css_rgb_channel_from_query(value: &str) -> Option<u8> {
+    if let Some(percent) = value.trim().strip_suffix('%') {
+        let percent = parse_finite_f64(percent)?.clamp(0.0, 100.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        return Some((percent * f64::from(u8::MAX) / 100.0) as u8);
+    }
+    value.trim().parse::<u8>().ok()
+}
+
+fn lua_css_alpha_from_query(value: &str) -> Option<u8> {
+    if let Some(percent) = value.trim().strip_suffix('%') {
+        let percent = parse_finite_f64(percent)?.clamp(0.0, 100.0);
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        return Some((percent * f64::from(u8::MAX) / 100.0) as u8);
+    }
+    let alpha = parse_finite_f64(value)?.clamp(0.0, 1.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Some((alpha * f64::from(u8::MAX)) as u8)
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
@@ -36263,6 +36319,120 @@ mod tests {
         assert!(
             plain_cell_uses_rgb_foreground,
             "foreground rgb() did not render"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_css_rgb_space_percent_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'rgb(100% 0% 0%)',
+              background = 'rgb(0 255 0 / 100%)',
+              selection_fg = 'rgb(0% 0% 100%)',
+              selection_bg = 'rgb(50% 50% 50% / 50%)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm CSS rgb color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"AB").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_blended_percent_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [63, 191, 63, 255]
+                })
+            });
+        let selected_cell_uses_percent_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 0, 255, 255])
+            });
+        let plain_cell_uses_space_rgb_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_percent_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [255, 0, 0, 255])
+            });
+        assert!(
+            selected_cell_uses_blended_percent_background,
+            "selection_bg CSS rgb percentage alpha did not blend over current background"
+        );
+        assert!(
+            selected_cell_uses_percent_foreground,
+            "selection_fg CSS rgb percentages did not render"
+        );
+        assert!(
+            plain_cell_uses_space_rgb_background,
+            "background CSS rgb space/slash syntax did not render"
+        );
+        assert!(
+            plain_cell_uses_percent_foreground,
+            "foreground CSS rgb percentages did not render"
+        );
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_non_selection_color_alpha_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'rgba(255,0,0,0.5)',
+              background = 'rgba(0,255,0,0.5)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm non-selection rgba config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let cell_uses_opaque_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let cell_uses_opaque_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [255, 0, 0, 255])
+            });
+        assert!(
+            cell_uses_opaque_background,
+            "non-selection background alpha was not ignored"
+        );
+        assert!(
+            cell_uses_opaque_foreground,
+            "non-selection foreground alpha was not ignored"
         );
     }
 
