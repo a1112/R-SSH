@@ -23918,9 +23918,19 @@ fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
 fn lua_hsl_color_from_query(value: &str) -> Option<Color> {
     let (channels, alpha) = if let Some(components) = value.trim().strip_prefix("hsl:") {
         (components.split_whitespace().collect::<Vec<_>>(), None)
-    } else {
-        let components = lua_color_function_body(value, "hsl")?;
+    } else if let Some(components) = lua_color_function_body(value, "hsl") {
         split_lua_css_rgb_channels_and_alpha(components)?
+    } else {
+        let components = lua_color_function_body(value, "hsla")?;
+        let (mut channels, alpha) = split_lua_css_rgb_channels_and_alpha(components)?;
+        let alpha = alpha.or_else(|| {
+            if channels.len() == 4 {
+                channels.pop()
+            } else {
+                None
+            }
+        });
+        (channels, alpha)
     };
     let [hue, saturation, lightness] = <[&str; 3]>::try_from(channels).ok()?;
     let [red, green, blue] = hsl_to_rgb(
@@ -36580,6 +36590,76 @@ mod tests {
         assert!(
             plain_cell_uses_hsl_foreground,
             "foreground HSL color did not render"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hsla_colors_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = 'hsla(0,100%,50%,25%)',
+              background = 'hsla(120,100%,50%,25%)',
+              selection_fg = 'hsla(120,100%,50%,100%)',
+              selection_bg = 'hsla(240,100%,50%,50%)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm HSLA color config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"AB").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_hsla_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 128, 127, 255]
+                })
+            });
+        let selected_cell_uses_hsla_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_opaque_hsla_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [0, 255, 0, 255])
+            });
+        let plain_cell_uses_opaque_hsla_foreground =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (CELL_WIDTH as usize..(CELL_WIDTH * 2) as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [255, 0, 0, 255])
+            });
+        assert!(
+            selected_cell_uses_hsla_background,
+            "selection_bg HSLA alpha did not blend over the current background"
+        );
+        assert!(
+            selected_cell_uses_hsla_foreground,
+            "selection_fg HSLA color did not render"
+        );
+        assert!(
+            plain_cell_uses_opaque_hsla_background,
+            "non-selection HSLA background alpha was not ignored"
+        );
+        assert!(
+            plain_cell_uses_opaque_hsla_foreground,
+            "non-selection HSLA foreground alpha was not ignored"
         );
     }
 
