@@ -993,7 +993,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SendString({ string = ... })` table-call queries dispatch the
   same typed payload path. Quoted action strings decode Lua-style escapes such
   as `\x1b`, `\027`, `\u{1b}`, and `\z` whitespace elision before dispatching
-  the payload bytes.
+  the payload bytes, and accept Lua long bracket strings such as `[[text]]`.
 - Native `SendKey` action payloads now encode the specified key and modifiers
   through the active terminal input mode, write the resulting bytes directly to
   the active PTY input path, and do not re-match key assignments. Structured
