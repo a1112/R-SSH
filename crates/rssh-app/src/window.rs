@@ -99,10 +99,10 @@ const DEFAULT_UNDERLINE_POSITION: Option<NativeUnderlinePosition> = None;
 const DEFAULT_STRIKETHROUGH_POSITION: Option<NativeStrikethroughPosition> = None;
 const DEFAULT_FORCE_REVERSE_VIDEO_CURSOR: bool = false;
 const DEFAULT_WINDOW_PADDING: NativeWindowPadding = NativeWindowPadding {
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
+    left: NativeWindowPaddingDimension::Pixels(0),
+    right: NativeWindowPaddingDimension::Pixels(0),
+    top: NativeWindowPaddingDimension::Pixels(0),
+    bottom: NativeWindowPaddingDimension::Pixels(0),
 };
 const DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS: NativeBoldBrightensAnsiColors =
     NativeBoldBrightensAnsiColors::BrightAndBold;
@@ -396,10 +396,37 @@ impl NativeLineHeight {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 struct NativeWindowPadding {
-    left: u16,
-    right: u16,
-    top: u16,
-    bottom: u16,
+    left: NativeWindowPaddingDimension,
+    right: NativeWindowPaddingDimension,
+    top: NativeWindowPaddingDimension,
+    bottom: NativeWindowPaddingDimension,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeWindowPaddingDimension {
+    Pixels(u32),
+    Points(u32),
+    Percent(u32),
+    CellFractionPerMille(u32),
+}
+
+impl Default for NativeWindowPaddingDimension {
+    fn default() -> Self {
+        Self::Pixels(0)
+    }
+}
+
+impl NativeWindowPaddingDimension {
+    fn parse(value: &str) -> Option<Self> {
+        parse_native_unsigned_dimension(
+            value,
+            Self::Pixels,
+            Self::Points,
+            Self::Percent,
+            Self::CellFractionPerMille,
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2681,15 +2708,18 @@ fn native_window_padding_lua_table_from_query(value: &str) -> Option<NativeWindo
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
-        let cells = lua_unsigned_integer_literal_from_query(value.trim())?
-            .parse::<u16>()
-            .ok()?;
+        let value = value.trim();
+        let dimension = if let Some(value) = parse_maybe_quoted_query_text(value) {
+            NativeWindowPaddingDimension::parse(&value)?
+        } else {
+            NativeWindowPaddingDimension::parse(lua_unsigned_number_literal_from_query(value)?)?
+        };
 
         match key.as_str() {
-            "left" => padding.left = cells,
-            "right" => padding.right = cells,
-            "top" => padding.top = cells,
-            "bottom" => padding.bottom = cells,
+            "left" => padding.left = dimension,
+            "right" => padding.right = dimension,
+            "top" => padding.top = dimension,
+            "bottom" => padding.bottom = dimension,
             _ => return None,
         }
     }
@@ -4161,6 +4191,33 @@ fn p95_us(samples: &[Duration]) -> u128 {
 
 fn damage_region_cells(region: DamageRegion) -> u64 {
     u64::from(region.width).saturating_mul(u64::from(region.height))
+}
+
+fn padding_dimension_to_cells(
+    dimension: NativeWindowPaddingDimension,
+    cell_pixels: u32,
+    axis_pixels: u32,
+    dpi: u32,
+) -> u16 {
+    let pixels = match dimension {
+        NativeWindowPaddingDimension::Pixels(pixels) => pixels,
+        NativeWindowPaddingDimension::Points(points) => {
+            points.saturating_mul(dpi).saturating_add(36) / 72
+        }
+        NativeWindowPaddingDimension::Percent(percent) => axis_pixels.saturating_mul(percent) / 100,
+        NativeWindowPaddingDimension::CellFractionPerMille(per_mille) => {
+            return u16::try_from(per_mille.saturating_add(999) / 1_000).unwrap_or(u16::MAX);
+        }
+    };
+    padding_pixels_to_cells(pixels, cell_pixels)
+}
+
+fn padding_pixels_to_cells(pixels: u32, cell_pixels: u32) -> u16 {
+    if pixels == 0 || cell_pixels == 0 {
+        return 0;
+    }
+
+    u16::try_from(pixels.div_ceil(cell_pixels)).unwrap_or(u16::MAX)
 }
 
 fn metric_option(value: Option<u128>) -> String {
@@ -10951,16 +11008,38 @@ impl NativeWindowApp {
 
     fn padded_terminal_render_rect(&self, pane_id: rssh_core::PaneId) -> PaneRenderRect {
         let size = self.runtime.terminal().grid().size();
-        let left = self.window_padding.left.min(size.columns.saturating_sub(1));
-        let top = self.window_padding.top.min(size.rows.saturating_sub(1));
-        let right = self
-            .window_padding
-            .right
-            .min(size.columns.saturating_sub(left).saturating_sub(1));
-        let bottom = self
-            .window_padding
-            .bottom
-            .min(size.rows.saturating_sub(top).saturating_sub(1));
+        let cell_width = self.cell_width();
+        let cell_height = self.cell_height();
+        let terminal_width = u32::from(size.columns).saturating_mul(cell_width);
+        let terminal_height = u32::from(size.rows).saturating_mul(cell_height);
+        let left = padding_dimension_to_cells(
+            self.window_padding.left,
+            cell_width,
+            terminal_width,
+            self.window_dpi,
+        )
+        .min(size.columns.saturating_sub(1));
+        let top = padding_dimension_to_cells(
+            self.window_padding.top,
+            cell_height,
+            terminal_height,
+            self.window_dpi,
+        )
+        .min(size.rows.saturating_sub(1));
+        let right = padding_dimension_to_cells(
+            self.window_padding.right,
+            cell_width,
+            terminal_width,
+            self.window_dpi,
+        )
+        .min(size.columns.saturating_sub(left).saturating_sub(1));
+        let bottom = padding_dimension_to_cells(
+            self.window_padding.bottom,
+            cell_height,
+            terminal_height,
+            self.window_dpi,
+        )
+        .min(size.rows.saturating_sub(top).saturating_sub(1));
 
         PaneRenderRect {
             pane_id,
@@ -33275,19 +33354,20 @@ mod tests {
         NativeVisualBellTarget, NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
         NativeWindowConfigReloaded, NativeWindowEmitEvent, NativeWindowFocusChange,
         NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowPadding, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -54025,10 +54105,10 @@ mod tests {
             local config = {}
 
             config.window_padding = {
-              left = 2,
-              right = 3,
-              top = 1,
-              bottom = 2,
+              left = 8,
+              right = 16,
+              top = 16,
+              bottom = 32,
             }
 
             return config
@@ -54046,16 +54126,48 @@ mod tests {
         assert_eq!(
             effective.window_padding,
             NativeWindowPadding {
-                left: 2,
-                right: 3,
-                top: 1,
-                bottom: 2,
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::Pixels(16),
+                bottom: NativeWindowPaddingDimension::Pixels(32),
             }
         );
         assert_eq!(rect.row, TAB_BAR_ROWS + 1);
-        assert_eq!(rect.column, 2);
+        assert_eq!(rect.column, 1);
         assert_eq!(rect.rows, 3);
-        assert_eq!(rect.columns, 15);
+        assert_eq!(rect.columns, 17);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_padding_cell_units() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_padding = {
+              left = '1cell',
+              right = '2cell',
+              top = '1cell',
+              bottom = '2cell',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window padding config with cell units");
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 6));
+        app.refresh_snapshot();
+        app.set_config_overrides(overrides);
+
+        let layout = app.pane_render_layout();
+        let rect = layout.panes.first().expect("pane rect");
+
+        assert_eq!(rect.row, TAB_BAR_ROWS + 1);
+        assert_eq!(rect.column, 1);
+        assert_eq!(rect.rows, 3);
+        assert_eq!(rect.columns, 17);
     }
 
     #[test]
@@ -58420,16 +58532,16 @@ mod tests {
     }
 
     #[test]
-    fn window_app_applies_window_padding_to_pane_render_layout() {
+    fn window_app_applies_window_padding_pixels_to_pane_render_layout() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(20, 6));
         app.refresh_snapshot();
         app.set_config_overrides(NativeConfigOverrides {
             window_padding: Some(NativeWindowPadding {
-                left: 2,
-                right: 3,
-                top: 1,
-                bottom: 2,
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::Pixels(16),
+                bottom: NativeWindowPaddingDimension::Pixels(32),
             }),
             ..NativeConfigOverrides::default()
         });
@@ -58440,16 +58552,16 @@ mod tests {
         assert_eq!(
             app.native_effective_config().window_padding,
             NativeWindowPadding {
-                left: 2,
-                right: 3,
-                top: 1,
-                bottom: 2,
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::Pixels(16),
+                bottom: NativeWindowPaddingDimension::Pixels(32),
             }
         );
         assert_eq!(rect.row, TAB_BAR_ROWS + 1);
-        assert_eq!(rect.column, 2);
+        assert_eq!(rect.column, 1);
         assert_eq!(rect.rows, 3);
-        assert_eq!(rect.columns, 15);
+        assert_eq!(rect.columns, 17);
     }
 
     #[test]
@@ -58589,10 +58701,10 @@ mod tests {
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: Some(true),
             window_padding: Some(NativeWindowPadding {
-                left: 1,
-                right: 2,
-                top: 3,
-                bottom: 4,
+                left: NativeWindowPaddingDimension::Pixels(1),
+                right: NativeWindowPaddingDimension::Pixels(2),
+                top: NativeWindowPaddingDimension::Pixels(3),
+                bottom: NativeWindowPaddingDimension::Pixels(4),
             }),
             initial_cols: Some(100),
             initial_rows: Some(30),
@@ -58719,10 +58831,10 @@ mod tests {
             strikethrough_position: Some(NativeStrikethroughPosition::CellFractionPerMille(500)),
             force_reverse_video_cursor: true,
             window_padding: NativeWindowPadding {
-                left: 1,
-                right: 2,
-                top: 3,
-                bottom: 4,
+                left: NativeWindowPaddingDimension::Pixels(1),
+                right: NativeWindowPaddingDimension::Pixels(2),
+                top: NativeWindowPaddingDimension::Pixels(3),
+                bottom: NativeWindowPaddingDimension::Pixels(4),
             },
             initial_cols: 100,
             initial_rows: 30,
