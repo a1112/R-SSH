@@ -1497,6 +1497,7 @@ struct NativeEffectiveConfig {
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
     split_color: Option<Color>,
+    scrollbar_thumb_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -1607,6 +1608,7 @@ struct NativeConfigOverrides {
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
     split_color: Option<Color>,
+    scrollbar_thumb_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
@@ -1757,6 +1759,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(split_color) = color_lua_table_field_from_query(colors, "split")? {
             overrides.split_color = Some(split_color);
+            parsed = true;
+        }
+        if let Some(scrollbar_thumb_color) =
+            color_lua_table_field_from_query(colors, "scrollbar_thumb")?
+        {
+            overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
             parsed = true;
         }
         if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
@@ -3761,6 +3769,7 @@ struct NativeWindowApp {
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
     split_color: Option<Color>,
+    scrollbar_thumb_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -4989,6 +4998,7 @@ impl NativeWindowApp {
             cursor_border_color: None,
             cursor_fg_color: None,
             split_color: None,
+            scrollbar_thumb_color: None,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
@@ -5937,6 +5947,7 @@ impl NativeWindowApp {
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
         detached_app.split_color = self.split_color;
+        detached_app.scrollbar_thumb_color = self.scrollbar_thumb_color;
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
@@ -6088,6 +6099,7 @@ impl NativeWindowApp {
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
         self.split_color = source.split_color;
+        self.scrollbar_thumb_color = source.scrollbar_thumb_color;
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
         self.default_prog.clone_from(&source.default_prog);
@@ -12811,6 +12823,7 @@ impl NativeWindowApp {
             cursor_border_color: self.cursor_border_color,
             cursor_fg_color: self.cursor_fg_color,
             split_color: self.split_color,
+            scrollbar_thumb_color: self.scrollbar_thumb_color,
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
@@ -12998,6 +13011,7 @@ impl NativeWindowApp {
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
         self.split_color = overrides.split_color;
+        self.scrollbar_thumb_color = overrides.scrollbar_thumb_color;
         self.visual_bell_color = overrides.visual_bell_color;
         self.notification_handling = overrides
             .notification_handling
@@ -14263,7 +14277,13 @@ impl NativeWindowApp {
 
         let history_len = self.runtime.terminal().scrollback().len();
         let rows = self.runtime.terminal().grid().size().rows;
-        let scrollbar = ScrollbackScrollbar::new(history_len, rows, self.scrollback_offset)?;
+        let mut scrollbar = ScrollbackScrollbar::new(history_len, rows, self.scrollback_offset)?;
+        if let Some(thumb_color) = self.scrollbar_thumb_color {
+            scrollbar = scrollbar.with_thumb_color(color_to_rgba(
+                thumb_color,
+                rssh_renderer::SCROLLBAR_THUMB_COLOR,
+            ));
+        }
         Some(match self.min_scroll_bar_height {
             Some(min_thumb_height) => {
                 scrollbar.with_min_thumb_height(RenderScrollbarThumbSize::from(min_thumb_height))
@@ -37790,6 +37810,43 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_scrollbar_thumb_color_to_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_scroll_bar = true
+            config.colors = {
+              scrollbar_thumb = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm scrollbar_thumb config");
+        app.set_config_overrides(overrides);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+        app.scroll_viewport_lines(99);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                FRAME_WIDTH as usize - 1,
+                tab_bar_pixel_height() as usize,
+            ),
+            [1, 2, 3, 255]
+        );
+    }
+
+    #[test]
     fn window_app_applies_configured_min_scroll_bar_height_to_scrollbar() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
@@ -43566,6 +43623,7 @@ mod tests {
                 cursor_border_color: None,
                 cursor_fg_color: None,
                 split_color: None,
+                scrollbar_thumb_color: None,
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
@@ -61381,6 +61439,7 @@ mod tests {
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
             split_color: Some(Color::Rgb(19, 20, 21)),
+            scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61541,6 +61600,7 @@ mod tests {
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
             split_color: Some(Color::Rgb(19, 20, 21)),
+            scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61652,6 +61712,7 @@ mod tests {
             cursor_border_color: None,
             cursor_fg_color: None,
             split_color: None,
+            scrollbar_thumb_color: None,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,

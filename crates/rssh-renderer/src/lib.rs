@@ -137,6 +137,7 @@ pub struct ScrollbackScrollbar {
     pub viewport_rows: u16,
     pub scrollback_offset: usize,
     pub min_thumb_height: Option<RenderScrollbarThumbSize>,
+    pub thumb_color: Option<[u8; 4]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +164,7 @@ impl ScrollbackScrollbar {
             viewport_rows,
             scrollback_offset: scrollback_offset.min(scrollback_lines),
             min_thumb_height: None,
+            thumb_color: None,
         })
     }
 
@@ -196,6 +198,12 @@ impl ScrollbackScrollbar {
     #[must_use]
     pub const fn with_min_thumb_height_percent(mut self, percent: u32) -> Self {
         self.min_thumb_height = Some(RenderScrollbarThumbSize::Percent(percent));
+        self
+    }
+
+    #[must_use]
+    pub const fn with_thumb_color(mut self, thumb_color: [u8; 4]) -> Self {
+        self.thumb_color = Some(thumb_color);
         self
     }
 
@@ -828,7 +836,7 @@ impl PixelRenderer {
         surface.fill_rect(track, SCROLLBAR_TRACK_COLOR);
         surface.fill_rect(
             scrollbar_thumb_rect(scrollbar, geometry, track_width, self.window_dpi),
-            SCROLLBAR_THUMB_COLOR,
+            scrollbar.thumb_color.unwrap_or(SCROLLBAR_THUMB_COLOR),
         );
     }
 
