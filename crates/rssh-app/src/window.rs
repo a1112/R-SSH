@@ -21905,6 +21905,16 @@ fn parse_lua_quoted_query_text(value: &str) -> Option<String> {
                 let scalar = u32::from_str_radix(&hex, 16).ok()?;
                 parsed.push(char::from_u32(scalar)?);
             }
+            'z' => loop {
+                let mut next_chars = chars.clone();
+                let Some((_, next)) = next_chars.next() else {
+                    break;
+                };
+                if !next.is_whitespace() {
+                    break;
+                }
+                chars.next();
+            },
             _ => parsed.push(escaped),
         }
     }
@@ -68753,6 +68763,34 @@ mod tests {
         app.command_palette_execute(expected);
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b b");
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_lua_z_escape_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.scrollback_offset = 1;
+        app.refresh_snapshot();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action.SendString 'alpha\\z   beta'".to_owned());
+
+        let expected = WindowCommand::SendString("alphabeta".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"alphabeta");
         assert_eq!(app.scrollback_offset, 0);
         assert!(app.command_palette.is_none());
     }
