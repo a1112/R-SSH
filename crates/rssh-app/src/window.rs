@@ -24915,7 +24915,7 @@ fn window_domain_selector_lua_table_from_query(value: &str) -> Option<WindowDoma
         if field.is_empty() {
             continue;
         }
-        let (key, value) = field.split_once('=')?;
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
             return None;
@@ -46885,6 +46885,25 @@ mod tests {
             assert!(!app.command_palette_execute(expected));
             assert!(app.command_palette.is_some());
         }
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_detach_domain_table_long_bracket_key_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.DetachDomain({ [[=[DomainName]=]] = [[devhost]] })".to_owned(),
+        );
+        let expected =
+            WindowCommand::DetachDomain(WindowDomainSelector::DomainName("devhost".to_owned()));
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        assert!(!app.command_palette_execute(expected));
+        assert!(app.command_palette.is_some());
     }
 
     #[test]
