@@ -703,7 +703,7 @@ keyboard, mouse, paste, resize
   `force_reverse_video_cursor`, `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
-  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `cursor_bg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
@@ -871,10 +871,11 @@ keyboard, mouse, paste, resize
   Constant/Linear/Ease/EaseIn/EaseOut/EaseInOut/CubicBezier easing subset;
   `CursorColor` fades return to the current rendered cursor color, including
   `force_reverse_video_cursor` cursor-cell foreground behavior. Native
-  `foreground_color` and `background_color` overrides stand in for WezTerm
-  `colors.foreground` and `colors.background`, driving the default text
-  foreground and framebuffer background for full and damage renders. Lua event
-  wiring and broader Lua config parsing remain future parity work.
+  `foreground_color`, `background_color`, and `cursor_bg_color` overrides stand
+  in for WezTerm `colors.foreground`, `colors.background`, and
+  `colors.cursor_bg`, driving the default text foreground, framebuffer
+  background, and cursor color for full and damage renders. Lua event wiring
+  and broader Lua config parsing remain future parity work.
 - Implemented in v1: native window focus changes still write CSI focus-reporting
   sequences to the PTY when requested and now dispatch a typed focus-change hook
   with the window id, active pane id, and focused/unfocused state. Lua event
@@ -897,7 +898,7 @@ keyboard, mouse, paste, resize
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
-  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `cursor_bg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
@@ -979,7 +980,7 @@ keyboard, mouse, paste, resize
   `inactive_pane_hsb`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
-  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `cursor_bg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`,
   `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,

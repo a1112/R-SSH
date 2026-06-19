@@ -227,6 +227,7 @@ pub struct PixelRenderer {
     force_reverse_video_cursor: bool,
     default_foreground: [u8; 4],
     default_background: [u8; 4],
+    default_cursor_color: [u8; 4],
     window_dpi: u32,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
@@ -288,6 +289,7 @@ impl PixelRenderer {
             force_reverse_video_cursor: false,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_cursor_color: default_foreground(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -309,6 +311,7 @@ impl PixelRenderer {
             force_reverse_video_cursor: false,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_cursor_color: default_foreground(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -527,6 +530,10 @@ impl PixelRenderer {
         self.default_foreground = foreground;
     }
 
+    pub fn set_default_cursor_color(&mut self, color: [u8; 4]) {
+        self.default_cursor_color = color;
+    }
+
     #[must_use]
     pub const fn with_force_reverse_video_cursor(force_reverse_video_cursor: bool) -> Self {
         Self {
@@ -542,6 +549,7 @@ impl PixelRenderer {
             force_reverse_video_cursor,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_cursor_color: default_foreground(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: None,
@@ -567,6 +575,7 @@ impl PixelRenderer {
             force_reverse_video_cursor: false,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_cursor_color: default_foreground(),
             window_dpi: DEFAULT_DPI,
             animation_frame,
             animation_elapsed_ms: None,
@@ -588,6 +597,7 @@ impl PixelRenderer {
             force_reverse_video_cursor: false,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_cursor_color: default_foreground(),
             window_dpi: DEFAULT_DPI,
             animation_frame: 0,
             animation_elapsed_ms: Some(animation_elapsed_ms),
@@ -702,6 +712,7 @@ impl PixelRenderer {
                         self.bold_brightens_ansi_colors,
                         self.default_foreground,
                         self.default_background,
+                        self.default_cursor_color,
                     ),
                 },
             );
@@ -858,6 +869,7 @@ impl PixelRenderer {
                         self.bold_brightens_ansi_colors,
                         self.default_foreground,
                         self.default_background,
+                        self.default_cursor_color,
                     ),
                 },
             );
@@ -1749,6 +1761,7 @@ fn cursor_color(
     bold_brightens_ansi_colors: RenderBoldBrightensAnsiColors,
     default_foreground: [u8; 4],
     default_background: [u8; 4],
+    default_cursor_color: [u8; 4],
 ) -> [u8; 4] {
     if let Some(color) = snapshot.cursor_color() {
         return color_to_rgba(color, default_foreground);
@@ -1769,7 +1782,7 @@ fn cursor_color(
                 .0
             })
     } else {
-        default_foreground
+        default_cursor_color
     }
 }
 

@@ -94,6 +94,7 @@ const DEFAULT_RENDER_FOREGROUND_RGBA: [u8; 4] = [229, 229, 229, 255];
 const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [12, 12, 12, 255];
 const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(229, 229, 229);
 const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(12, 12, 12);
+const DEFAULT_CURSOR_BG_COLOR: Color = DEFAULT_FOREGROUND_COLOR;
 const DEFAULT_CURSOR_STYLE: NativeCursorStyle = NativeCursorStyle::SteadyBlock;
 const DEFAULT_CURSOR_THICKNESS: Option<NativeCursorThickness> = None;
 const DEFAULT_UNDERLINE_THICKNESS: Option<NativeUnderlineThickness> = None;
@@ -1384,6 +1385,7 @@ struct NativeEffectiveConfig {
     visual_bell: NativeVisualBell,
     foreground_color: Color,
     background_color: Color,
+    cursor_bg_color: Color,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -1478,6 +1480,7 @@ struct NativeConfigOverrides {
     visual_bell: Option<NativeVisualBell>,
     foreground_color: Option<Color>,
     background_color: Option<Color>,
+    cursor_bg_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
@@ -1582,6 +1585,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(background_color) = color_lua_table_field_from_query(colors, "background")? {
             overrides.background_color = Some(background_color);
+            parsed = true;
+        }
+        if let Some(cursor_bg_color) = color_lua_table_field_from_query(colors, "cursor_bg")? {
+            overrides.cursor_bg_color = Some(cursor_bg_color);
             parsed = true;
         }
         if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
@@ -3526,6 +3533,7 @@ struct NativeWindowApp {
     visual_bell: NativeVisualBell,
     foreground_color: Color,
     background_color: Color,
+    cursor_bg_color: Color,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -4738,6 +4746,7 @@ impl NativeWindowApp {
             visual_bell: NativeVisualBell::default(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
+            cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
@@ -5658,6 +5667,13 @@ impl NativeWindowApp {
             self.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
         ));
+        detached_app.cursor_bg_color = self.cursor_bg_color;
+        detached_app
+            .renderer
+            .set_default_cursor_color(color_to_rgba(
+                self.cursor_bg_color,
+                DEFAULT_RENDER_FOREGROUND_RGBA,
+            ));
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
@@ -5774,6 +5790,11 @@ impl NativeWindowApp {
         self.renderer.set_default_background(color_to_rgba(
             source.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
+        ));
+        self.cursor_bg_color = source.cursor_bg_color;
+        self.renderer.set_default_cursor_color(color_to_rgba(
+            source.cursor_bg_color,
+            DEFAULT_RENDER_FOREGROUND_RGBA,
         ));
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
@@ -12351,6 +12372,7 @@ impl NativeWindowApp {
             visual_bell: self.visual_bell,
             foreground_color: self.foreground_color,
             background_color: self.background_color,
+            cursor_bg_color: self.cursor_bg_color,
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
@@ -12505,6 +12527,11 @@ impl NativeWindowApp {
         self.renderer.set_default_background(color_to_rgba(
             self.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
+        ));
+        self.cursor_bg_color = overrides.cursor_bg_color.unwrap_or(DEFAULT_CURSOR_BG_COLOR);
+        self.renderer.set_default_cursor_color(color_to_rgba(
+            self.cursor_bg_color,
+            DEFAULT_RENDER_FOREGROUND_RGBA,
         ));
         self.visual_bell_color = overrides.visual_bell_color;
         self.notification_handling = overrides
@@ -33527,10 +33554,11 @@ mod tests {
         DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE, DEFAULT_ALLOW_WIN32_INPUT_MODE,
         DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
         DEFAULT_BACKGROUND_COLOR, DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
-        DEFAULT_CANONICALIZE_PASTED_NEWLINES, DEFAULT_CELL_WIDTH, DEFAULT_DEBUG_KEY_EVENTS,
-        DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS, DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
-        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE,
-        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_CANONICALIZE_PASTED_NEWLINES, DEFAULT_CELL_WIDTH, DEFAULT_CURSOR_BG_COLOR,
+        DEFAULT_DEBUG_KEY_EVENTS, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
+        DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
+        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
+        DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
@@ -35661,6 +35689,70 @@ mod tests {
         assert!(
             uses_configured_foreground,
             "default text foreground did not use colors.foreground"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cursor_bg_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              cursor_bg = '#070809',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors.cursor_bg config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, terminal_origin_y),
+            [7, 8, 9, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_force_reverse_video_cursor_overrides_wezterm_cursor_bg() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.force_reverse_video_cursor = true
+            config.colors = {
+              foreground = '#010203',
+              cursor_bg = '#070809',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm cursor config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                terminal_origin_y
+            ),
+            [1, 2, 3, 255]
         );
     }
 
@@ -41446,6 +41538,7 @@ mod tests {
                 visual_bell: NativeVisualBell::default(),
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
+                cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
@@ -59069,6 +59162,7 @@ mod tests {
             }),
             foreground_color: Some(Color::Rgb(7, 8, 9)),
             background_color: Some(Color::Rgb(4, 5, 6)),
+            cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -59211,6 +59305,7 @@ mod tests {
             },
             foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
+            cursor_bg_color: Color::Rgb(10, 11, 12),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -59306,6 +59401,7 @@ mod tests {
             visual_bell: NativeVisualBell::default(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
+            cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
