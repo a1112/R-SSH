@@ -775,9 +775,10 @@ keyboard, mouse, paste, resize
   `check_for_updates_interval_seconds` with the default `86400`, and
   `show_update_window` with the compatibility default `false`; actual update
   checks and update-window UI remain future parity work. `max_fps` is stored
-  with WezTerm's default `60`, and `animation_fps` with the default `10`;
-  actual frame pacing and animation redraw scheduling remain future parity
-  work. `front_end` is stored with WezTerm's current default `OpenGL`,
+  with WezTerm's default `60` and throttles native redraw requests from
+  `about_to_wait` to the configured frame interval. `animation_fps` is stored
+  with the default `10`; dedicated animation redraw scheduling remains future
+  parity work. `front_end` is stored with WezTerm's current default `OpenGL`,
   `webgpu_power_preference` with `LowPower`, `webgpu_force_fallback_adapter`
   with `false`, optional static `webgpu_preferred_adapter` tables, and
   `prefer_egl`/`enable_wayland` with `true`; actual renderer front-end, WebGPU

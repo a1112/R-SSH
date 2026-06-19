@@ -4795,6 +4795,7 @@ struct NativeWindowApp {
     status_update_interval: Duration,
     max_fps: usize,
     animation_fps: usize,
+    last_redraw_request_at: Option<Instant>,
     front_end: NativeRenderFrontEnd,
     webgpu_power_preference: NativeWebGpuPowerPreference,
     webgpu_force_fallback_adapter: bool,
@@ -6228,6 +6229,7 @@ impl NativeWindowApp {
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
+            last_redraw_request_at: None,
             front_end: DEFAULT_RENDER_FRONT_END,
             webgpu_power_preference: DEFAULT_WEBGPU_POWER_PREFERENCE,
             webgpu_force_fallback_adapter: DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
@@ -7165,6 +7167,8 @@ impl NativeWindowApp {
         detached_app.debug_key_events = self.debug_key_events;
         detached_app.log_unknown_escape_sequences = self.log_unknown_escape_sequences;
         detached_app.warn_about_missing_glyphs = self.warn_about_missing_glyphs;
+        detached_app.max_fps = self.max_fps;
+        detached_app.animation_fps = self.animation_fps;
         detached_app.default_cwd.clone_from(&self.default_cwd);
         detached_app
             .set_environment_variables
@@ -7274,6 +7278,7 @@ impl NativeWindowApp {
         self.status_update_interval = source.status_update_interval;
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
+        self.last_redraw_request_at = source.last_redraw_request_at;
         self.front_end = source.front_end;
         self.webgpu_power_preference = source.webgpu_power_preference;
         self.webgpu_force_fallback_adapter = source.webgpu_force_fallback_adapter;
@@ -11631,6 +11636,30 @@ impl NativeWindowApp {
         self.renderer.set_animation_elapsed_ms(elapsed_ms);
     }
 
+    fn redraw_request_interval(&self) -> Duration {
+        Duration::from_secs_f64(1.0 / self.max_fps.max(1) as f64)
+    }
+
+    fn should_request_redraw_at(&mut self, now: Instant) -> bool {
+        if self.last_redraw_request_at.is_some_and(|last| {
+            now.saturating_duration_since(last) < self.redraw_request_interval()
+        }) {
+            return false;
+        }
+
+        self.last_redraw_request_at = Some(now);
+        true
+    }
+
+    fn request_redraw_if_due(&mut self, now: Instant) {
+        if !self.should_request_redraw_at(now) {
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
     fn handle_pane_pty_output(
         &mut self,
         pane_id: rssh_core::PaneId,
@@ -14430,6 +14459,7 @@ impl NativeWindowApp {
             .animation_fps
             .filter(|fps| *fps > 0)
             .unwrap_or(DEFAULT_ANIMATION_FPS);
+        self.last_redraw_request_at = None;
         self.front_end = overrides.front_end.unwrap_or(DEFAULT_RENDER_FRONT_END);
         self.webgpu_power_preference = overrides
             .webgpu_power_preference
@@ -36556,9 +36586,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowManager {
             app.update_text_blink_phase_if_due(now);
             app.expire_key_table_stack_if_due(now);
             app.expire_leader_key_if_due(now);
-            if let Some(window) = &app.window {
-                window.request_redraw();
-            }
+            app.request_redraw_if_due(now);
         }
     }
 }
@@ -36713,9 +36741,7 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
         self.update_text_blink_phase_if_due(now);
         self.expire_key_table_stack_if_due(now);
         self.expire_leader_key_if_due(now);
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
+        self.request_redraw_if_due(now);
     }
 }
 
@@ -59027,6 +59053,26 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.max_fps, 144);
         assert_eq!(effective.animation_fps, 24);
+    }
+
+    #[test]
+    fn window_app_limits_redraw_requests_to_configured_max_fps() {
+        let mut app = NativeWindowApp::new(None);
+        let start = Instant::now();
+
+        assert!(app.should_request_redraw_at(start));
+        assert!(!app.should_request_redraw_at(start + Duration::from_millis(15)));
+        assert!(app.should_request_redraw_at(start + Duration::from_millis(17)));
+
+        app.set_config_overrides(NativeConfigOverrides {
+            max_fps: Some(144),
+            ..NativeConfigOverrides::default()
+        });
+        let next = start + Duration::from_millis(20);
+
+        assert!(app.should_request_redraw_at(next));
+        assert!(!app.should_request_redraw_at(next + Duration::from_millis(6)));
+        assert!(app.should_request_redraw_at(next + Duration::from_millis(7)));
     }
 
     #[test]
