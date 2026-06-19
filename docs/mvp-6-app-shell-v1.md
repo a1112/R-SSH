@@ -884,7 +884,7 @@ runtime storage for tabs and split panes.
   `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
-  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_padding`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
+  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_padding`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
   `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`,
@@ -1279,16 +1279,18 @@ runtime storage for tabs and split panes.
   color, including `force_reverse_video_cursor` cursor-cell foreground
   behavior. Static WezTerm-style `config.visual_bell` and
   `config.colors.foreground`, `config.colors.background`,
+  `config.colors.ansi`, `config.colors.brights`,
   `config.colors.cursor_bg`, `config.colors.cursor_border`,
   `config.colors.cursor_fg`, and
   `config.colors.visual_bell` snippets parse into the same native override path,
   including bracketed string table keys with long-bracket values for
   visual-bell fields, nested `CubicBezier` easing tables, and
   `colors.visual_bell`; native `foreground_color`, `background_color`,
-  `cursor_bg_color`, `cursor_border_color`, and `cursor_fg_color` overrides
-  stand in for WezTerm `colors.foreground`, `colors.background`,
-  `colors.cursor_bg`, `colors.cursor_border`, and `colors.cursor_fg`, driving
-  the default text foreground, framebuffer background, cursor fill,
+  `ansi_palette`, `cursor_bg_color`, `cursor_border_color`, and
+  `cursor_fg_color` overrides stand in for WezTerm `colors.foreground`,
+  `colors.background`, `colors.ansi`, `colors.brights`, `colors.cursor_bg`,
+  `colors.cursor_border`, and `colors.cursor_fg`, driving the default text
+  foreground, framebuffer background, ANSI 0-15 palette, cursor fill,
   block-cursor border, line-cursor color, and block-cursor text foreground for
   full and damage renders. Lua event wiring remains later parity work.
 - `rssh-app` preserves CSI focus-reporting writes on window focus changes and
@@ -1313,7 +1315,7 @@ runtime storage for tabs and split panes.
   `font_size`, `cell_width`, `line_height`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `command_palette_rows`, `quick_select_alphabet`, `quick_select_patterns`,
-  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
@@ -1396,7 +1398,7 @@ runtime storage for tabs and split panes.
   `font_size`, `cell_width`, `line_height`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`,
   `quick_select_alphabet`, `quick_select_patterns`,
-  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`,
   `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,

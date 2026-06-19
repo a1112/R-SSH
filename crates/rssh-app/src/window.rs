@@ -95,6 +95,24 @@ const DEFAULT_RENDER_BACKGROUND_RGBA: [u8; 4] = [12, 12, 12, 255];
 const DEFAULT_FOREGROUND_COLOR: Color = Color::Rgb(229, 229, 229);
 const DEFAULT_BACKGROUND_COLOR: Color = Color::Rgb(12, 12, 12);
 const DEFAULT_CURSOR_BG_COLOR: Color = DEFAULT_FOREGROUND_COLOR;
+const DEFAULT_ANSI_PALETTE_COLORS: [Color; 16] = [
+    Color::Rgb(0, 0, 0),
+    Color::Rgb(205, 49, 49),
+    Color::Rgb(13, 188, 121),
+    Color::Rgb(229, 229, 16),
+    Color::Rgb(36, 114, 200),
+    Color::Rgb(188, 63, 188),
+    Color::Rgb(17, 168, 205),
+    Color::Rgb(229, 229, 229),
+    Color::Rgb(102, 102, 102),
+    Color::Rgb(241, 76, 76),
+    Color::Rgb(35, 209, 139),
+    Color::Rgb(245, 245, 67),
+    Color::Rgb(59, 142, 234),
+    Color::Rgb(214, 112, 214),
+    Color::Rgb(41, 184, 219),
+    Color::Rgb(255, 255, 255),
+];
 const DEFAULT_CURSOR_STYLE: NativeCursorStyle = NativeCursorStyle::SteadyBlock;
 const DEFAULT_CURSOR_THICKNESS: Option<NativeCursorThickness> = None;
 const DEFAULT_UNDERLINE_THICKNESS: Option<NativeUnderlineThickness> = None;
@@ -1385,6 +1403,7 @@ struct NativeEffectiveConfig {
     visual_bell: NativeVisualBell,
     foreground_color: Color,
     background_color: Color,
+    ansi_palette: Option<[Color; 16]>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -1482,6 +1501,7 @@ struct NativeConfigOverrides {
     visual_bell: Option<NativeVisualBell>,
     foreground_color: Option<Color>,
     background_color: Option<Color>,
+    ansi_palette: Option<[Color; 16]>,
     cursor_bg_color: Option<Color>,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -1589,6 +1609,22 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(background_color) = color_lua_table_field_from_query(colors, "background")? {
             overrides.background_color = Some(background_color);
+            parsed = true;
+        }
+        if let Some(ansi_colors) = color_array_lua_table_field_from_query(colors, "ansi")? {
+            let mut palette = overrides
+                .ansi_palette
+                .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+            palette[..8].copy_from_slice(&ansi_colors);
+            overrides.ansi_palette = Some(palette);
+            parsed = true;
+        }
+        if let Some(bright_colors) = color_array_lua_table_field_from_query(colors, "brights")? {
+            let mut palette = overrides
+                .ansi_palette
+                .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+            palette[8..].copy_from_slice(&bright_colors);
+            overrides.ansi_palette = Some(palette);
             parsed = true;
         }
         if let Some(cursor_bg_color) = color_lua_table_field_from_query(colors, "cursor_bg")? {
@@ -3547,6 +3583,7 @@ struct NativeWindowApp {
     visual_bell: NativeVisualBell,
     foreground_color: Color,
     background_color: Color,
+    ansi_palette: Option<[Color; 16]>,
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
@@ -4762,6 +4799,7 @@ impl NativeWindowApp {
             visual_bell: NativeVisualBell::default(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
+            ansi_palette: None,
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
@@ -5685,6 +5723,10 @@ impl NativeWindowApp {
             self.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
         ));
+        detached_app.ansi_palette = self.ansi_palette;
+        detached_app
+            .renderer
+            .set_ansi_palette(self.ansi_palette.map(native_ansi_palette_to_rgba));
         detached_app.cursor_bg_color = self.cursor_bg_color;
         detached_app
             .renderer
@@ -5819,6 +5861,9 @@ impl NativeWindowApp {
             source.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
         ));
+        self.ansi_palette = source.ansi_palette;
+        self.renderer
+            .set_ansi_palette(source.ansi_palette.map(native_ansi_palette_to_rgba));
         self.cursor_bg_color = source.cursor_bg_color;
         self.renderer.set_default_cursor_color(color_to_rgba(
             source.cursor_bg_color,
@@ -12412,6 +12457,7 @@ impl NativeWindowApp {
             visual_bell: self.visual_bell,
             foreground_color: self.foreground_color,
             background_color: self.background_color,
+            ansi_palette: self.ansi_palette,
             cursor_bg_color: self.cursor_bg_color,
             cursor_border_color: self.cursor_border_color,
             cursor_fg_color: self.cursor_fg_color,
@@ -12570,6 +12616,9 @@ impl NativeWindowApp {
             self.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
         ));
+        self.ansi_palette = overrides.ansi_palette;
+        self.renderer
+            .set_ansi_palette(self.ansi_palette.map(native_ansi_palette_to_rgba));
         self.cursor_bg_color = overrides.cursor_bg_color.unwrap_or(DEFAULT_CURSOR_BG_COLOR);
         self.renderer.set_default_cursor_color(color_to_rgba(
             self.cursor_bg_color,
@@ -23621,6 +23670,39 @@ fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Opt
     Some(color)
 }
 
+fn color_array_lua_table_field_from_query(
+    value: &str,
+    field_name: &str,
+) -> Option<Option<[Color; 8]>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut colors = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != field_name {
+            continue;
+        }
+        if colors.is_some() {
+            return None;
+        }
+        let values = split_lua_table_string_array(value.trim())?;
+        let parsed = values
+            .iter()
+            .map(|value| lua_hex_color_from_query(value))
+            .collect::<Option<Vec<_>>>()?;
+        colors = Some(<[Color; 8]>::try_from(parsed).ok()?);
+    }
+
+    Some(colors)
+}
+
 fn lua_hex_color_from_query(value: &str) -> Option<Color> {
     let hex = value.trim().strip_prefix('#')?;
     if hex.len() != 6 || !hex.chars().all(|character| character.is_ascii_hexdigit()) {
@@ -30010,6 +30092,10 @@ fn blend_visual_bell_channel(base: u8, bell: u8, intensity: f64) -> u8 {
         .clamp(0.0, f64::from(u8::MAX)) as u8
 }
 
+fn native_ansi_palette_to_rgba(colors: [Color; 16]) -> [[u8; 4]; 16] {
+    colors.map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA))
+}
+
 fn inactive_pane_color(
     role: RenderCellColorRole,
     color: Color,
@@ -33604,13 +33690,13 @@ mod tests {
     use super::{
         AppAction, AppShellError, CELL_HEIGHT, CELL_WIDTH,
         DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE, DEFAULT_ALLOW_WIN32_INPUT_MODE,
-        DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
-        DEFAULT_BACKGROUND_COLOR, DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
-        DEFAULT_CANONICALIZE_PASTED_NEWLINES, DEFAULT_CELL_WIDTH, DEFAULT_CURSOR_BG_COLOR,
-        DEFAULT_DEBUG_KEY_EVENTS, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
-        DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
-        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR,
-        DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_ANSI_PALETTE_COLORS,
+        DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR,
+        DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS, DEFAULT_CANONICALIZE_PASTED_NEWLINES,
+        DEFAULT_CELL_WIDTH, DEFAULT_CURSOR_BG_COLOR, DEFAULT_DEBUG_KEY_EVENTS,
+        DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS, DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
+        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_FONT_SIZE,
+        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_NOTIFICATION_HANDLING, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
@@ -35741,6 +35827,95 @@ mod tests {
         assert!(
             uses_configured_foreground,
             "default text foreground did not use colors.foreground"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_ansi_palette_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#eeeeee',
+              ansi = {
+                '#000000',
+                '#010203',
+                '#030405',
+                '#050607',
+                '#070809',
+                '#090a0b',
+                '#0b0c0d',
+                '#0d0e0f',
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors.ansi config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b[31mA").unwrap();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let uses_configured_ansi_red =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize)
+                    .any(|x| frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [1, 2, 3, 255])
+            });
+        assert!(
+            uses_configured_ansi_red,
+            "SGR 31 did not use colors.ansi red"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_brights_palette_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#eeeeee',
+              brights = {
+                '#101112',
+                '#111213',
+                '#121314',
+                '#131415',
+                '#141516',
+                '#151617',
+                '#161718',
+                '#171819',
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors.brights config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b[91mA").unwrap();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let uses_configured_bright_red =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [17, 18, 19, 255]
+                })
+            });
+        assert!(
+            uses_configured_bright_red,
+            "SGR 91 did not use colors.brights red"
         );
     }
 
@@ -41660,6 +41835,7 @@ mod tests {
                 visual_bell: NativeVisualBell::default(),
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
+                ansi_palette: None,
                 cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 cursor_border_color: None,
                 cursor_fg_color: None,
@@ -59216,6 +59392,13 @@ mod tests {
         assert_eq!(inactive_cell.background, rssh_terminal::Color::Rgb(6, 6, 6));
     }
 
+    fn sample_ansi_palette() -> [Color; 16] {
+        let mut palette = DEFAULT_ANSI_PALETTE_COLORS;
+        palette[1] = Color::Rgb(31, 32, 33);
+        palette[9] = Color::Rgb(41, 42, 43);
+        palette
+    }
+
     fn sample_native_config_overrides() -> NativeConfigOverrides {
         NativeConfigOverrides {
             tab_max_width: Some(32),
@@ -59286,6 +59469,7 @@ mod tests {
             }),
             foreground_color: Some(Color::Rgb(7, 8, 9)),
             background_color: Some(Color::Rgb(4, 5, 6)),
+            ansi_palette: Some(sample_ansi_palette()),
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
@@ -59431,6 +59615,7 @@ mod tests {
             },
             foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
+            ansi_palette: Some(sample_ansi_palette()),
             cursor_bg_color: Color::Rgb(10, 11, 12),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
@@ -59529,6 +59714,7 @@ mod tests {
             visual_bell: NativeVisualBell::default(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
+            ansi_palette: None,
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
