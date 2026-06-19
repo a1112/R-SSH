@@ -1829,6 +1829,7 @@ struct NativeEffectiveConfig {
     freetype_load_target: NativeFreetypeTarget,
     freetype_render_target: NativeFreetypeTarget,
     freetype_load_flags: NativeFreetypeLoadFlags,
+    freetype_interpreter_version: Option<u32>,
     freetype_pcf_long_family_names: bool,
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
@@ -1975,6 +1976,7 @@ struct NativeConfigOverrides {
     freetype_load_target: Option<NativeFreetypeTarget>,
     freetype_render_target: Option<NativeFreetypeTarget>,
     freetype_load_flags: Option<NativeFreetypeLoadFlags>,
+    freetype_interpreter_version: Option<u32>,
     freetype_pcf_long_family_names: Option<bool>,
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
@@ -2360,6 +2362,15 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "freetype_load_flags")
     {
         overrides.freetype_load_flags = Some(NativeFreetypeLoadFlags::parse(&freetype_load_flags)?);
+        parsed = true;
+    }
+    if let Some(freetype_interpreter_version) =
+        lua_config_usize_assignment_from_query(config, "freetype_interpreter_version")
+    {
+        let Ok(freetype_interpreter_version) = u32::try_from(freetype_interpreter_version) else {
+            return None;
+        };
+        overrides.freetype_interpreter_version = Some(freetype_interpreter_version);
         parsed = true;
     }
     if let Some(freetype_pcf_long_family_names) =
@@ -4382,6 +4393,7 @@ struct NativeWindowApp {
     freetype_load_target: NativeFreetypeTarget,
     freetype_render_target: NativeFreetypeTarget,
     freetype_load_flags: Option<NativeFreetypeLoadFlags>,
+    freetype_interpreter_version: Option<u32>,
     freetype_pcf_long_family_names: bool,
     font_size_scale: f64,
     adjust_window_size_when_changing_font_size: bool,
@@ -5797,6 +5809,7 @@ impl NativeWindowApp {
             freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_load_flags: None,
+            freetype_interpreter_version: None,
             freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
             font_size_scale: DEFAULT_FONT_SIZE_SCALE,
             adjust_window_size_when_changing_font_size:
@@ -6992,6 +7005,7 @@ impl NativeWindowApp {
         self.freetype_load_target = source.freetype_load_target;
         self.freetype_render_target = source.freetype_render_target;
         self.freetype_load_flags = source.freetype_load_flags;
+        self.freetype_interpreter_version = source.freetype_interpreter_version;
         self.freetype_pcf_long_family_names = source.freetype_pcf_long_family_names;
         self.initial_cols = source.initial_cols;
         self.initial_rows = source.initial_rows;
@@ -13989,6 +14003,7 @@ impl NativeWindowApp {
             freetype_load_target: self.freetype_load_target,
             freetype_render_target: self.freetype_render_target,
             freetype_load_flags: self.effective_freetype_load_flags(),
+            freetype_interpreter_version: self.freetype_interpreter_version,
             freetype_pcf_long_family_names: self.freetype_pcf_long_family_names,
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
@@ -14175,6 +14190,7 @@ impl NativeWindowApp {
             .freetype_render_target
             .unwrap_or(self.freetype_load_target);
         self.freetype_load_flags = overrides.freetype_load_flags;
+        self.freetype_interpreter_version = overrides.freetype_interpreter_version;
         self.freetype_pcf_long_family_names = overrides
             .freetype_pcf_long_family_names
             .unwrap_or(DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES);
@@ -45823,6 +45839,7 @@ mod tests {
                 freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
                 freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
                 freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
+                freetype_interpreter_version: None,
                 freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
@@ -58599,6 +58616,7 @@ mod tests {
             effective.freetype_load_flags,
             NativeFreetypeLoadFlags::DEFAULT
         );
+        assert_eq!(effective.freetype_interpreter_version, None);
 
         let mut high_dpi_app = NativeWindowApp::new(None);
         high_dpi_app.window_dpi = 144;
@@ -58713,6 +58731,25 @@ mod tests {
 
         let effective = app.native_effective_config();
         assert!(effective.freetype_pcf_long_family_names);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_freetype_interpreter_version() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.freetype_interpreter_version = 38
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm FreeType interpreter version config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.freetype_interpreter_version, Some(38));
     }
 
     #[test]
@@ -64152,6 +64189,7 @@ mod tests {
             freetype_load_flags: Some(
                 NativeFreetypeLoadFlags::NO_HINTING.union(NativeFreetypeLoadFlags::MONOCHROME),
             ),
+            freetype_interpreter_version: Some(38),
             freetype_pcf_long_family_names: Some(true),
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
@@ -64380,6 +64418,7 @@ mod tests {
             freetype_render_target: NativeFreetypeTarget::HorizontalLcd,
             freetype_load_flags: NativeFreetypeLoadFlags::NO_HINTING
                 .union(NativeFreetypeLoadFlags::MONOCHROME),
+            freetype_interpreter_version: Some(38),
             freetype_pcf_long_family_names: true,
             foreground_text_hsb: NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
@@ -64579,6 +64618,7 @@ mod tests {
             freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
+            freetype_interpreter_version: None,
             freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,

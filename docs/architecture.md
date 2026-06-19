@@ -602,14 +602,16 @@ keyboard, mouse, paste, resize
   `font_rasterizer`, `custom_block_glyphs`,
   `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`,
   `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`,
-  `freetype_pcf_long_family_names`, `initial_cols`, `initial_rows`, and
+  `freetype_interpreter_version`, `freetype_pcf_long_family_names`,
+  `initial_cols`, `initial_rows`, and
   `adjust_window_size_when_changing_font_size`; `freetype_render_target`
   defaults to the effective load target when unset, while
   `freetype_load_flags` defaults to `DEFAULT` below 100 DPI and `NO_HINTING`
-  at 100 DPI or higher. Custom block glyph, square-glyph overflow, and PCF
-  long-family-name options are retained in effective config with WezTerm
-  defaults, but actual renderer glyph strategy and PCF font-resolution changes
-  remain future parity work.
+  at 100 DPI or higher. Custom block glyph, square-glyph overflow, FreeType
+  interpreter-version, and PCF long-family-name options are retained in
+  effective config with WezTerm defaults, but actual renderer glyph strategy,
+  FreeType interpreter application, and PCF font-resolution changes remain
+  future parity work.
 - Completed in v1: WezTerm-style `ShowDebugOverlay` routes the default
   `Ctrl+Shift+L` shortcut, command-palette `Show Debug Overlay` entry, and
   action-name `showdebugoverlay` query into native-window debug-overlay state
@@ -719,7 +721,7 @@ keyboard, mouse, paste, resize
   `custom_block_glyphs`, `anti_alias_custom_block_glyphs`,
   `allow_square_glyphs_to_overflow_width`, `freetype_load_target`,
   `freetype_render_target`, `freetype_load_flags`,
-  `freetype_pcf_long_family_names`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
+  `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
   `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`,
   `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`,
@@ -933,7 +935,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_pcf_long_family_names`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
+  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
@@ -1015,7 +1017,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_pcf_long_family_names`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
+  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
