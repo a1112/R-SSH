@@ -101,6 +101,7 @@ const DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH: NativeSquareGlyphOverflow =
     NativeSquareGlyphOverflow::WhenFollowedBySpace;
 const DEFAULT_FREETYPE_LOAD_TARGET: NativeFreetypeTarget = NativeFreetypeTarget::Normal;
 const FREETYPE_LOAD_FLAGS_NO_HINTING_DPI_THRESHOLD: u32 = 100;
+const DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES: bool = false;
 const DEFAULT_CURSOR_BLINK_RATE: Duration = Duration::from_millis(800);
 const DEFAULT_CURSOR_BLINK_EASE_IN: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_CURSOR_BLINK_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
@@ -1828,6 +1829,7 @@ struct NativeEffectiveConfig {
     freetype_load_target: NativeFreetypeTarget,
     freetype_render_target: NativeFreetypeTarget,
     freetype_load_flags: NativeFreetypeLoadFlags,
+    freetype_pcf_long_family_names: bool,
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -1973,6 +1975,7 @@ struct NativeConfigOverrides {
     freetype_load_target: Option<NativeFreetypeTarget>,
     freetype_render_target: Option<NativeFreetypeTarget>,
     freetype_load_flags: Option<NativeFreetypeLoadFlags>,
+    freetype_pcf_long_family_names: Option<bool>,
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -2357,6 +2360,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "freetype_load_flags")
     {
         overrides.freetype_load_flags = Some(NativeFreetypeLoadFlags::parse(&freetype_load_flags)?);
+        parsed = true;
+    }
+    if let Some(freetype_pcf_long_family_names) =
+        lua_config_bool_assignment_from_query(config, "freetype_pcf_long_family_names")
+    {
+        overrides.freetype_pcf_long_family_names = Some(freetype_pcf_long_family_names);
         parsed = true;
     }
     if let Some(foreground_text_hsb) =
@@ -4373,6 +4382,7 @@ struct NativeWindowApp {
     freetype_load_target: NativeFreetypeTarget,
     freetype_render_target: NativeFreetypeTarget,
     freetype_load_flags: Option<NativeFreetypeLoadFlags>,
+    freetype_pcf_long_family_names: bool,
     font_size_scale: f64,
     adjust_window_size_when_changing_font_size: bool,
     debug_overlay_active: bool,
@@ -5787,6 +5797,7 @@ impl NativeWindowApp {
             freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_load_flags: None,
+            freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
             font_size_scale: DEFAULT_FONT_SIZE_SCALE,
             adjust_window_size_when_changing_font_size:
                 DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
@@ -6981,6 +6992,7 @@ impl NativeWindowApp {
         self.freetype_load_target = source.freetype_load_target;
         self.freetype_render_target = source.freetype_render_target;
         self.freetype_load_flags = source.freetype_load_flags;
+        self.freetype_pcf_long_family_names = source.freetype_pcf_long_family_names;
         self.initial_cols = source.initial_cols;
         self.initial_rows = source.initial_rows;
         self.foreground_text_hsb = source.foreground_text_hsb;
@@ -13977,6 +13989,7 @@ impl NativeWindowApp {
             freetype_load_target: self.freetype_load_target,
             freetype_render_target: self.freetype_render_target,
             freetype_load_flags: self.effective_freetype_load_flags(),
+            freetype_pcf_long_family_names: self.freetype_pcf_long_family_names,
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
             text_min_contrast_ratio: self.text_min_contrast_ratio,
@@ -14162,6 +14175,9 @@ impl NativeWindowApp {
             .freetype_render_target
             .unwrap_or(self.freetype_load_target);
         self.freetype_load_flags = overrides.freetype_load_flags;
+        self.freetype_pcf_long_family_names = overrides
+            .freetype_pcf_long_family_names
+            .unwrap_or(DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES);
         self.foreground_text_hsb = overrides
             .foreground_text_hsb
             .unwrap_or(DEFAULT_FOREGROUND_TEXT_HSB);
@@ -36568,12 +36584,13 @@ mod tests {
         DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND,
         DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
-        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
-        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
-        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
+        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
+        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
+        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_RESIZE_INCREMENTS,
         DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
@@ -45806,6 +45823,7 @@ mod tests {
                 freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
                 freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
                 freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
+                freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
                 text_min_contrast_ratio: None,
@@ -58590,6 +58608,7 @@ mod tests {
             effective.freetype_load_flags,
             NativeFreetypeLoadFlags::NO_HINTING
         );
+        assert!(!effective.freetype_pcf_long_family_names);
     }
 
     #[test]
@@ -58675,6 +58694,25 @@ mod tests {
             effective.freetype_load_flags,
             NativeFreetypeLoadFlags::DEFAULT
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_freetype_pcf_long_family_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.freetype_pcf_long_family_names = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm FreeType PCF long-family-names config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(effective.freetype_pcf_long_family_names);
     }
 
     #[test]
@@ -64114,6 +64152,7 @@ mod tests {
             freetype_load_flags: Some(
                 NativeFreetypeLoadFlags::NO_HINTING.union(NativeFreetypeLoadFlags::MONOCHROME),
             ),
+            freetype_pcf_long_family_names: Some(true),
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64341,6 +64380,7 @@ mod tests {
             freetype_render_target: NativeFreetypeTarget::HorizontalLcd,
             freetype_load_flags: NativeFreetypeLoadFlags::NO_HINTING
                 .union(NativeFreetypeLoadFlags::MONOCHROME),
+            freetype_pcf_long_family_names: true,
             foreground_text_hsb: NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64539,6 +64579,7 @@ mod tests {
             freetype_load_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_render_target: DEFAULT_FREETYPE_LOAD_TARGET,
             freetype_load_flags: NativeFreetypeLoadFlags::DEFAULT,
+            freetype_pcf_long_family_names: DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
