@@ -2142,9 +2142,10 @@ fn lua_config_assignment_from_query<'a>(
         }
     }
 
-    lua_config_local_table_assignment_from_query(source, field, &mut literal_from_query).or_else(
-        || lua_config_return_table_assignment_from_query(source, field, &mut literal_from_query),
-    )
+    lua_config_table_initializer_assignment_from_query(source, field, &mut literal_from_query)
+        .or_else(|| {
+            lua_config_return_table_assignment_from_query(source, field, &mut literal_from_query)
+        })
 }
 
 #[allow(dead_code)]
@@ -2294,7 +2295,7 @@ fn lua_config_return_table_assignment_from_query<'a>(
 }
 
 #[allow(dead_code)]
-fn lua_config_local_table_assignment_from_query<'a>(
+fn lua_config_table_initializer_assignment_from_query<'a>(
     source: &'a str,
     field: &str,
     literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
@@ -2395,19 +2396,27 @@ fn lua_config_local_table_assignment_from_query<'a>(
             continue;
         }
 
-        if lua_block_depth == 0 && lua_source_keyword_at(source, index, "local") {
-            let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
-            if !rest.starts_with("config") {
+        if lua_block_depth == 0 {
+            let after_config = if lua_source_keyword_at(source, index, "local") {
+                let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
+                if !rest.starts_with("config") {
+                    continue;
+                }
+                let after_config = rest.get("config".len()..)?;
+                if after_config
+                    .chars()
+                    .next()
+                    .is_some_and(is_lua_identifier_character)
+                {
+                    continue;
+                }
+                after_config
+            } else if lua_source_keyword_at(source, index, "config") {
+                source.get(index + "config".len()..)?
+            } else {
                 continue;
-            }
-            let after_config = rest.get("config".len()..)?;
-            if after_config
-                .chars()
-                .next()
-                .is_some_and(is_lua_identifier_character)
-            {
-                continue;
-            }
+            };
+
             let after_config = lua_trim_start_comments(after_config)?;
             let Some(after_assignment) = after_config.strip_prefix('=') else {
                 continue;
@@ -52385,6 +52394,39 @@ mod tests {
             r#"
             local wezterm = require 'wezterm'
             local config = {
+              default_prog = { 'nu', '--login' },
+              default_cwd = 'C:/Project Dir',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_top_level_config_table_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            config = {
               default_prog = { 'nu', '--login' },
               default_cwd = 'C:/Project Dir',
             }
