@@ -1496,6 +1496,7 @@ struct NativeEffectiveConfig {
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
+    split_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -1605,6 +1606,7 @@ struct NativeConfigOverrides {
     cursor_bg_color: Option<Color>,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
+    split_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
@@ -1751,6 +1753,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(cursor_fg_color) = color_lua_table_field_from_query(colors, "cursor_fg")? {
             overrides.cursor_fg_color = Some(cursor_fg_color);
+            parsed = true;
+        }
+        if let Some(split_color) = color_lua_table_field_from_query(colors, "split")? {
+            overrides.split_color = Some(split_color);
             parsed = true;
         }
         if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
@@ -3754,6 +3760,7 @@ struct NativeWindowApp {
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
+    split_color: Option<Color>,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -4981,6 +4988,7 @@ impl NativeWindowApp {
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
+            split_color: None,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
@@ -5928,6 +5936,7 @@ impl NativeWindowApp {
             self.cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
+        detached_app.split_color = self.split_color;
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
@@ -6078,6 +6087,7 @@ impl NativeWindowApp {
                 .cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
+        self.split_color = source.split_color;
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
         self.default_prog.clone_from(&source.default_prog);
@@ -11635,11 +11645,11 @@ impl NativeWindowApp {
         let mut cells = Vec::new();
         for separator in &layout.separators {
             let active = separator.source_pane == active_pane || separator.new_pane == active_pane;
-            let foreground = if active {
+            let foreground = self.split_color.unwrap_or(if active {
                 Color::Rgb(80, 170, 255)
             } else {
                 Color::Rgb(125, 125, 132)
-            };
+            });
             let background = Color::Rgb(22, 22, 26);
             let ch = if separator.columns == 1 { '|' } else { '-' };
             for row in separator.row..separator.row.saturating_add(separator.rows) {
@@ -12800,6 +12810,7 @@ impl NativeWindowApp {
             cursor_bg_color: self.cursor_bg_color,
             cursor_border_color: self.cursor_border_color,
             cursor_fg_color: self.cursor_fg_color,
+            split_color: self.split_color,
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
@@ -12986,6 +12997,7 @@ impl NativeWindowApp {
             self.cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
+        self.split_color = overrides.split_color;
         self.visual_bell_color = overrides.visual_bell_color;
         self.notification_handling = overrides
             .notification_handling
@@ -42979,6 +42991,40 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_split_color_to_separator() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              split = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors.split config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"left").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"right").unwrap();
+
+        let snapshot = app.render_snapshot();
+        let separator = snapshot_cell(&snapshot, TAB_BAR_ROWS, 39).expect("split separator");
+
+        assert_eq!(separator.ch, '|');
+        assert_eq!(separator.foreground, Color::Rgb(1, 2, 3));
+        assert_eq!(separator.background, Color::Rgb(22, 22, 26));
+    }
+
+    #[test]
     fn window_app_renders_down_split_panes_with_separator() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"top").unwrap();
@@ -43519,6 +43565,7 @@ mod tests {
                 cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 cursor_border_color: None,
                 cursor_fg_color: None,
+                split_color: None,
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
@@ -61333,6 +61380,7 @@ mod tests {
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
+            split_color: Some(Color::Rgb(19, 20, 21)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61492,6 +61540,7 @@ mod tests {
             cursor_bg_color: Color::Rgb(10, 11, 12),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
+            split_color: Some(Color::Rgb(19, 20, 21)),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -61602,6 +61651,7 @@ mod tests {
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
+            split_color: None,
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
