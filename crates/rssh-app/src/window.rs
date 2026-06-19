@@ -1641,8 +1641,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             overrides.selection_fg_color = Some(selection_fg_color);
             parsed = true;
         }
-        if let Some(selection_bg_color) = color_lua_table_field_from_query(colors, "selection_bg")?
-        {
+        if let Some(selection_bg_color) = selection_bg_lua_table_field_from_query(colors)? {
             overrides.selection_bg_color = Some(selection_bg_color);
             parsed = true;
         }
@@ -23748,6 +23747,33 @@ fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<
     Some(color)
 }
 
+fn selection_bg_lua_table_field_from_query(value: &str) -> Option<Option<Color>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut color = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key != "selection_bg" {
+            continue;
+        }
+        if color.is_some() {
+            return None;
+        }
+        let value = parse_maybe_quoted_query_text(value.trim())?;
+        color =
+            Some(lua_hex_color_from_query(&value).or_else(|| lua_rgba_color_from_query(&value))?);
+    }
+
+    Some(color)
+}
+
 fn color_array_lua_table_field_from_query(
     value: &str,
     field_name: &str,
@@ -23831,6 +23857,19 @@ fn lua_hex_color_from_query(value: &str) -> Option<Color> {
     let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
     let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
     Some(Color::Rgb(red, green, blue))
+}
+
+fn lua_rgba_color_from_query(value: &str) -> Option<Color> {
+    let components = value.trim().strip_prefix("rgba(")?.strip_suffix(')')?;
+    let components = components.split(',').map(str::trim).collect::<Vec<_>>();
+    let [red, green, blue, alpha] = <[&str; 4]>::try_from(components).ok()?;
+    let red = red.parse::<u8>().ok()?;
+    let green = green.parse::<u8>().ok()?;
+    let blue = blue.parse::<u8>().ok()?;
+    let alpha = parse_finite_f64(alpha)?.clamp(0.0, 1.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let alpha = (alpha * f64::from(u8::MAX)) as u8;
+    Some(Color::Rgba(red, green, blue, alpha))
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
@@ -36175,6 +36214,48 @@ mod tests {
         assert!(
             selected_cell_uses_current_foreground,
             "selection_fg none did not preserve the current text foreground"
+        );
+    }
+
+    #[test]
+    fn window_app_blends_wezterm_lua_selection_bg_alpha_for_framebuffer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              background = '#0a141e',
+              selection_fg = 'none',
+              selection_bg = 'rgba(110,120,130,0.5)',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm selection_bg alpha config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"A").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 0 },
+            SelectionCell { row: 0, column: 0 },
+        ));
+        app.refresh_snapshot();
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        let selected_cell_uses_blended_background =
+            (terminal_origin_y..terminal_origin_y + CELL_HEIGHT as usize).any(|y| {
+                (0..CELL_WIDTH as usize).any(|x| {
+                    frame_pixel_at(&frame, FRAME_WIDTH as usize, x, y) == [59, 69, 79, 255]
+                })
+            });
+        assert!(
+            selected_cell_uses_blended_background,
+            "selection_bg alpha did not blend over the current cell background"
         );
     }
 

@@ -1466,15 +1466,17 @@ fn render_cell_background(
         return;
     }
 
-    surface.fill_rect(
-        Rect {
-            x: origin_x,
-            y: origin_y,
-            width: cell_width,
-            height: cell_height,
-        },
-        background,
-    );
+    let rect = Rect {
+        x: origin_x,
+        y: origin_y,
+        width: cell_width,
+        height: cell_height,
+    };
+    if background[3] == u8::MAX {
+        surface.fill_rect(rect, background);
+    } else {
+        surface.fill_rect_alpha(rect, background, background[3]);
+    }
 }
 
 fn render_cell_foreground(
@@ -2537,12 +2539,33 @@ impl TerminalRenderSnapshot {
                     Some(None) => cell.foreground,
                     None => inverse_foreground,
                 };
-                cell.background = selection_background.unwrap_or(inverse_background);
+                cell.background = selection_background
+                    .map(|background| blend_selection_background(background, cell.background))
+                    .unwrap_or(inverse_background);
                 cell.inverse = false;
             }
         }
 
         self
+    }
+}
+
+fn blend_selection_background(selection_background: Color, cell_background: Color) -> Color {
+    let Color::Rgba(red, green, blue, alpha) = selection_background else {
+        return selection_background;
+    };
+    match cell_background {
+        Color::Rgb(base_red, base_green, base_blue)
+        | Color::Rgba(base_red, base_green, base_blue, _) => {
+            let alpha = u16::from(alpha);
+            let inverse_alpha = u16::from(u8::MAX).saturating_sub(alpha);
+            Color::Rgb(
+                blend_channel(red, base_red, alpha, inverse_alpha),
+                blend_channel(green, base_green, alpha, inverse_alpha),
+                blend_channel(blue, base_blue, alpha, inverse_alpha),
+            )
+        }
+        Color::Default | Color::Indexed(_) => selection_background,
     }
 }
 
@@ -3202,6 +3225,21 @@ mod tests {
         assert!(!snapshot.cells()[0].inverse);
         assert!(snapshot.cells()[1].inverse);
         assert!(!snapshot.cells()[2].inverse);
+    }
+
+    #[test]
+    fn render_snapshot_blends_selection_background_alpha_over_cell_background() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[48;2;10;20;30mA");
+
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal)
+            .with_selection_colors_overlay(
+                |row, column| row == 0 && column == 0,
+                Some(None),
+                Some(Color::Rgba(110, 120, 130, 127)),
+            );
+
+        assert_eq!(snapshot.cells()[0].background, Color::Rgb(59, 69, 79));
     }
 
     #[test]
