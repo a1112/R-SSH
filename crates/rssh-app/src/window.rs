@@ -189,6 +189,7 @@ const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
+const DEFAULT_DETECT_PASSWORD_INPUT: bool = true;
 const DEFAULT_CANONICALIZE_PASTED_NEWLINES: NativeCanonicalizePastedNewlines = if cfg!(windows) {
     NativeCanonicalizePastedNewlines::CarriageReturnAndLineFeed
 } else {
@@ -1967,6 +1968,7 @@ struct NativeEffectiveConfig {
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
+    detect_password_input: bool,
     scroll_to_bottom_on_input: bool,
     adjust_window_size_when_changing_font_size: bool,
     canonicalize_pasted_newlines: NativeCanonicalizePastedNewlines,
@@ -2120,6 +2122,7 @@ struct NativeConfigOverrides {
     use_ime: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
     xim_im_name: Option<String>,
+    detect_password_input: Option<bool>,
     leader: Option<NativeLeaderKey>,
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
@@ -2802,6 +2805,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(xim_im_name) = lua_config_string_assignment_from_query(config, "xim_im_name") {
         overrides.xim_im_name = Some(xim_im_name);
+        parsed = true;
+    }
+    if let Some(detect_password_input) =
+        lua_config_bool_assignment_from_query(config, "detect_password_input")
+    {
+        overrides.detect_password_input = Some(detect_password_input);
         parsed = true;
     }
     if let Some(disable_default_key_bindings) =
@@ -4627,6 +4636,7 @@ struct NativeWindowApp {
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
+    detect_password_input: bool,
     leader: Option<NativeLeaderKey>,
     key_assignments: Vec<NativeUserKeyAssignment>,
     key_tables: BTreeMap<String, Vec<NativeUserKeyAssignment>>,
@@ -6054,6 +6064,7 @@ impl NativeWindowApp {
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
+            detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
             leader: None,
             key_assignments: Vec::new(),
             key_tables: BTreeMap::new(),
@@ -7224,6 +7235,7 @@ impl NativeWindowApp {
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.xim_im_name.clone_from(&source.xim_im_name);
+        self.detect_password_input = source.detect_password_input;
         self.leader.clone_from(&source.leader);
         self.key_assignments.clone_from(&source.key_assignments);
         self.key_tables.clone_from(&source.key_tables);
@@ -14192,6 +14204,7 @@ impl NativeWindowApp {
             use_ime: self.use_ime,
             ime_preedit_rendering: self.ime_preedit_rendering,
             xim_im_name: self.xim_im_name.clone(),
+            detect_password_input: self.detect_password_input,
             scroll_to_bottom_on_input: self.scroll_to_bottom_on_input,
             adjust_window_size_when_changing_font_size: self
                 .adjust_window_size_when_changing_font_size,
@@ -14492,6 +14505,9 @@ impl NativeWindowApp {
         self.xim_im_name = overrides
             .xim_im_name
             .filter(|xim_im_name| !xim_im_name.is_empty());
+        self.detect_password_input = overrides
+            .detect_password_input
+            .unwrap_or(DEFAULT_DETECT_PASSWORD_INPUT);
         self.apply_keyboard_protocol_config_to_runtimes();
         self.leader = overrides.leader.filter(|leader| !leader.keys.is_empty());
         self.leader_active_since = None;
@@ -36716,18 +36732,19 @@ mod tests {
         DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS, DEFAULT_CANONICALIZE_PASTED_NEWLINES,
         DEFAULT_CELL_WIDTH, DEFAULT_CHECK_FOR_UPDATES, DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
-        DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS, DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS,
-        DEFAULT_DISPLAY_PIXEL_GEOMETRY, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
-        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
-        DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
-        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
-        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
-        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
-        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
-        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_DETECT_PASSWORD_INPUT, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
+        DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
+        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND,
+        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER,
+        DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR,
+        DEFAULT_FOREGROUND_TEXT_HSB, DEFAULT_FREETYPE_LOAD_TARGET,
+        DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
+        DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET,
+        DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS,
+        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
@@ -46047,6 +46064,7 @@ mod tests {
                 use_ime: DEFAULT_USE_IME,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 xim_im_name: None,
+                detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
                 scroll_to_bottom_on_input: true,
                 adjust_window_size_when_changing_font_size:
                     DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
@@ -58317,6 +58335,36 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_password_input_detection_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(
+            effective.detect_password_input,
+            DEFAULT_DETECT_PASSWORD_INPUT
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_password_input_detection_override() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.detect_password_input = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm password-input config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.detect_password_input);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_keyboard_protocol_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -64539,6 +64587,7 @@ mod tests {
             use_ime: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             xim_im_name: Some("fcitx".to_owned()),
+            detect_password_input: Some(false),
             launch_menu: Some(vec![NativeLaunchMenuItem {
                 label: Some("Top".to_owned()),
                 command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
@@ -64773,6 +64822,7 @@ mod tests {
             use_ime: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
             xim_im_name: Some("fcitx".to_owned()),
+            detect_password_input: false,
             scroll_to_bottom_on_input: false,
             adjust_window_size_when_changing_font_size: false,
             canonicalize_pasted_newlines: NativeCanonicalizePastedNewlines::LineFeed,
@@ -64926,6 +64976,7 @@ mod tests {
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,
+            detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
             scroll_to_bottom_on_input: true,
             adjust_window_size_when_changing_font_size:
                 DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
