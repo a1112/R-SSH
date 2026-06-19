@@ -247,9 +247,10 @@ keyboard, mouse, paste, resize
   width calculation for ambiguous East Asian width characters in active and new
   panes. Static numeric `cell_widths` override tables parse from WezTerm-style
   Lua and take priority over the ambiguous-width setting in active and new
-  panes. Actual left Ctrl+Alt-to-AltGr input remapping, platform IME/XIM
-  connection, preedit rendering, and broader dynamic `cell_widths` Lua parity
-  remain future parity work.
+  panes. `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
+  AltGr text path rather than Ctrl+Alt key bindings. Platform IME/XIM
+  connection, preedit rendering, exact left/right modifier source tracking, and
+  broader dynamic `cell_widths` Lua parity remain future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -787,8 +788,10 @@ keyboard, mouse, paste, resize
   future parity work. `debug_key_events` and `log_unknown_escape_sequences` are
   stored with WezTerm's default `false` and included in effective config
   snapshots. `treat_left_ctrlalt_as_altgr` is stored with WezTerm's default
-  `false`; actual left Ctrl+Alt-to-AltGr input remapping remains future parity
-  work. `treat_east_asian_ambiguous_width_as_wide` is stored with WezTerm's
+  `false`; when enabled, Ctrl+Alt text key events are routed as AltGr text
+  input instead of matching Ctrl+Alt key bindings, while exact platform
+  left/right modifier source tracking remains future parity work.
+  `treat_east_asian_ambiguous_width_as_wide` is stored with WezTerm's
   default `false` and, when enabled, makes the terminal runtime treat East
   Asian ambiguous-width characters as two cells wide; static numeric
   `cell_widths` override tables are stored and applied with higher priority

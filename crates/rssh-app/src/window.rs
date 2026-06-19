@@ -16082,6 +16082,23 @@ impl NativeWindowApp {
         flags
     }
 
+    fn effective_keyboard_modifiers(
+        &self,
+        physical_key: PhysicalKey,
+        text: Option<&str>,
+    ) -> ModifiersState {
+        let mut modifiers = self.modifiers;
+        if self.treat_left_ctrlalt_as_altgr
+            && text.is_some_and(|text| !text.is_empty())
+            && modifiers.contains(ModifiersState::CONTROL)
+            && modifiers.contains(ModifiersState::ALT)
+            && !window_physical_key_is_modifier(physical_key)
+        {
+            modifiers.remove(ModifiersState::CONTROL | ModifiersState::ALT);
+        }
+        modifiers
+    }
+
     #[allow(clippy::too_many_lines)]
     fn handle_keyboard_input_event(
         &mut self,
@@ -16092,6 +16109,7 @@ impl NativeWindowApp {
         key_event_kind: KittyKeyEventKind,
     ) -> io::Result<()> {
         self.record_debug_key_event(logical_key, physical_key, text, state, key_event_kind);
+        let modifiers = self.effective_keyboard_modifiers(physical_key, text);
 
         if state != ElementState::Pressed {
             if key_event_kind == KittyKeyEventKind::Release {
@@ -16100,13 +16118,13 @@ impl NativeWindowApp {
                     self.swap_backspace_and_delete,
                 );
                 let bytes = if self.runtime.win32_input_mode() {
-                    encode_win32_window_key(&encoded_key, physical_key, text, self.modifiers, false)
+                    encode_win32_window_key(&encoded_key, physical_key, text, modifiers, false)
                 } else {
                     encode_window_key_with_kitty_event(
                         &encoded_key,
                         physical_key,
                         text,
-                        self.modifiers,
+                        modifiers,
                         self.runtime.application_cursor_keys(),
                         self.runtime.application_keypad(),
                         self.effective_kitty_keyboard_flags(),
@@ -16124,84 +16142,80 @@ impl NativeWindowApp {
         self.hide_mouse_cursor_for_typing_if_needed();
 
         if self.close_confirmation.is_some() {
-            if self.handle_close_confirmation_key(logical_key, self.modifiers) {
+            if self.handle_close_confirmation_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.confirmation.is_some() {
-            if self.handle_confirmation_key(logical_key, self.modifiers) {
+            if self.handle_confirmation_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.prompt_input_line.is_some() {
-            if self.handle_prompt_input_line_key(logical_key, self.modifiers) {
+            if self.handle_prompt_input_line_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.input_selector.is_some() {
-            if self.handle_input_selector_key(logical_key, self.modifiers) {
+            if self.handle_input_selector_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.command_palette.is_some() {
-            if self.handle_command_palette_logical_key(logical_key, self.modifiers) {
+            if self.handle_command_palette_logical_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.quick_select.is_some() {
-            if self.handle_quick_select_logical_key(logical_key, self.modifiers) {
+            if self.handle_quick_select_logical_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.pane_select.is_some() {
-            if self.handle_pane_select_key(logical_key, self.modifiers) {
+            if self.handle_pane_select_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.tab_navigator.is_some() {
-            if self.handle_tab_navigator_key(logical_key, self.modifiers) {
+            if self.handle_tab_navigator_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.copy_mode.is_some() {
-            if self.handle_copy_mode_key(logical_key, self.modifiers) {
+            if self.handle_copy_mode_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
         if self.char_select.is_some() {
-            if self.handle_char_select_key(logical_key, self.modifiers) {
+            if self.handle_char_select_key(logical_key, modifiers) {
                 return Ok(());
             }
             return Ok(());
         }
 
-        if self.handle_debug_overlay_key(logical_key, self.modifiers) {
+        if self.handle_debug_overlay_key(logical_key, modifiers) {
             return Ok(());
         }
 
-        if self.handle_active_key_table_assignment_key_press(
-            logical_key,
-            physical_key,
-            self.modifiers,
-        ) {
+        if self.handle_active_key_table_assignment_key_press(logical_key, physical_key, modifiers) {
             return Ok(());
         }
 
@@ -16210,72 +16224,66 @@ impl NativeWindowApp {
         }
 
         let now = Instant::now();
-        if self.handle_leader_key_press(logical_key, physical_key, self.modifiers, now) {
+        if self.handle_leader_key_press(logical_key, physical_key, modifiers, now) {
             return Ok(());
         }
 
-        if self.handle_user_key_assignment_key_press(logical_key, physical_key, self.modifiers) {
+        if self.handle_user_key_assignment_key_press(logical_key, physical_key, modifiers) {
             return Ok(());
         }
 
         let default_assignment_disabled = self.default_assignment_disabled_for_key_with_preference(
             logical_key,
             Some(physical_key),
-            self.modifiers,
+            modifiers,
             self.key_map_preference,
         );
 
-        if !default_assignment_disabled
-            && window_clear_scrollback_shortcut(logical_key, self.modifiers)
+        if !default_assignment_disabled && window_clear_scrollback_shortcut(logical_key, modifiers)
         {
             self.clear_scrollback();
             return Ok(());
         }
 
-        if self.handle_toggle_full_screen_shortcut(logical_key, self.modifiers) {
+        if self.handle_toggle_full_screen_shortcut(logical_key, modifiers) {
             return Ok(());
         }
 
-        if self.handle_hide_shortcut_event(logical_key, physical_key, self.modifiers) {
+        if self.handle_hide_shortcut_event(logical_key, physical_key, modifiers) {
             return Ok(());
         }
 
-        if self.handle_application_hide_shortcut_event(logical_key, physical_key, self.modifiers) {
+        if self.handle_application_hide_shortcut_event(logical_key, physical_key, modifiers) {
             return Ok(());
         }
 
-        if self.handle_font_size_shortcut(logical_key, self.modifiers) {
+        if self.handle_font_size_shortcut(logical_key, modifiers) {
             return Ok(());
         }
 
-        if self.handle_show_debug_overlay_shortcut_event(logical_key, physical_key, self.modifiers)
-        {
+        if self.handle_show_debug_overlay_shortcut_event(logical_key, physical_key, modifiers) {
             return Ok(());
         }
 
-        if self.handle_char_select_shortcut_event(logical_key, physical_key, self.modifiers) {
+        if self.handle_char_select_shortcut_event(logical_key, physical_key, modifiers) {
             return Ok(());
         }
 
-        if self.handle_reload_configuration_shortcut_event(
-            logical_key,
-            physical_key,
-            self.modifiers,
-        ) {
+        if self.handle_reload_configuration_shortcut_event(logical_key, physical_key, modifiers) {
             return Ok(());
         }
 
         if self.handle_default_close_current_tab_shortcut_event(
             logical_key,
             physical_key,
-            self.modifiers,
+            modifiers,
             default_assignment_disabled,
         ) {
             return Ok(());
         }
 
         if let Some(action) =
-            self.app_shell_action_for_key_event(logical_key, physical_key, self.modifiers)
+            self.app_shell_action_for_key_event(logical_key, physical_key, modifiers)
         {
             if let Err(error) = self.dispatch_app_action(action) {
                 eprintln!("app shell action error: {error:?}");
@@ -16283,25 +16291,22 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        if !default_assignment_disabled
-            && Self::command_palette_shortcut(logical_key, self.modifiers)
-        {
+        if !default_assignment_disabled && Self::command_palette_shortcut(logical_key, modifiers) {
             self.enter_command_palette_mode();
             return Ok(());
         }
 
-        if !default_assignment_disabled && window_quick_select_shortcut(logical_key, self.modifiers)
-        {
+        if !default_assignment_disabled && window_quick_select_shortcut(logical_key, modifiers) {
             self.enter_quick_select_mode();
             return Ok(());
         }
 
-        if !default_assignment_disabled && window_copy_mode_shortcut(logical_key, self.modifiers) {
+        if !default_assignment_disabled && window_copy_mode_shortcut(logical_key, modifiers) {
             self.enter_copy_mode();
             return Ok(());
         }
 
-        if !default_assignment_disabled && window_search_shortcut(logical_key, self.modifiers) {
+        if !default_assignment_disabled && window_search_shortcut(logical_key, modifiers) {
             self.enter_search_mode_with_query(&WindowSearchCommandQuery::Pattern {
                 pattern: String::new(),
                 match_type: WindowSearchMatchType::CaseSensitive,
@@ -16310,39 +16315,38 @@ impl NativeWindowApp {
         }
 
         if self.search.is_some() {
-            self.handle_search_key(logical_key, self.modifiers);
+            self.handle_search_key(logical_key, modifiers);
             return Ok(());
         }
 
         if !default_assignment_disabled
-            && let Some(destination) =
-                window_copy_destination_for_shortcut(logical_key, self.modifiers)
+            && let Some(destination) = window_copy_destination_for_shortcut(logical_key, modifiers)
         {
             self.copy_selection_to(destination);
             return Ok(());
         }
 
         if !default_assignment_disabled
-            && let Some(source) = window_paste_source_for_shortcut(logical_key, self.modifiers)
+            && let Some(source) = window_paste_source_for_shortcut(logical_key, modifiers)
         {
             self.handle_window_paste_from(source)?;
             return Ok(());
         }
 
-        if self.handle_scrollback_shortcut(logical_key, self.modifiers) {
+        if self.handle_scrollback_shortcut(logical_key, modifiers) {
             return Ok(());
         }
 
         let encoded_key =
             swap_backspace_delete_key_if_needed(logical_key, self.swap_backspace_and_delete);
         let bytes = if self.runtime.win32_input_mode() {
-            encode_win32_window_key(&encoded_key, physical_key, text, self.modifiers, true)
+            encode_win32_window_key(&encoded_key, physical_key, text, modifiers, true)
         } else {
             encode_window_key_with_kitty_event(
                 &encoded_key,
                 physical_key,
                 text,
-                self.modifiers,
+                modifiers,
                 self.runtime.application_cursor_keys(),
                 self.runtime.application_keypad(),
                 self.effective_kitty_keyboard_flags(),
@@ -18400,6 +18404,22 @@ fn encode_window_key(
         application_keypad,
         0,
         0,
+    )
+}
+
+fn window_physical_key_is_modifier(physical_key: PhysicalKey) -> bool {
+    matches!(
+        physical_key,
+        PhysicalKey::Code(
+            WinitKeyCode::ShiftLeft
+                | WinitKeyCode::ShiftRight
+                | WinitKeyCode::ControlLeft
+                | WinitKeyCode::ControlRight
+                | WinitKeyCode::AltLeft
+                | WinitKeyCode::AltRight
+                | WinitKeyCode::SuperLeft
+                | WinitKeyCode::SuperRight
+        )
     )
 }
 
@@ -56189,6 +56209,35 @@ mod tests {
         .unwrap();
 
         assert!(app.debug_overlay_active);
+    }
+
+    #[test]
+    fn window_app_treats_left_ctrl_alt_text_input_as_altgr_when_configured() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.set_config_overrides(NativeConfigOverrides {
+            treat_left_ctrlalt_as_altgr: Some(true),
+            key_map_preference: Some(NativeKeyMapPreference::Physical),
+            key_assignments: Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL+ALT+D".to_owned(),
+                command: WindowCommand::ShowDebugOverlay,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::ALT;
+
+        app.handle_keyboard_input_event(
+            &Key::Character("ð".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyD),
+            Some("ð"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(!app.debug_overlay_active);
+        assert_eq!(written.lock().unwrap().as_slice(), "ð".as_bytes());
     }
 
     #[test]
