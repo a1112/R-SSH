@@ -244,10 +244,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and recomputes terminal rows/columns from the scaled cell size. Reset Font
   And Window Size also restores the native frame to the configured initial rows
   and columns. Native config overrides now expose `font_size`, `cell_width`,
-  `line_height`, `initial_cols`, `initial_rows`, and `adjust_window_size_when_changing_font_size`;
-  static WezTerm-style Lua snippets for those fields now parse into the same
-  native override path. Renderer font rasterization and full Lua config
-  evaluation remain open.
+  `line_height`, deprecated WezTerm-compatible `font_antialias`/`font_hinting`,
+  `font_rasterizer`, `initial_cols`, `initial_rows`, and
+  `adjust_window_size_when_changing_font_size`; static WezTerm-style Lua
+  snippets for those fields now parse into the same native override path.
+  Actual renderer font rasterization changes and full Lua config evaluation
+  remain open.
 - Native window state now exposes WezTerm-style `ShowDebugOverlay`: the default
   `Ctrl+Shift+L` shortcut, command-palette `Show Debug Overlay` entry, and
   action-name `showdebugoverlay` query record debug-overlay state for the
@@ -1584,7 +1586,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
+  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `command_palette_rows`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`,
@@ -1688,7 +1690,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`,
-  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
+  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
   `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`,

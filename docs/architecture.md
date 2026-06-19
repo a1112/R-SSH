@@ -598,8 +598,10 @@ keyboard, mouse, paste, resize
   and recomputes terminal rows/columns from the scaled cell size. Reset Font
   And Window Size also restores the native frame to the configured initial rows
   and columns. Native config overrides expose `font_size`, `cell_width`,
-  `line_height`, `initial_cols`, `initial_rows`, and `adjust_window_size_when_changing_font_size`;
-  renderer font rasterization and Lua config parsing remain future parity work.
+  `line_height`, deprecated WezTerm-compatible `font_antialias`/`font_hinting`,
+  `font_rasterizer`, `initial_cols`, `initial_rows`, and
+  `adjust_window_size_when_changing_font_size`; actual renderer font
+  rasterization changes remain future parity work.
 - Completed in v1: WezTerm-style `ShowDebugOverlay` routes the default
   `Ctrl+Shift+L` shortcut, command-palette `Show Debug Overlay` entry, and
   action-name `showdebugoverlay` query into native-window debug-overlay state
@@ -704,7 +706,8 @@ keyboard, mouse, paste, resize
   `webgpu_preferred_adapter`, `prefer_egl`, `enable_wayland`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
-  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
+  `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `line_height`,
+  `font_antialias`, `font_hinting`, `font_rasterizer`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
   `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`,
   `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`,
@@ -918,7 +921,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
+  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
@@ -1000,7 +1003,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `line_height`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
+  `font_size`, `cell_width`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,

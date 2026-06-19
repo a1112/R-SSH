@@ -92,6 +92,9 @@ const DEFAULT_ENABLE_WAYLAND: bool = true;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
+const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
+const DEFAULT_FONT_HINTING: NativeFontHinting = NativeFontHinting::Full;
+const DEFAULT_FONT_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::FreeType;
 const DEFAULT_CURSOR_BLINK_RATE: Duration = Duration::from_millis(800);
 const DEFAULT_CURSOR_BLINK_EASE_IN: NativeEasingFunction = NativeEasingFunction::Linear;
 const DEFAULT_CURSOR_BLINK_EASE_OUT: NativeEasingFunction = NativeEasingFunction::Linear;
@@ -483,6 +486,61 @@ impl NativeLineHeight {
 
     fn as_f64(self) -> f64 {
         f64::from(self.0) / 1_000.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeFontAntialias {
+    None,
+    Greyscale,
+    Subpixel,
+}
+
+impl NativeFontAntialias {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "None" => Some(Self::None),
+            "Greyscale" => Some(Self::Greyscale),
+            "Subpixel" => Some(Self::Subpixel),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeFontHinting {
+    None,
+    Vertical,
+    VerticalSubpixel,
+    Full,
+}
+
+impl NativeFontHinting {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "None" => Some(Self::None),
+            "Vertical" => Some(Self::Vertical),
+            "VerticalSubpixel" => Some(Self::VerticalSubpixel),
+            "Full" => Some(Self::Full),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeFontRasterizer {
+    FreeType,
+}
+
+impl NativeFontRasterizer {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "FreeType" => Some(Self::FreeType),
+            _ => None,
+        }
     }
 }
 
@@ -1673,6 +1731,9 @@ struct NativeEffectiveConfig {
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     line_height: NativeLineHeight,
+    font_antialias: NativeFontAntialias,
+    font_hinting: NativeFontHinting,
+    font_rasterizer: NativeFontRasterizer,
     foreground_text_hsb: NativeInactivePaneHsb,
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -1809,6 +1870,9 @@ struct NativeConfigOverrides {
     font_size: Option<NativeFontSize>,
     cell_width: Option<NativeCellWidth>,
     line_height: Option<NativeLineHeight>,
+    font_antialias: Option<NativeFontAntialias>,
+    font_hinting: Option<NativeFontHinting>,
+    font_rasterizer: Option<NativeFontRasterizer>,
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
@@ -2139,6 +2203,21 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(line_height) = lua_config_f32_assignment_from_query(config, "line_height") {
         overrides.line_height = Some(native_line_height_from_ratio(line_height)?);
+        parsed = true;
+    }
+    if let Some(font_antialias) = lua_config_string_assignment_from_query(config, "font_antialias")
+    {
+        overrides.font_antialias = Some(NativeFontAntialias::parse(&font_antialias)?);
+        parsed = true;
+    }
+    if let Some(font_hinting) = lua_config_string_assignment_from_query(config, "font_hinting") {
+        overrides.font_hinting = Some(NativeFontHinting::parse(&font_hinting)?);
+        parsed = true;
+    }
+    if let Some(font_rasterizer) =
+        lua_config_string_assignment_from_query(config, "font_rasterizer")
+    {
+        overrides.font_rasterizer = Some(NativeFontRasterizer::parse(&font_rasterizer)?);
         parsed = true;
     }
     if let Some(foreground_text_hsb) =
@@ -4138,6 +4217,9 @@ struct NativeWindowApp {
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     line_height: NativeLineHeight,
+    font_antialias: NativeFontAntialias,
+    font_hinting: NativeFontHinting,
+    font_rasterizer: NativeFontRasterizer,
     font_size_scale: f64,
     adjust_window_size_when_changing_font_size: bool,
     debug_overlay_active: bool,
@@ -5543,6 +5625,9 @@ impl NativeWindowApp {
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             line_height: DEFAULT_LINE_HEIGHT,
+            font_antialias: DEFAULT_FONT_ANTIALIAS,
+            font_hinting: DEFAULT_FONT_HINTING,
+            font_rasterizer: DEFAULT_FONT_RASTERIZER,
             font_size_scale: DEFAULT_FONT_SIZE_SCALE,
             adjust_window_size_when_changing_font_size:
                 DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
@@ -6728,6 +6813,9 @@ impl NativeWindowApp {
         self.font_size = source.font_size;
         self.cell_width = source.cell_width;
         self.line_height = source.line_height;
+        self.font_antialias = source.font_antialias;
+        self.font_hinting = source.font_hinting;
+        self.font_rasterizer = source.font_rasterizer;
         self.initial_cols = source.initial_cols;
         self.initial_rows = source.initial_rows;
         self.foreground_text_hsb = source.foreground_text_hsb;
@@ -13715,6 +13803,9 @@ impl NativeWindowApp {
             font_size: self.font_size,
             cell_width: self.cell_width,
             line_height: self.line_height,
+            font_antialias: self.font_antialias,
+            font_hinting: self.font_hinting,
+            font_rasterizer: self.font_rasterizer,
             foreground_text_hsb: self.foreground_text_hsb,
             bold_brightens_ansi_colors: self.bold_brightens_ansi_colors,
             text_min_contrast_ratio: self.text_min_contrast_ratio,
@@ -13876,6 +13967,9 @@ impl NativeWindowApp {
         self.font_size = overrides.font_size.unwrap_or(DEFAULT_FONT_SIZE);
         self.cell_width = overrides.cell_width.unwrap_or(DEFAULT_CELL_WIDTH);
         self.line_height = overrides.line_height.unwrap_or(DEFAULT_LINE_HEIGHT);
+        self.font_antialias = overrides.font_antialias.unwrap_or(DEFAULT_FONT_ANTIALIAS);
+        self.font_hinting = overrides.font_hinting.unwrap_or(DEFAULT_FONT_HINTING);
+        self.font_rasterizer = overrides.font_rasterizer.unwrap_or(DEFAULT_FONT_RASTERIZER);
         self.foreground_text_hsb = overrides
             .foreground_text_hsb
             .unwrap_or(DEFAULT_FOREGROUND_TEXT_HSB);
@@ -36277,7 +36371,8 @@ mod tests {
         DEFAULT_CELL_WIDTH, DEFAULT_CHECK_FOR_UPDATES, DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_DEBUG_KEY_EVENTS, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
-        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_SIZE,
+        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
+        DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
@@ -36296,9 +36391,10 @@ mod tests {
         NativeCommandPaletteAugment, NativeCommandPaletteEntry, NativeConfigOverrides,
         NativeConfirmation, NativeContrastRatio, NativeCubicBezier, NativeCursorStyle,
         NativeCursorThickness, NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
-        NativeFormatItem, NativeFormatUnderline, NativeHorizontalContentAlignment,
-        NativeHsbMultiplier, NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
+        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontRasterizer,
+        NativeFontSize, NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem,
+        NativeFormatUnderline, NativeHorizontalContentAlignment, NativeHsbMultiplier,
+        NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
         NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
         NativeRenderFrontEnd, NativeScrollBarHeight, NativeStrikethroughPosition,
@@ -45505,6 +45601,9 @@ mod tests {
                 font_size: DEFAULT_FONT_SIZE,
                 cell_width: DEFAULT_CELL_WIDTH,
                 line_height: DEFAULT_LINE_HEIGHT,
+                font_antialias: DEFAULT_FONT_ANTIALIAS,
+                font_hinting: DEFAULT_FONT_HINTING,
+                font_rasterizer: DEFAULT_FONT_RASTERIZER,
                 foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
                 bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
                 text_min_contrast_ratio: None,
@@ -58258,6 +58357,16 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_font_rasterizer_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.font_antialias, NativeFontAntialias::Greyscale);
+        assert_eq!(effective.font_hinting, NativeFontHinting::Full);
+        assert_eq!(effective.font_rasterizer, NativeFontRasterizer::FreeType);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_font_and_cursor_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -58268,6 +58377,9 @@ mod tests {
             config.font_size = 13.5
             config.cell_width = 1.25
             config.line_height = 1.5
+            config.font_antialias = 'Subpixel'
+            config.font_hinting = 'VerticalSubpixel'
+            config.font_rasterizer = 'FreeType'
             config.initial_cols = 100
             config.initial_rows = 30
             config.adjust_window_size_when_changing_font_size = false
@@ -58294,6 +58406,9 @@ mod tests {
             effective.line_height,
             NativeLineHeight::from_per_mille(1_500)
         );
+        assert_eq!(effective.font_antialias, NativeFontAntialias::Subpixel);
+        assert_eq!(effective.font_hinting, NativeFontHinting::VerticalSubpixel);
+        assert_eq!(effective.font_rasterizer, NativeFontRasterizer::FreeType);
         assert_eq!(effective.initial_cols, 100);
         assert_eq!(effective.initial_rows, 30);
         assert!(!effective.adjust_window_size_when_changing_font_size);
@@ -63651,6 +63766,9 @@ mod tests {
             font_size: Some(NativeFontSize::from_millipoints(13_500)),
             cell_width: Some(NativeCellWidth::from_per_mille(1_250)),
             line_height: Some(NativeLineHeight::from_per_mille(1_250)),
+            font_antialias: Some(NativeFontAntialias::Subpixel),
+            font_hinting: Some(NativeFontHinting::VerticalSubpixel),
+            font_rasterizer: Some(NativeFontRasterizer::FreeType),
             foreground_text_hsb: Some(NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -63868,6 +63986,9 @@ mod tests {
             font_size: NativeFontSize::from_millipoints(13_500),
             cell_width: NativeCellWidth::from_per_mille(1_250),
             line_height: NativeLineHeight::from_per_mille(1_250),
+            font_antialias: NativeFontAntialias::Subpixel,
+            font_hinting: NativeFontHinting::VerticalSubpixel,
+            font_rasterizer: NativeFontRasterizer::FreeType,
             foreground_text_hsb: NativeInactivePaneHsb {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
@@ -64057,6 +64178,9 @@ mod tests {
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             line_height: DEFAULT_LINE_HEIGHT,
+            font_antialias: DEFAULT_FONT_ANTIALIAS,
+            font_hinting: DEFAULT_FONT_HINTING,
+            font_rasterizer: DEFAULT_FONT_RASTERIZER,
             foreground_text_hsb: DEFAULT_FOREGROUND_TEXT_HSB,
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
