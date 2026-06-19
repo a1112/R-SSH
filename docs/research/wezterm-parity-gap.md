@@ -125,7 +125,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `intensity`/`underline`/`italic`/`strikethrough` entries; inactive-tab hover
   and new-tab button hover labels honor `colors.tab_bar.inactive_tab_hover`
   and `colors.tab_bar.new_tab_hover` `fg_color`/`bg_color` plus
-  `intensity`/`underline`/`italic`/`strikethrough`. Static Lua config parsing covers
+  `intensity`/`underline`/`italic`/`strikethrough`. Retro tab labels and the
+  new-tab button also honor configured `tab_bar_style` left/right edge
+  `wezterm.format` items for active, inactive, inactive-hover, new-tab, and
+  new-tab-hover states. Static Lua config parsing covers
   `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`,
   `tab_bar_at_bottom`, `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`, `switch_to_last_active_tab_when_closing_tab`,
@@ -134,7 +137,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `show_tabs_in_tab_bar`, `colors.tab_bar.background`,
   `colors.tab_bar.active_tab`/`inactive_tab`/`inactive_tab_hover`/`new_tab`/
   `new_tab_hover` `fg_color`/`bg_color` plus
-  `intensity`/`underline`/`italic`/`strikethrough`.
+  `intensity`/`underline`/`italic`/`strikethrough`, and `tab_bar_style`
+  `active_tab_left`/`active_tab_right`/`inactive_tab_left`/
+  `inactive_tab_right`/`inactive_tab_hover_left`/`inactive_tab_hover_right`/
+  `new_tab_left`/`new_tab_right`/`new_tab_hover_left`/`new_tab_hover_right`
+  edge entries.
 - App-shell state now exposes WezTerm-style `SpawnWindow`: the default
   `Ctrl+Shift+N` and `Super+N` shortcuts plus command-palette `Spawn Window`
   entry create a pending native-window app with a fresh default-launch tab and
@@ -1943,12 +1950,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   tab-bar `active_tab`, `inactive_tab`, `inactive_tab_hover`, `new_tab`, and
   `new_tab_hover` `fg_color`/`bg_color` plus
   `intensity`/`underline`/`italic`/`strikethrough` entries parse into
-  native/effective config and apply to tab/new-tab labels;
+  native/effective config and apply to tab/new-tab labels; `tab_bar_style`
+  active/inactive/inactive-hover/new-tab/new-tab-hover left/right edge
+  entries parse static `wezterm.format` item arrays and apply to retro
+  tab/new-tab labels;
   copy-mode/quick-select `Color`/`AnsiColor` tables also parse into
   native/effective config, and copy-mode active/inactive highlight plus
   quick-select label/match colors apply to overlay rendering, while compose,
-  fancy-tab-bar styling, and other non-terminal color fields remain later
-  parity work.
+  native/fancy titlebar styling, and other non-terminal color fields remain
+  later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
   macOS-specific flags in effective config snapshots. Fine-grained titlebar,

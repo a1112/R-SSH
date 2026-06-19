@@ -1447,6 +1447,35 @@ struct NativeTabBarItemColors {
     strikethrough: Option<bool>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct NativeTabBarStyle {
+    active_tab_left: Option<Vec<NativeFormatItem>>,
+    active_tab_right: Option<Vec<NativeFormatItem>>,
+    inactive_tab_left: Option<Vec<NativeFormatItem>>,
+    inactive_tab_right: Option<Vec<NativeFormatItem>>,
+    inactive_tab_hover_left: Option<Vec<NativeFormatItem>>,
+    inactive_tab_hover_right: Option<Vec<NativeFormatItem>>,
+    new_tab_left: Option<Vec<NativeFormatItem>>,
+    new_tab_right: Option<Vec<NativeFormatItem>>,
+    new_tab_hover_left: Option<Vec<NativeFormatItem>>,
+    new_tab_hover_right: Option<Vec<NativeFormatItem>>,
+}
+
+impl NativeTabBarStyle {
+    fn is_empty(&self) -> bool {
+        self.active_tab_left.is_none()
+            && self.active_tab_right.is_none()
+            && self.inactive_tab_left.is_none()
+            && self.inactive_tab_right.is_none()
+            && self.inactive_tab_hover_left.is_none()
+            && self.inactive_tab_hover_right.is_none()
+            && self.new_tab_left.is_none()
+            && self.new_tab_right.is_none()
+            && self.new_tab_hover_left.is_none()
+            && self.new_tab_hover_right.is_none()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -1514,6 +1543,7 @@ struct NativeEffectiveConfig {
     tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
     tab_bar_new_tab_colors: NativeTabBarItemColors,
     tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
+    tab_bar_style: NativeTabBarStyle,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -1631,6 +1661,7 @@ struct NativeConfigOverrides {
     tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
     tab_bar_new_tab_colors: NativeTabBarItemColors,
     tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
+    tab_bar_style: NativeTabBarStyle,
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
@@ -1726,6 +1757,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(visual_bell) = lua_config_table_assignment_from_query(config, "visual_bell") {
         overrides.visual_bell = Some(native_visual_bell_lua_table_from_query(visual_bell)?);
+        parsed = true;
+    }
+    if let Some(tab_bar_style) = lua_config_table_assignment_from_query(config, "tab_bar_style")
+        && let Some(tab_bar_style) = native_tab_bar_style_lua_table_from_query(tab_bar_style)?
+    {
+        overrides.tab_bar_style = tab_bar_style;
         parsed = true;
     }
     if let Some(colors) = lua_config_table_assignment_from_query(config, "colors") {
@@ -3830,6 +3867,7 @@ struct NativeWindowApp {
     tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
     tab_bar_new_tab_colors: NativeTabBarItemColors,
     tab_bar_new_tab_hover_colors: NativeTabBarItemColors,
+    tab_bar_style: NativeTabBarStyle,
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
@@ -5065,6 +5103,7 @@ impl NativeWindowApp {
             tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
             tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
+            tab_bar_style: NativeTabBarStyle::default(),
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
@@ -6020,6 +6059,7 @@ impl NativeWindowApp {
         detached_app.tab_bar_inactive_tab_hover_colors = self.tab_bar_inactive_tab_hover_colors;
         detached_app.tab_bar_new_tab_colors = self.tab_bar_new_tab_colors;
         detached_app.tab_bar_new_tab_hover_colors = self.tab_bar_new_tab_hover_colors;
+        detached_app.tab_bar_style.clone_from(&self.tab_bar_style);
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
@@ -6178,6 +6218,7 @@ impl NativeWindowApp {
         self.tab_bar_inactive_tab_hover_colors = source.tab_bar_inactive_tab_hover_colors;
         self.tab_bar_new_tab_colors = source.tab_bar_new_tab_colors;
         self.tab_bar_new_tab_hover_colors = source.tab_bar_new_tab_hover_colors;
+        self.tab_bar_style.clone_from(&source.tab_bar_style);
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
         self.default_prog.clone_from(&source.default_prog);
@@ -12421,7 +12462,30 @@ impl NativeWindowApp {
                     .chars()
                     .count()
                     .saturating_add(label.title.chars().count())
-                    .saturating_add(label.suffix.chars().count());
+                    .saturating_add(label.suffix.chars().count())
+                    .saturating_add(if active {
+                        self.tab_bar_style
+                            .active_tab_left
+                            .as_deref()
+                            .map_or(0, native_format_items_visible_width)
+                            .saturating_add(
+                                self.tab_bar_style
+                                    .active_tab_right
+                                    .as_deref()
+                                    .map_or(0, native_format_items_visible_width),
+                            )
+                    } else {
+                        self.tab_bar_style
+                            .inactive_tab_left
+                            .as_deref()
+                            .map_or(0, native_format_items_visible_width)
+                            .saturating_add(
+                                self.tab_bar_style
+                                    .inactive_tab_right
+                                    .as_deref()
+                                    .map_or(0, native_format_items_visible_width),
+                            )
+                    });
                 let hovered = hover_column.is_some_and(|hover_column| {
                     let end = column.saturating_add(u16::try_from(label_width).unwrap_or(u16::MAX));
                     !active && hover_column >= column && hover_column < end
@@ -12443,12 +12507,35 @@ impl NativeWindowApp {
                 } else {
                     self.tab_bar_inactive_tab_colors
                 };
+                let (left_edge, right_edge) = if active {
+                    (
+                        self.tab_bar_style.active_tab_left.as_deref(),
+                        self.tab_bar_style.active_tab_right.as_deref(),
+                    )
+                } else if hovered {
+                    (
+                        self.tab_bar_style
+                            .inactive_tab_hover_left
+                            .as_deref()
+                            .or(self.tab_bar_style.inactive_tab_left.as_deref()),
+                        self.tab_bar_style
+                            .inactive_tab_hover_right
+                            .as_deref()
+                            .or(self.tab_bar_style.inactive_tab_right.as_deref()),
+                    )
+                } else {
+                    (
+                        self.tab_bar_style.inactive_tab_left.as_deref(),
+                        self.tab_bar_style.inactive_tab_right.as_deref(),
+                    )
+                };
                 let style = tab_bar_item_segment_style(
                     item_colors,
                     default_foreground,
                     default_background,
                     active,
                 );
+                write_tab_bar_format_items_if_configured(&mut cells, &mut column, left_edge, style);
                 write_tab_bar_ansi_segment(&mut cells, &mut column, &label.prefix, style);
                 match title.as_ref() {
                     Some(NativeTabTitle::Format(items)) => {
@@ -12459,11 +12546,34 @@ impl NativeWindowApp {
                     }
                 }
                 write_tab_bar_ansi_segment(&mut cells, &mut column, &label.suffix, style);
+                write_tab_bar_format_items_if_configured(
+                    &mut cells,
+                    &mut column,
+                    right_edge,
+                    style,
+                );
             }
         }
 
         if self.show_new_tab_button_in_tab_bar {
-            let new_tab_width = u16::try_from(tab_bar_new_tab_label().chars().count()).unwrap_or(0);
+            let new_tab_width = u16::try_from(
+                tab_bar_new_tab_label()
+                    .chars()
+                    .count()
+                    .saturating_add(
+                        self.tab_bar_style
+                            .new_tab_left
+                            .as_deref()
+                            .map_or(0, native_format_items_visible_width),
+                    )
+                    .saturating_add(
+                        self.tab_bar_style
+                            .new_tab_right
+                            .as_deref()
+                            .map_or(0, native_format_items_visible_width),
+                    ),
+            )
+            .unwrap_or(0);
             let new_tab_hovered = hover_column.is_some_and(|hover_column| {
                 let end = column.saturating_add(new_tab_width);
                 hover_column >= column && hover_column < end
@@ -12473,13 +12583,32 @@ impl NativeWindowApp {
             } else {
                 self.tab_bar_new_tab_colors
             };
+            let (left_edge, right_edge) = if new_tab_hovered {
+                (
+                    self.tab_bar_style
+                        .new_tab_hover_left
+                        .as_deref()
+                        .or(self.tab_bar_style.new_tab_left.as_deref()),
+                    self.tab_bar_style
+                        .new_tab_hover_right
+                        .as_deref()
+                        .or(self.tab_bar_style.new_tab_right.as_deref()),
+                )
+            } else {
+                (
+                    self.tab_bar_style.new_tab_left.as_deref(),
+                    self.tab_bar_style.new_tab_right.as_deref(),
+                )
+            };
             let style = tab_bar_item_segment_style(
                 new_tab_colors,
                 Color::Rgb(230, 230, 230),
                 Color::Rgb(46, 56, 48),
                 true,
             );
+            write_tab_bar_format_items_if_configured(&mut cells, &mut column, left_edge, style);
             write_tab_bar_ansi_segment(&mut cells, &mut column, tab_bar_new_tab_label(), style);
+            write_tab_bar_format_items_if_configured(&mut cells, &mut column, right_edge, style);
         }
 
         if !self.right_status.is_empty() {
@@ -12912,6 +13041,7 @@ impl NativeWindowApp {
             tab_bar_inactive_tab_hover_colors: self.tab_bar_inactive_tab_hover_colors,
             tab_bar_new_tab_colors: self.tab_bar_new_tab_colors,
             tab_bar_new_tab_hover_colors: self.tab_bar_new_tab_hover_colors,
+            tab_bar_style: self.tab_bar_style.clone(),
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
@@ -13106,6 +13236,7 @@ impl NativeWindowApp {
         self.tab_bar_inactive_tab_hover_colors = overrides.tab_bar_inactive_tab_hover_colors;
         self.tab_bar_new_tab_colors = overrides.tab_bar_new_tab_colors;
         self.tab_bar_new_tab_hover_colors = overrides.tab_bar_new_tab_hover_colors;
+        self.tab_bar_style = overrides.tab_bar_style.clone();
         self.visual_bell_color = overrides.visual_bell_color;
         self.notification_handling = overrides
             .notification_handling
@@ -24231,6 +24362,168 @@ fn tab_bar_item_underline_from_query(value: &str) -> Option<NativeFormatUnderlin
     }
 }
 
+fn native_tab_bar_style_lua_table_from_query(value: &str) -> Option<Option<NativeTabBarStyle>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut style = NativeTabBarStyle::default();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let items = native_format_items_from_wezterm_format_query(value.trim())?;
+        match key.as_str() {
+            "active_tab_left" => assign_tab_bar_style_edge(&mut style.active_tab_left, items)?,
+            "active_tab_right" => assign_tab_bar_style_edge(&mut style.active_tab_right, items)?,
+            "inactive_tab_left" => assign_tab_bar_style_edge(&mut style.inactive_tab_left, items)?,
+            "inactive_tab_right" => {
+                assign_tab_bar_style_edge(&mut style.inactive_tab_right, items)?
+            }
+            "inactive_tab_hover_left" => {
+                assign_tab_bar_style_edge(&mut style.inactive_tab_hover_left, items)?;
+            }
+            "inactive_tab_hover_right" => {
+                assign_tab_bar_style_edge(&mut style.inactive_tab_hover_right, items)?;
+            }
+            "new_tab_left" => assign_tab_bar_style_edge(&mut style.new_tab_left, items)?,
+            "new_tab_right" => assign_tab_bar_style_edge(&mut style.new_tab_right, items)?,
+            "new_tab_hover_left" => {
+                assign_tab_bar_style_edge(&mut style.new_tab_hover_left, items)?;
+            }
+            "new_tab_hover_right" => {
+                assign_tab_bar_style_edge(&mut style.new_tab_hover_right, items)?;
+            }
+            _ => {}
+        }
+    }
+
+    Some((!style.is_empty()).then_some(style))
+}
+
+fn assign_tab_bar_style_edge(
+    target: &mut Option<Vec<NativeFormatItem>>,
+    items: Vec<NativeFormatItem>,
+) -> Option<()> {
+    if target.is_some() {
+        return None;
+    }
+    *target = Some(items);
+    Some(())
+}
+
+fn native_format_items_from_wezterm_format_query(value: &str) -> Option<Vec<NativeFormatItem>> {
+    let table = wezterm_format_table_argument_from_query(value)?;
+    let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut items = Vec::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some(text) = parse_maybe_quoted_query_text(field)
+            && text == "ResetAttributes"
+        {
+            items.push(NativeFormatItem::ResetAttributes);
+            continue;
+        }
+        items.push(native_format_item_lua_table_from_query(field)?);
+    }
+
+    Some(items)
+}
+
+fn wezterm_format_table_argument_from_query(value: &str) -> Option<&str> {
+    let value = value.trim();
+    let rest = value
+        .strip_prefix("wezterm.format")
+        .or_else(|| value.strip_prefix("format"))?
+        .trim_start();
+    if let Some(argument) = rest.strip_prefix('(') {
+        return argument.strip_suffix(')').map(str::trim);
+    }
+    Some(rest)
+}
+
+fn native_format_item_lua_table_from_query(value: &str) -> Option<NativeFormatItem> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut item = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if item.is_some() {
+            return None;
+        }
+        item = Some(match key.as_str() {
+            "Text" => NativeFormatItem::Text(parse_maybe_quoted_query_text(value.trim())?),
+            "Foreground" => NativeFormatItem::Foreground(native_color_spec_to_render_color(
+                lua_color_spec_from_query(value.trim())?,
+            )),
+            "Background" => NativeFormatItem::Background(native_color_spec_to_render_color(
+                lua_color_spec_from_query(value.trim())?,
+            )),
+            "Attribute" => {
+                NativeFormatItem::Attribute(native_format_attribute_lua_table_from_query(value)?)
+            }
+            _ => return None,
+        });
+    }
+
+    item
+}
+
+fn native_format_attribute_lua_table_from_query(value: &str) -> Option<NativeFormatAttribute> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut attribute = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if attribute.is_some() {
+            return None;
+        }
+        attribute = Some(match key.as_str() {
+            "Intensity" => NativeFormatAttribute::Intensity(tab_bar_item_intensity_from_query(
+                &parse_maybe_quoted_query_text(value.trim())?,
+            )?),
+            "Italic" => {
+                NativeFormatAttribute::Italic(lua_bool_literal_from_query(value.trim())? == "true")
+            }
+            "Underline" => NativeFormatAttribute::Underline(native_format_underline_from_query(
+                &parse_maybe_quoted_query_text(value.trim())?,
+            )?),
+            _ => return None,
+        });
+    }
+
+    attribute
+}
+
+fn native_format_underline_from_query(value: &str) -> Option<NativeFormatUnderline> {
+    match value {
+        "None" => Some(NativeFormatUnderline::None),
+        "Single" => Some(NativeFormatUnderline::Single),
+        "Double" => Some(NativeFormatUnderline::Double),
+        "Curly" => Some(NativeFormatUnderline::Curly),
+        "Dotted" => Some(NativeFormatUnderline::Dotted),
+        "Dashed" => Some(NativeFormatUnderline::Dashed),
+        _ => None,
+    }
+}
+
 fn lua_table_field_value_from_query<'a>(
     value: &'a str,
     field_name: &str,
@@ -33507,6 +33800,30 @@ fn write_tab_bar_format_items(
     }
 }
 
+fn write_tab_bar_format_items_if_configured(
+    cells: &mut [RenderCell],
+    column: &mut u16,
+    items: Option<&[NativeFormatItem]>,
+    base_style: TabBarSegmentStyle,
+) {
+    if let Some(items) = items {
+        write_tab_bar_format_items(cells, column, items, base_style);
+    }
+}
+
+fn native_format_items_visible_width(items: &[NativeFormatItem]) -> usize {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            NativeFormatItem::Text(text) => Some(tab_bar_ansi_visible_width(text)),
+            NativeFormatItem::Foreground(_)
+            | NativeFormatItem::Background(_)
+            | NativeFormatItem::Attribute(_)
+            | NativeFormatItem::ResetAttributes => None,
+        })
+        .sum()
+}
+
 fn write_right_aligned_tab_bar_segment(
     cells: &mut [RenderCell],
     text: &str,
@@ -34980,7 +35297,7 @@ mod tests {
         NativeInputSelector, NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem,
         NativeLeaderKey, NativeLineHeight, NativeNotificationHandling, NativePromptInputLine,
         NativeQuoteDroppedFiles, NativeScrollBarHeight, NativeStrikethroughPosition,
-        NativeTabBarItemColors, NativeTabTitle, NativeTextBackgroundOpacity,
+        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
         NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
         NativeVisualBell, NativeVisualBellTarget, NativeWindowApp, NativeWindowBell,
         NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowDecorations,
@@ -41666,6 +41983,48 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_tab_bar_style_edges() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.tab_bar_style = {
+              active_tab_left = wezterm.format({ { Text = '[' } }),
+              active_tab_right = wezterm.format({ { Text = ']' } }),
+              inactive_tab_left = wezterm.format({ { Text = '<' } }),
+              inactive_tab_right = wezterm.format({ { Text = '>' } }),
+              new_tab_left = wezterm.format({ { Text = '{' } }),
+              new_tab_right = wezterm.format({ { Text = '}' } }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should be wrapped by configured tab_bar_style edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("[ 2:2* panes:1 x ]"),
+            "active tab should be wrapped by configured tab_bar_style edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("{ + }"),
+            "new-tab button should be wrapped by configured tab_bar_style edges: {tab_bar:?}"
+        );
+    }
+
+    #[test]
     fn window_app_applies_wezterm_tab_bar_hover_item_colors() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -44181,6 +44540,7 @@ mod tests {
                 tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
                 tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
                 tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
+                tab_bar_style: NativeTabBarStyle::default(),
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
@@ -62023,6 +62383,7 @@ mod tests {
                 bg_color: Some(Color::Rgb(55, 56, 57)),
                 ..Default::default()
             },
+            tab_bar_style: NativeTabBarStyle::default(),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -62210,6 +62571,7 @@ mod tests {
                 bg_color: Some(Color::Rgb(55, 56, 57)),
                 ..Default::default()
             },
+            tab_bar_style: NativeTabBarStyle::default(),
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
@@ -62328,6 +62690,7 @@ mod tests {
             tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
             tab_bar_new_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_new_tab_hover_colors: NativeTabBarItemColors::default(),
+            tab_bar_style: NativeTabBarStyle::default(),
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
