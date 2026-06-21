@@ -13267,9 +13267,13 @@ impl NativeWindowApp {
             let ch = if separator.columns == 1 { '|' } else { '-' };
             for row in separator.row..separator.row.saturating_add(separator.rows) {
                 for column in separator.column..separator.column.saturating_add(separator.columns) {
-                    cells.push(ui_render_cell(
-                        row, column, ch, foreground, background, active,
-                    ));
+                    let mut cell = ui_render_cell(row, column, ch, foreground, background, active);
+                    if separator.columns > 1 {
+                        cell.underline = true;
+                        cell.underline_style = UnderlineStyle::Single;
+                        cell.underline_color = foreground;
+                    }
+                    cells.push(cell);
                 }
             }
         }
@@ -46230,6 +46234,41 @@ mod tests {
         assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS, 0), Some('t'));
         assert_eq!(snapshot_char(&snapshot, 12, 0), Some('-'));
         assert_eq!(snapshot_char(&snapshot, 13, 0), Some('b'));
+    }
+
+    #[test]
+    fn window_app_applies_underline_thickness_to_down_split_separator() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            underline_thickness: Some(NativeUnderlineThickness::Pixels(3)),
+            split_color: Some(Color::Rgb(1, 2, 3)),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"top").unwrap();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Down,
+            launch: None,
+        })
+        .unwrap();
+        app.handle_pty_output(b"bottom").unwrap();
+
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+        app.render_framebuffer(&mut frame);
+        let separator_y = 12_usize * CELL_HEIGHT as usize;
+
+        assert_eq!(
+            frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, separator_y + 13),
+            [1, 2, 3, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, separator_y + 15),
+            [1, 2, 3, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, separator_y + 12),
+            [22, 22, 26, 255]
+        );
     }
 
     #[test]

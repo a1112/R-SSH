@@ -120,7 +120,7 @@ keyboard, mouse, paste, resize
   WezTerm-style `foreground_text_hsb` transforms for terminal foreground and
   underline colors, WezTerm-style `bold_brightens_ansi_colors` handling for
   bold ANSI 0-7 foreground colors, WezTerm-style `underline_thickness` overrides for terminal
-  text underline decorations, WezTerm-style `underline_position` overrides for
+  text underline decorations and horizontal split dividers, WezTerm-style `underline_position` overrides for
   terminal text underline placement, WezTerm-style `strikethrough_position`
   overrides for terminal text strikethrough decorations,
   WezTerm-style `text_min_contrast_ratio` foreground adjustment for textual
@@ -1447,7 +1447,8 @@ keyboard, mouse, paste, resize
   steady/blinking block, underline, and bar cursors plus `cursor_thickness`
   overrides for underline and bar cursor glyphs using px, DPI-scaled pt,
   percent-of-default, and cell-fraction units. Native `underline_thickness`
-  applies the same unit forms to terminal text underline decorations. Native
+  applies the same unit forms to terminal text underline decorations and
+  horizontal split dividers. Native
   `underline_position` applies signed px, DPI-scaled pt, percent-of-default,
   and cell-fraction units to terminal text underline placement using the
   default underline row as the current baseline approximation. Native
