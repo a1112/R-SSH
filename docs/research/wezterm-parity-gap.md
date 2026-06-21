@@ -925,8 +925,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   values when a later valid field boundary exists. WezTerm-style
   `wezterm.action.PromptInputLine { description = ..., prompt = ...,
   initial_value = ... }` table-call queries also dispatch that native field
-  subset, including bracketed string table keys with long-bracket values. Lua
-  `wezterm.action_callback` wiring remains open.
+  subset, including bracketed string table keys with long-bracket values.
+  Static Lua `wezterm.format { { Text = ... } }` values for `description` and
+  `prompt` are reduced to their visible text for the native overlay, while
+  styled prompt-line rendering and Lua `wezterm.action_callback` wiring remain
+  open.
 - Native `InputSelector` action payloads now carry `title`, `choices`, optional
   `alphabet`, optional `description`, optional `fuzzy_description`, and `fuzzy`,
   open a modal selector, support default-mode alphabet shortcuts, `/` fuzzy

@@ -22343,9 +22343,9 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
     for field in split_lua_table_top_level_fields(table)? {
         let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value)?;
         match name.to_ascii_lowercase().as_str() {
             "description" => {
+                let value = prompt_input_line_display_text_from_query(value.trim())?;
                 if parsed_description || value.is_empty() {
                     return None;
                 }
@@ -22353,6 +22353,7 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
                 parsed_description = true;
             }
             "prompt" => {
+                let value = prompt_input_line_display_text_from_query(value.trim())?;
                 if parsed_prompt {
                     return None;
                 }
@@ -22360,6 +22361,7 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
                 parsed_prompt = true;
             }
             "initial_value" | "initial-value" => {
+                let value = parse_maybe_quoted_query_text(value)?;
                 if parsed_initial_value {
                     return None;
                 }
@@ -22371,6 +22373,23 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
     }
 
     parsed_description.then_some(options)
+}
+
+fn prompt_input_line_display_text_from_query(value: &str) -> Option<String> {
+    native_format_items_from_wezterm_format_query(value)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    NativeFormatItem::Text(text) => Some(tab_bar_ansi_plain_text(text)),
+                    NativeFormatItem::Foreground(_)
+                    | NativeFormatItem::Background(_)
+                    | NativeFormatItem::Attribute(_)
+                    | NativeFormatItem::ResetAttributes => None,
+                })
+                .collect::<String>()
+        })
+        .or_else(|| parse_maybe_quoted_query_text(value))
 }
 
 fn input_selector_options_from_query(query: &str) -> Option<WindowInputSelectorOptions> {
@@ -62409,6 +62428,34 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.PromptInputLine { description = \"Rename tab\", prompt = \"name: \", initial_value = \"old name\" }"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+            description: "Rename tab".to_owned(),
+            prompt: Some("name: ".to_owned()),
+            initial_value: Some("old name".to_owned()),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Rename tab: name: old name"
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_prompt_input_line_wezterm_formatted_text_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine { description = wezterm.format { { Text = 'Rename' }, { Text = ' tab' } }, prompt = wezterm.format { { Text = 'name' }, { Text = ': ' } }, initial_value = \"old name\" }"
                 .to_owned(),
         );
 
