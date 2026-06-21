@@ -576,14 +576,14 @@ keyboard, mouse, paste, resize
   queries dispatch the same command. Static WezTerm-style
   `config.mouse_bindings` now parses the native `Down`/`Up`/`Drag` plus
   `Left`/`Middle`/`Right`/`streak = 1` subset with `mods`,
-  `mouse_reporting`, and implemented native `action` payloads, so bindings
-  such as `ALT` + left drag can route to `StartWindowDrag` and middle-button
-  release can route to `PastePrimarySelection`. Matching user mouse bindings
-  suppress the implemented default mouse assignment for the same button,
-  modifiers, and mouse-reporting state; default mouse assignments are skipped
-  while the pane has captured mouse reporting unless the configured bypass
-  modifier is held. Broader `alt_screen` filtering, wheel buttons, and click
-  streak semantics remain future parity work. Native
+  `mouse_reporting`, `alt_screen`, and implemented native `action` payloads,
+  so bindings such as `ALT` + left drag can route to `StartWindowDrag` and
+  middle-button release can route to `PastePrimarySelection`. Matching user
+  mouse bindings suppress the implemented default mouse assignment for the same
+  button, modifiers, mouse-reporting state, and alternate-screen state; default
+  mouse assignments are skipped while the pane has captured mouse reporting
+  unless the configured bypass modifier is held. Broader wheel buttons and
+  click streak semantics remain future parity work. Native
   `disable_default_mouse_bindings` defaults to false and suppresses the
   implemented default mouse-assignment subset when true.
 - Completed in v1: native `hide_mouse_cursor_when_typing` defaults to true,

@@ -1688,7 +1688,23 @@ struct NativeUserMouseAssignment {
     event: NativeMouseAssignmentEvent,
     modifiers: ModifiersState,
     mouse_reporting: bool,
+    alt_screen: NativeMouseAssignmentAltScreen,
     command: WindowCommand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeMouseAssignmentAltScreen {
+    Any,
+    Active(bool),
+}
+
+impl NativeMouseAssignmentAltScreen {
+    fn matches(self, alternate_screen_active: bool) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Active(expected) => expected == alternate_screen_active,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4580,6 +4596,7 @@ fn native_user_mouse_assignment_lua_table_from_query(
     let mut event = None;
     let mut modifiers = None;
     let mut mouse_reporting = None;
+    let mut alt_screen = None;
     let mut command = None;
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -4617,6 +4634,13 @@ fn native_user_mouse_assignment_lua_table_from_query(
                 let value = parse_maybe_quoted_query_text(value)?;
                 mouse_reporting = Some(bool_from_query(&value)?);
             }
+            "alt_screen" | "altscreen" => {
+                if alt_screen.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_quoted_query_text(value)?;
+                alt_screen = Some(native_mouse_assignment_alt_screen_from_query(&value)?);
+            }
             _ => return None,
         }
     }
@@ -4625,8 +4649,18 @@ fn native_user_mouse_assignment_lua_table_from_query(
         event: event?,
         modifiers: modifiers.unwrap_or_else(ModifiersState::empty),
         mouse_reporting: mouse_reporting.unwrap_or(false),
+        alt_screen: alt_screen.unwrap_or(NativeMouseAssignmentAltScreen::Any),
         command: command?,
     })
+}
+
+fn native_mouse_assignment_alt_screen_from_query(
+    value: &str,
+) -> Option<NativeMouseAssignmentAltScreen> {
+    if value.eq_ignore_ascii_case("any") {
+        return Some(NativeMouseAssignmentAltScreen::Any);
+    }
+    bool_from_query(value).map(NativeMouseAssignmentAltScreen::Active)
 }
 
 fn native_mouse_assignment_event_lua_table_from_query(
@@ -10604,6 +10638,7 @@ impl NativeWindowApp {
         kind: NativeMouseAssignmentEventKind,
         button: MouseButton,
         mouse_reporting: bool,
+        alternate_screen_active: bool,
     ) -> bool {
         let Some(command) = self
             .mouse_assignments
@@ -10614,6 +10649,7 @@ impl NativeWindowApp {
                     && assignment.event.streak == 1
                     && assignment.modifiers == self.modifiers
                     && assignment.mouse_reporting == mouse_reporting
+                    && assignment.alt_screen.matches(alternate_screen_active)
             })
             .map(|assignment| assignment.command.clone())
         else {
@@ -10636,12 +10672,14 @@ impl NativeWindowApp {
         &self,
         button: MouseButton,
         mouse_reporting: bool,
+        alternate_screen_active: bool,
     ) -> bool {
         self.mouse_assignments.iter().any(|assignment| {
             assignment.event.button == button
                 && assignment.event.streak == 1
                 && assignment.modifiers == self.modifiers
                 && assignment.mouse_reporting == mouse_reporting
+                && assignment.alt_screen.matches(alternate_screen_active)
         })
     }
 
@@ -12776,6 +12814,7 @@ impl NativeWindowApp {
         }
 
         let mode = self.runtime.mouse_input_mode();
+        let alternate_screen_active = self.runtime.terminal().alternate_screen_active();
         let bypass_mouse_reporting = mode.reporting_enabled()
             && !self.bypass_mouse_reporting_modifiers.is_empty()
             && self
@@ -12790,6 +12829,7 @@ impl NativeWindowApp {
             assignment_kind,
             button,
             mouse_reporting_for_assignment,
+            alternate_screen_active,
         ) {
             return Ok(true);
         }
@@ -12799,6 +12839,7 @@ impl NativeWindowApp {
             && !self.user_mouse_assignment_overrides_default_for_button(
                 button,
                 mouse_reporting_for_assignment,
+                alternate_screen_active,
             );
         if default_mouse_bindings_enabled && window_start_drag_mouse_binding(button, self.modifiers)
         {
@@ -12892,6 +12933,7 @@ impl NativeWindowApp {
                 NativeMouseAssignmentEventKind::Drag,
                 button,
                 self.runtime.mouse_input_mode().reporting_enabled(),
+                self.runtime.terminal().alternate_screen_active(),
             )
         {
             return Ok(true);
@@ -38205,17 +38247,17 @@ mod tests {
         NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
         NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind, NativeNotificationHandling,
-        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
-        NativeScrollBarHeight, NativeSquareGlyphOverflow, NativeStrikethroughPosition,
-        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
-        NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUserKeyAssignment, NativeUserMouseAssignment,
-        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
-        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeMouseAssignmentAltScreen, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
+        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUiKeyCapRendering,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
+        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
+        NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
         NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
         NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
         NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
@@ -56798,6 +56840,48 @@ mod tests {
     }
 
     #[test]
+    fn window_app_mouse_binding_alt_screen_true_matches_only_alternate_screen() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.primary_selection_reader = Box::new(|| Some("primary".to_owned()));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = 'Right' } },
+                mods = 'NONE',
+                alt_screen = true,
+                action = act.PastePrimarySelection,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding config");
+        app.set_config_overrides(overrides);
+
+        let _ = app.handle_mouse_input(ElementState::Pressed, MouseButton::Right);
+        assert!(written.lock().unwrap().is_empty());
+
+        app.handle_mouse_input(ElementState::Released, MouseButton::Right)
+            .unwrap();
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Right)
+                .unwrap()
+        );
+
+        let expected = encode_window_paste("primary", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+    }
+
+    #[test]
     fn window_app_disable_default_mouse_bindings_suppresses_default_mouse_actions() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -67234,6 +67318,7 @@ mod tests {
                 },
                 modifiers: ModifiersState::ALT,
                 mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
             scroll_to_bottom_on_input: Some(false),
