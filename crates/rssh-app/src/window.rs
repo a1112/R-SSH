@@ -32662,6 +32662,7 @@ fn find_window_quick_select_matches_with_patterns(
         )
     });
     let mut unique = Vec::new();
+    let mut seen_text = HashSet::new();
     for candidate in matches {
         if unique
             .iter()
@@ -32669,9 +32670,30 @@ fn find_window_quick_select_matches_with_patterns(
         {
             continue;
         }
+        if !seen_text.insert(quick_select_match_text(&cells, candidate.selection)) {
+            continue;
+        }
         unique.push(candidate.selection);
     }
     unique
+}
+
+fn quick_select_match_text(cells: &[WindowSearchCell], selection: WindowSearchMatch) -> String {
+    let mut text = String::new();
+    let mut previous_source_row = None;
+    for cell in cells.iter().filter(|cell| {
+        cell.source_row >= selection.source_row
+            && cell.source_row <= selection.end_source_row
+            && (cell.source_row != selection.source_row || cell.column >= selection.start_column)
+            && (cell.source_row != selection.end_source_row || cell.column <= selection.end_column)
+    }) {
+        if previous_source_row.is_some_and(|source_row| source_row != cell.source_row) {
+            text.push('\n');
+        }
+        previous_source_row = Some(cell.source_row);
+        text.push(cell.character);
+    }
+    text
 }
 
 fn quick_select_source_row_scope(
@@ -47869,6 +47891,23 @@ mod tests {
         assert_eq!(first_label.ch, 'b');
         assert_eq!(second_label.ch, 'b');
         assert_eq!(hidden_label.ch, 'h');
+    }
+
+    #[test]
+    fn window_quick_select_deduplicates_same_text_candidates() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(80, 1));
+        app.handle_pty_output(b"dup@example.com dup@example.com unique@example.com")
+            .unwrap();
+
+        app.enter_quick_select_mode();
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 2);
+        assert_eq!(quick_select.labels.len(), 2);
+        assert_eq!(app.selected_text().as_deref(), Some("dup@example.com"));
+        assert!(app.quick_select_step(SearchDirection::Next));
+        assert_eq!(app.selected_text().as_deref(), Some("unique@example.com"));
     }
 
     #[test]

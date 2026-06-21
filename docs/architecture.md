@@ -1652,6 +1652,8 @@ keyboard, mouse, paste, resize
   vertical alignment, hyperlink metadata, and inverse attributes before
   quick-select match/label highlights are applied, typed quick-select label
   prefixes hide non-matching labels while keeping matching labels visible,
+  and same-text quick-select candidates are de-duplicated before label
+  assignment,
   `input_selector_label_bg`/`input_selector_label_fg` and
   `launcher_label_bg`/`launcher_label_fg` parsing into native/effective config
   and applying to default-mode selector/launcher shortcut labels,
