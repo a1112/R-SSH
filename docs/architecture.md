@@ -256,10 +256,11 @@ keyboard, mouse, paste, resize
   they compose with the prior cell without changing display width.
   `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
   AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
-  text renders through the Builtin overlay path at the active pane cursor.
-  Platform IME/XIM connection, exact preedit cursor styling, exact left/right
-  modifier source tracking, and broader dynamic `cell_widths` Lua parity remain
-  future parity work.
+  text renders through the Builtin overlay path at the active pane cursor, and
+  static Lua `colors.compose_cursor` overrides the cursor color while Builtin
+  preedit text is active. Platform IME/XIM connection, dead-key/leader
+  composition cursor parity, exact left/right modifier source tracking, and
+  broader dynamic `cell_widths` Lua parity remain future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -749,7 +750,7 @@ keyboard, mouse, paste, resize
   `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
-  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
@@ -823,8 +824,10 @@ keyboard, mouse, paste, resize
   Native winit IME commit text is written to the active pane when `use_ime` is
   enabled and ignored when disabled; native winit IME preedit text is rendered
   as a Builtin overlay at the active pane cursor and suppressed for `System` or
-  disabled IME, with commit/empty preedit clearing the overlay. Exact preedit
-  cursor styling and deeper platform IME/XIM setup remain future parity work.
+  disabled IME, with commit/empty preedit clearing the overlay. Static Lua
+  `colors.compose_cursor` overrides the cursor color while Builtin preedit text
+  is active. Dead-key/leader composition cursor parity and deeper platform
+  IME/XIM setup remain future parity work.
   `detect_password_input` is stored
   with WezTerm's default `true`;
   actual Unix local-pane termios probing and lock-cursor rendering remain
@@ -969,7 +972,8 @@ keyboard, mouse, paste, resize
   `cursor_border_color`, and `cursor_fg_color` overrides stand in for WezTerm
   `colors.foreground`, `colors.background`, `colors.ansi`, `colors.brights`,
   `colors.indexed`, `colors.selection_fg`, `colors.selection_bg`,
-  `colors.cursor_bg`, `colors.cursor_border`, and `colors.cursor_fg`, driving
+  `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, and
+  `colors.compose_cursor`, driving
   the default text foreground, framebuffer background, ANSI 0-15 palette,
   indexed 16-255 palette overrides, selected text foreground/background,
   cursor fill, block-cursor border, line-cursor color, and block-cursor text
@@ -997,7 +1001,7 @@ keyboard, mouse, paste, resize
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
-  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
@@ -1086,7 +1090,7 @@ keyboard, mouse, paste, resize
   `inactive_pane_hsb`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
-  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
   `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,

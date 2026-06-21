@@ -1966,6 +1966,7 @@ struct NativeEffectiveConfig {
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
+    compose_cursor_color: Option<Color>,
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
@@ -2124,6 +2125,7 @@ struct NativeConfigOverrides {
     cursor_bg_color: Option<Color>,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
+    compose_cursor_color: Option<Color>,
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
@@ -2296,6 +2298,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         }
         if let Some(cursor_fg_color) = color_lua_table_field_from_query(colors, "cursor_fg")? {
             overrides.cursor_fg_color = Some(cursor_fg_color);
+            parsed = true;
+        }
+        if let Some(compose_cursor_color) =
+            color_lua_table_field_from_query(colors, "compose_cursor")?
+        {
+            overrides.compose_cursor_color = Some(compose_cursor_color);
             parsed = true;
         }
         if let Some(split_color) = color_lua_table_field_from_query(colors, "split")? {
@@ -4765,6 +4773,7 @@ struct NativeWindowApp {
     cursor_bg_color: Color,
     cursor_border_color: Option<Color>,
     cursor_fg_color: Option<Color>,
+    compose_cursor_color: Option<Color>,
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
@@ -6201,6 +6210,7 @@ impl NativeWindowApp {
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
+            compose_cursor_color: None,
             split_color: None,
             scrollbar_thumb_color: None,
             tab_bar_background_color: None,
@@ -7200,6 +7210,7 @@ impl NativeWindowApp {
             self.cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
+        detached_app.compose_cursor_color = self.compose_cursor_color;
         detached_app.split_color = self.split_color;
         detached_app.scrollbar_thumb_color = self.scrollbar_thumb_color;
         detached_app.tab_bar_background_color = self.tab_bar_background_color;
@@ -7407,6 +7418,7 @@ impl NativeWindowApp {
                 .cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
+        self.compose_cursor_color = source.compose_cursor_color;
         self.split_color = source.split_color;
         self.scrollbar_thumb_color = source.scrollbar_thumb_color;
         self.tab_bar_background_color = source.tab_bar_background_color;
@@ -12908,6 +12920,8 @@ impl NativeWindowApp {
                 self.ansi_palette,
                 self.indexed_palette,
             );
+            let snapshot =
+                self.apply_compose_cursor_to_snapshot(self.app_shell.active_pane_id(), snapshot);
             let snapshot = self.apply_visual_bell_to_snapshot(
                 self.app_shell.active_pane_id(),
                 snapshot,
@@ -12954,6 +12968,7 @@ impl NativeWindowApp {
                 self.ansi_palette,
                 self.indexed_palette,
             );
+            pane_snapshot = self.apply_compose_cursor_to_snapshot(rect.pane_id, pane_snapshot);
             pane_snapshot = self.apply_visual_bell_to_snapshot(
                 rect.pane_id,
                 pane_snapshot,
@@ -12976,7 +12991,7 @@ impl NativeWindowApp {
                     text_background_opacity_snapshot(snapshot, self.text_background_opacity);
                 let snapshot =
                     window_background_opacity_snapshot(snapshot, self.window_background_opacity);
-                text_min_contrast_snapshot(
+                let snapshot = text_min_contrast_snapshot(
                     snapshot,
                     self.text_min_contrast_ratio,
                     color_to_rgba(self.foreground_color, DEFAULT_RENDER_FOREGROUND_RGBA),
@@ -12984,8 +12999,9 @@ impl NativeWindowApp {
                     self.bold_brightens_ansi_colors,
                     self.ansi_palette,
                     self.indexed_palette,
-                )
-                .with_row_offset(self.terminal_frame_row_offset())
+                );
+                self.apply_compose_cursor_to_snapshot(self.app_shell.active_pane_id(), snapshot)
+                    .with_row_offset(self.terminal_frame_row_offset())
             })
             .with_overlay_cells(self.pane_separator_cells(&layout))
             .with_overlay_cells(self.pane_badge_cells(&layout))
@@ -12997,6 +13013,28 @@ impl NativeWindowApp {
             .with_overlay_cells(self.command_palette_cells())
             .with_overlay_cells(self.char_select_cells())
             .with_overlay_cells(self.debug_overlay_cells())
+    }
+
+    fn apply_compose_cursor_to_snapshot(
+        &self,
+        pane_id: rssh_core::PaneId,
+        snapshot: TerminalRenderSnapshot,
+    ) -> TerminalRenderSnapshot {
+        if pane_id != self.app_shell.active_pane_id()
+            || !self.use_ime
+            || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin
+            || !self
+                .ime_preedit
+                .as_deref()
+                .is_some_and(|preedit| !preedit.is_empty())
+        {
+            return snapshot;
+        }
+
+        match self.compose_cursor_color {
+            Some(color) => snapshot.with_cursor_color(Some(color)),
+            None => snapshot,
+        }
     }
 
     fn apply_visual_bell_to_snapshot(
@@ -14599,6 +14637,7 @@ impl NativeWindowApp {
             cursor_bg_color: self.cursor_bg_color,
             cursor_border_color: self.cursor_border_color,
             cursor_fg_color: self.cursor_fg_color,
+            compose_cursor_color: self.compose_cursor_color,
             split_color: self.split_color,
             scrollbar_thumb_color: self.scrollbar_thumb_color,
             tab_bar_background_color: self.tab_bar_background_color,
@@ -14872,6 +14911,7 @@ impl NativeWindowApp {
             self.cursor_fg_color
                 .map(|color| color_to_rgba(color, DEFAULT_RENDER_FOREGROUND_RGBA)),
         );
+        self.compose_cursor_color = overrides.compose_cursor_color;
         self.split_color = overrides.split_color;
         self.scrollbar_thumb_color = overrides.scrollbar_thumb_color;
         self.tab_bar_background_color = overrides.tab_bar_background_color;
@@ -46823,6 +46863,7 @@ mod tests {
                 cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
                 cursor_border_color: None,
                 cursor_fg_color: None,
+                compose_cursor_color: None,
                 split_color: None,
                 scrollbar_thumb_color: None,
                 tab_bar_background_color: None,
@@ -59511,6 +59552,30 @@ mod tests {
     }
 
     #[test]
+    fn window_app_uses_wezterm_compose_cursor_color_for_builtin_ime_preedit() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              compose_cursor = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors.compose_cursor config");
+        app.set_config_overrides(overrides);
+
+        app.handle_ime_preedit("kan");
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot.cursor_color(), Some(Color::Rgb(1, 2, 3)));
+    }
+
+    #[test]
     fn window_app_does_not_render_system_ime_preedit() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.feed_pty_output(b"ab");
@@ -65723,6 +65788,7 @@ mod tests {
             cursor_bg_color: Some(Color::Rgb(10, 11, 12)),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
+            compose_cursor_color: Some(Color::Rgb(22, 23, 24)),
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
@@ -65963,6 +66029,7 @@ mod tests {
             cursor_bg_color: Color::Rgb(10, 11, 12),
             cursor_border_color: Some(Color::Rgb(16, 17, 18)),
             cursor_fg_color: Some(Color::Rgb(13, 14, 15)),
+            compose_cursor_color: Some(Color::Rgb(22, 23, 24)),
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
@@ -66142,6 +66209,7 @@ mod tests {
             cursor_bg_color: DEFAULT_CURSOR_BG_COLOR,
             cursor_border_color: None,
             cursor_fg_color: None,
+            compose_cursor_color: None,
             split_color: None,
             scrollbar_thumb_color: None,
             tab_bar_background_color: None,
