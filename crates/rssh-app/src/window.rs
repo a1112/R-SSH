@@ -4478,7 +4478,7 @@ fn native_user_key_assignment_lua_table_from_query(value: &str) -> Option<Native
                 if command.is_some() {
                     return None;
                 }
-                command = Some(command_palette_structured_query_command(value)?);
+                command = Some(native_key_assignment_command_from_query(value)?);
             }
             _ => return None,
         }
@@ -4494,6 +4494,14 @@ fn native_user_key_assignment_lua_table_from_query(value: &str) -> Option<Native
         keys,
         command: command?,
     })
+}
+
+fn native_key_assignment_command_from_query(value: &str) -> Option<WindowCommand> {
+    let value = value.trim();
+    if lua_action_callback_from_query(value) {
+        return Some(WindowCommand::Nop);
+    }
+    command_palette_structured_query_command(value)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -58875,6 +58883,37 @@ mod tests {
 
         assert_eq!(written.lock().unwrap().as_slice(), b"left");
         assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_action_callback_placeholder() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = wezterm.action_callback(function(win, pane)
+                  wezterm.log_info('callback', win:window_id(), pane:pane_id())
+                end),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm action_callback key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+I".to_owned(),
+                command: WindowCommand::Nop,
+            }])
+        );
     }
 
     #[test]

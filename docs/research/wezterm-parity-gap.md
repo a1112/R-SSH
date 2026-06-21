@@ -1032,8 +1032,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   now parse native key assignment tables and leader configuration into the same
   override/runtime path for the implemented action subset, including bracketed
   string table keys with long-bracket values for leader fields, key-table names,
-  and nested assignment fields; full Lua config evaluation, default key-table
-  merging, and config-file reload wiring remain open.
+  and nested assignment fields. Static `config.keys` and `config.key_tables`
+  action fields also accept `wezterm.action_callback(...)` values as no-op
+  native placeholders so official callback-shaped bindings can load; full Lua
+  callback execution, full Lua config evaluation, default key-table merging,
+  and config-file reload wiring remain open.
 - Native `Nop` action payloads now map to the no-effect app-shell action, so a
   native key/palette action can consume a trigger without mutating window state.
   Structured command-palette `nop` queries dispatch the same payload directly.

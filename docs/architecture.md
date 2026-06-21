@@ -266,7 +266,11 @@ keyboard, mouse, paste, resize
   the configured leader key arms the virtual modifier until the next key press
   or `timeout_milliseconds`; while active, only `LEADER` assignments are
   matched and unmatched keys are swallowed before returning to the normal input
-  path. Lua `leader`/`keys` parsing remains future config parity work.
+  path. Static Lua `config.keys` and `config.key_tables` action fields also
+  accept `wezterm.action_callback(...)` values as no-op native placeholders so
+  official callback-shaped bindings can load; actual Lua callback execution,
+  default key-table merging, and config-file reload wiring remain future
+  config parity work.
 - Implemented in v1: native `WindowCommand::DisableDefaultAssignment` can be
   used in user key assignments to suppress matching built-in app-shell,
   window-level, and scrollback shortcuts, leaving the key available for the
