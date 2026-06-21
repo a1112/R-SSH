@@ -375,7 +375,8 @@ keyboard, mouse, paste, resize
   the optional cancel action. Structured command-palette `confirmation message
   ...` queries and action-name `confirmationmessage ...` aliases use
   quote-aware message parsing and accept `message`/`action`/`cancel` fields in
-  both `field <text>` and `field=<text>` forms. Static Lua
+  both `field <text>` and `field=<text>` forms; omitted messages default to
+  WezTerm's ` Really continue?` prompt. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
   their visible text for the native overlay; styled confirmation rendering and
   `wezterm.action_callback` wiring remain future parity work.

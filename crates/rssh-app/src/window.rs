@@ -162,6 +162,7 @@ const DEFAULT_SWITCH_TO_LAST_ACTIVE_TAB_WHEN_CLOSING_TAB: bool = false;
 const DEFAULT_QUIT_WHEN_ALL_WINDOWS_ARE_CLOSED: bool = true;
 const DEFAULT_WINDOW_CLOSE_CONFIRMATION: NativeWindowCloseConfirmation =
     NativeWindowCloseConfirmation::AlwaysPrompt;
+const DEFAULT_CONFIRMATION_MESSAGE: &str = " Really continue?";
 const DEFAULT_EXIT_BEHAVIOR: NativeExitBehavior = NativeExitBehavior::Close;
 const DEFAULT_CLEAN_EXIT_CODES: &[u32] = &[];
 const DEFAULT_EXIT_BEHAVIOR_MESSAGING: NativeExitBehaviorMessaging =
@@ -22915,7 +22916,9 @@ struct ConfirmationQueryFields {
 impl ConfirmationQueryFields {
     fn into_options(self) -> Option<WindowConfirmationOptions> {
         Some(WindowConfirmationOptions {
-            message: self.message?,
+            message: self
+                .message
+                .unwrap_or_else(|| DEFAULT_CONFIRMATION_MESSAGE.to_owned()),
             action: Box::new(self.action?),
             cancel: self.cancel.map(Box::new),
         })
@@ -61992,6 +61995,36 @@ mod tests {
         assert_eq!(
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:1 pane:1] - Send command? Enter/Y=yes Esc/N=no"
+        );
+
+        assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));
+        assert!(app.confirmation.is_none());
+        assert_eq!(written.lock().unwrap().as_slice(), b"yes");
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_confirmation_wezterm_action_default_message_query() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Confirmation { action = \"sendstring yes\" }".to_owned(),
+        );
+        let command = WindowCommand::Confirmation(WindowConfirmationOptions {
+            message: " Really continue?".to_owned(),
+            action: Box::new(WindowCommand::SendString("yes".to_owned())),
+            cancel: None,
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] -  Really continue? Enter/Y=yes Esc/N=no"
         );
 
         assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));

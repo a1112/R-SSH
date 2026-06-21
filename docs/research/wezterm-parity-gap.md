@@ -976,7 +976,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   using quote-aware message parsing and keeping field-key words inside
   message/action text when a later valid field boundary exists. The
   `message`/`action`/`cancel` fields accept both `field <text>` and
-  `field=<text>` forms. WezTerm-style
+  `field=<text>` forms, and omitted messages default to WezTerm's
+  ` Really continue?` prompt. WezTerm-style
   `wezterm.action.Confirmation { message = ..., action = ..., cancel = ... }`
   table-call queries also dispatch the same native nested-command subset,
   including bracketed string table keys with long-bracket values. Static Lua
