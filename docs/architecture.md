@@ -1642,7 +1642,9 @@ keyboard, mouse, paste, resize
   PriorMatch binding, configurable labels honoring `quick_select_alphabet`,
   configurable `quick_select_patterns` appended to the defaults, configurable
   `disable_default_quick_select_patterns` so configured patterns become the full
-  set, and native/effective-config storage for `quick_select_remove_styling`,
+  set, and `quick_select_remove_styling` stripping pane colors, text styling,
+  vertical alignment, hyperlink metadata, and inverse attributes before
+  quick-select match/label highlights are applied,
   quote-aware command-palette `quick select alphabet <chars>` for the native
   `QuickSelectArgs { alphabet = ... }` subset, command-palette
   `quick select pattern <regex>` and

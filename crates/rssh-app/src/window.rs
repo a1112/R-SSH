@@ -12032,6 +12032,10 @@ impl NativeWindowApp {
         let inactive_search_selections = self.copy_mode_inactive_search_selections(size);
         let mut snapshot = terminal_runtime_snapshot(&self.runtime, self.scrollback_offset);
 
+        if self.quick_select.is_some() && self.quick_select_remove_styling {
+            snapshot = quick_select_remove_styling_snapshot(snapshot);
+        }
+
         if !inactive_search_selections.is_empty() {
             let inactive_fg_color = self
                 .copy_mode_inactive_highlight_fg
@@ -33239,6 +33243,31 @@ fn foreground_text_hsb_snapshot(
     snapshot.with_cell_colors_mapped(|role, color| foreground_text_hsb_color(role, color, hsb))
 }
 
+fn quick_select_remove_styling_snapshot(
+    snapshot: TerminalRenderSnapshot,
+) -> TerminalRenderSnapshot {
+    snapshot.with_cells_mapped(|mut cell| {
+        cell.foreground = Color::Default;
+        cell.background = Color::Default;
+        cell.underline_color = Color::Default;
+        cell.underline_style = UnderlineStyle::None;
+        cell.bold = false;
+        cell.faint = false;
+        cell.italic = false;
+        cell.blink = false;
+        cell.rapid_blink = false;
+        cell.underline = false;
+        cell.double_underline = false;
+        cell.conceal = false;
+        cell.strikethrough = false;
+        cell.overline = false;
+        cell.vertical_align = VerticalAlign::default();
+        cell.inverse = false;
+        cell.hyperlink = None;
+        cell
+    })
+}
+
 fn text_background_opacity_snapshot(
     snapshot: TerminalRenderSnapshot,
     opacity: NativeTextBackgroundOpacity,
@@ -47498,6 +47527,40 @@ mod tests {
         assert_eq!(label_cell.foreground, Color::Rgb(4, 5, 6));
         assert_eq!(label_cell.background, Color::Indexed(4));
         assert!(!label_cell.inverse);
+    }
+
+    #[test]
+    fn window_quick_select_remove_styling_strips_pane_styles_before_highlighting() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
+        app.set_config_overrides(NativeConfigOverrides {
+            quick_select_remove_styling: Some(true),
+            quick_select_match_bg: Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3))),
+            quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
+            quick_select_label_bg: Some(NativeColorSpec::Color(Color::Rgb(7, 8, 9))),
+            quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(10, 11, 12))),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"\x1b[31;1;4mhttps://example.com tail\x1b[0m")
+            .unwrap();
+
+        app.enter_quick_select_mode();
+        let snapshot = app.render_snapshot();
+        let label_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("quick-select label cell");
+        let match_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 1).expect("quick-select match cell");
+        let plain_cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 20).expect("unstyled pane cell");
+
+        assert_eq!(label_cell.foreground, Color::Rgb(10, 11, 12));
+        assert_eq!(label_cell.background, Color::Rgb(7, 8, 9));
+        assert_eq!(match_cell.foreground, Color::Rgb(4, 5, 6));
+        assert_eq!(match_cell.background, Color::Rgb(1, 2, 3));
+        assert_eq!(plain_cell.ch, 't');
+        assert_eq!(plain_cell.foreground, Color::Default);
+        assert_eq!(plain_cell.background, Color::Default);
+        assert!(!plain_cell.bold);
+        assert!(!plain_cell.underline);
     }
 
     #[test]
