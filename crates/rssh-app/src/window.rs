@@ -22340,6 +22340,7 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
     let mut parsed_description = false;
     let mut parsed_prompt = false;
     let mut parsed_initial_value = false;
+    let mut parsed_action = false;
 
     for field in split_lua_table_top_level_fields(table)? {
         let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
@@ -22369,11 +22370,22 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
                 options.initial_value = Some(value);
                 parsed_initial_value = true;
             }
+            "action" => {
+                if parsed_action || !lua_action_callback_from_query(value.trim()) {
+                    return None;
+                }
+                parsed_action = true;
+            }
             _ => return None,
         }
     }
 
     parsed_description.then_some(options)
+}
+
+fn lua_action_callback_from_query(value: &str) -> bool {
+    strip_lua_function_call_from_query(value, "wezterm.action_callback").is_some()
+        || strip_lua_function_call_from_query(value, "action_callback").is_some()
 }
 
 fn modal_display_text_from_query(value: &str) -> Option<String> {
@@ -22753,14 +22765,15 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
     let mut parsed_description = false;
     let mut parsed_fuzzy_description = false;
     let mut parsed_fuzzy = false;
+    let mut parsed_action = false;
 
     for field in split_lua_table_top_level_fields(table)? {
         let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let raw_value = value.trim();
-        let value = parse_maybe_quoted_query_text(raw_value)?;
         match name.to_ascii_lowercase().as_str() {
             "title" => {
+                let value = parse_maybe_quoted_query_text(raw_value)?;
                 if parsed_title || value.is_empty() {
                     return None;
                 }
@@ -22774,11 +22787,13 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 options.choices = if raw_value.starts_with('{') {
                     input_selector_choices_lua_table_from_query(raw_value)?
                 } else {
+                    let value = parse_maybe_quoted_query_text(raw_value)?;
                     input_selector_choices_from_query(&value)?
                 };
                 parsed_choices = true;
             }
             "alphabet" => {
+                let value = parse_maybe_quoted_query_text(raw_value)?;
                 if parsed_alphabet {
                     return None;
                 }
@@ -22786,6 +22801,7 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 parsed_alphabet = true;
             }
             "description" => {
+                let value = parse_maybe_quoted_query_text(raw_value)?;
                 if parsed_description {
                     return None;
                 }
@@ -22793,6 +22809,7 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 parsed_description = true;
             }
             "fuzzy_description" | "fuzzy-description" => {
+                let value = parse_maybe_quoted_query_text(raw_value)?;
                 if parsed_fuzzy_description {
                     return None;
                 }
@@ -22800,11 +22817,18 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 parsed_fuzzy_description = true;
             }
             "fuzzy" => {
+                let value = parse_maybe_quoted_query_text(raw_value)?;
                 if parsed_fuzzy {
                     return None;
                 }
                 options.fuzzy = bool_from_query(&value)?;
                 parsed_fuzzy = true;
+            }
+            "action" => {
+                if parsed_action || !lua_action_callback_from_query(raw_value) {
+                    return None;
+                }
+                parsed_action = true;
             }
             _ => return None,
         }
@@ -27414,6 +27438,7 @@ fn split_lua_table_array_index_from_query(key: &str) -> Option<usize> {
 fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
     let mut fields = Vec::new();
     let mut depth = 0u32;
+    let mut paren_depth = 0u32;
     let mut quote = None;
     let mut start = 0usize;
     let mut escape = false;
@@ -27488,14 +27513,16 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
             }
             '{' => depth = depth.saturating_add(1),
             '}' => depth = depth.checked_sub(1)?,
-            ',' | ';' if depth == 0 => {
+            '(' => paren_depth = paren_depth.saturating_add(1),
+            ')' => paren_depth = paren_depth.checked_sub(1)?,
+            ',' | ';' if depth == 0 && paren_depth == 0 => {
                 fields.push(&table[start..index]);
                 start = index + character.len_utf8();
             }
             _ => {}
         }
     }
-    if quote.is_some() || depth != 0 {
+    if quote.is_some() || depth != 0 || paren_depth != 0 {
         return None;
     }
     fields.push(&table[start..]);
@@ -27504,6 +27531,7 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
 
 fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     let mut depth = 0u32;
+    let mut paren_depth = 0u32;
     let mut bracket_depth = 0u32;
     let mut quote = None;
     let mut escape = false;
@@ -27590,7 +27618,9 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
             ']' if bracket_depth > 0 => bracket_depth -= 1,
             '{' => depth = depth.saturating_add(1),
             '}' => depth = depth.checked_sub(1)?,
-            '=' if depth == 0 && bracket_depth == 0 => {
+            '(' => paren_depth = paren_depth.saturating_add(1),
+            ')' => paren_depth = paren_depth.checked_sub(1)?,
+            '=' if depth == 0 && paren_depth == 0 && bracket_depth == 0 => {
                 let key_end = key_end_before_comment.unwrap_or(index);
                 assignment = Some((key_end, index + character.len_utf8()));
             }
@@ -62544,6 +62574,34 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_prompt_input_line_wezterm_action_callback_field_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine { description = \"Rename tab\", prompt = \"name: \", initial_value = \"old name\", action = wezterm.action_callback(function(window, pane, line) end) }"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+            description: "Rename tab".to_owned(),
+            prompt: Some("name: ".to_owned()),
+            initial_value: Some("old name".to_owned()),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Rename tab: name: old name"
+        );
+    }
+
+    #[test]
     fn window_app_dispatches_palette_prompt_input_line_table_long_bracket_key_query() {
         let mut app = NativeWindowApp::new(None);
 
@@ -63127,6 +63185,43 @@ mod tests {
             app.effective_window_title()
                 .contains("Pick Reply: Filter replies:")
         );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_input_selector_wezterm_action_callback_field_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Pick Reply\", choices = { { label = \"No thanks\", id = \"decline\" }, { label = \"LGTM\", id = \"lgtm\" } }, action = wezterm.action_callback(function(window, pane, id, label) end) }"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::InputSelector(WindowInputSelectorOptions {
+            title: "Pick Reply".to_owned(),
+            choices: vec![
+                WindowInputSelectorChoice {
+                    label: "No thanks".to_owned(),
+                    id: Some("decline".to_owned()),
+                },
+                WindowInputSelectorChoice {
+                    label: "LGTM".to_owned(),
+                    id: Some("lgtm".to_owned()),
+                },
+            ],
+            alphabet: None,
+            description: None,
+            fuzzy_description: None,
+            fuzzy: false,
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+
+        assert!(app.command_palette.is_none());
+        assert!(app.effective_window_title().contains("Pick Reply:"));
     }
 
     #[test]

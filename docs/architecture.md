@@ -346,8 +346,10 @@ keyboard, mouse, paste, resize
   `initial value`, and `initial-value` field keys are accepted in both
   `field <text>` and `field=<text>` forms. Static Lua
   `wezterm.format { { Text = ... } }` values for `description` and `prompt`
-  are reduced to their visible text for the native overlay; styled prompt-line
-  rendering and `wezterm.action_callback` wiring remain future parity work.
+  are reduced to their visible text for the native overlay, and static
+  `action = wezterm.action_callback(...)` fields are accepted as native-handler
+  placeholders; styled prompt-line rendering and actual Lua callback wiring
+  remain future parity work.
 - Completed in v1: a native WezTerm-style `InputSelector` action payload carries
   `title`, `choices`, optional `alphabet`, optional `description`, optional
   `fuzzy_description`, and `fuzzy`; it opens a modal selector with default-mode
@@ -364,9 +366,11 @@ keyboard, mouse, paste, resize
   include semicolons. Known fields following `choices` are treated as the earliest
   structured boundary. WezTerm-style Lua table choices with `{ label = ..., id = ... }`
   entries are accepted, and static `wezterm.format { { Text = ... } }` label
-  values are reduced to their text for native selector labels. Duplicate
-  `fuzzy` fields are rejected instead of silently overriding them; Lua
-  `wezterm.action_callback` wiring remains future parity work.
+  values are reduced to their text for native selector labels. Static
+  `action = wezterm.action_callback(...)` fields are accepted as native-handler
+  placeholders. Duplicate `fuzzy` fields are rejected instead of silently
+  overriding them; actual Lua `wezterm.action_callback` wiring remains future
+  parity work.
 - Completed in v1: a native WezTerm-style `Confirmation` action payload carries
   a message string, required Yes action, and optional No/cancel action. It opens
   a modal confirmation overlay, dispatches a typed native handler with

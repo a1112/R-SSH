@@ -927,9 +927,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   initial_value = ... }` table-call queries also dispatch that native field
   subset, including bracketed string table keys with long-bracket values.
   Static Lua `wezterm.format { { Text = ... } }` values for `description` and
-  `prompt` are reduced to their visible text for the native overlay, while
-  styled prompt-line rendering and Lua `wezterm.action_callback` wiring remain
-  open.
+  `prompt` are reduced to their visible text for the native overlay, and static
+  `action = wezterm.action_callback(...)` fields are accepted as native-handler
+  placeholders, while styled prompt-line rendering and actual Lua
+  `wezterm.action_callback` wiring remain open.
 - Native `InputSelector` action payloads now carry `title`, `choices`, optional
   `alphabet`, optional `description`, optional `fuzzy_description`, and `fuzzy`,
   open a modal selector, support default-mode alphabet shortcuts, `/` fuzzy
@@ -961,8 +962,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `{ label = ..., id = ... }` entries, including bracketed string keys on those
   nested choice tables. Static `wezterm.format { { Text = ... } }` label values
   are reduced to their text for native selector labels, while style items are
-  ignored until styled selector rows are implemented. Lua `wezterm.action_callback`
-  wiring remains open.
+  ignored until styled selector rows are implemented. Static
+  `action = wezterm.action_callback(...)` fields are accepted as native-handler
+  placeholders, while actual Lua `wezterm.action_callback` wiring remains open.
 - Native `Confirmation` action payloads now carry a message string, required Yes
   action, and optional No/cancel action. They open a modal confirmation overlay,
   dispatch typed native `accepted = true` events on Enter/`Y`/Space before
