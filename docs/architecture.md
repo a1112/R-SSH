@@ -350,10 +350,10 @@ keyboard, mouse, paste, resize
   `title`, `choices`, optional `alphabet`, optional `description`, optional
   `fuzzy_description`, and `fuzzy`; it opens a modal selector with default-mode
   alphabet shortcuts, `/` fuzzy filtering, `j`/`k` plus arrow/Ctrl movement,
-  Enter selection, and Escape/`Ctrl+C`/`Ctrl+G` cancellation. The typed native
-  handler receives selected `id`/`label` or `None` values on cancel. Structured
-  command-palette query fields for `input selector ...` and action-name
-  `inputselector ...` title/alphabet/description/fuzzy_description use
+  Enter or left-click row selection, and Escape/`Ctrl+C`/`Ctrl+G` cancellation.
+  The typed native handler receives selected `id`/`label` or `None` values on
+  cancel. Structured command-palette query fields for `input selector ...` and
+  action-name `inputselector ...` title/alphabet/description/fuzzy_description use
   quote-aware parsing; `fuzzy_description`, `fuzzy description`, and
   `fuzzy-description` field keys are accepted, selector fields support both
   `field <text>` and `field=<text>` forms, and `fuzzy=true|false` is accepted

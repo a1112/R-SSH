@@ -10326,6 +10326,52 @@ impl NativeWindowApp {
         self.submit_input_selector(choice);
     }
 
+    fn input_selector_choice_at_mouse_position(&self) -> Option<WindowInputSelectorChoice> {
+        let input_selector = self.input_selector.as_ref()?;
+        let choices = Self::input_selector_filtered_choices(input_selector);
+        if choices.is_empty() {
+            return None;
+        }
+
+        let size = self.runtime.terminal().grid().size();
+        if size.rows == 0 || size.columns == 0 {
+            return None;
+        }
+
+        let (_, row) = self.mouse_position?;
+        let frame_row = row.checked_add(self.terminal_frame_row_offset())?;
+        let first_row = if self.tab_bar_is_visible() && !self.tab_bar_at_bottom {
+            TAB_BAR_ROWS
+        } else {
+            0
+        };
+        let visible_rows = choices.len().min(usize::from(size.rows));
+        let selected = input_selector.selected.min(choices.len().saturating_sub(1));
+        let start = selected.saturating_add(1).saturating_sub(visible_rows);
+        let visible_index = usize::from(frame_row.checked_sub(first_row)?);
+        if visible_index >= visible_rows {
+            return None;
+        }
+
+        choices.get(start + visible_index).cloned()
+    }
+
+    fn handle_input_selector_mouse_input(
+        &mut self,
+        state: ElementState,
+        button: MouseButton,
+    ) -> bool {
+        if state != ElementState::Pressed || button != MouseButton::Left {
+            return false;
+        }
+
+        let Some(choice) = self.input_selector_choice_at_mouse_position() else {
+            return false;
+        };
+        self.submit_input_selector(Some(choice));
+        true
+    }
+
     fn handle_input_selector_backspace(&mut self) -> bool {
         if let Some(input_selector) = self.input_selector.as_mut() {
             if input_selector.query.pop().is_none()
@@ -12450,6 +12496,10 @@ impl NativeWindowApp {
 
         if self.copy_mode.is_some() {
             self.exit_copy_mode();
+        }
+
+        if self.handle_input_selector_mouse_input(state, button) {
+            return Ok(true);
         }
 
         let default_mouse_bindings_enabled = !self.disable_default_mouse_bindings;
@@ -63248,6 +63298,58 @@ mod tests {
         );
         assert!(
             app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        assert!(app.input_selector.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeInputSelector {
+                window_id: rssh_core::WindowId::new(1),
+                pane: rssh_core::PaneId::new(1),
+                id: Some("lgtm".to_owned()),
+                label: Some("LGTM".to_owned()),
+            }]
+        );
+    }
+
+    #[test]
+    fn window_app_input_selector_left_click_selects_row() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.input_selector_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(event.clone());
+            true
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::InputSelector(
+            WindowInputSelectorOptions {
+                title: "Pick Reply".to_owned(),
+                choices: vec![
+                    WindowInputSelectorChoice {
+                        label: "No thanks".to_owned(),
+                        id: Some("decline".to_owned()),
+                    },
+                    WindowInputSelectorChoice {
+                        label: "LGTM".to_owned(),
+                        id: Some("lgtm".to_owned()),
+                    },
+                ],
+                alphabet: Some("ab".to_owned()),
+                description: Some("Choose:".to_owned()),
+                fuzzy_description: None,
+                fuzzy: false,
+            },
+        )));
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH),
+            f64::from(tab_bar_pixel_height() + CELL_HEIGHT),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
         );
 
         assert!(app.input_selector.is_none());
