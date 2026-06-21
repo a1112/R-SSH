@@ -375,8 +375,10 @@ keyboard, mouse, paste, resize
   the optional cancel action. Structured command-palette `confirmation message
   ...` queries and action-name `confirmationmessage ...` aliases use
   quote-aware message parsing and accept `message`/`action`/`cancel` fields in
-  both `field <text>` and `field=<text>` forms. Lua
-  `wezterm.action_callback` wiring remains future parity work.
+  both `field <text>` and `field=<text>` forms. Static Lua
+  `wezterm.format { { Text = ... } }` values for `message` are reduced to
+  their visible text for the native overlay; styled confirmation rendering and
+  `wezterm.action_callback` wiring remain future parity work.
 - Completed in v1: a native WezTerm-style `EmitEvent` action payload carries a
   custom event name and dispatches it through a typed native handler with the
   active window id and pane id. Structured command-palette `emit event <name>`
