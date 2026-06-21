@@ -4811,6 +4811,7 @@ struct NativeWindowApp {
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     ime_preedit: Option<String>,
+    dead_key_active: bool,
     xim_im_name: Option<String>,
     detect_password_input: bool,
     leader: Option<NativeLeaderKey>,
@@ -6249,6 +6250,7 @@ impl NativeWindowApp {
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             ime_preedit: None,
+            dead_key_active: false,
             xim_im_name: None,
             detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
             leader: None,
@@ -7458,6 +7460,7 @@ impl NativeWindowApp {
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.ime_preedit = source.ime_preedit.clone();
+        self.dead_key_active = false;
         self.xim_im_name.clone_from(&source.xim_im_name);
         self.detect_password_input = source.detect_password_input;
         self.leader.clone_from(&source.leader);
@@ -13031,8 +13034,9 @@ impl NativeWindowApp {
                 .as_deref()
                 .is_some_and(|preedit| !preedit.is_empty());
         let leader_active = self.leader_active_since.is_some();
+        let dead_key_active = self.dead_key_active;
 
-        if !builtin_preedit_active && !leader_active {
+        if !builtin_preedit_active && !leader_active && !dead_key_active {
             return snapshot;
         }
 
@@ -16433,6 +16437,7 @@ impl NativeWindowApp {
 
     fn handle_ime_commit(&mut self, text: &str) -> io::Result<()> {
         self.ime_preedit = None;
+        self.dead_key_active = false;
         if !self.use_ime || text.is_empty() {
             return Ok(());
         }
@@ -16516,6 +16521,11 @@ impl NativeWindowApp {
                 }
             }
             return Ok(());
+        }
+
+        let is_dead_key = matches!(logical_key, Key::Dead(_));
+        if !is_dead_key {
+            self.dead_key_active = false;
         }
 
         self.hide_mouse_cursor_for_typing_if_needed();
@@ -16713,6 +16723,11 @@ impl NativeWindowApp {
         }
 
         if self.handle_scrollback_shortcut(logical_key, modifiers) {
+            return Ok(());
+        }
+
+        if is_dead_key {
+            self.dead_key_active = true;
             return Ok(());
         }
 
@@ -57385,6 +57400,49 @@ mod tests {
 
         let snapshot = app.render_snapshot();
         assert_eq!(snapshot.cursor_color(), Some(Color::Rgb(1, 2, 3)));
+    }
+
+    #[test]
+    fn window_app_uses_wezterm_compose_cursor_color_while_dead_key_is_active() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              compose_cursor = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm compose cursor config");
+        app.set_config_overrides(overrides);
+
+        app.handle_keyboard_input_event(
+            &Key::Dead(Some('^')),
+            PhysicalKey::Code(WinitKeyCode::Quote),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot.cursor_color(), Some(Color::Rgb(1, 2, 3)));
+
+        app.handle_keyboard_input_event(
+            &Key::Character("e".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyE),
+            Some("ê"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot.cursor_color(), None);
     }
 
     #[test]
