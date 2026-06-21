@@ -1684,6 +1684,27 @@ struct NativeUserKeyAssignment {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeUserMouseAssignment {
+    event: NativeMouseAssignmentEvent,
+    modifiers: ModifiersState,
+    command: WindowCommand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeMouseAssignmentEvent {
+    kind: NativeMouseAssignmentEventKind,
+    button: MouseButton,
+    streak: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeMouseAssignmentEventKind {
+    Down,
+    Up,
+    Drag,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeLeaderKey {
     keys: String,
     timeout_milliseconds: Option<u64>,
@@ -2176,6 +2197,7 @@ struct NativeConfigOverrides {
     leader: Option<NativeLeaderKey>,
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
+    mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
     canonicalize_pasted_newlines: Option<NativeCanonicalizePastedNewlines>,
@@ -3177,6 +3199,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(key_tables) = lua_config_table_assignment_from_query(config, "key_tables") {
         overrides.key_tables = Some(native_key_tables_lua_table_from_query(key_tables)?);
+        parsed = true;
+    }
+    if let Some(mouse_bindings) = lua_config_table_assignment_from_query(config, "mouse_bindings") {
+        overrides.mouse_assignments = Some(native_mouse_assignments_lua_table_from_query(
+            mouse_bindings,
+        )?);
         parsed = true;
     }
     if let Some(leader) = lua_config_table_assignment_from_query(config, "leader") {
@@ -4504,6 +4532,180 @@ fn native_key_assignment_command_from_query(value: &str) -> Option<WindowCommand
     command_palette_structured_query_command(value)
 }
 
+fn native_mouse_assignments_lua_table_from_query(
+    value: &str,
+) -> Option<Vec<NativeUserMouseAssignment>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut assignments = Vec::new();
+    let mut indexed_assignments = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !assignments.is_empty() || index == 0 || indexed_assignments.contains_key(&index) {
+                return None;
+            }
+            indexed_assignments.insert(
+                index,
+                native_user_mouse_assignment_lua_table_from_query(value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_assignments.is_empty() {
+            return None;
+        }
+        assignments.push(native_user_mouse_assignment_lua_table_from_query(field)?);
+    }
+
+    if !indexed_assignments.is_empty() {
+        return (1..=indexed_assignments.len())
+            .map(|index| indexed_assignments.remove(&index))
+            .collect();
+    }
+
+    Some(assignments)
+}
+
+fn native_user_mouse_assignment_lua_table_from_query(
+    value: &str,
+) -> Option<NativeUserMouseAssignment> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut event = None;
+    let mut modifiers = None;
+    let mut command = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = value.trim();
+        match name.to_ascii_lowercase().as_str() {
+            "event" => {
+                if event.is_some() {
+                    return None;
+                }
+                event = Some(native_mouse_assignment_event_lua_table_from_query(value)?);
+            }
+            "mods" | "mod" => {
+                if modifiers.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_quoted_query_text(value)?;
+                modifiers = Some(native_modifiers_from_wezterm_lua_config(&value)?);
+            }
+            "action" => {
+                if command.is_some() {
+                    return None;
+                }
+                command = Some(native_key_assignment_command_from_query(value)?);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(NativeUserMouseAssignment {
+        event: event?,
+        modifiers: modifiers.unwrap_or_else(ModifiersState::empty),
+        command: command?,
+    })
+}
+
+fn native_mouse_assignment_event_lua_table_from_query(
+    value: &str,
+) -> Option<NativeMouseAssignmentEvent> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut parsed = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if parsed.is_some() {
+            return None;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let kind = match name.to_ascii_lowercase().as_str() {
+            "down" => NativeMouseAssignmentEventKind::Down,
+            "up" => NativeMouseAssignmentEventKind::Up,
+            "drag" => NativeMouseAssignmentEventKind::Drag,
+            _ => return None,
+        };
+        parsed = Some(native_mouse_assignment_event_payload_from_query(
+            value.trim(),
+            kind,
+        )?);
+    }
+
+    parsed
+}
+
+fn native_mouse_assignment_event_payload_from_query(
+    value: &str,
+    kind: NativeMouseAssignmentEventKind,
+) -> Option<NativeMouseAssignmentEvent> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut button = None;
+    let mut streak = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let value = value.trim();
+        match name.to_ascii_lowercase().as_str() {
+            "button" => {
+                if button.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_quoted_query_text(value)?;
+                button = Some(native_mouse_button_from_query(&value)?);
+            }
+            "streak" => {
+                if streak.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_quoted_query_text(value)?;
+                streak = Some(value.parse::<u8>().ok()?);
+            }
+            _ => return None,
+        }
+    }
+
+    let streak = streak?;
+    if streak != 1 {
+        return None;
+    }
+
+    Some(NativeMouseAssignmentEvent {
+        kind,
+        button: button?,
+        streak,
+    })
+}
+
+fn native_mouse_button_from_query(value: &str) -> Option<MouseButton> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(MouseButton::Left),
+        "middle" => Some(MouseButton::Middle),
+        "right" => Some(MouseButton::Right),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeKeyMapPreference {
@@ -4858,6 +5060,7 @@ struct NativeWindowApp {
     leader: Option<NativeLeaderKey>,
     key_assignments: Vec<NativeUserKeyAssignment>,
     key_tables: BTreeMap<String, Vec<NativeUserKeyAssignment>>,
+    mouse_assignments: Vec<NativeUserMouseAssignment>,
     leader_active_since: Option<Instant>,
     scroll_to_bottom_on_input: bool,
     canonicalize_pasted_newlines: NativeCanonicalizePastedNewlines,
@@ -6301,6 +6504,7 @@ impl NativeWindowApp {
             leader: None,
             key_assignments: Vec::new(),
             key_tables: BTreeMap::new(),
+            mouse_assignments: Vec::new(),
             leader_active_since: None,
             scroll_to_bottom_on_input: DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT,
             canonicalize_pasted_newlines: DEFAULT_CANONICALIZE_PASTED_NEWLINES,
@@ -7305,6 +7509,9 @@ impl NativeWindowApp {
             .key_assignments
             .clone_from(&self.key_assignments);
         detached_app.key_tables.clone_from(&self.key_tables);
+        detached_app
+            .mouse_assignments
+            .clone_from(&self.mouse_assignments);
         detached_app.leader_active_since = None;
         detached_app.scroll_to_bottom_on_input = self.scroll_to_bottom_on_input;
         detached_app.adjust_window_size_when_changing_font_size =
@@ -7515,6 +7722,7 @@ impl NativeWindowApp {
         self.leader.clone_from(&source.leader);
         self.key_assignments.clone_from(&source.key_assignments);
         self.key_tables.clone_from(&source.key_tables);
+        self.mouse_assignments.clone_from(&source.mouse_assignments);
         self.leader_active_since = None;
         self.scroll_to_bottom_on_input = source.scroll_to_bottom_on_input;
         self.adjust_window_size_when_changing_font_size =
@@ -10381,6 +10589,37 @@ impl NativeWindowApp {
         true
     }
 
+    fn handle_user_mouse_assignment(
+        &mut self,
+        kind: NativeMouseAssignmentEventKind,
+        button: MouseButton,
+    ) -> bool {
+        let Some(command) = self
+            .mouse_assignments
+            .iter()
+            .find(|assignment| {
+                assignment.event.kind == kind
+                    && assignment.event.button == button
+                    && assignment.event.streak == 1
+                    && assignment.modifiers == self.modifiers
+            })
+            .map(|assignment| assignment.command.clone())
+        else {
+            return false;
+        };
+
+        if kind == NativeMouseAssignmentEventKind::Drag {
+            self.selection = None;
+            self.selecting = false;
+        }
+
+        if let Err(error) = self.command_palette_apply_command(command) {
+            eprintln!("mouse binding failed: {error:?}");
+            return false;
+        }
+        true
+    }
+
     fn handle_input_selector_backspace(&mut self) -> bool {
         if let Some(input_selector) = self.input_selector.as_mut() {
             if input_selector.query.pop().is_none()
@@ -12511,6 +12750,14 @@ impl NativeWindowApp {
             return Ok(true);
         }
 
+        let assignment_kind = match state {
+            ElementState::Pressed => NativeMouseAssignmentEventKind::Down,
+            ElementState::Released => NativeMouseAssignmentEventKind::Up,
+        };
+        if self.handle_user_mouse_assignment(assignment_kind, button) {
+            return Ok(true);
+        }
+
         let default_mouse_bindings_enabled = !self.disable_default_mouse_bindings;
         if default_mouse_bindings_enabled && window_start_drag_mouse_binding(button, self.modifiers)
         {
@@ -12602,6 +12849,13 @@ impl NativeWindowApp {
 
         if self.split_resize_dragging.is_some() {
             return Ok(self.resize_split_to_mouse_position());
+        }
+
+        if mouse_cell_changed
+            && let Some(button) = self.active_mouse_button
+            && self.handle_user_mouse_assignment(NativeMouseAssignmentEventKind::Drag, button)
+        {
+            return Ok(true);
         }
 
         if !mouse_cell_changed {
@@ -15298,6 +15552,7 @@ impl NativeWindowApp {
                 (!assignments.is_empty()).then(|| (name.to_owned(), assignments))
             })
             .collect();
+        self.mouse_assignments = overrides.mouse_assignments.unwrap_or_default();
         self.enable_scroll_bar = overrides
             .enable_scroll_bar
             .unwrap_or(DEFAULT_ENABLE_SCROLL_BAR);
@@ -37911,11 +38166,12 @@ mod tests {
         NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
         NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
-        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUiKeyCapRendering,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
+        NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind, NativeNotificationHandling,
+        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
+        NativeScrollBarHeight, NativeSquareGlyphOverflow, NativeStrikethroughPosition,
+        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
+        NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUserKeyAssignment, NativeUserMouseAssignment,
         NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
         NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
         NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
@@ -56341,6 +56597,46 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_start_window_drag_mouse_binding() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Drag = { streak = 1, button = 'Left' } },
+                mods = 'ALT',
+                action = act.StartWindowDrag,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::ALT;
+        let terminal_y = f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT) + 1.0;
+
+        app.handle_cursor_moved(PhysicalPosition::new(1.0, terminal_y))
+            .unwrap();
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+            .unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH) + 1.0,
+            terminal_y,
+        ))
+        .unwrap();
+
+        assert!(app.window_drag_requested_for_test());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
     fn window_app_middle_click_pastes_primary_selection_by_default() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -66786,6 +67082,15 @@ mod tests {
                 command: WindowCommand::ShowDebugOverlay,
             }]),
             key_tables: None,
+            mouse_assignments: Some(vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Drag,
+                    button: MouseButton::Left,
+                    streak: 1,
+                },
+                modifiers: ModifiersState::ALT,
+                command: WindowCommand::StartWindowDrag,
+            }]),
             scroll_to_bottom_on_input: Some(false),
             adjust_window_size_when_changing_font_size: Some(false),
             canonicalize_pasted_newlines: Some(NativeCanonicalizePastedNewlines::LineFeed),

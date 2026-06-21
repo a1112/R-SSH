@@ -573,7 +573,12 @@ keyboard, mouse, paste, resize
   dispatch plus the default `SUPER` + left mouse and `CTRL|SHIFT` + left mouse
   bindings to the native drag-to-move request path, calling the platform
   window backend when a native window exists. Action-name `startwindowdrag`
-  queries dispatch the same command. Native
+  queries dispatch the same command. Static WezTerm-style
+  `config.mouse_bindings` now parses the native `Drag`/`Left`/`streak = 1`
+  subset with `mods` and implemented native `action` payloads, so bindings
+  such as `ALT` + left drag can route to `StartWindowDrag`; broader mouse
+  binding events, wheel buttons, and click streak semantics remain future
+  parity work. Native
   `disable_default_mouse_bindings` defaults to false and suppresses the
   implemented default mouse-assignment subset when true.
 - Completed in v1: native `hide_mouse_cursor_when_typing` defaults to true,

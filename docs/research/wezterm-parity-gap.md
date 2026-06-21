@@ -180,6 +180,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Native window state now exposes WezTerm-style `StartWindowDrag`: the command
   palette entry and default `SUPER` + left mouse / `CTRL|SHIFT` + left mouse
   bindings request native drag-to-move via the window backend when available.
+  Static WezTerm-style `config.mouse_bindings` now parses the native
+  `Drag`/`Left`/`streak = 1` subset with `mods` and implemented native
+  `action` payloads, so custom bindings such as `ALT` + left drag can dispatch
+  `StartWindowDrag`; broader mouse binding events, wheel buttons, and click
+  streak semantics remain open.
 - Native window state now exposes WezTerm-style `ActivateWindow`,
   `ActivateWindowRelative`, and `ActivateWindowRelativeNoWrap` action payloads.
   The current window records a manager-level focus request; the multi-window
@@ -792,8 +797,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   same command.
 - Command palette now exposes WezTerm-style `StartWindowDrag` as
   `Start Window Drag`, sharing the same native drag-to-move request path as
-  the default modified-left-mouse bindings; action-name `startwindowdrag`
-  queries dispatch the same command.
+  the default modified-left-mouse bindings; static `config.mouse_bindings`
+  covers the native `Drag`/`Left`/`streak = 1` subset for implemented action
+  payloads, and action-name `startwindowdrag` queries dispatch the same command.
 - Native action payload dispatch now covers WezTerm-style `ActivateWindow`,
   `ActivateWindowRelative`, and `ActivateWindowRelativeNoWrap`, including
   manager-level absolute and wrap/no-wrap target selection across materialized
