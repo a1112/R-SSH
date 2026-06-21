@@ -1653,7 +1653,7 @@ keyboard, mouse, paste, resize
   quick-select match/label highlights are applied,
   `input_selector_label_bg`/`input_selector_label_fg` and
   `launcher_label_bg`/`launcher_label_fg` parsing into native/effective config
-  while their overlay row rendering remains later parity work,
+  and applying to default-mode selector/launcher shortcut labels,
   quote-aware command-palette `quick select alphabet <chars>` for the native
   `QuickSelectArgs { alphabet = ... }` subset, command-palette
   `quick select pattern <regex>` and

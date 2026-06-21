@@ -12980,6 +12980,7 @@ impl NativeWindowApp {
                 .with_overlay_cells(self.quick_select_cells())
                 .with_overlay_cells(self.tab_navigator_cells())
                 .with_overlay_cells(self.command_palette_cells())
+                .with_overlay_cells(self.input_selector_cells())
                 .with_overlay_cells(self.char_select_cells())
                 .with_overlay_cells(self.debug_overlay_cells());
         }
@@ -13054,6 +13055,7 @@ impl NativeWindowApp {
             .with_overlay_cells(self.quick_select_cells())
             .with_overlay_cells(self.tab_navigator_cells())
             .with_overlay_cells(self.command_palette_cells())
+            .with_overlay_cells(self.input_selector_cells())
             .with_overlay_cells(self.char_select_cells())
             .with_overlay_cells(self.debug_overlay_cells())
     }
@@ -13742,8 +13744,20 @@ impl NativeWindowApp {
         };
         let mut cells = Vec::with_capacity(visible_rows.saturating_mul(usize::from(columns)));
 
+        let launcher_labels = palette.launcher_args.as_ref().and_then(|args| {
+            (palette.query.is_empty() && !args.flags.fuzzy && !palette.launcher_fuzzy_filter).then(
+                || {
+                    quick_select_labels_for_alphabet(
+                        args.alphabet.as_deref().unwrap_or(&self.launcher_alphabet),
+                        entries.len(),
+                    )
+                },
+            )
+        });
+
         for (visible_index, entry) in entries.iter().skip(start).take(visible_rows).enumerate() {
             let row = first_row.saturating_add(u16::try_from(visible_index).unwrap_or(u16::MAX));
+            let entry_index = start + visible_index;
             let is_selected = start + visible_index == selected;
             let foreground = if is_selected {
                 Color::Rgb(18, 18, 22)
@@ -13771,7 +13785,145 @@ impl NativeWindowApp {
             }
 
             let label = entry.display_label(is_selected, self.ui_key_cap_rendering);
-            for (column, ch) in label.chars().take(usize::from(columns)).enumerate() {
+            let text_column = if let Some(shortcut_label) = launcher_labels
+                .as_ref()
+                .and_then(|labels| labels.get(entry_index))
+                .filter(|label| !label.is_empty())
+            {
+                let shortcut_fg = self
+                    .launcher_label_fg
+                    .map(native_color_spec_to_render_color)
+                    .unwrap_or(Color::Rgb(255, 255, 255));
+                let shortcut_bg = self
+                    .launcher_label_bg
+                    .map(native_color_spec_to_render_color)
+                    .unwrap_or(Color::Rgb(0, 0, 0));
+                let mut column = 0usize;
+                for ch in shortcut_label.chars().take(usize::from(columns)) {
+                    if let Some(cell) = cells.get_mut(row_start + column) {
+                        *cell = ui_render_cell(
+                            row,
+                            u16::try_from(column).unwrap_or(u16::MAX),
+                            ch,
+                            shortcut_fg,
+                            shortcut_bg,
+                            false,
+                        );
+                    }
+                    column = column.saturating_add(1);
+                }
+                column.saturating_add(1)
+            } else {
+                0
+            };
+            for (offset, ch) in label
+                .chars()
+                .take(usize::from(columns).saturating_sub(text_column))
+                .enumerate()
+            {
+                let column = text_column.saturating_add(offset);
+                if let Some(cell) = cells.get_mut(row_start + column) {
+                    cell.ch = ch;
+                }
+            }
+        }
+
+        cells
+    }
+
+    fn input_selector_cells(&self) -> Vec<RenderCell> {
+        let Some(input_selector) = self.input_selector.as_ref() else {
+            return Vec::new();
+        };
+        let choices = Self::input_selector_filtered_choices(input_selector);
+        if choices.is_empty() {
+            return Vec::new();
+        }
+
+        let size = self.runtime.terminal().grid().size();
+        if size.rows == 0 || size.columns == 0 {
+            return Vec::new();
+        }
+
+        let first_row = if self.tab_bar_is_visible() && !self.tab_bar_at_bottom {
+            TAB_BAR_ROWS
+        } else {
+            0
+        };
+        let visible_rows = choices.len().min(usize::from(size.rows));
+        let selected = input_selector.selected.min(choices.len().saturating_sub(1));
+        let start = selected.saturating_add(1).saturating_sub(visible_rows);
+        let shortcut_labels = (!input_selector.fuzzy && input_selector.query.is_empty())
+            .then(|| quick_select_labels_for_alphabet(&input_selector.alphabet, choices.len()));
+        let shortcut_fg = self
+            .input_selector_label_fg
+            .map(native_color_spec_to_render_color)
+            .unwrap_or(Color::Rgb(255, 255, 255));
+        let shortcut_bg = self
+            .input_selector_label_bg
+            .map(native_color_spec_to_render_color)
+            .unwrap_or(Color::Rgb(0, 0, 0));
+        let mut cells = Vec::with_capacity(visible_rows.saturating_mul(usize::from(size.columns)));
+
+        for (visible_index, choice) in choices.iter().skip(start).take(visible_rows).enumerate() {
+            let row = first_row.saturating_add(u16::try_from(visible_index).unwrap_or(u16::MAX));
+            let choice_index = start + visible_index;
+            let is_selected = choice_index == selected;
+            let foreground = if is_selected {
+                Color::Rgb(18, 18, 22)
+            } else {
+                self.command_palette_fg_color
+                    .unwrap_or(Color::Rgb(228, 228, 228))
+            };
+            let background = if is_selected {
+                Color::Rgb(255, 209, 102)
+            } else {
+                self.command_palette_bg_color
+                    .unwrap_or(Color::Rgb(38, 40, 48))
+            };
+
+            let row_start = cells.len();
+            for column in 0..size.columns {
+                cells.push(ui_render_cell(
+                    row,
+                    column,
+                    ' ',
+                    foreground,
+                    background,
+                    is_selected,
+                ));
+            }
+
+            let text_column = if let Some(shortcut_label) = shortcut_labels
+                .as_ref()
+                .and_then(|labels| labels.get(choice_index))
+                .filter(|label| !label.is_empty())
+            {
+                let mut column = 0usize;
+                for ch in shortcut_label.chars().take(usize::from(size.columns)) {
+                    if let Some(cell) = cells.get_mut(row_start + column) {
+                        *cell = ui_render_cell(
+                            row,
+                            u16::try_from(column).unwrap_or(u16::MAX),
+                            ch,
+                            shortcut_fg,
+                            shortcut_bg,
+                            false,
+                        );
+                    }
+                    column = column.saturating_add(1);
+                }
+                column.saturating_add(1)
+            } else {
+                0
+            };
+            let label = format!("{} {}", if is_selected { '>' } else { ' ' }, choice.label);
+            for (offset, ch) in label
+                .chars()
+                .take(usize::from(size.columns).saturating_sub(text_column))
+                .enumerate()
+            {
+                let column = text_column.saturating_add(offset);
                 if let Some(cell) = cells.get_mut(row_start + column) {
                     cell.ch = ch;
                 }
@@ -47677,6 +47829,65 @@ mod tests {
 
         assert_eq!(label_cell.ch, 'a');
         assert_eq!(label_cell.foreground, Color::Rgb(4, 5, 6));
+        assert_eq!(label_cell.background, Color::Indexed(4));
+        assert!(!label_cell.inverse);
+    }
+
+    #[test]
+    fn window_input_selector_renders_configured_label_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
+        app.set_config_overrides(NativeConfigOverrides {
+            input_selector_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            input_selector_label_fg: Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6))),
+            ..NativeConfigOverrides::default()
+        });
+
+        app.enter_input_selector_mode(WindowInputSelectorOptions {
+            title: "Pick".to_owned(),
+            choices: vec![WindowInputSelectorChoice {
+                label: "Alpha".to_owned(),
+                id: Some("alpha".to_owned()),
+            }],
+            alphabet: Some("ab".to_owned()),
+            description: None,
+            fuzzy_description: None,
+            fuzzy: false,
+        });
+        let snapshot = app.render_snapshot();
+        let label_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("input-selector label cell");
+
+        assert_eq!(label_cell.ch, 'a');
+        assert_eq!(label_cell.foreground, Color::Rgb(4, 5, 6));
+        assert_eq!(label_cell.background, Color::Indexed(4));
+        assert!(!label_cell.inverse);
+    }
+
+    #[test]
+    fn window_launcher_renders_configured_label_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
+        app.set_config_overrides(NativeConfigOverrides {
+            launcher_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(7, 8, 9))),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::commands(),
+                title: Some("Pick Command".to_owned()),
+                alphabet: Some("ab".to_owned()),
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+        let snapshot = app.render_snapshot();
+        let label_cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("launcher label cell");
+
+        assert_eq!(label_cell.ch, 'a');
+        assert_eq!(label_cell.foreground, Color::Rgb(7, 8, 9));
         assert_eq!(label_cell.background, Color::Indexed(4));
         assert!(!label_cell.inverse);
     }
