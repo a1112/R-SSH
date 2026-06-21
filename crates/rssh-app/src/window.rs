@@ -1687,6 +1687,7 @@ struct NativeUserKeyAssignment {
 struct NativeUserMouseAssignment {
     event: NativeMouseAssignmentEvent,
     modifiers: ModifiersState,
+    mouse_reporting: bool,
     command: WindowCommand,
 }
 
@@ -4578,6 +4579,7 @@ fn native_user_mouse_assignment_lua_table_from_query(
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut event = None;
     let mut modifiers = None;
+    let mut mouse_reporting = None;
     let mut command = None;
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -4608,6 +4610,13 @@ fn native_user_mouse_assignment_lua_table_from_query(
                 }
                 command = Some(native_key_assignment_command_from_query(value)?);
             }
+            "mouse_reporting" | "mousereporting" => {
+                if mouse_reporting.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_quoted_query_text(value)?;
+                mouse_reporting = Some(bool_from_query(&value)?);
+            }
             _ => return None,
         }
     }
@@ -4615,6 +4624,7 @@ fn native_user_mouse_assignment_lua_table_from_query(
     Some(NativeUserMouseAssignment {
         event: event?,
         modifiers: modifiers.unwrap_or_else(ModifiersState::empty),
+        mouse_reporting: mouse_reporting.unwrap_or(false),
         command: command?,
     })
 }
@@ -10593,6 +10603,7 @@ impl NativeWindowApp {
         &mut self,
         kind: NativeMouseAssignmentEventKind,
         button: MouseButton,
+        mouse_reporting: bool,
     ) -> bool {
         let Some(command) = self
             .mouse_assignments
@@ -10602,6 +10613,7 @@ impl NativeWindowApp {
                     && assignment.event.button == button
                     && assignment.event.streak == 1
                     && assignment.modifiers == self.modifiers
+                    && assignment.mouse_reporting == mouse_reporting
             })
             .map(|assignment| assignment.command.clone())
         else {
@@ -10620,11 +10632,16 @@ impl NativeWindowApp {
         true
     }
 
-    fn user_mouse_assignment_overrides_default_for_button(&self, button: MouseButton) -> bool {
+    fn user_mouse_assignment_overrides_default_for_button(
+        &self,
+        button: MouseButton,
+        mouse_reporting: bool,
+    ) -> bool {
         self.mouse_assignments.iter().any(|assignment| {
             assignment.event.button == button
                 && assignment.event.streak == 1
                 && assignment.modifiers == self.modifiers
+                && assignment.mouse_reporting == mouse_reporting
         })
     }
 
@@ -12758,16 +12775,31 @@ impl NativeWindowApp {
             return Ok(true);
         }
 
+        let mode = self.runtime.mouse_input_mode();
+        let bypass_mouse_reporting = mode.reporting_enabled()
+            && !self.bypass_mouse_reporting_modifiers.is_empty()
+            && self
+                .modifiers
+                .contains(self.bypass_mouse_reporting_modifiers);
+        let mouse_reporting_for_assignment = mode.reporting_enabled() && !bypass_mouse_reporting;
         let assignment_kind = match state {
             ElementState::Pressed => NativeMouseAssignmentEventKind::Down,
             ElementState::Released => NativeMouseAssignmentEventKind::Up,
         };
-        if self.handle_user_mouse_assignment(assignment_kind, button) {
+        if self.handle_user_mouse_assignment(
+            assignment_kind,
+            button,
+            mouse_reporting_for_assignment,
+        ) {
             return Ok(true);
         }
 
         let default_mouse_bindings_enabled = !self.disable_default_mouse_bindings
-            && !self.user_mouse_assignment_overrides_default_for_button(button);
+            && (!mode.reporting_enabled() || bypass_mouse_reporting)
+            && !self.user_mouse_assignment_overrides_default_for_button(
+                button,
+                mouse_reporting_for_assignment,
+            );
         if default_mouse_bindings_enabled && window_start_drag_mouse_binding(button, self.modifiers)
         {
             self.start_window_drag();
@@ -12806,12 +12838,6 @@ impl NativeWindowApp {
             return Ok(true);
         }
 
-        let mode = self.runtime.mouse_input_mode();
-        let bypass_mouse_reporting = mode.reporting_enabled()
-            && !self.bypass_mouse_reporting_modifiers.is_empty()
-            && self
-                .modifiers
-                .contains(self.bypass_mouse_reporting_modifiers);
         if !mode.reporting_enabled() || bypass_mouse_reporting {
             let saved_modifiers = self.modifiers;
             if bypass_mouse_reporting {
@@ -12862,7 +12888,11 @@ impl NativeWindowApp {
 
         if mouse_cell_changed
             && let Some(button) = self.active_mouse_button
-            && self.handle_user_mouse_assignment(NativeMouseAssignmentEventKind::Drag, button)
+            && self.handle_user_mouse_assignment(
+                NativeMouseAssignmentEventKind::Drag,
+                button,
+                self.runtime.mouse_input_mode().reporting_enabled(),
+            )
         {
             return Ok(true);
         }
@@ -56663,6 +56693,27 @@ mod tests {
     }
 
     #[test]
+    fn window_app_middle_click_reports_to_pane_when_mouse_reporting_enabled() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.primary_selection_reader = Box::new(|| Some("primary".to_owned()));
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
+                .unwrap()
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x1b[<1;2;1M");
+    }
+
+    #[test]
     fn window_app_user_middle_up_mouse_binding_suppresses_default_middle_paste() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -56701,6 +56752,48 @@ mod tests {
 
         let expected =
             encode_window_paste("primary\ntext", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn window_app_mouse_binding_mouse_reporting_true_matches_reporting_mode() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.primary_selection_reader = Box::new(|| Some("primary".to_owned()));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = 'Middle' } },
+                mods = 'NONE',
+                mouse_reporting = true,
+                action = act.PastePrimarySelection,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
+                .unwrap()
+        );
+
+        let expected = encode_window_paste("primary", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
         assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
     }
 
@@ -67140,6 +67233,7 @@ mod tests {
                     streak: 1,
                 },
                 modifiers: ModifiersState::ALT,
+                mouse_reporting: false,
                 command: WindowCommand::StartWindowDrag,
             }]),
             scroll_to_bottom_on_input: Some(false),
