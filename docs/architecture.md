@@ -382,8 +382,10 @@ keyboard, mouse, paste, resize
   both `field <text>` and `field=<text>` forms; omitted messages default to
   WezTerm's ` Really continue?` prompt. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
-  their visible text for the native overlay; styled confirmation rendering and
-  `wezterm.action_callback` wiring remain future parity work.
+  their visible text for the native overlay, and static `action`/`cancel =
+  wezterm.action_callback(...)` fields are accepted as native-handler
+  placeholders; styled confirmation rendering and actual Lua callback wiring
+  remain future parity work.
 - Completed in v1: a native WezTerm-style `EmitEvent` action payload carries a
   custom event name and dispatches it through a typed native handler with the
   active window id and pane id. Structured command-palette `emit event <name>`

@@ -982,10 +982,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   ` Really continue?` prompt. WezTerm-style
   `wezterm.action.Confirmation { message = ..., action = ..., cancel = ... }`
   table-call queries also dispatch the same native nested-command subset,
-  including bracketed string table keys with long-bracket values. Static Lua
+  including bracketed string table keys with long-bracket values, and accept
+  static `action`/`cancel = wezterm.action_callback(...)` fields as
+  native-handler placeholders. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
   their visible text for the native overlay, while styled confirmation
-  rendering and Lua `wezterm.action_callback` wiring remain open.
+  rendering and actual Lua `wezterm.action_callback` wiring remain open.
 - Native `EmitEvent` action payloads now carry a custom event name and dispatch
   it through a typed native handler with the active window id and pane id.
   Structured command-palette `emit event <name>` and action-name

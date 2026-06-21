@@ -22908,19 +22908,17 @@ fn confirmation_lua_table_from_query(value: &str) -> Option<WindowConfirmationOp
                 parsed_message = true;
             }
             "action" => {
-                let value = parse_maybe_quoted_query_text(value)?;
                 if parsed_action {
                     return None;
                 }
-                fields.action = Some(confirmation_nested_command_from_query(&value)?);
+                fields.action = Some(confirmation_callback_or_nested_command_from_query(value)?);
                 parsed_action = true;
             }
             "cancel" => {
-                let value = parse_maybe_quoted_query_text(value)?;
                 if parsed_cancel {
                     return None;
                 }
-                fields.cancel = Some(confirmation_nested_command_from_query(&value)?);
+                fields.cancel = Some(confirmation_callback_or_nested_command_from_query(value)?);
                 parsed_cancel = true;
             }
             _ => return None,
@@ -22928,6 +22926,15 @@ fn confirmation_lua_table_from_query(value: &str) -> Option<WindowConfirmationOp
     }
 
     fields.into_options()
+}
+
+fn confirmation_callback_or_nested_command_from_query(value: &str) -> Option<WindowCommand> {
+    let value = value.trim();
+    if lua_action_callback_from_query(value) {
+        return Some(WindowCommand::Nop);
+    }
+    let value = parse_maybe_quoted_query_text(value)?;
+    confirmation_nested_command_from_query(&value)
 }
 
 #[derive(Clone, Default)]
@@ -62060,6 +62067,48 @@ mod tests {
         assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));
         assert!(app.confirmation.is_none());
         assert_eq!(written.lock().unwrap().as_slice(), b"yes");
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_confirmation_wezterm_action_callback_fields_query() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.confirmation_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(event.clone());
+            true
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Confirmation { message = \"Run deployment?\", action = wezterm.action_callback(function(window, pane) end), cancel = wezterm.action_callback(function(window, pane) end) }"
+                .to_owned(),
+        );
+        let command = WindowCommand::Confirmation(WindowConfirmationOptions {
+            message: "Run deployment?".to_owned(),
+            action: Box::new(WindowCommand::Nop),
+            cancel: Some(Box::new(WindowCommand::Nop)),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+        assert_eq!(
+            app.effective_window_title(),
+            "R-SSH [workspace:1 tab:1 pane:1] - Run deployment? Enter/Y=yes Esc/N=no"
+        );
+
+        assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));
+        assert!(app.confirmation.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeConfirmation {
+                window_id: rssh_core::WindowId::new(1),
+                pane: rssh_core::PaneId::new(1),
+                accepted: true,
+            }]
+        );
     }
 
     #[test]
