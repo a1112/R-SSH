@@ -20672,22 +20672,31 @@ fn encode_xterm_modify_other_window_key(
 
 fn scrollback_lines_from_mouse_delta(delta: MouseScrollDelta) -> isize {
     match delta {
-        MouseScrollDelta::LineDelta(_, y) => signed_scroll_direction(y),
+        MouseScrollDelta::LineDelta(_, y) => signed_scroll_lines(f64::from(y)),
         MouseScrollDelta::PixelDelta(position) => {
-            signed_scroll_direction(position.y / f64::from(CELL_HEIGHT))
+            signed_scroll_lines(position.y / f64::from(CELL_HEIGHT))
         }
     }
 }
 
-fn signed_scroll_direction(value: impl Into<f64>) -> isize {
-    let value = value.into();
-    if value > 0.0 {
-        1
-    } else if value < 0.0 {
-        -1
-    } else {
-        0
+fn signed_scroll_lines(value: f64) -> isize {
+    if !value.is_finite() {
+        return 0;
     }
+    if value == 0.0 {
+        return 0;
+    }
+
+    let direction = if value.is_sign_negative() { -1 } else { 1 };
+    let value = value.abs().trunc();
+    let lines = if value > isize::MAX as f64 {
+        isize::MAX
+    } else if value == 0.0 {
+        1
+    } else {
+        value as isize
+    };
+    lines.saturating_mul(direction)
 }
 
 fn copy_mode_viewport_top(history_len: usize, scrollback_offset: usize) -> usize {
@@ -57090,6 +57099,42 @@ mod tests {
         );
 
         assert!((app.font_size_scale_for_test() - 1.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn window_app_mouse_binding_scroll_by_current_event_uses_wheel_delta() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = { WheelUp = 1 } } },
+                mods = 'CTRL',
+                action = act.ScrollByCurrentEventWheelDelta,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm wheel-current-event mouse binding config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::CONTROL;
+
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 2.0))
+                .unwrap()
+        );
+
+        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
     }
 
     #[test]

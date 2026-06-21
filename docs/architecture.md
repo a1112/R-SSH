@@ -585,8 +585,10 @@ keyboard, mouse, paste, resize
   mouse bindings suppress the implemented default mouse assignment for the same
   button, streak, modifiers, mouse-reporting state, and alternate-screen state;
   default mouse assignments are skipped while the pane has captured mouse
-  reporting unless the configured bypass modifier is held. Broader
-  wheel-delta/current-event details remain future parity work. Native
+  reporting unless the configured bypass modifier is held. Wheel bindings can
+  route `ScrollByCurrentEventWheelDelta` using the current vertical wheel
+  delta; Lua `window:current_event()` object exposure remains future parity
+  work. Native
   `disable_default_mouse_bindings` defaults to false and suppresses the
   implemented default mouse-assignment subset when true.
 - Completed in v1: native `hide_mouse_cursor_when_typing` defaults to true,

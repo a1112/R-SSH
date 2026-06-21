@@ -192,7 +192,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   assignment for the same button, streak, modifiers, mouse-reporting state, and
   alternate-screen state; default mouse assignments are skipped while the pane
   has captured mouse reporting unless the configured bypass modifier is held.
-  Broader wheel-delta/current-event details remain open.
+  Wheel bindings can route `ScrollByCurrentEventWheelDelta` using the current
+  vertical wheel delta; Lua `window:current_event()` object exposure remains
+  open.
 - Native window state now exposes WezTerm-style `ActivateWindow`,
   `ActivateWindowRelative`, and `ActivateWindowRelativeNoWrap` action payloads.
   The current window records a manager-level focus request; the multi-window
