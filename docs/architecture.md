@@ -251,7 +251,9 @@ keyboard, mouse, paste, resize
   in active and new panes. Static numeric `cell_widths` override tables parse
   from WezTerm-style Lua and take priority over the ambiguous-width setting in
   active and new panes. `normalize_output_to_unicode_nfc` applies NFC
-  normalization to contiguous ordinary terminal output runs before rendering.
+  normalization to contiguous ordinary terminal output runs before rendering,
+  including leading combining marks that arrive in the next PTY chunk when
+  they compose with the prior cell without changing display width.
   `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
   AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
   text renders through the Builtin overlay path at the active pane cursor.
@@ -812,7 +814,9 @@ keyboard, mouse, paste, resize
   than that ambiguous-width setting, while dynamic Lua/exact nightly parity
   remains future work. `normalize_output_to_unicode_nfc` is stored with
   WezTerm's default `false` and, when enabled, normalizes contiguous ordinary
-  terminal output runs to Unicode NFC before the cells are written. `use_ime` is stored with
+  terminal output runs to Unicode NFC before the cells are written, including
+  leading combining marks that arrive in the next PTY chunk when they compose
+  with the prior cell without changing display width. `use_ime` is stored with
   WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
   is retained as an optional XIM server name for X11-style IME configuration.

@@ -59246,6 +59246,33 @@ mod tests {
     }
 
     #[test]
+    fn window_app_normalizes_output_to_unicode_nfc_across_pty_chunks_when_configured() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.normalize_output_to_unicode_nfc = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Unicode normalization config");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output("e".as_bytes()).unwrap();
+        app.handle_pty_output("\u{0301}x".as_bytes()).unwrap();
+
+        let snapshot = app.render_snapshot();
+        let first_row = snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS);
+        assert!(
+            first_row.starts_with("éx"),
+            "expected NFC-normalized terminal output across PTY chunks, got {first_row:?}"
+        );
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_east_asian_ambiguous_width_config() {
         let app = NativeWindowApp::new(None);
         let effective = app.native_effective_config();

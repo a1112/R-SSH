@@ -380,7 +380,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   static numeric `cell_widths` override tables parse from WezTerm-style Lua and
   take priority over that ambiguous-width setting. When enabled,
   `normalize_output_to_unicode_nfc` normalizes contiguous ordinary terminal
-  output runs to Unicode NFC before rendering. Native winit IME commit text
+  output runs to Unicode NFC before rendering, including leading combining
+  marks that arrive in the next PTY chunk when they compose with the prior
+  cell without changing display width. Native winit IME commit text
   now writes to the active pane when `use_ime` is enabled and is ignored when
   disabled; native winit IME preedit text now renders as a Builtin overlay at
   the active pane cursor, is suppressed for `System` or disabled IME, and is
@@ -1056,7 +1058,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   active and new panes; static numeric `config.cell_widths` tables parse into
   the same native override path and take priority over the ambiguous-width
   option. `config.normalize_output_to_unicode_nfc` normalizes contiguous
-  ordinary terminal output runs to Unicode NFC before cells are written.
+  ordinary terminal output runs to Unicode NFC before cells are written,
+  including leading combining marks that arrive in the next PTY chunk when
+  they compose with the prior cell without changing display width.
   `treat_left_ctrlalt_as_altgr`
   routes Ctrl+Alt text key events as AltGr text input rather than triggering
   Ctrl+Alt key bindings. Native winit IME commit text writes to the active pane

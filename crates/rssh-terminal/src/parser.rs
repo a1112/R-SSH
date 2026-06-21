@@ -7,6 +7,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use flate2::read::ZlibDecoder;
 use rssh_core::{DamageRegion, TerminalSize};
 use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::canonical_combining_class;
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
@@ -378,6 +379,7 @@ pub struct Terminal {
     pending_utf8: Vec<u8>,
     pending_control: Vec<char>,
     last_printable: Option<char>,
+    nfc_last_printable_cell: Option<(u16, u16)>,
     saved_cursor: Option<SavedCursor>,
     main_screen: Option<ScreenState>,
     default_cursor_style: CursorStyle,
@@ -427,6 +429,7 @@ struct ScreenState {
     pending_wrap: bool,
     clear_semantic_type_on_movement: bool,
     last_printable: Option<char>,
+    nfc_last_printable_cell: Option<(u16, u16)>,
     saved_cursor: Option<SavedCursor>,
     modes: TerminalModes,
     scroll_top: u16,
@@ -503,6 +506,7 @@ impl Terminal {
             pending_utf8: Vec::new(),
             pending_control: Vec::new(),
             last_printable: None,
+            nfc_last_printable_cell: None,
             saved_cursor: None,
             main_screen: None,
             default_cursor_style,
@@ -565,6 +569,7 @@ impl Terminal {
     ) -> Option<FeedAdvance> {
         if is_escape_or_c1_sequence_start(chars[index]) {
             self.finish_pending_kitty_placeholder();
+            self.nfc_last_printable_cell = None;
         }
         match chars[index] {
             '\u{1b}' => self.consume_escape_sequence(chars, index),
@@ -676,30 +681,36 @@ impl Terminal {
         match ch {
             ch if is_ignored_c0_control(ch) => {
                 self.finish_pending_kitty_placeholder();
+                self.nfc_last_printable_cell = None;
                 index + 1
             }
             '\u{7}' => {
                 self.finish_pending_kitty_placeholder();
+                self.nfc_last_printable_cell = None;
                 self.bell_count = self.bell_count.saturating_add(1);
                 index + 1
             }
             '\u{8}' => {
                 self.finish_pending_kitty_placeholder();
+                self.nfc_last_printable_cell = None;
                 self.backspace();
                 index + 1
             }
             '\t' => {
                 self.finish_pending_kitty_placeholder();
+                self.nfc_last_printable_cell = None;
                 self.horizontal_tab();
                 index + 1
             }
             '\n' | '\u{b}' | '\u{c}' => {
                 self.finish_pending_kitty_placeholder();
+                self.nfc_last_printable_cell = None;
                 self.line_feed();
                 index + 1
             }
             '\r' => {
                 self.finish_pending_kitty_placeholder();
+                self.nfc_last_printable_cell = None;
                 self.carriage_return();
                 index + 1
             }
@@ -721,13 +732,68 @@ impl Terminal {
                         self.write_char(ch);
                     }
                 } else {
-                    for normalized in text.nfc() {
+                    let remaining_start = self.normalize_leading_combining_marks(&text);
+                    for normalized in text[remaining_start..].nfc() {
                         self.write_char(normalized);
                     }
                 }
                 end
             }
         }
+    }
+
+    fn normalize_leading_combining_marks(&mut self, text: &str) -> usize {
+        let leading_end = leading_combining_marks_end(text);
+        if leading_end == 0 {
+            return 0;
+        }
+
+        let Some((row, column)) = self.nfc_last_printable_cell else {
+            return 0;
+        };
+        let Some(previous_cell) = self.grid.get(row, column).cloned() else {
+            return 0;
+        };
+        if previous_cell.ch == KITTY_UNICODE_PLACEHOLDER {
+            return 0;
+        }
+
+        let normalized = std::iter::once(previous_cell.ch)
+            .chain(text[..leading_end].chars())
+            .collect::<String>()
+            .nfc()
+            .collect::<String>();
+        let mut normalized_chars = normalized.chars();
+        let Some(normalized_ch) = normalized_chars.next() else {
+            return 0;
+        };
+        if normalized_chars.next().is_some() || normalized_ch == previous_cell.ch {
+            return 0;
+        }
+
+        let previous_width = display_width(
+            previous_cell.ch,
+            self.treat_east_asian_ambiguous_width_as_wide,
+            &self.cell_width_overrides,
+        );
+        let normalized_width = display_width(
+            normalized_ch,
+            self.treat_east_asian_ambiguous_width_as_wide,
+            &self.cell_width_overrides,
+        );
+        if previous_width == 0 || previous_width != normalized_width {
+            return 0;
+        }
+
+        let mut normalized_cell = previous_cell;
+        normalized_cell.ch = normalized_ch;
+        if self.grid.set(row, column, normalized_cell) {
+            self.record_damage(DamageRegion::new(column, row, previous_width, 1));
+            self.last_printable = Some(normalized_ch);
+            return leading_end;
+        }
+
+        0
     }
 
     fn apply_csi_sequence(
@@ -2622,6 +2688,7 @@ impl Terminal {
         self.pending_wrap = false;
         self.clear_semantic_type_on_movement = false;
         self.last_printable = None;
+        self.nfc_last_printable_cell = None;
         self.saved_cursor = None;
         self.main_screen = None;
         self.modes = TerminalModes::with_cursor_style(self.default_cursor_style);
@@ -2656,6 +2723,7 @@ impl Terminal {
         self.pending_wrap = false;
         self.clear_semantic_type_on_movement = false;
         self.last_printable = None;
+        self.nfc_last_printable_cell = None;
         self.record_damage(DamageRegion::new(0, 0, size.columns, size.rows));
     }
 
@@ -2991,6 +3059,7 @@ impl Terminal {
             self.record_damage(DamageRegion::new(column, row, write_width, 1));
             self.advance_cursor(write_width);
             self.last_printable = Some(ch);
+            self.nfc_last_printable_cell = Some((row, column));
             if ch == KITTY_UNICODE_PLACEHOLDER {
                 self.pending_kitty_placeholder = Some(PendingKittyPlaceholder {
                     row: history_row,
@@ -3476,6 +3545,7 @@ impl Terminal {
             self.cursor_column = 0;
             self.pending_wrap = false;
             self.last_printable = None;
+            self.nfc_last_printable_cell = None;
             self.saved_cursor = None;
             self.modes.cursor_visible = true;
             self.modes.origin_mode = false;
@@ -3504,6 +3574,7 @@ impl Terminal {
             pending_wrap: self.pending_wrap,
             clear_semantic_type_on_movement: self.clear_semantic_type_on_movement,
             last_printable: self.last_printable,
+            nfc_last_printable_cell: self.nfc_last_printable_cell,
             saved_cursor: self.saved_cursor.clone(),
             modes: self.modes,
             scroll_top: self.scroll_top,
@@ -3525,6 +3596,7 @@ impl Terminal {
         self.pending_wrap = screen.pending_wrap;
         self.clear_semantic_type_on_movement = screen.clear_semantic_type_on_movement;
         self.last_printable = screen.last_printable;
+        self.nfc_last_printable_cell = screen.nfc_last_printable_cell;
         self.saved_cursor = screen.saved_cursor;
         self.modes = screen.modes;
         self.scroll_top = screen.scroll_top;
@@ -4592,6 +4664,17 @@ fn is_cancel_control(ch: char) -> bool {
 
 fn is_ascii_control(ch: char) -> bool {
     matches!(ch, '\0'..='\u{1f}' | '\u{7f}')
+}
+
+fn leading_combining_marks_end(text: &str) -> usize {
+    let mut end = 0;
+    for (index, ch) in text.char_indices() {
+        if canonical_combining_class(ch) == 0 {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+    end
 }
 
 fn is_ignored_c0_control(ch: char) -> bool {
