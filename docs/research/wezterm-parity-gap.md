@@ -181,16 +181,17 @@ what remains before WezTerm-style parity in key UX/composition areas.
   palette entry and default `SUPER` + left mouse / `CTRL|SHIFT` + left mouse
   bindings request native drag-to-move via the window backend when available.
   Static WezTerm-style `config.mouse_bindings` now parses the native
-  `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right`/`streak = 1` subset with
-  `mods`, `mouse_reporting`, `alt_screen`, and implemented native `action`
-  payloads, so custom bindings such as `ALT` + left drag can dispatch
-  `StartWindowDrag` and middle-button release can dispatch
-  `PastePrimarySelection`. Matching user mouse bindings suppress the
+  `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right`/vertical `WheelUp`/
+  `WheelDown`/`streak = 1` subset with `mods`, `mouse_reporting`,
+  `alt_screen`, and implemented native `action` payloads, so custom bindings
+  such as `ALT` + left drag can dispatch `StartWindowDrag`, middle-button
+  release can dispatch `PastePrimarySelection`, and `CTRL` + wheel-up can
+  dispatch `IncreaseFontSize`. Matching user mouse bindings suppress the
   implemented default mouse assignment for the same button, modifiers,
   mouse-reporting state, and alternate-screen state; default mouse assignments
   are skipped while the pane has captured mouse reporting unless the configured
-  bypass modifier is held. Broader wheel buttons and click streak semantics
-  remain open.
+  bypass modifier is held. Broader wheel-delta/current-event details and click
+  streak semantics remain open.
 - Native window state now exposes WezTerm-style `ActivateWindow`,
   `ActivateWindowRelative`, and `ActivateWindowRelativeNoWrap` action payloads.
   The current window records a manager-level focus request; the multi-window
@@ -804,10 +805,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Command palette now exposes WezTerm-style `StartWindowDrag` as
   `Start Window Drag`, sharing the same native drag-to-move request path as
   the default modified-left-mouse bindings; static `config.mouse_bindings`
-  covers the native `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right`/
-  `streak = 1` subset with `mouse_reporting` and `alt_screen` filters for
-  implemented action payloads, and matching user mouse bindings override the
-  implemented default mouse assignment for the same
+  covers the native `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right`/vertical
+  `WheelUp`/`WheelDown`/`streak = 1` subset with `mouse_reporting` and
+  `alt_screen` filters for implemented action payloads, and matching user
+  mouse bindings override the implemented default mouse assignment for the same
   button/modifiers/reporting/alternate-screen state. Action-name
   `startwindowdrag` queries dispatch the same command.
 - Native action payload dispatch now covers WezTerm-style `ActivateWindow`,

@@ -1693,6 +1693,13 @@ struct NativeUserMouseAssignment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeMouseAssignmentButton {
+    Mouse(MouseButton),
+    WheelUp,
+    WheelDown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeMouseAssignmentAltScreen {
     Any,
     Active(bool),
@@ -1710,7 +1717,7 @@ impl NativeMouseAssignmentAltScreen {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NativeMouseAssignmentEvent {
     kind: NativeMouseAssignmentEventKind,
-    button: MouseButton,
+    button: NativeMouseAssignmentButton,
     streak: u8,
 }
 
@@ -4715,8 +4722,7 @@ fn native_mouse_assignment_event_payload_from_query(
                 if button.is_some() {
                     return None;
                 }
-                let value = parse_maybe_quoted_query_text(value)?;
-                button = Some(native_mouse_button_from_query(&value)?);
+                button = Some(native_mouse_assignment_button_from_lua_value(value)?);
             }
             "streak" => {
                 if streak.is_some() {
@@ -4741,11 +4747,41 @@ fn native_mouse_assignment_event_payload_from_query(
     })
 }
 
-fn native_mouse_button_from_query(value: &str) -> Option<MouseButton> {
+fn native_mouse_assignment_button_from_lua_value(
+    value: &str,
+) -> Option<NativeMouseAssignmentButton> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+        let mut parsed = None;
+        for field in split_lua_table_top_level_fields(table)? {
+            let field = field.trim();
+            if field.is_empty() {
+                continue;
+            }
+            if parsed.is_some() {
+                return None;
+            }
+            let (name, value) = split_lua_table_assignment_from_field(field)?;
+            let name = split_lua_table_key_from_query(name.trim())?;
+            let amount = parse_maybe_quoted_query_text(value.trim())?;
+            if amount.parse::<i32>().ok()? != 1 {
+                return None;
+            }
+            parsed = match name.to_ascii_lowercase().as_str() {
+                "wheelup" => Some(NativeMouseAssignmentButton::WheelUp),
+                "wheeldown" => Some(NativeMouseAssignmentButton::WheelDown),
+                _ => return None,
+            };
+        }
+        return parsed;
+    }
+
+    let value = parse_maybe_quoted_query_text(value)?;
     match value.trim().to_ascii_lowercase().as_str() {
-        "left" => Some(MouseButton::Left),
-        "middle" => Some(MouseButton::Middle),
-        "right" => Some(MouseButton::Right),
+        "left" => Some(NativeMouseAssignmentButton::Mouse(MouseButton::Left)),
+        "middle" => Some(NativeMouseAssignmentButton::Mouse(MouseButton::Middle)),
+        "right" => Some(NativeMouseAssignmentButton::Mouse(MouseButton::Right)),
         _ => None,
     }
 }
@@ -10636,7 +10672,7 @@ impl NativeWindowApp {
     fn handle_user_mouse_assignment(
         &mut self,
         kind: NativeMouseAssignmentEventKind,
-        button: MouseButton,
+        button: NativeMouseAssignmentButton,
         mouse_reporting: bool,
         alternate_screen_active: bool,
     ) -> bool {
@@ -10670,7 +10706,7 @@ impl NativeWindowApp {
 
     fn user_mouse_assignment_overrides_default_for_button(
         &self,
-        button: MouseButton,
+        button: NativeMouseAssignmentButton,
         mouse_reporting: bool,
         alternate_screen_active: bool,
     ) -> bool {
@@ -12643,6 +12679,23 @@ impl NativeWindowApp {
 
         let mouse_cell = self.focus_pane_for_mouse_position();
         let mode = self.runtime.mouse_input_mode();
+        let bypass_mouse_reporting = mode.reporting_enabled()
+            && !self.bypass_mouse_reporting_modifiers.is_empty()
+            && self
+                .modifiers
+                .contains(self.bypass_mouse_reporting_modifiers);
+        let mouse_reporting_for_assignment = mode.reporting_enabled() && !bypass_mouse_reporting;
+        if let Some(button) = native_mouse_assignment_wheel_button_from_delta(delta)
+            && self.handle_user_mouse_assignment(
+                NativeMouseAssignmentEventKind::Down,
+                button,
+                mouse_reporting_for_assignment,
+                self.runtime.terminal().alternate_screen_active(),
+            )
+        {
+            return Ok(true);
+        }
+
         if mode.reporting_enabled() {
             if let Some(PaneMouseCell { column, row, .. }) =
                 mouse_cell.or_else(|| self.mouse_cell_for_active_pane())
@@ -12825,9 +12878,10 @@ impl NativeWindowApp {
             ElementState::Pressed => NativeMouseAssignmentEventKind::Down,
             ElementState::Released => NativeMouseAssignmentEventKind::Up,
         };
+        let assignment_button = NativeMouseAssignmentButton::Mouse(button);
         if self.handle_user_mouse_assignment(
             assignment_kind,
-            button,
+            assignment_button,
             mouse_reporting_for_assignment,
             alternate_screen_active,
         ) {
@@ -12837,7 +12891,7 @@ impl NativeWindowApp {
         let default_mouse_bindings_enabled = !self.disable_default_mouse_bindings
             && (!mode.reporting_enabled() || bypass_mouse_reporting)
             && !self.user_mouse_assignment_overrides_default_for_button(
-                button,
+                assignment_button,
                 mouse_reporting_for_assignment,
                 alternate_screen_active,
             );
@@ -12931,7 +12985,7 @@ impl NativeWindowApp {
             && let Some(button) = self.active_mouse_button
             && self.handle_user_mouse_assignment(
                 NativeMouseAssignmentEventKind::Drag,
-                button,
+                NativeMouseAssignmentButton::Mouse(button),
                 self.runtime.mouse_input_mode().reporting_enabled(),
                 self.runtime.terminal().alternate_screen_active(),
             )
@@ -33970,6 +34024,16 @@ fn window_mouse_wheel_kind(delta: MouseScrollDelta) -> Option<WindowMouseEventKi
     }
 }
 
+fn native_mouse_assignment_wheel_button_from_delta(
+    delta: MouseScrollDelta,
+) -> Option<NativeMouseAssignmentButton> {
+    match window_mouse_wheel_kind(delta)? {
+        WindowMouseEventKind::ScrollUp => Some(NativeMouseAssignmentButton::WheelUp),
+        WindowMouseEventKind::ScrollDown => Some(NativeMouseAssignmentButton::WheelDown),
+        _ => None,
+    }
+}
+
 fn wheel_kind_from_axes(x: f64, y: f64) -> Option<WindowMouseEventKind> {
     if y > 0.0 {
         Some(WindowMouseEventKind::ScrollUp)
@@ -38247,31 +38311,32 @@ mod tests {
         NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
         NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeMouseAssignmentAltScreen, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
-        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
-        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUiKeyCapRendering,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
-        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
-        NativeWindowApp, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
-        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
-        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
+        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
+        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
+        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWindowApp, NativeWindowBell,
+        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
+        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -56882,6 +56947,39 @@ mod tests {
     }
 
     #[test]
+    fn window_app_mouse_binding_wheel_up_increases_font_size() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = { WheelUp = 1 } } },
+                mods = 'CTRL',
+                action = act.IncreaseFontSize,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm wheel mouse binding config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::CONTROL;
+
+        assert!((app.font_size_scale_for_test() - 1.0).abs() < f64::EPSILON);
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert!((app.font_size_scale_for_test() - 1.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn window_app_disable_default_mouse_bindings_suppresses_default_mouse_actions() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -67313,7 +67411,7 @@ mod tests {
             mouse_assignments: Some(vec![NativeUserMouseAssignment {
                 event: NativeMouseAssignmentEvent {
                     kind: NativeMouseAssignmentEventKind::Drag,
-                    button: MouseButton::Left,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
                     streak: 1,
                 },
                 modifiers: ModifiersState::ALT,
