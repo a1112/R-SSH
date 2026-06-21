@@ -5035,6 +5035,7 @@ struct NativeWindowApp {
     selecting: bool,
     scrollbar_dragging: bool,
     split_resize_dragging: Option<PaneSplitResizeDrag>,
+    last_mouse_assignment_click: Option<WindowMouseAssignmentClick>,
     last_left_click: Option<WindowClick>,
     search: Option<WindowSearch>,
     copy_mode: Option<WindowCopyMode>,
@@ -6478,6 +6479,7 @@ impl NativeWindowApp {
             selecting: false,
             scrollbar_dragging: false,
             split_resize_dragging: None,
+            last_mouse_assignment_click: None,
             last_left_click: None,
             search: None,
             copy_mode: None,
@@ -10721,18 +10723,89 @@ impl NativeWindowApp {
         })
     }
 
-    fn mouse_assignment_streak(&self, state: ElementState, button: MouseButton) -> u8 {
-        if button != MouseButton::Left {
-            return 1;
-        }
+    fn has_mouse_assignment_candidate_for_button(
+        &self,
+        button: MouseButton,
+        mouse_reporting: bool,
+        alternate_screen_active: bool,
+    ) -> bool {
+        self.mouse_assignments.iter().any(|assignment| {
+            assignment.event.button == NativeMouseAssignmentButton::Mouse(button)
+                && assignment.modifiers == self.modifiers
+                && assignment.mouse_reporting == mouse_reporting
+                && assignment.alt_screen.matches(alternate_screen_active)
+        })
+    }
 
+    fn mouse_assignment_streak(
+        &mut self,
+        state: ElementState,
+        button: MouseButton,
+        mouse_reporting: bool,
+        alternate_screen_active: bool,
+    ) -> u8 {
         match state {
-            ElementState::Pressed => self
-                .selection_cell_from_mouse_position()
-                .map(|cell| self.next_left_click(cell, Instant::now()).count)
+            ElementState::Pressed => {
+                if !self.has_mouse_assignment_candidate_for_button(
+                    button,
+                    mouse_reporting,
+                    alternate_screen_active,
+                ) {
+                    self.last_mouse_assignment_click = None;
+                    return 1;
+                }
+
+                let time = Instant::now();
+                let count = self
+                    .last_mouse_assignment_click
+                    .and_then(|last_click| {
+                        let elapsed = time.checked_duration_since(last_click.time)?;
+                        (last_click.button == button
+                            && last_click.modifiers == self.modifiers
+                            && last_click.mouse_reporting == mouse_reporting
+                            && last_click.alternate_screen_active == alternate_screen_active
+                            && elapsed <= DOUBLE_CLICK_MAX_INTERVAL)
+                            .then_some(last_click.count.saturating_add(1))
+                    })
+                    .unwrap_or(1);
+                self.last_mouse_assignment_click = Some(WindowMouseAssignmentClick {
+                    button,
+                    modifiers: self.modifiers,
+                    mouse_reporting,
+                    alternate_screen_active,
+                    time,
+                    count,
+                });
+                count
+            }
+            ElementState::Released => self
+                .last_mouse_assignment_click
+                .filter(|click| {
+                    click.button == button
+                        && click.modifiers == self.modifiers
+                        && click.mouse_reporting == mouse_reporting
+                        && click.alternate_screen_active == alternate_screen_active
+                })
+                .map(|click| click.count)
                 .unwrap_or(1),
-            ElementState::Released => self.last_left_click.map(|click| click.count).unwrap_or(1),
         }
+    }
+
+    fn active_mouse_assignment_streak(
+        &self,
+        button: MouseButton,
+        mouse_reporting: bool,
+        alternate_screen_active: bool,
+    ) -> u8 {
+        self.last_mouse_assignment_click
+            .filter(|click| {
+                click.button == button
+                    && click.modifiers == self.modifiers
+                    && click.mouse_reporting == mouse_reporting
+                    && click.alternate_screen_active == alternate_screen_active
+            })
+            .map(|click| click.count)
+            .unwrap_or(1)
     }
 
     fn handle_input_selector_backspace(&mut self) -> bool {
@@ -12896,7 +12969,12 @@ impl NativeWindowApp {
             ElementState::Released => NativeMouseAssignmentEventKind::Up,
         };
         let assignment_button = NativeMouseAssignmentButton::Mouse(button);
-        let assignment_streak = self.mouse_assignment_streak(state, button);
+        let assignment_streak = self.mouse_assignment_streak(
+            state,
+            button,
+            mouse_reporting_for_assignment,
+            alternate_screen_active,
+        );
         if self.handle_user_mouse_assignment(
             assignment_kind,
             assignment_button,
@@ -13006,7 +13084,11 @@ impl NativeWindowApp {
             && self.handle_user_mouse_assignment(
                 NativeMouseAssignmentEventKind::Drag,
                 NativeMouseAssignmentButton::Mouse(button),
-                self.last_left_click.map(|click| click.count).unwrap_or(1),
+                self.active_mouse_assignment_streak(
+                    button,
+                    self.runtime.mouse_input_mode().reporting_enabled(),
+                    self.runtime.terminal().alternate_screen_active(),
+                ),
                 self.runtime.mouse_input_mode().reporting_enabled(),
                 self.runtime.terminal().alternate_screen_active(),
             )
@@ -21319,6 +21401,16 @@ enum WindowMouseSelectionMode {
 #[derive(Clone, Copy, Debug)]
 struct WindowClick {
     cell: SelectionCell,
+    time: Instant,
+    count: u8,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct WindowMouseAssignmentClick {
+    button: MouseButton,
+    modifiers: ModifiersState,
+    mouse_reporting: bool,
+    alternate_screen_active: bool,
     time: Instant,
     count: u8,
 }
@@ -57042,6 +57134,56 @@ mod tests {
         );
         assert!(
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        let expected = encode_window_paste("primary", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn window_app_mouse_binding_double_middle_down_matches_second_click() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.primary_selection_reader = Box::new(|| Some("primary".to_owned()));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 2, button = 'Middle' } },
+                mods = 'ALT',
+                action = act.PastePrimarySelection,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm double-click middle mouse binding config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::ALT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            !app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
+                .unwrap()
+        );
+        assert!(written.lock().unwrap().is_empty());
+        assert!(
+            !app.handle_mouse_input(ElementState::Released, MouseButton::Middle)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
                 .unwrap()
         );
 

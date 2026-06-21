@@ -580,13 +580,13 @@ keyboard, mouse, paste, resize
   `alt_screen`, and implemented native `action` payloads, so bindings such as
   `ALT` + left drag can route to `StartWindowDrag`, middle-button release can
   route to `PastePrimarySelection`, `CTRL` + wheel-up can route to
-  `IncreaseFontSize`, and double-left-down can route to a custom action.
-  Matching user mouse bindings suppress the implemented default mouse
-  assignment for the same button, streak, modifiers, mouse-reporting state, and
-  alternate-screen state; default mouse assignments are skipped while the pane
-  has captured mouse reporting unless the configured bypass modifier is held.
-  Broader wheel-delta/current-event details and non-left-button click streak
-  runtime tracking remain future parity work. Native
+  `IncreaseFontSize`, double-left-down can route to a custom action, and
+  non-left button streaks are tracked for user mouse bindings. Matching user
+  mouse bindings suppress the implemented default mouse assignment for the same
+  button, streak, modifiers, mouse-reporting state, and alternate-screen state;
+  default mouse assignments are skipped while the pane has captured mouse
+  reporting unless the configured bypass modifier is held. Broader
+  wheel-delta/current-event details remain future parity work. Native
   `disable_default_mouse_bindings` defaults to false and suppresses the
   implemented default mouse-assignment subset when true.
 - Completed in v1: native `hide_mouse_cursor_when_typing` defaults to true,
