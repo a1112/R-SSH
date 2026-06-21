@@ -2024,9 +2024,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `copy_mode_active_highlight_bg`/`copy_mode_active_highlight_fg` apply to
   copy-mode selections, `copy_mode_inactive_highlight_bg`/
   `copy_mode_inactive_highlight_fg` apply to non-current copy-mode search
-  matches, and `quick_select_label_bg`/`quick_select_label_fg` plus
+  matches, `quick_select_label_bg`/`quick_select_label_fg` plus
   `quick_select_match_bg`/`quick_select_match_fg` apply to quick-select label
-  and match rendering.
+  and match rendering, and `input_selector_label_bg`/
+  `input_selector_label_fg` plus `launcher_label_bg`/`launcher_label_fg` now
+  parse into native/effective config while their overlay row rendering remains
+  open.
 - Native cursor rendering applies WezTerm-style `colors.cursor_bg` as the
   default block cursor fill, `colors.cursor_border` as block-cursor border and
   bar/underline cursor color, and `colors.cursor_fg` as block-cursor text
@@ -2049,9 +2052,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   native/effective config and apply to normal command-palette candidate rows;
   top-level `char_select_bg_color`/`char_select_fg_color` parse into
   native/effective config and apply to normal Char Select candidate rows;
-  copy-mode/quick-select `Color`/`AnsiColor` tables also parse into
-  native/effective config, and copy-mode active/inactive highlight plus
-  quick-select label/match colors apply to overlay rendering, while compose,
+  copy-mode/quick-select/input-selector/launcher label `Color`/`AnsiColor`
+  tables also parse into native/effective config, and copy-mode
+  active/inactive highlight plus quick-select label/match colors apply to
+  overlay rendering, while input-selector/launcher label row rendering,
   native/fancy titlebar styling, and other non-terminal color fields remain
   later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and

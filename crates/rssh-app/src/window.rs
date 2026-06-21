@@ -1953,6 +1953,10 @@ struct NativeEffectiveConfig {
     quick_select_label_fg: Option<NativeColorSpec>,
     quick_select_match_bg: Option<NativeColorSpec>,
     quick_select_match_fg: Option<NativeColorSpec>,
+    input_selector_label_bg: Option<NativeColorSpec>,
+    input_selector_label_fg: Option<NativeColorSpec>,
+    launcher_label_bg: Option<NativeColorSpec>,
+    launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: String,
     term: String,
     audible_bell: NativeAudibleBell,
@@ -2112,6 +2116,10 @@ struct NativeConfigOverrides {
     quick_select_label_fg: Option<NativeColorSpec>,
     quick_select_match_bg: Option<NativeColorSpec>,
     quick_select_match_fg: Option<NativeColorSpec>,
+    input_selector_label_bg: Option<NativeColorSpec>,
+    input_selector_label_fg: Option<NativeColorSpec>,
+    launcher_label_bg: Option<NativeColorSpec>,
+    launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: Option<String>,
     term: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
@@ -2394,6 +2402,26 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_fg")?
         {
             overrides.quick_select_match_fg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) =
+            color_spec_lua_table_field_from_query(colors, "input_selector_label_bg")?
+        {
+            overrides.input_selector_label_bg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) =
+            color_spec_lua_table_field_from_query(colors, "input_selector_label_fg")?
+        {
+            overrides.input_selector_label_fg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_bg")? {
+            overrides.launcher_label_bg = Some(color);
+            parsed = true;
+        }
+        if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_fg")? {
+            overrides.launcher_label_fg = Some(color);
             parsed = true;
         }
     }
@@ -4760,6 +4788,10 @@ struct NativeWindowApp {
     quick_select_label_fg: Option<NativeColorSpec>,
     quick_select_match_bg: Option<NativeColorSpec>,
     quick_select_match_fg: Option<NativeColorSpec>,
+    input_selector_label_bg: Option<NativeColorSpec>,
+    input_selector_label_fg: Option<NativeColorSpec>,
+    launcher_label_bg: Option<NativeColorSpec>,
+    launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: String,
     term: String,
     audible_bell: NativeAudibleBell,
@@ -6198,6 +6230,10 @@ impl NativeWindowApp {
             quick_select_label_fg: None,
             quick_select_match_bg: None,
             quick_select_match_fg: None,
+            input_selector_label_bg: None,
+            input_selector_label_fg: None,
+            launcher_label_bg: None,
+            launcher_label_fg: None,
             selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
             term: DEFAULT_TERM.to_owned(),
             audible_bell: DEFAULT_AUDIBLE_BELL,
@@ -7380,6 +7416,10 @@ impl NativeWindowApp {
         self.quick_select_label_fg = source.quick_select_label_fg;
         self.quick_select_match_bg = source.quick_select_match_bg;
         self.quick_select_match_fg = source.quick_select_match_fg;
+        self.input_selector_label_bg = source.input_selector_label_bg;
+        self.input_selector_label_fg = source.input_selector_label_fg;
+        self.launcher_label_bg = source.launcher_label_bg;
+        self.launcher_label_fg = source.launcher_label_fg;
         self.selection_word_boundary
             .clone_from(&source.selection_word_boundary);
         self.term.clone_from(&source.term);
@@ -14633,6 +14673,10 @@ impl NativeWindowApp {
             quick_select_label_fg: self.quick_select_label_fg,
             quick_select_match_bg: self.quick_select_match_bg,
             quick_select_match_fg: self.quick_select_match_fg,
+            input_selector_label_bg: self.input_selector_label_bg,
+            input_selector_label_fg: self.input_selector_label_fg,
+            launcher_label_bg: self.launcher_label_bg,
+            launcher_label_fg: self.launcher_label_fg,
             selection_word_boundary: self.selection_word_boundary.clone(),
             term: self.term.clone(),
             audible_bell: self.audible_bell,
@@ -14876,6 +14920,10 @@ impl NativeWindowApp {
         self.quick_select_label_fg = overrides.quick_select_label_fg;
         self.quick_select_match_bg = overrides.quick_select_match_bg;
         self.quick_select_match_fg = overrides.quick_select_match_fg;
+        self.input_selector_label_bg = overrides.input_selector_label_bg;
+        self.input_selector_label_fg = overrides.input_selector_label_fg;
+        self.launcher_label_bg = overrides.launcher_label_bg;
+        self.launcher_label_fg = overrides.launcher_label_fg;
         self.selection_word_boundary = overrides
             .selection_word_boundary
             .unwrap_or_else(|| DEFAULT_SELECTION_WORD_BOUNDARY.to_owned());
@@ -46870,6 +46918,10 @@ mod tests {
                 quick_select_label_fg: None,
                 quick_select_match_bg: None,
                 quick_select_match_fg: None,
+                input_selector_label_bg: None,
+                input_selector_label_fg: None,
+                launcher_label_bg: None,
+                launcher_label_fg: None,
                 selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
                 term: "xterm-256color".to_owned(),
                 audible_bell: NativeAudibleBell::SystemBeep,
@@ -60113,6 +60165,10 @@ mod tests {
               quick_select_label_fg = { Color = 'silver' },
               quick_select_match_bg = { AnsiColor = 'Navy' },
               quick_select_match_fg = { Color = '#070809' },
+              input_selector_label_bg = { AnsiColor = 'Black' },
+              input_selector_label_fg = { Color = '#0a0b0c' },
+              launcher_label_bg = { AnsiColor = 'White' },
+              launcher_label_fg = { Color = '#0d0e0f' },
             }
 
             return config
@@ -60153,6 +60209,22 @@ mod tests {
         assert_eq!(
             effective.quick_select_match_fg,
             Some(NativeColorSpec::Color(Color::Rgb(7, 8, 9)))
+        );
+        assert_eq!(
+            effective.input_selector_label_bg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black))
+        );
+        assert_eq!(
+            effective.input_selector_label_fg,
+            Some(NativeColorSpec::Color(Color::Rgb(10, 11, 12)))
+        );
+        assert_eq!(
+            effective.launcher_label_bg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::White))
+        );
+        assert_eq!(
+            effective.launcher_label_fg,
+            Some(NativeColorSpec::Color(Color::Rgb(13, 14, 15)))
         );
     }
 
@@ -65865,6 +65937,10 @@ mod tests {
             quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(30, 31, 32))),
             quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(33, 34, 35))),
+            input_selector_label_bg: Some(NativeColorSpec::Color(Color::Rgb(34, 35, 36))),
+            input_selector_label_fg: Some(NativeColorSpec::Color(Color::Rgb(37, 38, 39))),
+            launcher_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+            launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(40, 41, 42))),
             selection_word_boundary: Some(" :".to_owned()),
             term: Some("wezterm".to_owned()),
             audible_bell: Some(NativeAudibleBell::Disabled),
@@ -66106,6 +66182,10 @@ mod tests {
             quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(30, 31, 32))),
             quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
             quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(33, 34, 35))),
+            input_selector_label_bg: Some(NativeColorSpec::Color(Color::Rgb(34, 35, 36))),
+            input_selector_label_fg: Some(NativeColorSpec::Color(Color::Rgb(37, 38, 39))),
+            launcher_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+            launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(40, 41, 42))),
             selection_word_boundary: " :".to_owned(),
             term: "wezterm".to_owned(),
             audible_bell: NativeAudibleBell::Disabled,
@@ -66292,6 +66372,10 @@ mod tests {
             quick_select_label_fg: None,
             quick_select_match_bg: None,
             quick_select_match_fg: None,
+            input_selector_label_bg: None,
+            input_selector_label_fg: None,
+            launcher_label_bg: None,
+            launcher_label_fg: None,
             selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
             term: "xterm-256color".to_owned(),
             audible_bell: NativeAudibleBell::SystemBeep,

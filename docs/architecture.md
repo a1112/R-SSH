@@ -1651,6 +1651,9 @@ keyboard, mouse, paste, resize
   set, and `quick_select_remove_styling` stripping pane colors, text styling,
   vertical alignment, hyperlink metadata, and inverse attributes before
   quick-select match/label highlights are applied,
+  `input_selector_label_bg`/`input_selector_label_fg` and
+  `launcher_label_bg`/`launcher_label_fg` parsing into native/effective config
+  while their overlay row rendering remains later parity work,
   quote-aware command-palette `quick select alphabet <chars>` for the native
   `QuickSelectArgs { alphabet = ... }` subset, command-palette
   `quick select pattern <regex>` and
