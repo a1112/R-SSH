@@ -28657,8 +28657,9 @@ fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOpt
                 if parsed_action {
                     return None;
                 }
-                let action = parse_maybe_quoted_query_text(value)?;
-                options.action = Some(quick_select_action_from_value(&action)?);
+                options.action = Some(quick_select_action_callback_or_key_assignment_from_query(
+                    value,
+                )?);
                 parsed_action = true;
             }
             "skipactiononpaste" => {
@@ -28683,6 +28684,17 @@ fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOpt
     }
 
     parsed.then_some(options)
+}
+
+fn quick_select_action_callback_or_key_assignment_from_query(
+    value: &str,
+) -> Option<WindowQuickSelectAction> {
+    let value = value.trim();
+    if lua_action_callback_from_query(value) {
+        return Some(WindowQuickSelectAction::Nop);
+    }
+    let action = parse_maybe_quoted_query_text(value)?;
+    quick_select_action_from_value(&action)
 }
 
 fn normalized_quick_select_lua_field(field: &str) -> String {
@@ -73887,6 +73899,62 @@ mod tests {
             assert!(copied.lock().unwrap().is_empty());
             assert!(primary_copied.lock().unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_quick_select_args_wezterm_action_callback_query() {
+        let query = "wezterm.action.QuickSelectArgs { label = 'open url', pattern = 'ticket-[0-9]+', skip_action_on_paste = true, action = wezterm.action_callback(function(window, pane) end) }";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            label: Some("open url".to_owned()),
+            action: Some(WindowQuickSelectAction::Nop),
+            skip_action_on_paste: true,
+            ..WindowQuickSelectOptions::default()
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::EnterQuickSelect]
+        );
+        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(quick_select.action, WindowQuickSelectAction::Nop);
+        assert_eq!(quick_select.action_label.as_deref(), Some("open url"));
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        let label = quick_select.labels[0].clone();
+
+        assert!(app.handle_quick_select_logical_key(
+            &Key::Character(label.into()),
+            ModifiersState::empty()
+        ));
+
+        assert!(app.quick_select.is_none());
+        assert!(app.selection.is_none());
+        assert!(copied.lock().unwrap().is_empty());
+        assert!(primary_copied.lock().unwrap().is_empty());
     }
 
     #[test]

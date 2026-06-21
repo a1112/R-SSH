@@ -911,7 +911,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   such as `wezterm.action.ActivateKeyTable { name = 'resize_pane' }` and
   `act.ActivateKeyTable({ name = 'resize_pane' })`, plus key-table stack
   KeyAssignments such as `wezterm.action.PopKeyTable` and
-  `act.ClearKeyTableStack()`. Arbitrary custom callback actions remain open.
+  `act.ClearKeyTableStack()`, plus static `wezterm.action_callback(...)`
+  custom actions as native-handler placeholders. Actual Lua callback execution
+  remains open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
   WezTerm's `"> "` default prompt when `prompt` is omitted, submit `Some(line)`

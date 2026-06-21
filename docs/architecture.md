@@ -1704,8 +1704,9 @@ keyboard, mouse, paste, resize
   key-assignment entry exposes `QuickSelect` with default native args, while
   `EnterQuickSelect` remains an internal command-palette query alias and
   action-name `enterquickselect` queries dispatch that default entry. Lua
-  option-table wiring and arbitrary custom action `QuickSelectArgs` fields
-  remain open.
+  option-table wiring accepts static
+  `QuickSelectArgs.action = wezterm.action_callback(...)` values as
+  native-handler placeholders; arbitrary custom action execution remains open.
 
 ## Technology Choices
 
