@@ -10620,6 +10620,14 @@ impl NativeWindowApp {
         true
     }
 
+    fn user_mouse_assignment_overrides_default_for_button(&self, button: MouseButton) -> bool {
+        self.mouse_assignments.iter().any(|assignment| {
+            assignment.event.button == button
+                && assignment.event.streak == 1
+                && assignment.modifiers == self.modifiers
+        })
+    }
+
     fn handle_input_selector_backspace(&mut self) -> bool {
         if let Some(input_selector) = self.input_selector.as_mut() {
             if input_selector.query.pop().is_none()
@@ -12758,7 +12766,8 @@ impl NativeWindowApp {
             return Ok(true);
         }
 
-        let default_mouse_bindings_enabled = !self.disable_default_mouse_bindings;
+        let default_mouse_bindings_enabled = !self.disable_default_mouse_bindings
+            && !self.user_mouse_assignment_overrides_default_for_button(button);
         if default_mouse_bindings_enabled && window_start_drag_mouse_binding(button, self.modifiers)
         {
             self.start_window_drag();
@@ -56645,6 +56654,48 @@ mod tests {
 
         assert!(
             app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
+                .unwrap()
+        );
+
+        let expected =
+            encode_window_paste("primary\ntext", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn window_app_user_middle_up_mouse_binding_suppresses_default_middle_paste() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.primary_selection_reader = Box::new(|| Some("primary\ntext".to_owned()));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Up = { streak = 1, button = 'Middle' } },
+                mods = 'NONE',
+                action = act.PastePrimarySelection,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding config");
+        app.set_config_overrides(overrides);
+
+        let _ = app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle);
+        assert!(
+            written.lock().unwrap().is_empty(),
+            "press should not run the default middle-click paste when a user binding covers the button"
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Middle)
                 .unwrap()
         );
 
