@@ -955,7 +955,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   with long-bracket values, when `choices` uses either the existing semicolon-
   delimited string form or WezTerm's Lua table-of-tables choice form with
   `{ label = ..., id = ... }` entries, including bracketed string keys on those
-  nested choice tables. Lua `wezterm.action_callback` wiring remains open.
+  nested choice tables. Static `wezterm.format { { Text = ... } }` label values
+  are reduced to their text for native selector labels, while style items are
+  ignored until styled selector rows are implemented. Lua `wezterm.action_callback`
+  wiring remains open.
 - Native `Confirmation` action payloads now carry a message string, required Yes
   action, and optional No/cancel action. They open a modal confirmation overlay,
   dispatch typed native `accepted = true` events on Enter/`Y`/Space before
@@ -1319,7 +1322,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.InputSelector({ title = "Pick Reply", choices = "decline=No thanks ; lgtm=LGTM", alphabet = "ab" })`,
   routing the same `title`, `choices`, `alphabet`, `description`,
   `fuzzy_description`, and `fuzzy` fields as the existing `Action { ... }` and
-  command-palette query forms.
+  command-palette query forms, including table-of-table choices and text-only
+  `wezterm.format` labels.
 - WezTerm-style confirmation table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,

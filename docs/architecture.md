@@ -360,7 +360,9 @@ keyboard, mouse, paste, resize
   alongside `fuzzy true|false`. Choice lists split only on unquoted semicolon
   separators, including compact `id=label;id=label` forms, so quoted labels can
   include semicolons. Known fields following `choices` are treated as the earliest
-  structured boundary, and duplicate
+  structured boundary. WezTerm-style Lua table choices with `{ label = ..., id = ... }`
+  entries are accepted, and static `wezterm.format { { Text = ... } }` label
+  values are reduced to their text for native selector labels. Duplicate
   `fuzzy` fields are rejected instead of silently overriding them; Lua
   `wezterm.action_callback` wiring remains future parity work.
 - Completed in v1: a native WezTerm-style `Confirmation` action payload carries

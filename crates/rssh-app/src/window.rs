@@ -22402,15 +22402,16 @@ fn input_selector_choice_lua_table_from_query(value: &str) -> Option<WindowInput
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "label" => {
+                let value = input_selector_choice_label_from_query(value.trim())?;
                 if label.is_some() || value.is_empty() {
                     return None;
                 }
                 label = Some(value);
             }
             "id" => {
+                let value = parse_maybe_quoted_query_text(value.trim())?;
                 if id.is_some() {
                     return None;
                 }
@@ -22421,6 +22422,23 @@ fn input_selector_choice_lua_table_from_query(value: &str) -> Option<WindowInput
     }
 
     Some(WindowInputSelectorChoice { label: label?, id })
+}
+
+fn input_selector_choice_label_from_query(value: &str) -> Option<String> {
+    native_format_items_from_wezterm_format_query(value)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    NativeFormatItem::Text(text) => Some(tab_bar_ansi_plain_text(text)),
+                    NativeFormatItem::Foreground(_)
+                    | NativeFormatItem::Background(_)
+                    | NativeFormatItem::Attribute(_)
+                    | NativeFormatItem::ResetAttributes => None,
+                })
+                .collect::<String>()
+        })
+        .or_else(|| parse_maybe_quoted_query_text(value))
 }
 
 fn split_unquoted_query_semicolons(query: &str) -> Vec<&str> {
@@ -56872,6 +56890,38 @@ mod tests {
                 copy_on_select: false,
                 copy_to: WindowCopyDestination::PrimarySelection,
                 group: Some("PeopleAndBody".to_owned()),
+            })]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_input_selector_wezterm_formatted_choice_label_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = 'Pick Reply', choices = { { id = 'decline', label = wezterm.format { { Text = 'No' }, { Text = ' thanks' } } }, { label = 'LGTM' } }, alphabet = 'ab' }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::InputSelector(WindowInputSelectorOptions {
+                title: "Pick Reply".to_owned(),
+                choices: vec![
+                    WindowInputSelectorChoice {
+                        label: "No thanks".to_owned(),
+                        id: Some("decline".to_owned()),
+                    },
+                    WindowInputSelectorChoice {
+                        label: "LGTM".to_owned(),
+                        id: None,
+                    },
+                ],
+                alphabet: Some("ab".to_owned()),
+                description: None,
+                fuzzy_description: None,
+                fuzzy: false,
             })]
         );
     }
