@@ -258,9 +258,10 @@ keyboard, mouse, paste, resize
   AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
   text renders through the Builtin overlay path at the active pane cursor, and
   static Lua `colors.compose_cursor` overrides the cursor color while Builtin
-  preedit text is active. Platform IME/XIM connection, dead-key/leader
-  composition cursor parity, exact left/right modifier source tracking, and
-  broader dynamic `cell_widths` Lua parity remain future parity work.
+  preedit text or the leader modifier is active. Platform IME/XIM connection,
+  dead-key composition cursor parity, exact left/right modifier source
+  tracking, and broader dynamic `cell_widths` Lua parity remain future parity
+  work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -826,8 +827,8 @@ keyboard, mouse, paste, resize
   as a Builtin overlay at the active pane cursor and suppressed for `System` or
   disabled IME, with commit/empty preedit clearing the overlay. Static Lua
   `colors.compose_cursor` overrides the cursor color while Builtin preedit text
-  is active. Dead-key/leader composition cursor parity and deeper platform
-  IME/XIM setup remain future parity work.
+  or the leader modifier is active. Dead-key composition cursor parity and
+  deeper platform IME/XIM setup remain future parity work.
   `detect_password_input` is stored
   with WezTerm's default `true`;
   actual Unix local-pane termios probing and lock-cursor rendering remain

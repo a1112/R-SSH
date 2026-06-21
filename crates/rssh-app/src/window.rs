@@ -13020,14 +13020,19 @@ impl NativeWindowApp {
         pane_id: rssh_core::PaneId,
         snapshot: TerminalRenderSnapshot,
     ) -> TerminalRenderSnapshot {
-        if pane_id != self.app_shell.active_pane_id()
-            || !self.use_ime
-            || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin
-            || !self
+        if pane_id != self.app_shell.active_pane_id() {
+            return snapshot;
+        }
+
+        let builtin_preedit_active = self.use_ime
+            && self.ime_preedit_rendering == NativeImePreeditRendering::Builtin
+            && self
                 .ime_preedit
                 .as_deref()
-                .is_some_and(|preedit| !preedit.is_empty())
-        {
+                .is_some_and(|preedit| !preedit.is_empty());
+        let leader_active = self.leader_active_since.is_some();
+
+        if !builtin_preedit_active && !leader_active {
             return snapshot;
         }
 
@@ -57347,6 +57352,39 @@ mod tests {
         )
         .unwrap();
         assert_eq!(written.lock().unwrap().as_slice(), b"x");
+    }
+
+    #[test]
+    fn window_app_uses_wezterm_compose_cursor_color_while_leader_is_active() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 }
+            config.colors = {
+              compose_cursor = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm leader and compose cursor config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot.cursor_color(), Some(Color::Rgb(1, 2, 3)));
     }
 
     #[test]
