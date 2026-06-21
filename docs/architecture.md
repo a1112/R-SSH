@@ -1650,7 +1650,8 @@ keyboard, mouse, paste, resize
   `disable_default_quick_select_patterns` so configured patterns become the full
   set, and `quick_select_remove_styling` stripping pane colors, text styling,
   vertical alignment, hyperlink metadata, and inverse attributes before
-  quick-select match/label highlights are applied,
+  quick-select match/label highlights are applied, typed quick-select label
+  prefixes hide non-matching labels while keeping matching labels visible,
   `input_selector_label_bg`/`input_selector_label_fg` and
   `launcher_label_bg`/`launcher_label_fg` parsing into native/effective config
   and applying to default-mode selector/launcher shortcut labels,
@@ -1683,7 +1684,8 @@ keyboard, mouse, paste, resize
   same query for the same implemented `QuickSelectArgs`
   fields, and WezTerm-style
   label input where lowercase labels copy the match to ClipboardAndPrimarySelection
-  and uppercase labels paste it into the pane. The default `Ctrl+Shift+Space`
+  and uppercase labels paste it into the pane, while partial label prefixes hide
+  non-matching labels. The default `Ctrl+Shift+Space`
   key-assignment entry exposes `QuickSelect` with default native args, while
   `EnterQuickSelect` remains an internal command-palette query alias and
   action-name `enterquickselect` queries dispatch that default entry. Lua

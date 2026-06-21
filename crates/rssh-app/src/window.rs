@@ -13489,10 +13489,12 @@ impl NativeWindowApp {
         let row_offset = self.terminal_frame_row_offset();
         let mut cells = Vec::new();
 
+        let input_prefix = quick_select.input.to_ascii_lowercase();
         for (matched, label) in quick_select.matches.iter().zip(&quick_select.labels) {
             if label.is_empty()
                 || matched.source_row < viewport_top
                 || matched.source_row >= viewport_bottom
+                || (!input_prefix.is_empty() && !label.starts_with(&input_prefix))
             {
                 continue;
             }
@@ -47831,6 +47833,42 @@ mod tests {
         assert_eq!(label_cell.foreground, Color::Rgb(4, 5, 6));
         assert_eq!(label_cell.background, Color::Indexed(4));
         assert!(!label_cell.inverse);
+    }
+
+    #[test]
+    fn window_quick_select_hides_non_matching_labels_while_typing() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 3));
+        app.set_config_overrides(NativeConfigOverrides {
+            quick_select_alphabet: Some("ab".to_owned()),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"https://one.test\r\nhttps://two.test\r\nhttps://three.test")
+            .unwrap();
+
+        app.enter_quick_select_mode();
+        assert_eq!(
+            app.quick_select.as_ref().unwrap().labels.as_slice(),
+            ["bb", "ba", "a"]
+        );
+
+        assert!(
+            app.handle_quick_select_logical_key(
+                &Key::Character("b".into()),
+                ModifiersState::empty()
+            )
+        );
+
+        let snapshot = app.render_snapshot();
+        let first_label = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("first label cell");
+        let second_label =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS + 1, 0).expect("second label cell");
+        let hidden_label =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS + 2, 0).expect("hidden label cell");
+
+        assert_eq!(first_label.ch, 'b');
+        assert_eq!(second_label.ch, 'b');
+        assert_eq!(hidden_label.ch, 'h');
     }
 
     #[test]
