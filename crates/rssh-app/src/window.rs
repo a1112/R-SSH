@@ -70,6 +70,7 @@ const DEFAULT_CHECK_FOR_UPDATES: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS: u64 = 86_400;
 const DEFAULT_SHOW_UPDATE_WINDOW: bool = false;
 const DEFAULT_USE_RESIZE_INCREMENTS: bool = false;
+const DEFAULT_PREFER_TO_SPAWN_TABS: bool = false;
 const DEFAULT_DEBUG_KEY_EVENTS: bool = false;
 const DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES: bool = false;
 const DEFAULT_WARN_ABOUT_MISSING_GLYPHS: bool = true;
@@ -96,6 +97,7 @@ const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greysca
 const DEFAULT_FONT_HINTING: NativeFontHinting = NativeFontHinting::Full;
 const DEFAULT_FONT_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::FreeType;
 const DEFAULT_FONT_SHAPER: NativeFontShaper = NativeFontShaper::Harfbuzz;
+const DEFAULT_FONT_LOCATOR: Option<NativeFontLocator> = None;
 const DEFAULT_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH: NativeSquareGlyphOverflow =
@@ -595,6 +597,21 @@ impl NativeFontShaper {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "Harfbuzz" => Some(Self::Harfbuzz),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeFontLocator {
+    ConfigDirsOnly,
+}
+
+impl NativeFontLocator {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "ConfigDirsOnly" => Some(Self::ConfigDirsOnly),
             _ => None,
         }
     }
@@ -1927,6 +1944,7 @@ const DEFAULT_WINDOW_CONTENT_ALIGNMENT: NativeWindowContentAlignment =
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
+    dpi: u32,
     tab_max_width: usize,
     status_update_interval_ms: u64,
     max_fps: usize,
@@ -1954,6 +1972,8 @@ struct NativeEffectiveConfig {
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
     font_shaper: NativeFontShaper,
+    font_dirs: Vec<String>,
+    font_locator: Option<NativeFontLocator>,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -2007,6 +2027,7 @@ struct NativeEffectiveConfig {
     term: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    color_scheme_dirs: Vec<String>,
     foreground_color: Color,
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
@@ -2031,6 +2052,7 @@ struct NativeEffectiveConfig {
     default_prog: Option<Vec<String>>,
     default_domain: String,
     default_workspace: String,
+    prefer_to_spawn_tabs: bool,
     automatically_reload_config: bool,
     check_for_updates: bool,
     check_for_updates_interval_seconds: u64,
@@ -2090,6 +2112,7 @@ struct NativeEffectiveConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NativeConfigOverrides {
+    dpi: Option<u32>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
     max_fps: Option<usize>,
@@ -2117,6 +2140,8 @@ struct NativeConfigOverrides {
     font_hinting: Option<NativeFontHinting>,
     font_rasterizer: Option<NativeFontRasterizer>,
     font_shaper: Option<NativeFontShaper>,
+    font_dirs: Option<Vec<String>>,
+    font_locator: Option<NativeFontLocator>,
     custom_block_glyphs: Option<bool>,
     anti_alias_custom_block_glyphs: Option<bool>,
     allow_square_glyphs_to_overflow_width: Option<NativeSquareGlyphOverflow>,
@@ -2170,6 +2195,7 @@ struct NativeConfigOverrides {
     term: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
     visual_bell: Option<NativeVisualBell>,
+    color_scheme_dirs: Option<Vec<String>>,
     foreground_color: Option<Color>,
     background_color: Option<Color>,
     ansi_palette: Option<[Color; 16]>,
@@ -2194,6 +2220,7 @@ struct NativeConfigOverrides {
     default_prog: Option<Vec<String>>,
     default_domain: Option<String>,
     default_workspace: Option<String>,
+    prefer_to_spawn_tabs: Option<bool>,
     automatically_reload_config: Option<bool>,
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
@@ -2261,6 +2288,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     let mut overrides = NativeConfigOverrides::default();
     let mut parsed = false;
 
+    if let Some(dpi) = lua_config_f32_assignment_from_query(config, "dpi") {
+        overrides.dpi = Some(native_dpi_from_f32(dpi)?);
+        parsed = true;
+    }
     if let Some(tab_max_width) = lua_config_usize_assignment_from_query(config, "tab_max_width") {
         overrides.tab_max_width = Some(tab_max_width);
         parsed = true;
@@ -2278,6 +2309,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.default_workspace =
             Some(non_empty_spawn_command_option_value(&default_workspace).ok()?);
+        parsed = true;
+    }
+    if let Some(prefer_to_spawn_tabs) =
+        lua_config_bool_assignment_from_query(config, "prefer_to_spawn_tabs")
+    {
+        overrides.prefer_to_spawn_tabs = Some(prefer_to_spawn_tabs);
         parsed = true;
     }
     if let Some(default_domain) = lua_config_string_assignment_from_query(config, "default_domain")
@@ -2304,173 +2341,46 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.tab_bar_style = tab_bar_style;
         parsed = true;
     }
+    let color_scheme = lua_config_string_assignment_from_query(config, "color_scheme");
+    let mut in_file_color_scheme_found = false;
+    let mut external_color_scheme_found = false;
+    if let Some(color_scheme) = color_scheme.as_deref()
+        && let Some(color_schemes) = lua_config_table_assignment_from_query(config, "color_schemes")
+        && let Some(colors) = color_scheme_lua_table_from_query(color_schemes, color_scheme)?
+    {
+        in_file_color_scheme_found = true;
+        parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
+    }
+    if let Some(color_scheme_dirs) =
+        lua_config_table_assignment_from_query(config, "color_scheme_dirs")
+    {
+        let color_scheme_dirs = split_lua_table_string_array(color_scheme_dirs)?;
+        if !in_file_color_scheme_found && let Some(color_scheme) = color_scheme.as_deref() {
+            external_color_scheme_found = apply_toml_color_scheme_dirs_overrides(
+                &color_scheme_dirs,
+                color_scheme,
+                &mut overrides,
+            )?;
+        }
+        overrides.color_scheme_dirs = Some(color_scheme_dirs);
+        parsed = true;
+    }
+    if !in_file_color_scheme_found
+        && !external_color_scheme_found
+        && let Some(color_scheme) = color_scheme.as_deref()
+    {
+        parsed |= apply_default_toml_color_scheme_dirs_overrides(color_scheme, &mut overrides)?;
+    }
+    if let Some(load_scheme) = lua_config_load_scheme_colors_assignment_from_query(config) {
+        parsed |=
+            apply_toml_color_scheme_file_overrides(Path::new(&load_scheme.path), &mut overrides)?;
+        if let Some(variable) = load_scheme.variable.as_deref() {
+            parsed |=
+                apply_lua_color_variable_mutation_overrides(config, variable, &mut overrides)?;
+        }
+    }
     if let Some(colors) = lua_config_table_assignment_from_query(config, "colors") {
-        if let Some(foreground_color) = color_lua_table_field_from_query(colors, "foreground")? {
-            overrides.foreground_color = Some(foreground_color);
-            parsed = true;
-        }
-        if let Some(background_color) = color_lua_table_field_from_query(colors, "background")? {
-            overrides.background_color = Some(background_color);
-            parsed = true;
-        }
-        if let Some(ansi_colors) = color_array_lua_table_field_from_query(colors, "ansi")? {
-            let mut palette = overrides
-                .ansi_palette
-                .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
-            palette[..8].copy_from_slice(&ansi_colors);
-            overrides.ansi_palette = Some(palette);
-            parsed = true;
-        }
-        if let Some(bright_colors) = color_array_lua_table_field_from_query(colors, "brights")? {
-            let mut palette = overrides
-                .ansi_palette
-                .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
-            palette[8..].copy_from_slice(&bright_colors);
-            overrides.ansi_palette = Some(palette);
-            parsed = true;
-        }
-        if let Some(indexed_palette) = indexed_palette_lua_table_field_from_query(colors)? {
-            overrides.indexed_palette = Some(indexed_palette);
-            parsed = true;
-        }
-        if let Some(selection_fg_color) = selection_fg_lua_table_field_from_query(colors)? {
-            overrides.selection_fg_color = Some(selection_fg_color);
-            parsed = true;
-        }
-        if let Some(selection_bg_color) = selection_bg_lua_table_field_from_query(colors)? {
-            overrides.selection_bg_color = Some(selection_bg_color);
-            parsed = true;
-        }
-        if let Some(cursor_bg_color) = color_lua_table_field_from_query(colors, "cursor_bg")? {
-            overrides.cursor_bg_color = Some(cursor_bg_color);
-            parsed = true;
-        }
-        if let Some(cursor_border_color) =
-            color_lua_table_field_from_query(colors, "cursor_border")?
-        {
-            overrides.cursor_border_color = Some(cursor_border_color);
-            parsed = true;
-        }
-        if let Some(cursor_fg_color) = color_lua_table_field_from_query(colors, "cursor_fg")? {
-            overrides.cursor_fg_color = Some(cursor_fg_color);
-            parsed = true;
-        }
-        if let Some(compose_cursor_color) =
-            color_lua_table_field_from_query(colors, "compose_cursor")?
-        {
-            overrides.compose_cursor_color = Some(compose_cursor_color);
-            parsed = true;
-        }
-        if let Some(split_color) = color_lua_table_field_from_query(colors, "split")? {
-            overrides.split_color = Some(split_color);
-            parsed = true;
-        }
-        if let Some(scrollbar_thumb_color) =
-            color_lua_table_field_from_query(colors, "scrollbar_thumb")?
-        {
-            overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
-            parsed = true;
-        }
-        if let Some(tab_bar_background_color) = tab_bar_background_lua_table_from_query(colors)? {
-            overrides.tab_bar_background_color = Some(tab_bar_background_color);
-            parsed = true;
-        }
-        if let Some(active_tab_colors) =
-            tab_bar_item_colors_lua_table_from_query(colors, "active_tab")?
-        {
-            overrides.tab_bar_active_tab_colors = active_tab_colors;
-            parsed = true;
-        }
-        if let Some(inactive_tab_colors) =
-            tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab")?
-        {
-            overrides.tab_bar_inactive_tab_colors = inactive_tab_colors;
-            parsed = true;
-        }
-        if let Some(inactive_tab_hover_colors) =
-            tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab_hover")?
-        {
-            overrides.tab_bar_inactive_tab_hover_colors = inactive_tab_hover_colors;
-            parsed = true;
-        }
-        if let Some(new_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "new_tab")? {
-            overrides.tab_bar_new_tab_colors = new_tab_colors;
-            parsed = true;
-        }
-        if let Some(new_tab_hover_colors) =
-            tab_bar_item_colors_lua_table_from_query(colors, "new_tab_hover")?
-        {
-            overrides.tab_bar_new_tab_hover_colors = new_tab_hover_colors;
-            parsed = true;
-        }
-        if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
-            overrides.visual_bell_color = Some(visual_bell_color);
-            parsed = true;
-        }
-        if let Some(color) =
-            color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_bg")?
-        {
-            overrides.copy_mode_active_highlight_bg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) =
-            color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_fg")?
-        {
-            overrides.copy_mode_active_highlight_fg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) =
-            color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_bg")?
-        {
-            overrides.copy_mode_inactive_highlight_bg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) =
-            color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_fg")?
-        {
-            overrides.copy_mode_inactive_highlight_fg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_bg")?
-        {
-            overrides.quick_select_label_bg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_fg")?
-        {
-            overrides.quick_select_label_fg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_bg")?
-        {
-            overrides.quick_select_match_bg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_fg")?
-        {
-            overrides.quick_select_match_fg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) =
-            color_spec_lua_table_field_from_query(colors, "input_selector_label_bg")?
-        {
-            overrides.input_selector_label_bg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) =
-            color_spec_lua_table_field_from_query(colors, "input_selector_label_fg")?
-        {
-            overrides.input_selector_label_fg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_bg")? {
-            overrides.launcher_label_bg = Some(color);
-            parsed = true;
-        }
-        if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_fg")? {
-            overrides.launcher_label_fg = Some(color);
-            parsed = true;
-        }
+        parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
     }
     if let Some(notification_handling) =
         lua_config_string_assignment_from_query(config, "notification_handling")
@@ -2519,6 +2429,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(font_shaper) = lua_config_string_assignment_from_query(config, "font_shaper") {
         overrides.font_shaper = Some(NativeFontShaper::parse(&font_shaper)?);
+        parsed = true;
+    }
+    if let Some(font_dirs) = lua_config_table_assignment_from_query(config, "font_dirs") {
+        overrides.font_dirs = Some(split_lua_table_string_array(font_dirs)?);
+        parsed = true;
+    }
+    if let Some(font_locator) = lua_config_string_assignment_from_query(config, "font_locator") {
+        overrides.font_locator = Some(NativeFontLocator::parse(&font_locator)?);
         parsed = true;
     }
     if let Some(custom_block_glyphs) =
@@ -3243,6 +3161,664 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     parsed.then_some(overrides)
 }
 
+fn color_scheme_lua_table_from_query<'a>(
+    color_schemes: &'a str,
+    color_scheme: &str,
+) -> Option<Option<&'a str>> {
+    let table = color_schemes
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim();
+    let mut selected = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((name, colors)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let name = split_lua_table_key_from_query(name.trim())?;
+        if name != color_scheme {
+            continue;
+        }
+        if selected.is_some() {
+            return None;
+        }
+        let colors = colors.trim();
+        colors.strip_prefix('{')?.strip_suffix('}')?;
+        selected = Some(colors);
+    }
+
+    Some(selected)
+}
+
+fn apply_toml_color_scheme_dirs_overrides(
+    color_scheme_dirs: &[String],
+    color_scheme: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    for color_scheme_dir in color_scheme_dirs {
+        if let Some(parsed) = apply_toml_color_scheme_dir_overrides(
+            Path::new(color_scheme_dir),
+            color_scheme,
+            overrides,
+        )? {
+            return Some(parsed);
+        }
+    }
+
+    Some(false)
+}
+
+fn apply_default_toml_color_scheme_dirs_overrides(
+    color_scheme: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    for color_scheme_dir in default_toml_color_scheme_dirs() {
+        if let Some(parsed) =
+            apply_toml_color_scheme_dir_overrides(&color_scheme_dir, color_scheme, overrides)?
+        {
+            return Some(parsed);
+        }
+    }
+
+    Some(false)
+}
+
+fn default_toml_color_scheme_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    #[cfg(windows)]
+    if let Ok(mut exe_path) = std::env::current_exe() {
+        exe_path.pop();
+        exe_path.push("colors");
+        dirs.push(exe_path);
+    }
+
+    #[cfg(not(windows))]
+    if let Some(home) = std::env::var_os("HOME") {
+        dirs.push(
+            PathBuf::from(home)
+                .join(".config")
+                .join("wezterm")
+                .join("colors"),
+        );
+    }
+
+    dirs
+}
+
+fn apply_toml_color_scheme_dir_overrides(
+    color_scheme_dir: &Path,
+    color_scheme: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<Option<bool>> {
+    let Ok(entries) = fs::read_dir(color_scheme_dir) else {
+        return Some(None);
+    };
+    let mut paths = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .collect::<Vec<_>>();
+    paths.sort();
+
+    for path in paths {
+        if !toml_color_scheme_file_path_candidate(&path) {
+            continue;
+        }
+        let Ok(contents) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(scheme) = toml::from_str::<toml::Value>(&contents) else {
+            continue;
+        };
+        if !toml_color_scheme_name_matches(&scheme, &path, color_scheme) {
+            continue;
+        }
+        let Some(colors) = scheme.as_table().and_then(|table| table.get("colors")) else {
+            continue;
+        };
+        return apply_toml_colors_table_overrides(colors, overrides).map(Some);
+    }
+
+    Some(None)
+}
+
+fn apply_toml_color_scheme_file_overrides(
+    path: &Path,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let contents = fs::read_to_string(path).ok()?;
+    let scheme = toml::from_str::<toml::Value>(&contents).ok()?;
+    let colors = scheme.as_table().and_then(|table| table.get("colors"))?;
+    apply_toml_colors_table_overrides(colors, overrides)
+}
+
+fn toml_color_scheme_file_path_candidate(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some(extension) if extension.eq_ignore_ascii_case("toml")
+    )
+}
+
+fn toml_color_scheme_name_matches(scheme: &toml::Value, path: &Path, color_scheme: &str) -> bool {
+    let metadata_name = scheme
+        .as_table()
+        .and_then(|table| table.get("metadata"))
+        .and_then(|metadata| metadata.as_table())
+        .and_then(|metadata| metadata.get("name"))
+        .and_then(|name| name.as_str());
+    let file_stem = path.file_stem().and_then(|file_stem| file_stem.to_str());
+    matches!(
+        metadata_name.or(file_stem),
+        Some(scheme_name) if scheme_name == color_scheme
+    )
+}
+
+fn apply_toml_colors_table_overrides(
+    colors: &toml::Value,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+
+    if let Some(foreground_color) = toml_color_table_field_from_query(colors, "foreground")? {
+        overrides.foreground_color = Some(foreground_color);
+        parsed = true;
+    }
+    if let Some(background_color) = toml_color_table_field_from_query(colors, "background")? {
+        overrides.background_color = Some(background_color);
+        parsed = true;
+    }
+    if let Some(ansi_colors) = toml_color_array_table_field_from_query(colors, "ansi")? {
+        let mut palette = overrides
+            .ansi_palette
+            .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+        palette[..8].copy_from_slice(&ansi_colors);
+        overrides.ansi_palette = Some(palette);
+        parsed = true;
+    }
+    if let Some(bright_colors) = toml_color_array_table_field_from_query(colors, "brights")? {
+        let mut palette = overrides
+            .ansi_palette
+            .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+        palette[8..].copy_from_slice(&bright_colors);
+        overrides.ansi_palette = Some(palette);
+        parsed = true;
+    }
+    if let Some(indexed_palette) = toml_indexed_palette_table_field_from_query(colors)? {
+        overrides.indexed_palette = Some(indexed_palette);
+        parsed = true;
+    }
+    if let Some(selection_fg_color) = toml_selection_fg_table_field_from_query(colors)? {
+        overrides.selection_fg_color = Some(selection_fg_color);
+        parsed = true;
+    }
+    if let Some(selection_bg_color) = toml_selection_bg_table_field_from_query(colors)? {
+        overrides.selection_bg_color = Some(selection_bg_color);
+        parsed = true;
+    }
+    if let Some(cursor_bg_color) = toml_color_table_field_from_query(colors, "cursor_bg")? {
+        overrides.cursor_bg_color = Some(cursor_bg_color);
+        parsed = true;
+    }
+    if let Some(cursor_border_color) = toml_color_table_field_from_query(colors, "cursor_border")? {
+        overrides.cursor_border_color = Some(cursor_border_color);
+        parsed = true;
+    }
+    if let Some(cursor_fg_color) = toml_color_table_field_from_query(colors, "cursor_fg")? {
+        overrides.cursor_fg_color = Some(cursor_fg_color);
+        parsed = true;
+    }
+    if let Some(compose_cursor_color) = toml_color_table_field_from_query(colors, "compose_cursor")?
+    {
+        overrides.compose_cursor_color = Some(compose_cursor_color);
+        parsed = true;
+    }
+    if let Some(split_color) = toml_color_table_field_from_query(colors, "split")? {
+        overrides.split_color = Some(split_color);
+        parsed = true;
+    }
+    if let Some(scrollbar_thumb_color) =
+        toml_color_table_field_from_query(colors, "scrollbar_thumb")?
+    {
+        overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
+        parsed = true;
+    }
+    if let Some(tab_bar_background_color) = toml_tab_bar_background_from_query(colors)? {
+        overrides.tab_bar_background_color = Some(tab_bar_background_color);
+        parsed = true;
+    }
+    if let Some(active_tab_colors) = toml_tab_bar_item_colors_from_query(colors, "active_tab")? {
+        overrides.tab_bar_active_tab_colors = active_tab_colors;
+        parsed = true;
+    }
+    if let Some(inactive_tab_colors) = toml_tab_bar_item_colors_from_query(colors, "inactive_tab")?
+    {
+        overrides.tab_bar_inactive_tab_colors = inactive_tab_colors;
+        parsed = true;
+    }
+    if let Some(inactive_tab_hover_colors) =
+        toml_tab_bar_item_colors_from_query(colors, "inactive_tab_hover")?
+    {
+        overrides.tab_bar_inactive_tab_hover_colors = inactive_tab_hover_colors;
+        parsed = true;
+    }
+    if let Some(new_tab_colors) = toml_tab_bar_item_colors_from_query(colors, "new_tab")? {
+        overrides.tab_bar_new_tab_colors = new_tab_colors;
+        parsed = true;
+    }
+    if let Some(new_tab_hover_colors) =
+        toml_tab_bar_item_colors_from_query(colors, "new_tab_hover")?
+    {
+        overrides.tab_bar_new_tab_hover_colors = new_tab_hover_colors;
+        parsed = true;
+    }
+    if let Some(visual_bell_color) = toml_color_table_field_from_query(colors, "visual_bell")? {
+        overrides.visual_bell_color = Some(visual_bell_color);
+        parsed = true;
+    }
+    if let Some(color) =
+        toml_color_spec_table_field_from_query(colors, "copy_mode_active_highlight_bg")?
+    {
+        overrides.copy_mode_active_highlight_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) =
+        toml_color_spec_table_field_from_query(colors, "copy_mode_active_highlight_fg")?
+    {
+        overrides.copy_mode_active_highlight_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) =
+        toml_color_spec_table_field_from_query(colors, "copy_mode_inactive_highlight_bg")?
+    {
+        overrides.copy_mode_inactive_highlight_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) =
+        toml_color_spec_table_field_from_query(colors, "copy_mode_inactive_highlight_fg")?
+    {
+        overrides.copy_mode_inactive_highlight_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "quick_select_label_bg")? {
+        overrides.quick_select_label_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "quick_select_label_fg")? {
+        overrides.quick_select_label_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "quick_select_match_bg")? {
+        overrides.quick_select_match_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "quick_select_match_fg")? {
+        overrides.quick_select_match_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "input_selector_label_bg")?
+    {
+        overrides.input_selector_label_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "input_selector_label_fg")?
+    {
+        overrides.input_selector_label_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "launcher_label_bg")? {
+        overrides.launcher_label_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_spec_table_field_from_query(colors, "launcher_label_fg")? {
+        overrides.launcher_label_fg = Some(color);
+        parsed = true;
+    }
+
+    Some(parsed)
+}
+
+fn toml_table_field<'a>(
+    value: &'a toml::Value,
+    field_name: &str,
+) -> Option<Option<&'a toml::Value>> {
+    let table = value.as_table()?;
+    Some(table.get(field_name))
+}
+
+fn toml_string_table_field_from_query<'a>(
+    value: &'a toml::Value,
+    field_name: &str,
+) -> Option<Option<&'a str>> {
+    let Some(value) = toml_table_field(value, field_name)? else {
+        return Some(None);
+    };
+    Some(Some(value.as_str()?))
+}
+
+fn toml_color_table_field_from_query(
+    value: &toml::Value,
+    field_name: &str,
+) -> Option<Option<Color>> {
+    let Some(value) = toml_string_table_field_from_query(value, field_name)? else {
+        return Some(None);
+    };
+    Some(Some(lua_opaque_color_from_query(value)?))
+}
+
+fn toml_selection_fg_table_field_from_query(value: &toml::Value) -> Option<Option<Option<Color>>> {
+    let Some(value) = toml_string_table_field_from_query(value, "selection_fg")? else {
+        return Some(None);
+    };
+    Some(Some(if value.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        lua_selection_foreground_color_from_query(value)?
+    }))
+}
+
+fn toml_selection_bg_table_field_from_query(value: &toml::Value) -> Option<Option<Color>> {
+    let Some(value) = toml_string_table_field_from_query(value, "selection_bg")? else {
+        return Some(None);
+    };
+    Some(Some(lua_color_from_query(value)?))
+}
+
+fn toml_color_array_table_field_from_query(
+    value: &toml::Value,
+    field_name: &str,
+) -> Option<Option<[Color; 8]>> {
+    let Some(value) = toml_table_field(value, field_name)? else {
+        return Some(None);
+    };
+    let parsed = value
+        .as_array()?
+        .iter()
+        .map(|value| value.as_str().and_then(lua_opaque_color_from_query))
+        .collect::<Option<Vec<_>>>()?;
+    Some(Some(<[Color; 8]>::try_from(parsed).ok()?))
+}
+
+fn toml_indexed_palette_table_field_from_query(
+    value: &toml::Value,
+) -> Option<Option<[Option<Color>; 256]>> {
+    let Some(indexed) = toml_table_field(value, "indexed")? else {
+        return Some(None);
+    };
+    let mut palette = [None; 256];
+    for (index, color) in indexed.as_table()? {
+        let index = index.parse::<usize>().ok()?;
+        if !(16..=255).contains(&index) || palette[index].is_some() {
+            return None;
+        }
+        palette[index] = Some(lua_opaque_color_from_query(color.as_str()?)?);
+    }
+    Some(Some(palette))
+}
+
+fn toml_tab_bar_background_from_query(value: &toml::Value) -> Option<Option<Color>> {
+    let Some(tab_bar) = toml_table_field(value, "tab_bar")? else {
+        return Some(None);
+    };
+    toml_color_table_field_from_query(tab_bar, "background")
+}
+
+fn toml_tab_bar_item_colors_from_query(
+    value: &toml::Value,
+    item_name: &str,
+) -> Option<Option<NativeTabBarItemColors>> {
+    let Some(tab_bar) = toml_table_field(value, "tab_bar")? else {
+        return Some(None);
+    };
+    let Some(item) = toml_table_field(tab_bar, item_name)? else {
+        return Some(None);
+    };
+
+    let mut colors = NativeTabBarItemColors::default();
+    let mut parsed = false;
+    if let Some(color) = toml_color_table_field_from_query(item, "fg_color")? {
+        colors.fg_color = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = toml_color_table_field_from_query(item, "bg_color")? {
+        colors.bg_color = Some(color);
+        parsed = true;
+    }
+    if let Some(intensity) = toml_string_table_field_from_query(item, "intensity")? {
+        colors.intensity = Some(tab_bar_item_intensity_from_query(intensity)?);
+        parsed = true;
+    }
+    if let Some(underline) = toml_string_table_field_from_query(item, "underline")? {
+        colors.underline = Some(tab_bar_item_underline_from_query(underline)?);
+        parsed = true;
+    }
+    if let Some(italic) = toml_bool_table_field_from_query(item, "italic")? {
+        colors.italic = Some(italic);
+        parsed = true;
+    }
+    if let Some(strikethrough) = toml_bool_table_field_from_query(item, "strikethrough")? {
+        colors.strikethrough = Some(strikethrough);
+        parsed = true;
+    }
+
+    Some(parsed.then_some(colors))
+}
+
+fn toml_bool_table_field_from_query(value: &toml::Value, field_name: &str) -> Option<Option<bool>> {
+    let Some(value) = toml_table_field(value, field_name)? else {
+        return Some(None);
+    };
+    Some(Some(value.as_bool()?))
+}
+
+fn toml_color_spec_table_field_from_query(
+    value: &toml::Value,
+    field_name: &str,
+) -> Option<Option<NativeColorSpec>> {
+    let Some(value) = toml_table_field(value, field_name)? else {
+        return Some(None);
+    };
+    Some(Some(toml_color_spec_from_query(value)?))
+}
+
+fn toml_color_spec_from_query(value: &toml::Value) -> Option<NativeColorSpec> {
+    let table = value.as_table()?;
+    let mut color = None;
+    for (key, value) in table {
+        if color.is_some() {
+            return None;
+        }
+        let value = value.as_str()?;
+        color = Some(match key.as_str() {
+            "Color" => NativeColorSpec::Color(lua_opaque_color_from_query(value)?),
+            "AnsiColor" => NativeColorSpec::AnsiColor(NativeAnsiColor::parse(value)?),
+            _ => return None,
+        });
+    }
+    color
+}
+
+fn apply_lua_colors_table_overrides(
+    colors: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+
+    if let Some(foreground_color) = color_lua_table_field_from_query(colors, "foreground")? {
+        overrides.foreground_color = Some(foreground_color);
+        parsed = true;
+    }
+    if let Some(background_color) = color_lua_table_field_from_query(colors, "background")? {
+        overrides.background_color = Some(background_color);
+        parsed = true;
+    }
+    if let Some(ansi_colors) = color_array_lua_table_field_from_query(colors, "ansi")? {
+        let mut palette = overrides
+            .ansi_palette
+            .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+        palette[..8].copy_from_slice(&ansi_colors);
+        overrides.ansi_palette = Some(palette);
+        parsed = true;
+    }
+    if let Some(bright_colors) = color_array_lua_table_field_from_query(colors, "brights")? {
+        let mut palette = overrides
+            .ansi_palette
+            .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+        palette[8..].copy_from_slice(&bright_colors);
+        overrides.ansi_palette = Some(palette);
+        parsed = true;
+    }
+    if let Some(indexed_palette) = indexed_palette_lua_table_field_from_query(colors)? {
+        overrides.indexed_palette = Some(indexed_palette);
+        parsed = true;
+    }
+    if let Some(selection_fg_color) = selection_fg_lua_table_field_from_query(colors)? {
+        overrides.selection_fg_color = Some(selection_fg_color);
+        parsed = true;
+    }
+    if let Some(selection_bg_color) = selection_bg_lua_table_field_from_query(colors)? {
+        overrides.selection_bg_color = Some(selection_bg_color);
+        parsed = true;
+    }
+    if let Some(cursor_bg_color) = color_lua_table_field_from_query(colors, "cursor_bg")? {
+        overrides.cursor_bg_color = Some(cursor_bg_color);
+        parsed = true;
+    }
+    if let Some(cursor_border_color) = color_lua_table_field_from_query(colors, "cursor_border")? {
+        overrides.cursor_border_color = Some(cursor_border_color);
+        parsed = true;
+    }
+    if let Some(cursor_fg_color) = color_lua_table_field_from_query(colors, "cursor_fg")? {
+        overrides.cursor_fg_color = Some(cursor_fg_color);
+        parsed = true;
+    }
+    if let Some(compose_cursor_color) = color_lua_table_field_from_query(colors, "compose_cursor")?
+    {
+        overrides.compose_cursor_color = Some(compose_cursor_color);
+        parsed = true;
+    }
+    if let Some(split_color) = color_lua_table_field_from_query(colors, "split")? {
+        overrides.split_color = Some(split_color);
+        parsed = true;
+    }
+    if let Some(scrollbar_thumb_color) =
+        color_lua_table_field_from_query(colors, "scrollbar_thumb")?
+    {
+        overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
+        parsed = true;
+    }
+    if let Some(tab_bar_background_color) = tab_bar_background_lua_table_from_query(colors)? {
+        overrides.tab_bar_background_color = Some(tab_bar_background_color);
+        parsed = true;
+    }
+    if let Some(active_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "active_tab")?
+    {
+        overrides.tab_bar_active_tab_colors = active_tab_colors;
+        parsed = true;
+    }
+    if let Some(inactive_tab_colors) =
+        tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab")?
+    {
+        overrides.tab_bar_inactive_tab_colors = inactive_tab_colors;
+        parsed = true;
+    }
+    if let Some(inactive_tab_hover_colors) =
+        tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab_hover")?
+    {
+        overrides.tab_bar_inactive_tab_hover_colors = inactive_tab_hover_colors;
+        parsed = true;
+    }
+    if let Some(new_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "new_tab")? {
+        overrides.tab_bar_new_tab_colors = new_tab_colors;
+        parsed = true;
+    }
+    if let Some(new_tab_hover_colors) =
+        tab_bar_item_colors_lua_table_from_query(colors, "new_tab_hover")?
+    {
+        overrides.tab_bar_new_tab_hover_colors = new_tab_hover_colors;
+        parsed = true;
+    }
+    if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
+        overrides.visual_bell_color = Some(visual_bell_color);
+        parsed = true;
+    }
+    if let Some(color) =
+        color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_bg")?
+    {
+        overrides.copy_mode_active_highlight_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) =
+        color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_fg")?
+    {
+        overrides.copy_mode_active_highlight_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) =
+        color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_bg")?
+    {
+        overrides.copy_mode_inactive_highlight_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) =
+        color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_fg")?
+    {
+        overrides.copy_mode_inactive_highlight_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_bg")? {
+        overrides.quick_select_label_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_fg")? {
+        overrides.quick_select_label_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_bg")? {
+        overrides.quick_select_match_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_fg")? {
+        overrides.quick_select_match_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "input_selector_label_bg")? {
+        overrides.input_selector_label_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "input_selector_label_fg")? {
+        overrides.input_selector_label_fg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_bg")? {
+        overrides.launcher_label_bg = Some(color);
+        parsed = true;
+    }
+    if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_fg")? {
+        overrides.launcher_label_fg = Some(color);
+        parsed = true;
+    }
+
+    Some(parsed)
+}
+
+fn apply_lua_color_variable_mutation_overrides(
+    source: &str,
+    variable: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let Some(colors) = lua_color_variable_mutation_table_from_query(source, variable) else {
+        return Some(false);
+    };
+    apply_lua_colors_table_overrides(&colors, overrides)
+}
+
 #[allow(dead_code)]
 fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<String> {
     lua_config_assignment_from_query(source, field, lua_quoted_string_literal_from_query)
@@ -3290,6 +3866,149 @@ fn lua_config_dimension_assignment_from_query(source: &str, field: &str) -> Opti
 #[allow(dead_code)]
 fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> Option<&'a str> {
     lua_config_assignment_from_query(source, field, lua_braced_table_literal_from_query)
+}
+
+struct NativeLoadSchemeColorsAssignment {
+    path: String,
+    variable: Option<String>,
+}
+
+fn lua_config_load_scheme_colors_assignment_from_query(
+    source: &str,
+) -> Option<NativeLoadSchemeColorsAssignment> {
+    lua_config_assignment_from_query(
+        source,
+        "colors",
+        lua_wezterm_color_load_scheme_path_literal_from_query,
+    )
+    .and_then(parse_maybe_quoted_query_text)
+    .map(|path| NativeLoadSchemeColorsAssignment {
+        path,
+        variable: None,
+    })
+    .or_else(|| {
+        let colors_variable =
+            lua_config_assignment_from_query(source, "colors", lua_identifier_literal_from_query)?;
+        let path = lua_local_load_scheme_assignment_from_query(source, colors_variable)?;
+        Some(NativeLoadSchemeColorsAssignment {
+            path,
+            variable: Some(colors_variable.to_owned()),
+        })
+    })
+}
+
+fn lua_local_load_scheme_assignment_from_query(source: &str, variable: &str) -> Option<String> {
+    for line in source.lines() {
+        let line = line.trim_start();
+        let Some(rest) = line.strip_prefix("local") else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let Some((names, value)) = rest.trim_start().split_once('=') else {
+            continue;
+        };
+        let Some(first_name) = names.split(',').next().map(str::trim) else {
+            continue;
+        };
+        if first_name != variable {
+            continue;
+        }
+        if let Some(path) = lua_wezterm_color_load_scheme_path_literal_from_query(value)
+            .and_then(parse_maybe_quoted_query_text)
+        {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) -> Option<String> {
+    let mut fields = Vec::new();
+    let mut line_start = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
+            line_start += line.len();
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            line_start += line.len();
+            continue;
+        }
+        let rest = source.get(start + variable.len()..)?.trim_start();
+        let Some(rest) = rest.strip_prefix('.') else {
+            line_start += line.len();
+            continue;
+        };
+        let field_name = lua_identifier_literal_from_query(rest)?;
+        let rest = lua_trim_start_comments(rest.get(field_name.len()..)?)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            line_start += line.len();
+            continue;
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        if value.is_empty() {
+            line_start += line.len();
+            continue;
+        }
+        fields.push(format!("{field_name} = {value}"));
+        line_start += line.len();
+    }
+
+    (!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n")))
+}
+
+fn lua_color_variable_mutation_value_literal_from_query(query: &str) -> Option<&str> {
+    let query = lua_trim_start_comments(query)?;
+    lua_braced_table_literal_from_query(query)
+        .or_else(|| lua_quoted_string_literal_from_query(query))
+        .or_else(|| lua_long_bracket_literal_from_query(query))
+        .or_else(|| {
+            let value = query
+                .split_once('\n')
+                .map_or(query, |(value, _)| value)
+                .trim()
+                .trim_end_matches(',')
+                .trim();
+            (!value.is_empty()).then_some(value)
+        })
+}
+
+fn lua_wezterm_color_load_scheme_path_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    let rest = query.strip_prefix("wezterm.color.load_scheme")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = if let Some(rest) = rest.strip_prefix('(') {
+        lua_trim_start_comments(rest)?
+    } else {
+        rest
+    };
+    lua_quoted_string_literal_from_query(rest).or_else(|| lua_long_bracket_literal_from_query(rest))
+}
+
+fn lua_identifier_literal_from_query(query: &str) -> Option<&str> {
+    let query = query.trim_start();
+    let mut chars = query.char_indices();
+    let (_, first) = chars.next()?;
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return None;
+    }
+    let mut end = first.len_utf8();
+    for (index, character) in chars {
+        if !is_lua_identifier_character(character) {
+            break;
+        }
+        end = index + character.len_utf8();
+    }
+    query.get(..end)
 }
 
 #[allow(dead_code)]
@@ -3878,6 +4597,14 @@ fn native_font_size_from_points(points: f32) -> Option<NativeFontSize> {
     }
     let millipoints = (points * 1_000.0).round();
     (millipoints <= u32::MAX as f32).then(|| NativeFontSize::from_millipoints(millipoints as u32))
+}
+
+fn native_dpi_from_f32(dpi: f32) -> Option<u32> {
+    if !dpi.is_finite() || dpi <= 0.0 {
+        return None;
+    }
+    let dpi = dpi.round();
+    (dpi <= u32::MAX as f32).then_some(dpi as u32)
 }
 
 #[allow(dead_code)]
@@ -4975,6 +5702,8 @@ struct NativeWindowApp {
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
     font_shaper: NativeFontShaper,
+    font_dirs: Vec<String>,
+    font_locator: Option<NativeFontLocator>,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -5000,6 +5729,8 @@ struct NativeWindowApp {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
     renderer: PixelRenderer,
+    configured_dpi: Option<u32>,
+    detected_window_dpi: u32,
     window_dpi: u32,
     runtime: TerminalRuntime,
     snapshot: TerminalRenderSnapshot,
@@ -5088,6 +5819,7 @@ struct NativeWindowApp {
     term: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    color_scheme_dirs: Vec<String>,
     foreground_color: Color,
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
@@ -5112,6 +5844,7 @@ struct NativeWindowApp {
     default_prog: Option<Vec<String>>,
     default_domain: String,
     default_workspace: String,
+    prefer_to_spawn_tabs: bool,
     automatically_reload_config: bool,
     check_for_updates: bool,
     check_for_updates_interval_seconds: u64,
@@ -6413,6 +7146,8 @@ impl NativeWindowApp {
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
             font_shaper: DEFAULT_FONT_SHAPER,
+            font_dirs: Vec::new(),
+            font_locator: DEFAULT_FONT_LOCATOR,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
@@ -6445,6 +7180,8 @@ impl NativeWindowApp {
                 ));
                 renderer
             },
+            configured_dpi: None,
+            detected_window_dpi: DEFAULT_WINDOW_DPI,
             window_dpi: DEFAULT_WINDOW_DPI,
             runtime,
             snapshot,
@@ -6532,6 +7269,7 @@ impl NativeWindowApp {
             term: DEFAULT_TERM.to_owned(),
             audible_bell: DEFAULT_AUDIBLE_BELL,
             visual_bell: NativeVisualBell::default(),
+            color_scheme_dirs: Vec::new(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
@@ -6556,6 +7294,7 @@ impl NativeWindowApp {
             default_prog: None,
             default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
             default_workspace: DEFAULT_WORKSPACE_NAME.to_owned(),
+            prefer_to_spawn_tabs: DEFAULT_PREFER_TO_SPAWN_TABS,
             automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
             check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
             check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
@@ -7560,6 +8299,7 @@ impl NativeWindowApp {
         detached_app
             .default_workspace
             .clone_from(&self.default_workspace);
+        detached_app.prefer_to_spawn_tabs = self.prefer_to_spawn_tabs;
         detached_app.automatically_reload_config = self.automatically_reload_config;
         detached_app.check_for_updates = self.check_for_updates;
         detached_app.check_for_updates_interval_seconds = self.check_for_updates_interval_seconds;
@@ -7653,6 +8393,9 @@ impl NativeWindowApp {
 
     fn inherit_effective_config_from(&mut self, source: &Self) {
         self.config_overrides.clone_from(&source.config_overrides);
+        self.configured_dpi = source.configured_dpi;
+        self.detected_window_dpi = source.detected_window_dpi;
+        self.apply_effective_window_dpi();
         self.font_size = source.font_size;
         self.cell_width = source.cell_width;
         self.cell_widths.clone_from(&source.cell_widths);
@@ -7661,6 +8404,8 @@ impl NativeWindowApp {
         self.font_hinting = source.font_hinting;
         self.font_rasterizer = source.font_rasterizer;
         self.font_shaper = source.font_shaper;
+        self.font_dirs.clone_from(&source.font_dirs);
+        self.font_locator = source.font_locator;
         self.custom_block_glyphs = source.custom_block_glyphs;
         self.anti_alias_custom_block_glyphs = source.anti_alias_custom_block_glyphs;
         self.allow_square_glyphs_to_overflow_width = source.allow_square_glyphs_to_overflow_width;
@@ -7723,6 +8468,7 @@ impl NativeWindowApp {
         self.term.clone_from(&source.term);
         self.audible_bell = source.audible_bell;
         self.visual_bell = source.visual_bell;
+        self.color_scheme_dirs.clone_from(&source.color_scheme_dirs);
         self.foreground_color = source.foreground_color;
         self.renderer.set_default_foreground(color_to_rgba(
             source.foreground_color,
@@ -7773,6 +8519,7 @@ impl NativeWindowApp {
         self.default_prog.clone_from(&source.default_prog);
         self.default_domain.clone_from(&source.default_domain);
         self.default_workspace.clone_from(&source.default_workspace);
+        self.prefer_to_spawn_tabs = source.prefer_to_spawn_tabs;
         self.automatically_reload_config = source.automatically_reload_config;
         self.check_for_updates = source.check_for_updates;
         self.check_for_updates_interval_seconds = source.check_for_updates_interval_seconds;
@@ -8834,20 +9581,14 @@ impl NativeWindowApp {
         if let WindowCommand::SpawnCommandInNewWindow(spawn_command) = &command {
             let window_position = spawn_command.window_position.clone();
             let launch = self.supported_pane_launch(spawn_command.clone())?;
-            self.dispatch_app_action(AppAction::SpawnWindow {
-                launch: Some(launch),
-            })?;
-            self.record_latest_pending_window_position(window_position);
+            self.dispatch_spawn_window_or_preferred_tab(Some(launch), window_position)?;
             return Ok(());
         }
 
         if let WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options) = &command {
             let window_position = spawn_options.window_position.clone();
             let launch = self.default_pane_launch_with_options(spawn_options.clone())?;
-            self.dispatch_app_action(AppAction::SpawnWindow {
-                launch: Some(launch),
-            })?;
-            self.record_latest_pending_window_position(window_position);
+            self.dispatch_spawn_window_or_preferred_tab(Some(launch), window_position)?;
             return Ok(());
         }
 
@@ -8872,8 +9613,7 @@ impl NativeWindowApp {
                 (None, Some(options)) => Some(self.default_pane_launch_with_options(options)?),
                 (None, None) => None,
             };
-            self.dispatch_app_action(AppAction::SpawnWindow { launch })?;
-            self.record_latest_pending_window_position(window_position);
+            self.dispatch_spawn_window_or_preferred_tab(launch, window_position)?;
             return Ok(());
         }
 
@@ -9444,22 +10184,28 @@ impl NativeWindowApp {
                 launch: Some(self.default_pane_launch_with_options(spawn_options)?),
             },
             WindowCommand::SpawnWindow => {
-                let launch = self
+                let spawn_command = self
                     .command_palette
                     .as_ref()
-                    .and_then(|palette| spawn_command_in_new_window_from_query(&palette.query))
+                    .and_then(|palette| spawn_command_in_new_window_from_query(&palette.query));
+                let has_window_position = spawn_command
+                    .as_ref()
+                    .is_some_and(|command| command.window_position.is_some());
+                let launch = spawn_command
                     .map(|command| self.supported_pane_launch(command))
                     .transpose()?;
-                AppAction::SpawnWindow { launch }
+                self.spawn_window_or_preferred_tab_action(launch, has_window_position)
             }
             WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options) => {
-                AppAction::SpawnWindow {
-                    launch: Some(self.default_pane_launch_with_options(spawn_options)?),
-                }
+                let has_window_position = spawn_options.window_position.is_some();
+                let launch = Some(self.default_pane_launch_with_options(spawn_options)?);
+                self.spawn_window_or_preferred_tab_action(launch, has_window_position)
             }
-            WindowCommand::SpawnCommandInNewWindow(spawn_command) => AppAction::SpawnWindow {
-                launch: Some(self.supported_pane_launch(spawn_command)?),
-            },
+            WindowCommand::SpawnCommandInNewWindow(spawn_command) => {
+                let has_window_position = spawn_command.window_position.is_some();
+                let launch = Some(self.supported_pane_launch(spawn_command)?);
+                self.spawn_window_or_preferred_tab_action(launch, has_window_position)
+            }
             WindowCommand::ActivateLastTab => AppAction::ActivateLastTab,
             WindowCommand::CloseCurrentTab { confirm: true } => {
                 self.request_close_confirmation_or_close(WindowCloseTarget::Tab(
@@ -9752,6 +10498,37 @@ impl NativeWindowApp {
             (None, Some(options)) => self.default_pane_launch_with_options(options).map(Some),
             (None, None) => Ok(None),
         }
+    }
+
+    fn prefers_spawn_window_as_tab(&self, has_window_position: bool) -> bool {
+        self.prefer_to_spawn_tabs && !has_window_position
+    }
+
+    fn spawn_window_or_preferred_tab_action(
+        &self,
+        launch: Option<PaneLaunch>,
+        has_window_position: bool,
+    ) -> AppAction {
+        if self.prefers_spawn_window_as_tab(has_window_position) {
+            AppAction::NewTab { launch }
+        } else {
+            AppAction::SpawnWindow { launch }
+        }
+    }
+
+    fn dispatch_spawn_window_or_preferred_tab(
+        &mut self,
+        launch: Option<PaneLaunch>,
+        window_position: Option<WindowPosition>,
+    ) -> Result<(), AppShellError> {
+        let has_window_position = window_position.is_some();
+        let route_to_tab = self.prefers_spawn_window_as_tab(has_window_position);
+        let action = self.spawn_window_or_preferred_tab_action(launch, has_window_position);
+        self.dispatch_app_action(action)?;
+        if !route_to_tab {
+            self.record_latest_pending_window_position(window_position);
+        }
+        Ok(())
     }
 
     fn record_latest_pending_window_position(&mut self, position: Option<WindowPosition>) {
@@ -10689,6 +11466,7 @@ impl NativeWindowApp {
                     && assignment.modifiers == self.modifiers
                     && assignment.mouse_reporting == mouse_reporting
                     && assignment.alt_screen.matches(alternate_screen_active)
+                    && assignment.command != WindowCommand::DisableDefaultAssignment
             })
             .map(|assignment| assignment.command.clone())
         else {
@@ -12144,7 +12922,12 @@ impl NativeWindowApp {
     }
 
     fn apply_window_scale_factor(&mut self, scale_factor: f64) {
-        let window_dpi = window_dpi_from_scale_factor(scale_factor);
+        self.detected_window_dpi = window_dpi_from_scale_factor(scale_factor);
+        self.apply_effective_window_dpi();
+    }
+
+    fn apply_effective_window_dpi(&mut self) {
+        let window_dpi = self.configured_dpi.unwrap_or(self.detected_window_dpi);
         self.window_dpi = window_dpi;
         self.renderer.set_window_dpi(window_dpi);
     }
@@ -12786,7 +13569,7 @@ impl NativeWindowApp {
             return Ok(true);
         }
 
-        if mode.reporting_enabled() {
+        if mode.reporting_enabled() && !bypass_mouse_reporting {
             if let Some(PaneMouseCell { column, row, .. }) =
                 mouse_cell.or_else(|| self.mouse_cell_for_active_pane())
             {
@@ -12808,6 +13591,10 @@ impl NativeWindowApp {
                     return Ok(true);
                 }
             }
+            return Ok(false);
+        }
+
+        if self.disable_default_mouse_bindings {
             return Ok(false);
         }
 
@@ -12993,10 +13780,11 @@ impl NativeWindowApp {
                 mouse_reporting_for_assignment,
                 alternate_screen_active,
             );
-        if default_mouse_bindings_enabled && window_start_drag_mouse_binding(button, self.modifiers)
+        if default_mouse_bindings_enabled
+            && state == ElementState::Pressed
+            && window_start_drag_mouse_binding(button, self.modifiers)
         {
-            self.start_window_drag();
-            return Ok(true);
+            return Ok(false);
         }
 
         if default_mouse_bindings_enabled
@@ -13079,21 +13867,44 @@ impl NativeWindowApp {
             return Ok(self.resize_split_to_mouse_position());
         }
 
-        if mouse_cell_changed
-            && let Some(button) = self.active_mouse_button
-            && self.handle_user_mouse_assignment(
+        let mode = self.runtime.mouse_input_mode();
+        let alternate_screen_active = self.runtime.terminal().alternate_screen_active();
+        let bypass_mouse_reporting = mode.reporting_enabled()
+            && !self.bypass_mouse_reporting_modifiers.is_empty()
+            && self
+                .modifiers
+                .contains(self.bypass_mouse_reporting_modifiers);
+        let mouse_reporting_for_assignment = mode.reporting_enabled() && !bypass_mouse_reporting;
+        if mouse_cell_changed && let Some(button) = self.active_mouse_button {
+            let assignment_streak = self.active_mouse_assignment_streak(
+                button,
+                mouse_reporting_for_assignment,
+                alternate_screen_active,
+            );
+            if self.handle_user_mouse_assignment(
                 NativeMouseAssignmentEventKind::Drag,
                 NativeMouseAssignmentButton::Mouse(button),
-                self.active_mouse_assignment_streak(
-                    button,
-                    self.runtime.mouse_input_mode().reporting_enabled(),
-                    self.runtime.terminal().alternate_screen_active(),
-                ),
-                self.runtime.mouse_input_mode().reporting_enabled(),
-                self.runtime.terminal().alternate_screen_active(),
-            )
-        {
-            return Ok(true);
+                assignment_streak,
+                mouse_reporting_for_assignment,
+                alternate_screen_active,
+            ) {
+                return Ok(true);
+            }
+
+            let default_mouse_bindings_enabled = !self.disable_default_mouse_bindings
+                && (!mode.reporting_enabled() || bypass_mouse_reporting)
+                && !self.user_mouse_assignment_overrides_default_for_button(
+                    NativeMouseAssignmentButton::Mouse(button),
+                    assignment_streak,
+                    mouse_reporting_for_assignment,
+                    alternate_screen_active,
+                );
+            if default_mouse_bindings_enabled
+                && window_start_drag_mouse_binding(button, self.modifiers)
+            {
+                self.start_window_drag();
+                return Ok(true);
+            }
         }
 
         if !mouse_cell_changed {
@@ -13104,9 +13915,14 @@ impl NativeWindowApp {
             let _ = self.focus_pane_for_mouse_position();
         }
 
-        let mode = self.runtime.mouse_input_mode();
-        if !mode.reporting_enabled() {
-            return Ok(self.update_selection_from_mouse_position());
+        if !mode.reporting_enabled() || bypass_mouse_reporting {
+            let saved_modifiers = self.modifiers;
+            if bypass_mouse_reporting {
+                self.modifiers.remove(self.bypass_mouse_reporting_modifiers);
+            }
+            let handled = self.update_selection_from_mouse_position();
+            self.modifiers = saved_modifiers;
+            return Ok(handled);
         }
 
         let Some(mouse_cell @ PaneMouseCell { column, row, .. }) =
@@ -15303,6 +16119,7 @@ impl NativeWindowApp {
 
     fn native_effective_config(&self) -> NativeEffectiveConfig {
         NativeEffectiveConfig {
+            dpi: self.window_dpi,
             tab_max_width: self.tab_max_width,
             status_update_interval_ms: u64::try_from(self.status_update_interval.as_millis())
                 .unwrap_or(u64::MAX),
@@ -15333,6 +16150,8 @@ impl NativeWindowApp {
             font_hinting: self.font_hinting,
             font_rasterizer: self.font_rasterizer,
             font_shaper: self.font_shaper,
+            font_dirs: self.font_dirs.clone(),
+            font_locator: self.font_locator,
             custom_block_glyphs: self.custom_block_glyphs,
             anti_alias_custom_block_glyphs: self.anti_alias_custom_block_glyphs,
             allow_square_glyphs_to_overflow_width: self.allow_square_glyphs_to_overflow_width,
@@ -15386,6 +16205,7 @@ impl NativeWindowApp {
             term: self.term.clone(),
             audible_bell: self.audible_bell,
             visual_bell: self.visual_bell,
+            color_scheme_dirs: self.color_scheme_dirs.clone(),
             foreground_color: self.foreground_color,
             background_color: self.background_color,
             ansi_palette: self.ansi_palette,
@@ -15410,6 +16230,7 @@ impl NativeWindowApp {
             default_prog: self.default_prog.clone(),
             default_domain: self.default_domain.clone(),
             default_workspace: self.default_workspace.clone(),
+            prefer_to_spawn_tabs: self.prefer_to_spawn_tabs,
             automatically_reload_config: self.automatically_reload_config,
             check_for_updates: self.check_for_updates,
             check_for_updates_interval_seconds: self.check_for_updates_interval_seconds,
@@ -15485,6 +16306,8 @@ impl NativeWindowApp {
     #[allow(dead_code)]
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
         self.config_overrides = overrides.clone();
+        self.configured_dpi = overrides.dpi;
+        self.apply_effective_window_dpi();
         self.tab_max_width = overrides.tab_max_width.unwrap_or(DEFAULT_TAB_MAX_WIDTH);
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
         self.max_fps = overrides
@@ -15528,6 +16351,8 @@ impl NativeWindowApp {
         self.font_hinting = overrides.font_hinting.unwrap_or(DEFAULT_FONT_HINTING);
         self.font_rasterizer = overrides.font_rasterizer.unwrap_or(DEFAULT_FONT_RASTERIZER);
         self.font_shaper = overrides.font_shaper.unwrap_or(DEFAULT_FONT_SHAPER);
+        self.font_dirs = overrides.font_dirs.clone().unwrap_or_default();
+        self.font_locator = overrides.font_locator.or(DEFAULT_FONT_LOCATOR);
         self.custom_block_glyphs = overrides
             .custom_block_glyphs
             .unwrap_or(DEFAULT_CUSTOM_BLOCK_GLYPHS);
@@ -15636,6 +16461,7 @@ impl NativeWindowApp {
         self.apply_terminal_name_config_to_runtimes();
         self.audible_bell = overrides.audible_bell.unwrap_or(DEFAULT_AUDIBLE_BELL);
         self.visual_bell = overrides.visual_bell.unwrap_or_default();
+        self.color_scheme_dirs = overrides.color_scheme_dirs.clone().unwrap_or_default();
         self.foreground_color = overrides
             .foreground_color
             .unwrap_or(DEFAULT_FOREGROUND_COLOR);
@@ -15693,6 +16519,9 @@ impl NativeWindowApp {
             .default_workspace
             .filter(|workspace| !workspace.is_empty())
             .unwrap_or_else(|| DEFAULT_WORKSPACE_NAME.to_owned());
+        self.prefer_to_spawn_tabs = overrides
+            .prefer_to_spawn_tabs
+            .unwrap_or(DEFAULT_PREFER_TO_SPAWN_TABS);
         self.automatically_reload_config = overrides
             .automatically_reload_config
             .unwrap_or(DEFAULT_AUTOMATICALLY_RELOAD_CONFIG);
@@ -16365,6 +17194,22 @@ impl NativeWindowApp {
                 };
                 self.search = None;
                 self.copy_mode = None;
+                if self.modifiers == ModifiersState::SHIFT && self.selection.is_some() {
+                    return self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::Cell);
+                }
+                if self.modifiers == (ModifiersState::ALT | ModifiersState::SHIFT)
+                    && self.selection.is_some()
+                {
+                    return self.extend_selection_to_mouse_cursor(WindowMouseSelectionMode::Block);
+                }
+                if self.modifiers == ModifiersState::ALT {
+                    self.selection = Some(WindowSelection::rectangular(cell, cell));
+                    self.selecting = true;
+                    self.last_left_click = None;
+                    self.refresh_snapshot();
+                    self.apply_window_title();
+                    return true;
+                }
                 let click = self.next_left_click(cell, Instant::now());
                 if click.count >= 3 {
                     self.selection = Some(self.line_selection_at_cell(cell));
@@ -16393,11 +17238,38 @@ impl NativeWindowApp {
             }
             ElementState::Released => {
                 if !self.selecting {
+                    if (self.modifiers == ModifiersState::SHIFT
+                        || self.modifiers == (ModifiersState::ALT | ModifiersState::SHIFT))
+                        && self
+                            .selection
+                            .is_some_and(|selection| !selection.is_single_cell())
+                    {
+                        let _ = self.copy_selection_to_clipboard_and_primary_selection();
+                        self.refresh_snapshot();
+                        self.apply_window_title();
+                        return true;
+                    }
+                    if self.modifiers.is_empty()
+                        && self.last_left_click.is_some_and(|click| click.count >= 2)
+                        && self
+                            .selection
+                            .is_some_and(|selection| !selection.is_single_cell())
+                    {
+                        let _ = self.copy_selection_to_clipboard_and_primary_selection();
+                        self.refresh_snapshot();
+                        self.apply_window_title();
+                        return true;
+                    }
                     return false;
                 }
                 self.selecting = false;
                 if self.selection.is_some_and(WindowSelection::is_single_cell) {
                     self.selection = None;
+                    if self.modifiers.is_empty() || self.modifiers == ModifiersState::SHIFT {
+                        let _ = self.open_link_at_mouse_cursor();
+                    }
+                } else {
+                    let _ = self.copy_selection_to_clipboard_and_primary_selection();
                 }
                 self.refresh_snapshot();
                 self.apply_window_title();
@@ -16558,12 +17430,40 @@ impl NativeWindowApp {
     }
 
     fn update_selection_from_mouse_position(&mut self) -> bool {
-        if !self.selecting {
-            return false;
-        }
         let Some(cell) = self.selection_cell_from_mouse_position() else {
             return false;
         };
+        let Some(selection) = self.selection else {
+            return false;
+        };
+
+        if self.active_mouse_button == Some(MouseButton::Left)
+            && self.modifiers.is_empty()
+            && let Some(click) = self.last_left_click
+            && click.count >= 2
+        {
+            let target = if click.count == 2 {
+                self.word_selection_at_cell(cell)
+            } else {
+                Some(self.line_selection_at_cell(cell))
+            };
+            let Some(target) = target else {
+                return false;
+            };
+            let focus = selection_focus_for_extension(selection, target);
+            if selection.focus == focus {
+                return false;
+            }
+
+            self.selection = Some(WindowSelection::new(selection.anchor, focus));
+            self.selecting = true;
+            self.refresh_snapshot();
+            return true;
+        }
+
+        if !self.selecting {
+            return false;
+        }
         let Some(selection) = self.selection.as_mut() else {
             return false;
         };
@@ -24563,7 +25463,11 @@ fn show_launcher_args_lua_table_from_query(value: &str) -> Option<WindowShowLaun
     let mut fields = WindowShowLauncherQueryFields::default();
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
 
@@ -38404,16 +39308,16 @@ mod tests {
         DEFAULT_DETECT_PASSWORD_INPUT, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
         DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND,
-        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER,
-        DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR,
-        DEFAULT_FOREGROUND_TEXT_HSB, DEFAULT_FREETYPE_LOAD_TARGET,
-        DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
-        DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET,
-        DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS,
-        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
-        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR,
+        DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
+        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
+        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
+        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME,
@@ -38427,38 +39331,38 @@ mod tests {
         NativeCommandPaletteEntry, NativeConfigOverrides, NativeConfirmation, NativeContrastRatio,
         NativeCubicBezier, NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry,
         NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontRasterizer,
-        NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
-        NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
-        NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
-        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
-        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
-        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
-        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWindowApp, NativeWindowBell,
-        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
-        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
-        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
-        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
-        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontLocator,
+        NativeFontRasterizer, NativeFontShaper, NativeFontSize, NativeFormatAttribute,
+        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags,
+        NativeFreetypeTarget, NativeHorizontalContentAlignment, NativeHsbMultiplier,
+        NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
+        NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey,
+        NativeLineHeight, NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton,
+        NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind, NativeNotificationHandling,
+        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
+        NativeScrollBarHeight, NativeSquareGlyphOverflow, NativeStrikethroughPosition,
+        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
+        NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUserKeyAssignment, NativeUserMouseAssignment,
+        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
+        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
+        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
+        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
+        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
+        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
+        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
+        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -40555,6 +41459,504 @@ mod tests {
             uses_configured_foreground,
             "default text foreground did not use colors.foreground"
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_custom_color_scheme() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#010203',
+                background = '#040506',
+                ansi = {
+                  '#000000',
+                  '#111213',
+                  '#141516',
+                  '#171819',
+                  '#1a1b1c',
+                  '#1d1e1f',
+                  '#202122',
+                  '#232425',
+                },
+                brights = {
+                  '#262728',
+                  '#292a2b',
+                  '#2c2d2e',
+                  '#2f3031',
+                  '#323334',
+                  '#353637',
+                  '#38393a',
+                  '#3b3c3d',
+                },
+                indexed = {
+                  [136] = '#070809',
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
+        assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[1],
+            Color::Rgb(17, 18, 19)
+        );
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[9],
+            Color::Rgb(41, 42, 43)
+        );
+        assert_eq!(
+            effective.indexed_palette.expect("expected indexed palette")[136],
+            Some(Color::Rgb(7, 8, 9))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_color_scheme_dirs() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme_dirs = { 'schemes', '/opt/wezterm/colors' }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color_scheme_dirs config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().color_scheme_dirs,
+            vec!["schemes".to_owned(), "/opt/wezterm/colors".to_owned()]
+        );
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_color_scheme_from_configured_toml_dir() {
+        static NEXT_COLOR_SCHEME_DIR_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_dir = std::env::temp_dir();
+        scheme_dir.push(format!(
+            "rssh-color-scheme-dir-{}-{}",
+            std::process::id(),
+            NEXT_COLOR_SCHEME_DIR_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_dir_all(&scheme_dir);
+        std::fs::create_dir_all(&scheme_dir).expect("expected temp color scheme dir");
+        std::fs::write(
+            scheme_dir.join("project.toml"),
+            r##"
+            [metadata]
+            name = "Project Scheme"
+            origin_url = "https://example.invalid/project"
+
+            [colors]
+            foreground = "#010203"
+            background = "#040506"
+            cursor_bg = "#070809"
+            cursor_border = "#0a0b0c"
+            cursor_fg = "#0d0e0f"
+            selection_bg = "#101112"
+            selection_fg = "#131415"
+            ansi = [
+              "#000001",
+              "#000002",
+              "#000003",
+              "#000004",
+              "#000005",
+              "#000006",
+              "#000007",
+              "#000008",
+            ]
+            brights = [
+              "#000009",
+              "#00000a",
+              "#00000b",
+              "#00000c",
+              "#00000d",
+              "#00000e",
+              "#00000f",
+              "#000010",
+            ]
+            indexed = { 136 = "#202122" }
+            "##,
+        )
+        .expect("expected temp TOML color scheme");
+        let scheme_dir = scheme_dir.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_scheme_dirs = {{ '{}' }}
+
+            return config
+            "##,
+            scheme_dir
+        ))
+        .expect("expected WezTerm external TOML color scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.color_scheme_dirs, vec![scheme_dir.clone()]);
+        assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
+        assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(7, 8, 9));
+        assert_eq!(effective.cursor_border_color, Some(Color::Rgb(10, 11, 12)));
+        assert_eq!(effective.cursor_fg_color, Some(Color::Rgb(13, 14, 15)));
+        assert_eq!(effective.selection_bg_color, Some(Color::Rgb(16, 17, 18)));
+        assert_eq!(
+            effective.selection_fg_color,
+            Some(Some(Color::Rgb(19, 20, 21)))
+        );
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[1],
+            Color::Rgb(0, 0, 2)
+        );
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[9],
+            Color::Rgb(0, 0, 10)
+        );
+        assert_eq!(
+            effective.indexed_palette.expect("expected indexed palette")[136],
+            Some(Color::Rgb(32, 33, 34))
+        );
+        let _ = std::fs::remove_dir_all(scheme_dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn window_app_loads_wezterm_lua_color_scheme_from_default_windows_colors_dir() {
+        static NEXT_DEFAULT_COLOR_SCHEME_DIR_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let scheme_name = format!(
+            "RSSH Default Windows Scheme {}-{}",
+            std::process::id(),
+            NEXT_DEFAULT_COLOR_SCHEME_DIR_ID.fetch_add(1, Ordering::Relaxed)
+        );
+        let mut scheme_dir = std::env::current_exe()
+            .expect("expected current test executable path")
+            .parent()
+            .expect("expected test executable directory")
+            .to_path_buf();
+        scheme_dir.push("colors");
+        std::fs::create_dir_all(&scheme_dir).expect("expected default colors dir");
+        let scheme_file = scheme_dir.join(format!(
+            "rssh-default-windows-scheme-{}-{}.toml",
+            std::process::id(),
+            NEXT_DEFAULT_COLOR_SCHEME_DIR_ID.load(Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            format!(
+                r##"
+                [metadata]
+                name = "{}"
+
+                [colors]
+                foreground = "#313233"
+                background = "#343536"
+                cursor_bg = "#373839"
+                "##,
+                scheme_name
+            ),
+        )
+        .expect("expected default colors-dir TOML color scheme");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+
+            config.color_scheme = '{}'
+
+            return config
+            "##,
+            scheme_name
+        ))
+        .expect("expected WezTerm default colors-dir color scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(49, 50, 51));
+        assert_eq!(effective.background_color, Color::Rgb(52, 53, 54));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(55, 56, 57));
+        let _ = std::fs::remove_file(scheme_file);
+        let _ = std::fs::remove_dir(scheme_dir);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_toml_file() {
+        static NEXT_LOAD_SCHEME_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#212223"
+            background = "#242526"
+            ansi = [
+              "#000001",
+              "#000002",
+              "#000003",
+              "#000004",
+              "#000005",
+              "#000006",
+              "#000007",
+              "#000008",
+            ]
+            brights = [
+              "#000009",
+              "#00000a",
+              "#00000b",
+              "#00000c",
+              "#00000d",
+              "#00000e",
+              "#00000f",
+              "#000010",
+            ]
+            "##,
+        )
+        .expect("expected temp load_scheme TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(33, 34, 35));
+        assert_eq!(effective.background_color, Color::Rgb(36, 37, 38));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[1],
+            Color::Rgb(0, 0, 2)
+        );
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[9],
+            Color::Rgb(0, 0, 10)
+        );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_static_color_mutations() {
+        static NEXT_LOAD_SCHEME_MUTATION_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-mutation-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_MUTATION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#212223"
+            background = "#242526"
+            cursor_bg = "#272829"
+            "##,
+        )
+        .expect("expected temp load_scheme mutation TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors.background = '#2a2b2c'
+            colors.cursor_bg = '#2d2e2f'
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme mutated colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(33, 34, 35));
+        assert_eq!(effective.background_color, Color::Rgb(42, 43, 44));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(45, 46, 47));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_multiline_palette_mutations() {
+        static NEXT_LOAD_SCHEME_PALETTE_MUTATION_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-palette-mutation-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_PALETTE_MUTATION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            ansi = [
+              "#000001",
+              "#000002",
+              "#000003",
+              "#000004",
+              "#000005",
+              "#000006",
+              "#000007",
+              "#000008",
+            ]
+            brights = [
+              "#000009",
+              "#00000a",
+              "#00000b",
+              "#00000c",
+              "#00000d",
+              "#00000e",
+              "#00000f",
+              "#000010",
+            ]
+            "##,
+        )
+        .expect("expected temp load_scheme palette mutation TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors.ansi = {{
+              '#010203',
+              '#040506',
+              '#070809',
+              '#0a0b0c',
+              '#0d0e0f',
+              '#101112',
+              '#131415',
+              '#161718',
+            }}
+            colors.brights = {{
+              '#191a1b',
+              '#1c1d1e',
+              '#1f2021',
+              '#222324',
+              '#252627',
+              '#28292a',
+              '#2b2c2d',
+              '#2e2f30',
+            }}
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme mutated palette config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[0],
+            Color::Rgb(1, 2, 3)
+        );
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[7],
+            Color::Rgb(22, 23, 24)
+        );
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[8],
+            Color::Rgb(25, 26, 27)
+        );
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[15],
+            Color::Rgb(46, 47, 48)
+        );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_wezterm_lua_config_colors_override_custom_color_scheme() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#010203',
+                background = '#040506',
+              },
+            }
+            config.colors = {
+              background = '#070809',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color_scheme plus colors override config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
+        assert_eq!(effective.background_color, Color::Rgb(7, 8, 9));
     }
 
     #[test]
@@ -47694,6 +49096,7 @@ mod tests {
         assert_eq!(
             events.as_slice(),
             [NativeEffectiveConfig {
+                dpi: super::DEFAULT_WINDOW_DPI,
                 tab_max_width: 28,
                 status_update_interval_ms: 1_250,
                 max_fps: DEFAULT_MAX_FPS,
@@ -47721,6 +49124,8 @@ mod tests {
                 font_hinting: DEFAULT_FONT_HINTING,
                 font_rasterizer: DEFAULT_FONT_RASTERIZER,
                 font_shaper: DEFAULT_FONT_SHAPER,
+                font_dirs: Vec::new(),
+                font_locator: DEFAULT_FONT_LOCATOR,
                 custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
                 anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
                 allow_square_glyphs_to_overflow_width:
@@ -47775,6 +49180,7 @@ mod tests {
                 term: "xterm-256color".to_owned(),
                 audible_bell: NativeAudibleBell::SystemBeep,
                 visual_bell: NativeVisualBell::default(),
+                color_scheme_dirs: Vec::new(),
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
                 ansi_palette: None,
@@ -47799,6 +49205,7 @@ mod tests {
                 default_prog: None,
                 default_domain: "local".to_owned(),
                 default_workspace: "default".to_owned(),
+                prefer_to_spawn_tabs: super::DEFAULT_PREFER_TO_SPAWN_TABS,
                 automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
                 check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
                 check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
@@ -48089,6 +49496,25 @@ mod tests {
     }
 
     #[test]
+    fn window_app_disable_default_mouse_bindings_suppresses_default_wheel_scrollback() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.set_config_overrides(NativeConfigOverrides {
+            disable_default_mouse_bindings: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert!(
+            !app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert_eq!(app.scrollback_offset, 0);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
+    }
+
+    #[test]
     fn window_app_mouse_wheel_sends_default_arrow_keys_in_alternate_screen() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -48125,6 +49551,31 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b[<64;2;1M");
+    }
+
+    #[test]
+    fn window_app_mouse_wheel_honors_mouse_reporting_bypass_modifier() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"ab\r\ncd\r\nef").unwrap();
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert!(written.lock().unwrap().is_empty());
+        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('a'));
     }
 
     #[test]
@@ -51391,6 +52842,242 @@ mod tests {
     }
 
     #[test]
+    fn window_app_left_drag_release_copies_selection_to_clipboard_and_primary_by_default() {
+        let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 1));
+        app.handle_pty_output(b"abcd").unwrap();
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            0.0,
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 2),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(clipboard_copied.lock().unwrap().as_slice(), ["abc"]);
+        assert_eq!(primary_copied.lock().unwrap().as_slice(), ["abc"]);
+        assert!(!app.selecting);
+        assert_eq!(app.selected_text().as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn window_app_shift_left_click_extends_existing_selection_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"abcdefgh").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 1 },
+            SelectionCell { row: 0, column: 3 },
+        ));
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 6),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 1 },
+                SelectionCell { row: 0, column: 6 },
+            ))
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("bcdefg"));
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_shift_left_click_release_copies_extended_selection_by_default() {
+        let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"abcdefgh").unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 1 },
+            SelectionCell { row: 0, column: 3 },
+        ));
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 6),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(clipboard_copied.lock().unwrap().as_slice(), ["bcdefg"]);
+        assert_eq!(primary_copied.lock().unwrap().as_slice(), ["bcdefg"]);
+        assert_eq!(app.selected_text().as_deref(), Some("bcdefg"));
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_alt_left_drag_uses_block_selection_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 3));
+        app.handle_pty_output(b"abcdef\r\nghijkl\r\nmnopqr")
+            .unwrap();
+        app.modifiers = ModifiersState::ALT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_cursor_moved(PhysicalPosition::new(
+                f64::from(super::CELL_WIDTH * 3),
+                f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT * 2),
+            ))
+            .unwrap()
+        );
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::rectangular(
+                SelectionCell { row: 0, column: 1 },
+                SelectionCell { row: 2, column: 3 },
+            ))
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("bcd\nhij\nnop"));
+        assert!(app.selecting);
+    }
+
+    #[test]
+    fn window_app_alt_shift_left_click_extends_block_selection_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 3));
+        app.handle_pty_output(b"abcdef\r\nghijkl\r\nmnopqr")
+            .unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 1 },
+            SelectionCell { row: 0, column: 2 },
+        ));
+        app.modifiers = ModifiersState::ALT | ModifiersState::SHIFT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 3),
+            f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT * 2),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::rectangular(
+                SelectionCell { row: 0, column: 1 },
+                SelectionCell { row: 2, column: 3 },
+            ))
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("bcd\nhij\nnop"));
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_alt_shift_left_click_release_copies_block_selection_by_default() {
+        let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(6, 3));
+        app.handle_pty_output(b"abcdef\r\nghijkl\r\nmnopqr")
+            .unwrap();
+        app.selection = Some(WindowSelection::new(
+            SelectionCell { row: 0, column: 1 },
+            SelectionCell { row: 0, column: 2 },
+        ));
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.modifiers = ModifiersState::ALT | ModifiersState::SHIFT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 3),
+            f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT * 2),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            clipboard_copied.lock().unwrap().as_slice(),
+            ["bcd\nhij\nnop"]
+        );
+        assert_eq!(primary_copied.lock().unwrap().as_slice(), ["bcd\nhij\nnop"]);
+        assert_eq!(app.selected_text().as_deref(), Some("bcd\nhij\nnop"));
+        assert!(!app.selecting);
+    }
+
+    #[test]
     fn window_app_double_click_selects_word() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
@@ -51423,6 +53110,99 @@ mod tests {
         );
         assert!(snapshot_cell(&app.snapshot, 0, 4).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 0, 13).unwrap().inverse);
+    }
+
+    #[test]
+    fn window_app_double_click_release_copies_word_to_clipboard_and_primary_by_default() {
+        let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"run alpha-beta").unwrap();
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 6),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(clipboard_copied.lock().unwrap().as_slice(), ["alpha-beta"]);
+        assert_eq!(primary_copied.lock().unwrap().as_slice(), ["alpha-beta"]);
+        assert!(!app.selecting);
+        assert_eq!(app.selected_text().as_deref(), Some("alpha-beta"));
+    }
+
+    #[test]
+    fn window_app_double_click_drag_extends_selection_by_word_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(32, 1));
+        app.handle_pty_output(b"run alpha-beta gamma_delta")
+            .unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 6),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_cursor_moved(PhysicalPosition::new(
+                f64::from(super::CELL_WIDTH * 19),
+                f64::from(tab_bar_pixel_height()),
+            ))
+            .unwrap()
+        );
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 4 },
+                SelectionCell { row: 0, column: 25 },
+            ))
+        );
+        assert_eq!(
+            app.selected_text().as_deref(),
+            Some("alpha-beta gamma_delta")
+        );
     }
 
     #[test]
@@ -51536,6 +53316,110 @@ mod tests {
             app.selection
                 .unwrap()
                 .contains(0, 15, app.runtime.terminal().grid().size())
+        );
+    }
+
+    #[test]
+    fn window_app_triple_click_release_copies_line_to_clipboard_and_primary_by_default() {
+        let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+        app.handle_pty_output(b"run alpha-beta").unwrap();
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 6),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        clipboard_copied.lock().unwrap().clear();
+        primary_copied.lock().unwrap().clear();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            clipboard_copied.lock().unwrap().as_slice(),
+            ["run alpha-beta"]
+        );
+        assert_eq!(
+            primary_copied.lock().unwrap().as_slice(),
+            ["run alpha-beta"]
+        );
+        assert!(!app.selecting);
+        assert_eq!(app.selected_text().as_deref(), Some("run alpha-beta"));
+    }
+
+    #[test]
+    fn window_app_triple_click_drag_extends_selection_by_line_by_default() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 2));
+        app.handle_pty_output(b"alpha beta\r\ngamma delta").unwrap();
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(super::CELL_WIDTH * 3),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_cursor_moved(PhysicalPosition::new(
+                f64::from(super::CELL_WIDTH * 2),
+                f64::from(tab_bar_pixel_height() + super::CELL_HEIGHT),
+            ))
+            .unwrap()
+        );
+
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 0, column: 0 },
+                SelectionCell { row: 1, column: 15 },
+            ))
         );
     }
 
@@ -51969,6 +53853,104 @@ mod tests {
             }]
         );
         assert!(opened.lock().unwrap().is_empty());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_plain_left_click_release_opens_hyperlink_by_default() {
+        let open_uris = Arc::new(Mutex::new(Vec::new()));
+        let recorded_uri = Arc::clone(&open_uris);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.open_uri_handler = Box::new(move |event| {
+            recorded_uri.lock().unwrap().push(event.clone());
+            true
+        });
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"\x1b]8;;https://example.test\x1b\\link\x1b]8;;\x1b\\")
+            .unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            0.0,
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(opened.lock().unwrap().is_empty());
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            open_uris.lock().unwrap().as_slice(),
+            [NativeWindowOpenUri {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+                uri: "https://example.test".to_owned(),
+            }]
+        );
+        assert_eq!(opened.lock().unwrap().as_slice(), ["https://example.test"]);
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_shift_left_click_release_opens_hyperlink_by_default() {
+        let open_uris = Arc::new(Mutex::new(Vec::new()));
+        let recorded_uri = Arc::clone(&open_uris);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.open_uri_handler = Box::new(move |event| {
+            recorded_uri.lock().unwrap().push(event.clone());
+            true
+        });
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 1));
+        app.handle_pty_output(b"\x1b]8;;https://shift.example\x1b\\link\x1b]8;;\x1b\\")
+            .unwrap();
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            0.0,
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Released, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            open_uris.lock().unwrap().as_slice(),
+            [NativeWindowOpenUri {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+                uri: "https://shift.example".to_owned(),
+            }]
+        );
+        assert_eq!(opened.lock().unwrap().as_slice(), ["https://shift.example"]);
         assert!(app.selection.is_none());
         assert!(!app.selecting);
     }
@@ -55482,6 +57464,58 @@ mod tests {
     }
 
     #[test]
+    fn window_app_prefer_to_spawn_tabs_routes_palette_spawn_window_to_new_tab() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+        app.set_config_overrides(NativeConfigOverrides {
+            prefer_to_spawn_tabs: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+
+        app.enter_command_palette_mode();
+        assert!(app.command_palette_execute(WindowCommand::SpawnWindow));
+
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(app.app_shell.pending_windows().len(), 0);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_prefer_to_spawn_tabs_preserves_positioned_spawn_window() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+        app.set_config_overrides(NativeConfigOverrides {
+            prefer_to_spawn_tabs: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("spawn window --position Main:42,84 top".to_owned());
+        assert!(app.command_palette_execute(WindowCommand::SpawnWindow));
+
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("positioned spawn window should remain a detached window");
+        assert_eq!(
+            detached_app.initial_window_position(),
+            Some(crate::cli::WindowPosition {
+                origin: crate::cli::WindowPositionOrigin::Main,
+                x: 42,
+                y: 84,
+            })
+        );
+        assert_eq!(
+            detached_app.app_shell.active_pane().launch().program(),
+            "top"
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_spawn_window_command_query() {
         let mut app = NativeWindowApp::new_with_command(
             None,
@@ -56844,21 +58878,48 @@ mod tests {
     }
 
     #[test]
-    fn window_app_start_window_drag_default_mouse_bindings_request_drag() {
+    fn window_app_start_window_drag_default_mouse_bindings_wait_for_drag() {
         let mut super_app = NativeWindowApp::new(None);
         super_app.modifiers = ModifiersState::SUPER;
+        let terminal_y = f64::from(tab_bar_pixel_height()) + 1.0;
+        super_app
+            .handle_cursor_moved(PhysicalPosition::new(1.0, terminal_y))
+            .unwrap();
+        assert!(
+            !super_app
+                .handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!super_app.window_drag_requested_for_test());
+
         assert!(
             super_app
-                .handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .handle_cursor_moved(PhysicalPosition::new(
+                    f64::from(CELL_WIDTH) + 1.0,
+                    terminal_y
+                ))
                 .unwrap()
         );
         assert!(super_app.window_drag_requested_for_test());
 
         let mut ctrl_shift_app = NativeWindowApp::new(None);
         ctrl_shift_app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        ctrl_shift_app
+            .handle_cursor_moved(PhysicalPosition::new(1.0, terminal_y))
+            .unwrap();
+        assert!(
+            !ctrl_shift_app
+                .handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!ctrl_shift_app.window_drag_requested_for_test());
+
         assert!(
             ctrl_shift_app
-                .handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .handle_cursor_moved(PhysicalPosition::new(
+                    f64::from(CELL_WIDTH) + 1.0,
+                    terminal_y
+                ))
                 .unwrap()
         );
         assert!(ctrl_shift_app.window_drag_requested_for_test());
@@ -56919,6 +58980,40 @@ mod tests {
         let expected =
             encode_window_paste("primary\ntext", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
         assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn window_app_mouse_disable_default_assignment_suppresses_default_without_consuming() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.primary_selection_reader = Box::new(|| Some("primary\ntext".to_owned()));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = 'Middle' } },
+                mods = 'NONE',
+                action = act.DisableDefaultAssignment,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm DisableDefaultAssignment mouse binding config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            !app.handle_mouse_input(ElementState::Pressed, MouseButton::Middle)
+                .unwrap()
+        );
+
+        assert!(written.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -57024,6 +59119,56 @@ mod tests {
 
         let expected = encode_window_paste("primary", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
         assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn window_app_drag_mouse_binding_honors_mouse_reporting_bypass_modifier() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.mouse_bindings = {
+              {
+                event = { Drag = { streak = 1, button = 'Left' } },
+                mods = 'SHIFT',
+                mouse_reporting = false,
+                action = act.StartWindowDrag,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm drag mouse binding config");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b[?1000;1006h").unwrap();
+        app.modifiers = ModifiersState::SHIFT;
+
+        let terminal_y = f64::from(tab_bar_pixel_height()) + 1.0;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH) + 1.0,
+            terminal_y,
+        ))
+        .unwrap();
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+            .unwrap();
+        assert!(!app.window_drag_requested_for_test());
+
+        assert!(
+            app.handle_cursor_moved(PhysicalPosition::new(
+                f64::from(CELL_WIDTH) * 2.0 + 1.0,
+                terminal_y,
+            ))
+            .unwrap()
+        );
+
+        assert!(app.window_drag_requested_for_test());
+        assert!(written.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -59796,6 +61941,52 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_key_show_launcher_args_table_action() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'L',
+                mods = 'CTRL|SHIFT',
+                action = act.ShowLauncherArgs {
+                  flags = 'TABS|WORKSPACES',
+                  title = 'Jump',
+                  alphabet = 'ab',
+                  help_text = 'Pick',
+                  fuzzy_help_text = 'Filter',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ShowLauncherArgs key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+L".to_owned(),
+                command: WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
+                    flags: WindowShowLauncherFlags {
+                        tabs: true,
+                        workspaces: true,
+                        ..WindowShowLauncherFlags::default()
+                    },
+                    title: Some("Jump".to_owned()),
+                    alphabet: Some("ab".to_owned()),
+                    help_text: Some("Pick".to_owned()),
+                    fuzzy_help_text: Some("Filter".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_leader_into_runtime_assignments() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -61649,6 +63840,48 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_dpi_override() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.dpi = 144.0
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm dpi config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(app.window_dpi, 144);
+        assert_eq!(
+            effective.freetype_load_flags,
+            NativeFreetypeLoadFlags::NO_HINTING
+        );
+    }
+
+    #[test]
+    fn window_app_configured_dpi_overrides_detected_scale_factor() {
+        let mut app = NativeWindowApp::new(None);
+        app.apply_window_scale_factor(2.0);
+        assert_eq!(app.window_dpi, 192);
+
+        app.set_config_overrides(NativeConfigOverrides {
+            dpi: Some(144),
+            ..NativeConfigOverrides::default()
+        });
+        assert_eq!(app.window_dpi, 144);
+
+        app.apply_window_scale_factor(1.0);
+        assert_eq!(app.window_dpi, 144);
+
+        app.set_config_overrides(NativeConfigOverrides::default());
+        assert_eq!(app.window_dpi, 96);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_freetype_target_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -61810,6 +64043,33 @@ mod tests {
 
         let effective = app.native_effective_config();
         assert_eq!(effective.font_shaper, NativeFontShaper::Harfbuzz);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_dirs_and_locator() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.font_dirs = { 'fonts', 'vendor/fonts' }
+            config.font_locator = 'ConfigDirsOnly'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font dirs and locator config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_dirs,
+            vec!["fonts".to_owned(), "vendor/fonts".to_owned()]
+        );
+        assert_eq!(
+            effective.font_locator,
+            Some(NativeFontLocator::ConfigDirsOnly)
+        );
     }
 
     #[test]
@@ -62396,17 +64656,19 @@ mod tests {
 
             config.default_workspace = 'ops'
             config.default_domain = 'local'
+            config.prefer_to_spawn_tabs = true
 
             return config
             "#,
         )
-        .expect("expected WezTerm workspace/domain config");
+        .expect("expected WezTerm workspace/domain spawn preference config");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.app_shell.active_workspace().name(), "ops");
         let effective = app.native_effective_config();
         assert_eq!(effective.default_workspace, "ops");
         assert_eq!(effective.default_domain, "local");
+        assert!(effective.prefer_to_spawn_tabs);
 
         assert!(app.command_palette_execute(WindowCommand::SpawnTab(
             WindowSpawnTabDomain::DefaultDomain,
@@ -67456,6 +69718,7 @@ mod tests {
 
     fn sample_native_config_overrides() -> NativeConfigOverrides {
         NativeConfigOverrides {
+            dpi: Some(144),
             tab_max_width: Some(32),
             status_update_interval_ms: Some(250),
             max_fps: Some(144),
@@ -67491,6 +69754,8 @@ mod tests {
             font_hinting: Some(NativeFontHinting::VerticalSubpixel),
             font_rasterizer: Some(NativeFontRasterizer::FreeType),
             font_shaper: Some(NativeFontShaper::Harfbuzz),
+            font_dirs: Some(vec!["fonts".to_owned(), "vendor/fonts".to_owned()]),
+            font_locator: Some(NativeFontLocator::ConfigDirsOnly),
             custom_block_glyphs: Some(false),
             anti_alias_custom_block_glyphs: Some(false),
             allow_square_glyphs_to_overflow_width: Some(NativeSquareGlyphOverflow::Always),
@@ -67578,6 +69843,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
+            color_scheme_dirs: Some(vec!["colors".to_owned(), "more-colors".to_owned()]),
             foreground_color: Some(Color::Rgb(7, 8, 9)),
             background_color: Some(Color::Rgb(4, 5, 6)),
             ansi_palette: Some(sample_ansi_palette()),
@@ -67622,6 +69888,7 @@ mod tests {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
             default_domain: Some("local".to_owned()),
             default_workspace: Some("ops".to_owned()),
+            prefer_to_spawn_tabs: Some(true),
             automatically_reload_config: Some(false),
             check_for_updates: Some(false),
             check_for_updates_interval_seconds: Some(43_200),
@@ -67713,6 +69980,7 @@ mod tests {
 
     fn sample_effective_config() -> NativeEffectiveConfig {
         NativeEffectiveConfig {
+            dpi: 144,
             tab_max_width: 32,
             status_update_interval_ms: 250,
             max_fps: 144,
@@ -67748,6 +70016,8 @@ mod tests {
             font_hinting: NativeFontHinting::VerticalSubpixel,
             font_rasterizer: NativeFontRasterizer::FreeType,
             font_shaper: NativeFontShaper::Harfbuzz,
+            font_dirs: vec!["fonts".to_owned(), "vendor/fonts".to_owned()],
+            font_locator: Some(NativeFontLocator::ConfigDirsOnly),
             custom_block_glyphs: false,
             anti_alias_custom_block_glyphs: false,
             allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow::Always,
@@ -67834,6 +70104,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             },
+            color_scheme_dirs: vec!["colors".to_owned(), "more-colors".to_owned()],
             foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
             ansi_palette: Some(sample_ansi_palette()),
@@ -67878,6 +70149,7 @@ mod tests {
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
             default_domain: "local".to_owned(),
             default_workspace: "ops".to_owned(),
+            prefer_to_spawn_tabs: true,
             automatically_reload_config: false,
             check_for_updates: false,
             check_for_updates_interval_seconds: 43_200,
@@ -67938,6 +70210,7 @@ mod tests {
 
     fn default_effective_config() -> NativeEffectiveConfig {
         NativeEffectiveConfig {
+            dpi: super::DEFAULT_WINDOW_DPI,
             tab_max_width: 16,
             status_update_interval_ms: 1_000,
             max_fps: DEFAULT_MAX_FPS,
@@ -67965,6 +70238,8 @@ mod tests {
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
             font_shaper: DEFAULT_FONT_SHAPER,
+            font_dirs: Vec::new(),
+            font_locator: DEFAULT_FONT_LOCATOR,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
@@ -68018,6 +70293,7 @@ mod tests {
             term: "xterm-256color".to_owned(),
             audible_bell: NativeAudibleBell::SystemBeep,
             visual_bell: NativeVisualBell::default(),
+            color_scheme_dirs: Vec::new(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
@@ -68042,6 +70318,7 @@ mod tests {
             default_prog: None,
             default_domain: "local".to_owned(),
             default_workspace: "default".to_owned(),
+            prefer_to_spawn_tabs: super::DEFAULT_PREFER_TO_SPAWN_TABS,
             automatically_reload_config: DEFAULT_AUTOMATICALLY_RELOAD_CONFIG,
             check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
             check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,

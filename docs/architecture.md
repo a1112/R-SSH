@@ -94,7 +94,10 @@ keyboard, mouse, paste, resize
   `default_workspace` names the initial default workspace before spawn when no
   explicit startup workspace is present; native `default_domain` is retained in
   the effective config and `SpawnTab(DefaultDomain)` uses the local spawn path
-  only while the configured default domain is `local`;
+  only while the configured default domain is `local`; native
+  `prefer_to_spawn_tabs` is retained with WezTerm's default `false` and, when
+  enabled, routes unpositioned same-process `SpawnWindow` requests into a new
+  tab while preserving positioned spawn-window requests as detached windows;
   local/window/start/console CLI startup also accepts WezTerm-style `--cwd` for
   the initial child process, native window startup accepts WezTerm-style `start`
   as an alias for `window` and `-e` as an initial program alias, and native
@@ -333,8 +336,10 @@ keyboard, mouse, paste, resize
   documented single-space default prompt strings when omitted. Structured
   `show launcher <FLAGS>` queries reject unknown top-level fields instead of
   silently discarding them.
-  Remote/mux domains, Lua key assignment/config parsing, Lua
-  `ShowLauncherArgs`/`launch_menu` parsing, richer default-mode UI styling, Lua
+  Static WezTerm-style `config.keys` actions can also carry
+  `ShowLauncherArgs` table payloads through the implemented native action
+  subset. Remote/mux domains, richer default-mode UI styling, broader Lua key
+  assignment/config parsing, dynamic Lua `launch_menu` construction, Lua
   `PromptInputLine` callback wiring, and Lua event/config wiring remain future
   parity work.
 - Completed in v1: app-shell CloseTab handling can select either the default
@@ -465,8 +470,11 @@ keyboard, mouse, paste, resize
   mode <mode> [show_pane_ids true|false] [show_pane_ids=true|false] [alphabet
   <chars>|alphabet=<chars>]` / `mode=<mode>` and action-name `paneselect ...` aliases map
   WezTerm-style option names to the native `PaneSelect { mode, show_pane_ids,
-  alphabet }` payload and reject duplicate structured fields. Lua `PaneSelect` option-table wiring
-  remains future parity work.
+  alphabet }` payload and reject duplicate structured fields. WezTerm-style
+  `wezterm.action.PaneSelect { mode = ..., show_pane_ids = ..., alphabet = ... }`
+  and parenthesized table-call queries dispatch the same native field subset,
+  including long-bracket table keys; full config-file wiring remains future
+  parity work.
 - Completed in v1: WezTerm-style `ActivatePaneDirection` routes
   `Ctrl+Shift+Arrow` and command-palette Activate Pane Direction Left/Right/
   Up/Down/Next/Previous entries to directional pane focus changes. Native
@@ -570,7 +578,7 @@ keyboard, mouse, paste, resize
   with fullscreen dimension metadata. Action-name `togglefullscreen` queries
   dispatch the same command. Lua event wiring remains future parity work.
 - Completed in v1: WezTerm-style `StartWindowDrag` routes command-palette
-  dispatch plus the default `SUPER` + left mouse and `CTRL|SHIFT` + left mouse
+  dispatch plus the default `SUPER` + left drag and `CTRL|SHIFT` + left drag
   bindings to the native drag-to-move request path, calling the platform
   window backend when a native window exists. Action-name `startwindowdrag`
   queries dispatch the same command. Static WezTerm-style
@@ -584,13 +592,18 @@ keyboard, mouse, paste, resize
   non-left button streaks are tracked for user mouse bindings. Matching user
   mouse bindings suppress the implemented default mouse assignment for the same
   button, streak, modifiers, mouse-reporting state, and alternate-screen state;
-  default mouse assignments are skipped while the pane has captured mouse
-  reporting unless the configured bypass modifier is held. Wheel bindings can
-  route `ScrollByCurrentEventWheelDelta` using the current vertical wheel
-  delta; Lua `window:current_event()` object exposure remains future parity
-  work. Native
+  `DisableDefaultAssignment` mouse bindings participate in that suppression
+  without consuming the event, matching WezTerm's opt-out semantics rather than
+  `Nop`. Default mouse assignments are skipped while the pane has captured mouse
+  reporting unless the configured bypass modifier is held; drag bindings
+  classify that bypassed path as `mouse_reporting = false`, and bypassed wheel
+  input routes through native scroll handling instead of SGR mouse reporting.
+  Wheel bindings can route `ScrollByCurrentEventWheelDelta` using the current
+  vertical wheel delta; Lua `window:current_event()` object exposure remains future parity work. Native
   `disable_default_mouse_bindings` defaults to false and suppresses the
-  implemented default mouse-assignment subset when true.
+  implemented default mouse-assignment subset when true, including the
+  built-in wheel scroll/alternate-screen arrow fallback when no user wheel
+  binding matched.
 - Completed in v1: native `hide_mouse_cursor_when_typing` defaults to true,
   hides the OS mouse cursor on key press while the cursor is inside the
   native window, and restores it on mouse motion or cursor leave.
@@ -654,20 +667,23 @@ keyboard, mouse, paste, resize
   and columns. Native config overrides expose `font_size`, `cell_width`,
   `cell_widths`,
   `line_height`, deprecated WezTerm-compatible `font_antialias`/`font_hinting`,
-  `font_rasterizer`, `font_shaper`, `custom_block_glyphs`,
+  `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`,
+  `custom_block_glyphs`,
   `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`,
   `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`,
   `freetype_interpreter_version`, `freetype_pcf_long_family_names`,
-  `display_pixel_geometry`, `initial_cols`, `initial_rows`, and
+  `display_pixel_geometry`, `dpi`, `initial_cols`, `initial_rows`, and
   `adjust_window_size_when_changing_font_size`; `freetype_render_target`
-  defaults to the effective load target when unset, while
-  `freetype_load_flags` defaults to `DEFAULT` below 100 DPI and `NO_HINTING`
-  at 100 DPI or higher. Custom block glyph, square-glyph overflow, FreeType
-  interpreter-version, PCF long-family-name, display pixel-geometry, and font
-  shaper options are retained in effective config with WezTerm defaults, but
-  actual renderer glyph strategy, shaping-engine application, FreeType
-  interpreter application, subpixel geometry application, and PCF
-  font-resolution changes remain future parity work.
+  defaults to the effective load target when unset, while `dpi` overrides the
+  detected window DPI for renderer state and FreeType defaults until cleared,
+  and `freetype_load_flags` defaults to `DEFAULT` below 100 DPI and
+  `NO_HINTING` at 100 DPI or higher. Custom block glyph, square-glyph overflow,
+  FreeType interpreter-version, PCF long-family-name, display pixel-geometry,
+  font-directory, font-locator, and font shaper options are retained in
+  effective config with WezTerm defaults, but actual renderer glyph strategy,
+  configured font-directory scanning, font-locator application, shaping-engine
+  application, FreeType interpreter application, subpixel geometry application,
+  and PCF font-resolution changes remain future parity work.
 - Completed in v1: WezTerm-style `ShowDebugOverlay` routes the default
   `Ctrl+Shift+L` shortcut, command-palette `Show Debug Overlay` entry, and
   action-name `showdebugoverlay` query into native-window debug-overlay state
@@ -766,7 +782,7 @@ keyboard, mouse, paste, resize
   with the window id and active pane id. Action-name `reloadconfiguration`
   queries dispatch the same command.
   A typed native `set_config_overrides`/`get_config_overrides` subset stores
-  per-window overrides for implemented effective-config fields (`tab_max_width`,
+  per-window overrides for implemented effective-config fields (`dpi`, `tab_max_width`,
   `status_update_interval`, `max_fps`, `animation_fps`, `front_end`,
   `webgpu_power_preference`, `webgpu_force_fallback_adapter`,
   `webgpu_preferred_adapter`, `prefer_egl`, `enable_wayland`, `cursor_blink_rate`, `cursor_blink_ease_in`,
@@ -774,16 +790,17 @@ keyboard, mouse, paste, resize
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`,
   `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`,
-  `custom_block_glyphs`, `anti_alias_custom_block_glyphs`,
+  `font_dirs`, `font_locator`, `custom_block_glyphs`,
+  `anti_alias_custom_block_glyphs`,
   `allow_square_glyphs_to_overflow_width`, `freetype_load_target`,
   `freetype_render_target`, `freetype_load_flags`,
-  `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
+  `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
   `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`,
   `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
-  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
+  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
@@ -908,6 +925,15 @@ keyboard, mouse, paste, resize
   command-palette queries accept `select text at mouse cursor <mode>` /
   `selecttextatmousecursor <mode>` and `extend selection to mouse cursor
   <mode>` / `extendselectiontomousecursor <mode>` action-name forms.
+  Default left-mouse selection follows WezTerm's Cell/Word/Line click streaks,
+  `SHIFT` left click extends the active selection, `ALT` left drag creates a
+  rectangular block selection, and `ALT|SHIFT` left click extends the active
+  selection as a rectangular block. Releasing a non-empty left-drag selection
+  or modified extension copies it to ClipboardAndPrimarySelection, while
+  NONE/SHIFT single-click release can open the OSC 8 hyperlink under the mouse.
+  Double/triple-click drag extends by Word/Line boundaries, and
+  double/triple-click release completes the selected word or line to
+  ClipboardAndPrimarySelection.
   Command-palette and native `SelectTextAtMouseCursor` also cover SemanticZone
   selection for the OSC 133 semantic zone under the mouse.
 - Implemented in v1: command-palette Clear Scrollback and native
@@ -1006,12 +1032,27 @@ keyboard, mouse, paste, resize
   `colors.foreground`, `colors.background`, `colors.ansi`, `colors.brights`,
   `colors.indexed`, `colors.selection_fg`, `colors.selection_bg`,
   `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, and
-  `colors.compose_cursor`, driving
-  the default text foreground, framebuffer background, ANSI 0-15 palette,
-  indexed 16-255 palette overrides, selected text foreground/background,
-  cursor fill, block-cursor border, line-cursor color, and block-cursor text
-  foreground for full and damage renders. Lua event wiring and broader Lua
-  config parsing remain future parity work.
+  `colors.compose_cursor`; static `config.color_schemes` entries can define
+  custom in-file schemes, `config.color_scheme` selects one before
+  `config.colors` applies overriding fields, and static
+  `config.color_scheme_dirs` lists are retained in effective config and scan
+  configured directories for matching TOML scheme files. External TOML schemes
+  load when `[metadata].name` or the file stem matches `config.color_scheme`
+  and reuse the same implemented color fields before `config.colors` applies
+  overriding fields. Static `wezterm.color.load_scheme('path')` calls with a
+  constant TOML path can also feed `config.colors` directly or through the
+  first local return variable, including top-level static mutations such as
+  `colors.background = '#101010'` or multiline table mutations such as
+  `colors.ansi = { ... }` before assignment. When no in-file or configured-dir
+  scheme matches, the default WezTerm custom scheme directories are also
+  searched: `$HOME/.config/wezterm/colors` on POSIX and `colors` next to the
+  executable on Windows. These color overrides drive the default text
+  foreground, framebuffer background, ANSI 0-15 palette, indexed 16-255 palette
+  overrides, selected text foreground/background, cursor fill, block-cursor
+  border, line-cursor color, and block-cursor text foreground for full and
+  damage renders. Built-in scheme lookup, Lua event wiring, richer dynamic
+  `load_scheme` composition, and broader Lua config parsing remain future
+  parity work.
 - Implemented in v1: native window focus changes still write CSI focus-reporting
   sequences to the PTY when requested and now dispatch a typed focus-change hook
   with the window id, active pane id, and focused/unfocused state. Lua event
@@ -1025,17 +1066,17 @@ keyboard, mouse, paste, resize
   `Ctrl+Shift+R` shortcut dispatch a typed native `window-config-reloaded` hook
   with the window id and active pane id.
   A typed native `set_config_overrides`/`get_config_overrides` subset stores
-  per-window overrides for `tab_max_width`, `status_update_interval`,
+  per-window overrides for `dpi`, `tab_max_width`, `status_update_interval`,
   `max_fps`, `animation_fps`, `cursor_blink_rate`, `cursor_blink_ease_in`, `cursor_blink_ease_out`,
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
-  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
+  `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
@@ -1113,18 +1154,18 @@ keyboard, mouse, paste, resize
   titles, foreground process name, current working directory, unseen-output
   state, local domain name, tty name when known, user vars, and progress. The
   typed event carries an effective config snapshot for implemented window
-  options including `tab_max_width`, `status_update_interval`,
+  options including `dpi`, `tab_max_width`, `status_update_interval`,
   `max_fps`, `animation_fps`, `cursor_blink_rate`, `cursor_blink_ease_in`, `cursor_blink_ease_out`,
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`,
   `command_palette_rows`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
-  `audible_bell`, `visual_bell`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
+  `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
   `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,
   `quote_dropped_files`,
