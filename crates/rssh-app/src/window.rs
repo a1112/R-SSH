@@ -3889,7 +3889,7 @@ fn lua_config_load_scheme_colors_assignment_from_query(
     .or_else(|| {
         let colors_variable =
             lua_config_assignment_from_query(source, "colors", lua_identifier_literal_from_query)?;
-        let path = lua_local_load_scheme_assignment_from_query(source, colors_variable)?;
+        let path = lua_load_scheme_assignment_from_query(source, colors_variable)?;
         Some(NativeLoadSchemeColorsAssignment {
             path,
             variable: Some(colors_variable.to_owned()),
@@ -3897,15 +3897,17 @@ fn lua_config_load_scheme_colors_assignment_from_query(
     })
 }
 
-fn lua_local_load_scheme_assignment_from_query(source: &str, variable: &str) -> Option<String> {
+fn lua_load_scheme_assignment_from_query(source: &str, variable: &str) -> Option<String> {
     for line in source.lines() {
         let line = line.trim_start();
-        let Some(rest) = line.strip_prefix("local") else {
-            continue;
+        let rest = if let Some(rest) = line.strip_prefix("local") {
+            if rest.chars().next().is_some_and(is_lua_identifier_character) {
+                continue;
+            }
+            rest.trim_start()
+        } else {
+            line
         };
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            continue;
-        }
         let Some((names, value)) = rest.trim_start().split_once('=') else {
             continue;
         };
@@ -41776,6 +41778,55 @@ mod tests {
             effective.ansi_palette.expect("expected ANSI palette")[9],
             Color::Rgb(0, 0, 10)
         );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_nonlocal_load_scheme_assignment() {
+        static NEXT_NONLOCAL_LOAD_SCHEME_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-nonlocal-load-scheme-{}-{}.toml",
+            std::process::id(),
+            NEXT_NONLOCAL_LOAD_SCHEME_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Nonlocal Loaded Scheme"
+
+            [colors]
+            foreground = "#414243"
+            background = "#444546"
+            cursor_bg = "#474849"
+            "##,
+        )
+        .expect("expected temp nonlocal load_scheme TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            colors, metadata = wezterm.color.load_scheme('{}')
+
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm nonlocal load_scheme colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(65, 66, 67));
+        assert_eq!(effective.background_color, Color::Rgb(68, 69, 70));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(71, 72, 73));
         let _ = std::fs::remove_file(scheme_file);
     }
 

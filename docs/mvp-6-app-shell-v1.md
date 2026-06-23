@@ -1360,7 +1360,8 @@ runtime storage for tabs and split panes.
   and reuse the same implemented color fields before `config.colors` applies
   overriding fields. Static `wezterm.color.load_scheme('path')` calls with a
   constant TOML path can also feed `config.colors` directly or through the
-  first local return variable, including top-level static mutations such as
+  first returned variable from `local colors, metadata = ...` or
+  `colors, metadata = ...` assignments, including top-level static mutations such as
   `colors.background = '#101010'` or multiline table mutations such as
   `colors.ansi = { ... }` before assignment. When no in-file or configured-dir
   scheme matches, the default WezTerm custom scheme directories are also
