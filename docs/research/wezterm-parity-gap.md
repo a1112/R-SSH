@@ -2050,13 +2050,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   snippets now parse into the same native override path; dynamic palette-aware
   resolution for this option remains later parity work.
 - Static WezTerm-style Lua `config.color_schemes` entries can now define
-  custom in-file schemes and `config.color_scheme` selects one by name before
-  `config.colors` is applied. Static `config.color_scheme_dirs` lists parse
-  into effective config and scan configured directories for matching TOML
-  scheme files. A TOML scheme whose `[metadata].name` or file stem matches
-  `config.color_scheme` reuses the same implemented color fields as
-  `config.colors`, so explicit `config.colors` values override the selected
-  scheme. Static `wezterm.color.load_scheme('path')` calls with a constant
+  custom in-file schemes inline or through static top-level Lua table variables,
+  and `config.color_scheme` selects one by name before `config.colors` is
+  applied. Static `config.color_scheme_dirs` lists parse into effective config
+  and scan configured directories for matching TOML scheme files. A TOML scheme
+  whose `[metadata].name` or file stem matches `config.color_scheme` reuses the
+  same implemented color fields as `config.colors`, so explicit `config.colors`
+  values override the selected scheme. Static
+  `wezterm.color.load_scheme('path')` calls with a constant
   TOML path can also feed `config.colors` directly or through the first returned
   variable from `local colors, metadata = ...` or `colors, metadata = ...`
   assignments, including top-level static mutations such as

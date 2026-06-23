@@ -1033,9 +1033,9 @@ keyboard, mouse, paste, resize
   `colors.indexed`, `colors.selection_fg`, `colors.selection_bg`,
   `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, and
   `colors.compose_cursor`; static `config.color_schemes` entries can define
-  custom in-file schemes, `config.color_scheme` selects one before
-  `config.colors` applies overriding fields, and static
-  `config.color_scheme_dirs` lists are retained in effective config and scan
+  custom in-file schemes inline or through static top-level Lua table variables,
+  `config.color_scheme` selects one before `config.colors` applies overriding
+  fields, and static `config.color_scheme_dirs` lists are retained in effective config and scan
   configured directories for matching TOML scheme files. External TOML schemes
   load when `[metadata].name` or the file stem matches `config.color_scheme`
   and reuse the same implemented color fields before `config.colors` applies
