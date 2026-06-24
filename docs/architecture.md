@@ -1885,7 +1885,8 @@ keyboard, mouse, paste, resize
   `Ctrl+N`/`Ctrl+P`, PageDown/PageUp page-wise movement, WezTerm's Enter
   PriorMatch binding, configurable labels honoring `quick_select_alphabet`,
   configurable `quick_select_patterns` appended to the defaults, including
-  top-level static Lua table-variable assignments, configurable
+  top-level static Lua table-variable assignments and
+  `table.insert(config.quick_select_patterns, ...)` appends, configurable
   `disable_default_quick_select_patterns` so configured patterns become the
   full set, and `quick_select_remove_styling` stripping pane colors, text
   styling, vertical alignment, hyperlink metadata, and inverse attributes before

@@ -903,7 +903,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.quick_select_patterns`, `config.disable_default_quick_select_patterns`,
   and `config.quick_select_remove_styling` snippets now parse into the same
   native override path, including top-level static table variables for
-  `config.quick_select_patterns`.
+  `config.quick_select_patterns` and
+  `table.insert(config.quick_select_patterns, ...)` appends.
   The quote-aware command-palette query `quick select alphabet <chars>` covers the
   native `QuickSelectArgs { alphabet = ... }` subset, and
   `quick select pattern <regex>` plus

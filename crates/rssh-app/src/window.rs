@@ -2817,10 +2817,18 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(quick_select_patterns) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "quick_select_patterns")
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "quick_select_patterns",
+        )
     {
-        overrides.quick_select_patterns =
-            Some(split_lua_table_string_array(quick_select_patterns)?);
+        overrides.quick_select_patterns = Some(split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: quick_select_patterns.max_start,
+            }),
+            &quick_select_patterns.value,
+        )?);
         parsed = true;
     }
     if let Some(disable_default_quick_select_patterns) =
@@ -72353,6 +72361,33 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm quick-select patterns table variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.quick_select_patterns,
+            vec!["ticket-[0-9]+".to_owned(), "bug-[A-Z]+".to_owned()]
+        );
+        assert!(effective.disable_default_quick_select_patterns);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_patterns_table_insert() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.quick_select_patterns = {}
+            table.insert(config.quick_select_patterns, 'ticket-[0-9]+')
+            table.insert(config.quick_select_patterns, 'bug-[A-Z]+')
+            config.disable_default_quick_select_patterns = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm quick-select patterns table insert config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
