@@ -4527,8 +4527,16 @@ enum NativeConfigColorsLuaSource<'a> {
 fn lua_config_colors_source_from_query<'a>(
     source: &'a str,
 ) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
-    if let Some(source) = lua_config_colors_return_table_source_from_query(source)? {
-        return Some(Some(source));
+    if let Some(table) = lua_config_static_return_table_from_query(source) {
+        let mut literal_from_query = lua_color_variable_mutation_value_literal_from_query;
+        let Some(colors) =
+            lua_config_table_field_assignment_from_query(table, "colors", &mut literal_from_query)
+        else {
+            return Some(None);
+        };
+        return Some(Some(lua_config_colors_source_value_from_query(
+            source, colors,
+        )?));
     }
 
     if let Some(source) = lua_config_colors_direct_source_from_query(source)? {
@@ -4544,21 +4552,6 @@ fn lua_config_colors_source_from_query<'a>(
     }
 
     Some(None)
-}
-
-fn lua_config_colors_return_table_source_from_query<'a>(
-    source: &'a str,
-) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
-    let mut literal_from_query = lua_color_variable_mutation_value_literal_from_query;
-    let Some(colors) =
-        lua_config_return_table_assignment_from_query(source, "colors", &mut literal_from_query)
-    else {
-        return Some(None);
-    };
-
-    Some(Some(lua_config_colors_source_value_from_query(
-        source, colors,
-    )?))
 }
 
 fn lua_config_colors_direct_source_from_query<'a>(
@@ -5153,6 +5146,10 @@ fn lua_config_assignment_from_query<'a>(
     field: &str,
     mut literal_from_query: impl FnMut(&'a str) -> Option<&'a str>,
 ) -> Option<&'a str> {
+    if let Some(table) = lua_config_static_return_table_from_query(source) {
+        return lua_config_table_field_assignment_from_query(table, field, &mut literal_from_query);
+    }
+
     let mut quote = None;
     let mut escape = false;
     let mut line_comment = false;
@@ -5273,9 +5270,6 @@ fn lua_config_assignment_from_query<'a>(
     }
 
     lua_config_table_initializer_assignment_from_query(source, field, &mut literal_from_query)
-        .or_else(|| {
-            lua_config_return_table_assignment_from_query(source, field, &mut literal_from_query)
-        })
 }
 
 #[allow(dead_code)]
@@ -5301,6 +5295,31 @@ fn lua_config_return_table_assignment_from_query<'a>(
     field: &str,
     literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
 ) -> Option<&'a str> {
+    let table = lua_config_static_return_table_from_query(source)?;
+    lua_config_table_field_assignment_from_query(table, field, literal_from_query)
+}
+
+fn lua_config_table_field_assignment_from_query<'a>(
+    table: &'a str,
+    field: &str,
+    literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
+) -> Option<&'a str> {
+    for table_field in split_lua_table_top_level_fields(table)? {
+        let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
+            continue;
+        };
+        let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+            continue;
+        };
+        if key == field {
+            return literal_from_query(lua_trim_start_comments(value)?);
+        }
+    }
+
+    None
+}
+
+fn lua_config_static_return_table_from_query(source: &str) -> Option<&str> {
     let mut quote = None;
     let mut escape = false;
     let mut line_comment = false;
@@ -5405,19 +5424,11 @@ fn lua_config_return_table_assignment_from_query<'a>(
             let Some(table) = lua_braced_table_literal_from_query(rest) else {
                 continue;
             };
-            let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-            for table_field in split_lua_table_top_level_fields(table)? {
-                let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim())
-                else {
-                    continue;
-                };
-                let Some(key) = split_lua_table_key_from_query(key.trim()) else {
-                    continue;
-                };
-                if key == field {
-                    return literal_from_query(lua_trim_start_comments(value)?);
-                }
-            }
+            return table
+                .trim()
+                .strip_prefix('{')?
+                .strip_suffix('}')
+                .map(str::trim);
         }
     }
 
@@ -64318,6 +64329,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_uses_wezterm_lua_return_table_launch_after_config_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'bad-shell', '--bad' }
+            config.default_cwd = 'C:/Bad Dir'
+
+            return {
+              default_prog = { 'nu', '--login' },
+              default_cwd = 'C:/Project Dir',
+            }
+            "#,
+        )
+        .expect("expected WezTerm return-table launch config");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::NewTab));

@@ -98,6 +98,9 @@ keyboard, mouse, paste, resize
   `prefer_to_spawn_tabs` is retained with WezTerm's default `false` and, when
   enabled, routes unpositioned same-process `SpawnWindow` requests into a new
   tab while preserving positioned spawn-window requests as detached windows;
+  static WezTerm-style Lua return-table configs are treated as the final
+  returned config table, so earlier `config.<field>` assignments do not leak
+  into launch overrides when the file returns `{ ... }`;
   local/window/start/console CLI startup also accepts WezTerm-style `--cwd` for
   the initial child process, native window startup accepts WezTerm-style `start`
   as an alias for `window` and `-e` as an initial program alias, and native

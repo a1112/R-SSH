@@ -59,7 +59,10 @@ runtime storage for tabs and split panes.
   application and remote/named mux domains remain later parity work. Static
   WezTerm-style Lua `default_prog`/`default_cwd` parsing now feeds the native
   launch override path, and `default_prog` is applied to the initial default
-  shell before spawn while preserving the startup cwd.
+  shell before spawn while preserving the startup cwd. When a top-level static
+  `return { ... }` config table is present, it is treated as the returned config
+  and earlier `config.<field>` assignments are ignored for fields not in that
+  table.
 - `rssh-app` app-shell action dispatch maps from typed actions to updated
   app state.
 - `rssh-app` keyboard handling recognizes app-shell shortcuts before PTY input:
