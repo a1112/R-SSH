@@ -702,7 +702,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.launch_menu, { ... })` append entries plus
   `table.insert(config.launch_menu, index, { ... })` numeric-position inserts,
   with bracket field selectors such as `config['launch_menu']` and static
-  item/menu table variables such as `table.insert(config.launch_menu, item)`,
+  item/menu table variables such as `config.launch_menu = { item }`,
+  `table.insert(config.launch_menu, item)`,
   `table.insert(config.launch_menu, index, item)`, or post-assignment
   `table.insert(menu, item)` supported. Static
   WezTerm-style `config.keys` actions can also carry `ShowLauncherArgs` table

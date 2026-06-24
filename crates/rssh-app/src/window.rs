@@ -11363,7 +11363,20 @@ fn native_launch_menu_item_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<NativeLaunchMenuItem> {
-    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut label = None;
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -76899,6 +76912,35 @@ mod tests {
             Some(&"1".to_owned())
         );
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_static_field_variable_item() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            local monitor = {}
+            monitor.label = 'Field Variable Monitor'
+            monitor.args = { 'top', '-H' }
+            monitor.cwd = '/tmp/field-variable'
+
+            config.launch_menu = { monitor }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu field-built item variable config");
+
+        let launch_menu = overrides
+            .launch_menu
+            .expect("expected launch_menu overrides");
+        assert_eq!(launch_menu.len(), 1);
+        assert_eq!(
+            launch_menu[0].label.as_deref(),
+            Some("Field Variable Monitor")
+        );
     }
 
     #[test]
