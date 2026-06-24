@@ -1714,7 +1714,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   easing subset; `CursorColor` fades return to the current rendered cursor
   color, including `force_reverse_video_cursor` cursor-cell foreground
   behavior. Static WezTerm-style Lua `config.audible_bell`,
-  `config.visual_bell`, `config.colors.foreground`, `config.colors.background`,
+  `config.visual_bell` snippets parse inline or through top-level static table
+  variables, and `config.colors.foreground`, `config.colors.background`,
   `config.colors.selection_fg`, `config.colors.selection_bg`,
   `config.colors.cursor_bg`, `config.colors.cursor_border`,
   `config.colors.cursor_fg`, and

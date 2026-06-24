@@ -2335,7 +2335,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.audible_bell = Some(NativeAudibleBell::parse(&audible_bell)?);
         parsed = true;
     }
-    if let Some(visual_bell) = lua_config_table_assignment_from_query(config, "visual_bell") {
+    if let Some(visual_bell) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "visual_bell")
+    {
         overrides.visual_bell = Some(native_visual_bell_lua_table_from_query(visual_bell)?);
         parsed = true;
     }
@@ -68914,6 +68916,41 @@ mod tests {
         let snapshot = app.render_snapshot();
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
         assert_eq!(cell.background, Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_visual_bell_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+            local project_visual_bell = {
+              fade_in_duration_ms = 10,
+              fade_out_duration_ms = 200,
+              fade_in_function = 'Linear',
+              fade_out_function = 'EaseInOut',
+              target = 'CursorColor',
+            }
+
+            config.term = 'xterm-256color'
+            config.visual_bell = project_visual_bell
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm visual bell static variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().visual_bell,
+            NativeVisualBell {
+                fade_in_duration_ms: 10,
+                fade_out_duration_ms: 200,
+                fade_in_function: NativeEasingFunction::Linear,
+                fade_out_function: NativeEasingFunction::EaseInOut,
+                target: NativeVisualBellTarget::CursorColor,
+            }
+        );
     }
 
     #[test]

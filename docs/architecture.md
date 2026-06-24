@@ -1062,7 +1062,9 @@ keyboard, mouse, paste, resize
   the configured fade-in/fade-out durations using the native
   Constant/Linear/Ease/EaseIn/EaseOut/EaseInOut/CubicBezier easing subset;
   `CursorColor` fades return to the current rendered cursor color, including
-  `force_reverse_video_cursor` cursor-cell foreground behavior. Native
+  `force_reverse_video_cursor` cursor-cell foreground behavior. Static
+  WezTerm-style Lua `config.visual_bell` snippets parse inline or through
+  top-level static table variables. Native
   `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`,
   `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`,
   `cursor_border_color`, and `cursor_fg_color` overrides stand in for WezTerm

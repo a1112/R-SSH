@@ -1364,7 +1364,8 @@ runtime storage for tabs and split panes.
   using the native Constant/Linear/Ease/EaseIn/EaseOut/EaseInOut/CubicBezier
   easing subset; `CursorColor` fades return to the current rendered cursor
   color, including `force_reverse_video_cursor` cursor-cell foreground
-  behavior. Static WezTerm-style `config.visual_bell` and
+  behavior. Static WezTerm-style `config.visual_bell` snippets parse inline or
+  through top-level static table variables, and
   `config.colors.foreground`, `config.colors.background`,
   `config.colors.ansi`, `config.colors.brights`, `config.colors.indexed`,
   `config.colors.selection_fg`, `config.colors.selection_bg`,
