@@ -1136,9 +1136,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts and direct indexed assignments such as
   `config.key_tables.<name>[index] = { ... }` or
-  `config.key_tables.<name>[#config.key_tables.<name> + 1] = { ... }`, with
-  bracket field selectors such as `config['key_tables']` supported for nested
-  inserts. Static
+  `config.key_tables.<name>[#config.key_tables.<name> + 1] = { ... }`, plus
+  direct indexed field mutations such as
+  `config.key_tables.<name>[1].key = 'h'` and
+  `config.key_tables.<name>[1].action = act.SendString '...'`, with bracket
+  field selectors such as `config['key_tables']` supported for nested inserts.
+  Static
   `config.key_tables = user_key_tables` assignments also merge top-level nested
   inserts such as `table.insert(user_key_tables.resize_pane, { ... })` and
   static field assignments such as `user_key_tables.resize_pane = { ... }`, as
@@ -2070,9 +2073,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts and direct indexed assignments such as
   `config.key_tables.<name>[index] = { ... }` or
-  `config.key_tables.<name>[#config.key_tables.<name> + 1] = { ... }`, with
-  bracket field selectors such as `config['key_tables']` supported for nested
-  inserts. Static
+  `config.key_tables.<name>[#config.key_tables.<name> + 1] = { ... }`, plus
+  direct indexed field mutations such as
+  `config.key_tables.<name>[1].key = 'h'` and
+  `config.key_tables.<name>[1].action = act.SendString '...'`, with bracket
+  field selectors such as `config['key_tables']` supported for nested inserts.
+  Static
   `config.key_tables = user_key_tables` assignments also merge top-level nested
   inserts such as `table.insert(user_key_tables.resize_pane, { ... })` and
   static field assignments such as `user_key_tables.resize_pane = { ... }`, as

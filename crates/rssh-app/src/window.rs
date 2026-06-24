@@ -6069,6 +6069,27 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
 
         if lua_block_depth == 0
             && let Some((key_table_name, assignment)) =
+                lua_config_nested_key_table_indexed_field_assignment_from_query(
+                    source,
+                    index,
+                    receiver,
+                    "key_tables",
+                )
+        {
+            selected = Some(LuaTableAssignmentWithMaxStart {
+                value: lua_key_tables_with_index_field_assigned(
+                    selected.take().map(|assignment| assignment.value),
+                    &key_table_name,
+                    assignment.index,
+                    &assignment.key,
+                    assignment.value,
+                )?,
+                max_start: index,
+            });
+        }
+
+        if lua_block_depth == 0
+            && let Some((key_table_name, assignment)) =
                 lua_config_nested_key_table_index_or_append_assignment_from_query(
                     source,
                     index,
@@ -8358,6 +8379,31 @@ fn lua_config_nested_key_table_index_or_append_assignment_from_query<'a>(
     Some((name, assignment))
 }
 
+fn lua_config_nested_key_table_indexed_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<(String, LuaTableIndexedFieldAssignment<'a>)> {
+    let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (name, rest) = lua_nested_table_insert_key_from_query(source, rest, start)?;
+    let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some((
+        name,
+        LuaTableIndexedFieldAssignment {
+            index,
+            key,
+            value: lua_top_level_statement_value_from_query(rest)?,
+        },
+    ))
+}
+
 fn lua_config_nested_table_length_append_assignment_from_query<'a>(
     source: &'a str,
     query: &'a str,
@@ -8576,6 +8622,56 @@ fn lua_key_tables_with_index_or_append_assigned_assignment(
     }
 
     Some(format!("{{ {} }}", fields.join(",\n")))
+}
+
+fn lua_key_tables_with_index_field_assigned(
+    key_tables: Option<String>,
+    key_table_name: &str,
+    index: usize,
+    assignment_key: &str,
+    assignment_value: &str,
+) -> Option<String> {
+    let key_tables = key_tables?;
+    let table = key_tables
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim();
+    let mut fields = Vec::new();
+    let mut assigned = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            fields.push(field.to_owned());
+            continue;
+        };
+        let Some(name) = split_lua_table_key_from_query(key.trim()) else {
+            fields.push(field.to_owned());
+            continue;
+        };
+        if name == key_table_name {
+            fields.push(format!(
+                "{} = {}",
+                key.trim(),
+                lua_table_with_index_field_assigned(
+                    Some(value.trim().to_owned()),
+                    index,
+                    assignment_key,
+                    assignment_value
+                )?
+            ));
+            assigned = true;
+        } else {
+            fields.push(field.to_owned());
+        }
+    }
+
+    assigned.then(|| format!("{{ {} }}", fields.join(",\n")))
 }
 
 fn lua_table_with_index_or_append_assigned_field(
@@ -70866,6 +70962,64 @@ mod tests {
         .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"from-config-index");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_index_field_assignments() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = { resize_pane = {} }
+            config.key_tables.resize_pane[1] = {}
+            config.key_tables.resize_pane[1].key = 'h'
+            config.key_tables.resize_pane[1].action = act.SendString 'from-config-index-fields'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm indexed key_table field config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-config-index-fields"
+        );
         assert_eq!(app.active_key_table_for_test(), None);
     }
 
