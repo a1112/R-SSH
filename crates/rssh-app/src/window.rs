@@ -11758,6 +11758,7 @@ fn native_mouse_assignment_event_lua_table_from_query(
             _ => return None,
         };
         parsed = Some(native_mouse_assignment_event_payload_from_query(
+            static_source,
             value.trim(),
             kind,
         )?);
@@ -11767,6 +11768,7 @@ fn native_mouse_assignment_event_lua_table_from_query(
 }
 
 fn native_mouse_assignment_event_payload_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     kind: NativeMouseAssignmentEventKind,
 ) -> Option<NativeMouseAssignmentEvent> {
@@ -11787,13 +11789,27 @@ fn native_mouse_assignment_event_payload_from_query(
                 if button.is_some() {
                     return None;
                 }
-                button = Some(native_mouse_assignment_button_from_lua_value(value)?);
+                button = Some(native_mouse_assignment_button_from_lua_value(
+                    static_source,
+                    value,
+                )?);
             }
             "streak" => {
                 if streak.is_some() {
                     return None;
                 }
-                let value = parse_maybe_quoted_query_text(value)?;
+                let value = if let Some(static_source) = static_source {
+                    lua_static_number_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                        lua_unsigned_integer_literal_from_query,
+                    )
+                    .map(str::to_owned)
+                    .or_else(|| parse_maybe_quoted_query_text(value))?
+                } else {
+                    parse_maybe_quoted_query_text(value)?
+                };
                 streak = Some(value.parse::<u8>().ok()?);
             }
             _ => return None,
@@ -11813,6 +11829,7 @@ fn native_mouse_assignment_event_payload_from_query(
 }
 
 fn native_mouse_assignment_button_from_lua_value(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<NativeMouseAssignmentButton> {
     let value = value.trim();
@@ -11842,7 +11859,7 @@ fn native_mouse_assignment_button_from_lua_value(
         return parsed;
     }
 
-    let value = parse_maybe_quoted_query_text(value)?;
+    let value = parse_maybe_static_query_text(static_source, value)?;
     match value.trim().to_ascii_lowercase().as_str() {
         "left" => Some(NativeMouseAssignmentButton::Mouse(MouseButton::Left)),
         "middle" => Some(NativeMouseAssignmentButton::Mouse(MouseButton::Middle)),
@@ -67311,6 +67328,48 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm mouse binding static event variable config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::ALT;
+        let terminal_y = f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT) + 1.0;
+
+        app.handle_cursor_moved(PhysicalPosition::new(1.0, terminal_y))
+            .unwrap();
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+            .unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH) + 1.0,
+            terminal_y,
+        ))
+        .unwrap();
+
+        assert!(app.window_drag_requested_for_test());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_event_payload_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local drag_button = 'Left'
+            local drag_streak = 1
+
+            config.mouse_bindings = {
+              {
+                event = { Drag = { streak = drag_streak, button = drag_button } },
+                mods = 'ALT',
+                action = act.StartWindowDrag,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static event payload field config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::ALT;
         let terminal_y = f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT) + 1.0;
