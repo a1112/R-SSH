@@ -11673,7 +11673,7 @@ fn native_user_mouse_assignment_lua_table_from_query(
                 if modifiers.is_some() {
                     return None;
                 }
-                let value = parse_maybe_quoted_query_text(value)?;
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 modifiers = Some(native_modifiers_from_wezterm_lua_config(&value)?);
             }
             "action" => {
@@ -67370,6 +67370,47 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm mouse binding static event payload field config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::ALT;
+        let terminal_y = f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT) + 1.0;
+
+        app.handle_cursor_moved(PhysicalPosition::new(1.0, terminal_y))
+            .unwrap();
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+            .unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH) + 1.0,
+            terminal_y,
+        ))
+        .unwrap();
+
+        assert!(app.window_drag_requested_for_test());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_mods_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local drag_mods = 'ALT'
+
+            config.mouse_bindings = {
+              {
+                event = { Drag = { streak = 1, button = 'Left' } },
+                mods = drag_mods,
+                action = act.StartWindowDrag,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static mods variable config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::ALT;
         let terminal_y = f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT) + 1.0;
