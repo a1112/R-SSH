@@ -92,7 +92,8 @@ keyboard, mouse, paste, resize
   uses `default_prog`, and no-program `SpawnWindow` requests inherit the active
   pane launch/cwd when no `default_prog` override is active; WezTerm-style Lua
   `default_prog` command arrays parse inline, through top-level static table
-  variables, or through `table.insert(config.default_prog, ...)` appends, and
+  variables with pre/post-assignment `table.insert` appends, or through
+  `table.insert(config.default_prog, ...)` appends, and
   `set_environment_variables` maps parse inline, through top-level static
   table variables with pre/post-assignment field mutations including config
   table initializer aliases, or through top-level `config.set_environment_variables.NAME`
