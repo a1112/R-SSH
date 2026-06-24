@@ -297,6 +297,8 @@ keyboard, mouse, paste, resize
   `config.key_tables = user_key_tables`, or `config.leader = user_leader`.
   Top-level `config.keys` and `config.key_tables` assignment `key` and `mods`
   fields parse inline or through top-level static string variables.
+  Top-level `config.keys` assignment `action` fields parse inline or through
+  top-level static action variables.
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` also resolve top-level static
   string variables.
