@@ -1328,7 +1328,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ClearScrollback('ScrollbackOnly')` string calls and
   `wezterm.action.ClearScrollback { mode = ... }` table-call queries dispatch
   the same native payload path, including bracketed string table keys with
-  long-bracket values.
+  long-bracket values and trailing comma table fields.
 - Command palette and native action payloads now expose WezTerm-style
   `ClearScrollback('ScrollbackAndViewport')`, clearing active-pane history plus
   the viewport while preserving the prompt/cursor row as the new first visible

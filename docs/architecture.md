@@ -1011,7 +1011,8 @@ keyboard, mouse, paste, resize
   `ClearScrollback('ScrollbackOnly')` action payloads clear active-pane history
   on the output side while preserving the viewport; structured
   `clear scrollback <mode>` and `clearscrollback <mode>` queries accept quoted
-  or unquoted modes.
+  or unquoted modes, and WezTerm-style Lua `ClearScrollback { ... }` /
+  `ClearScrollback({ ... })` table queries tolerate trailing comma fields.
 - Implemented in v1: command-palette Clear Scrollback And Viewport and native
   `ClearScrollback('ScrollbackAndViewport')` action payloads clear active-pane
   history plus the viewport while preserving the prompt/cursor row as the new
