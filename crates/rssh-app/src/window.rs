@@ -2345,9 +2345,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     let mut in_file_color_scheme_found = false;
     let mut external_color_scheme_found = false;
     if let Some(color_scheme) = color_scheme.as_deref()
-        && let Some(color_schemes) = lua_config_table_assignment_from_query(config, "color_schemes")
-        && let Some(colors) =
-            color_scheme_lua_table_from_query(config, color_schemes, color_scheme)?
+        && let Some(colors) = color_scheme_lua_table_from_config_query(config, color_scheme)?
     {
         in_file_color_scheme_found = true;
         parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
@@ -3162,6 +3160,23 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     parsed.then_some(overrides)
 }
 
+fn color_scheme_lua_table_from_config_query<'a>(
+    source: &'a str,
+    color_scheme: &str,
+) -> Option<Option<&'a str>> {
+    let mut selected = None;
+
+    if let Some(color_schemes) = lua_config_table_assignment_from_query(source, "color_schemes") {
+        selected = color_scheme_lua_table_from_query(source, color_schemes, color_scheme)?;
+    }
+
+    if let Some(colors) = color_scheme_lua_table_assignment_from_query(source, color_scheme)? {
+        selected = Some(colors);
+    }
+
+    Some(selected)
+}
+
 fn color_scheme_lua_table_from_query<'a>(
     source: &'a str,
     color_schemes: &'a str,
@@ -3186,25 +3201,113 @@ fn color_scheme_lua_table_from_query<'a>(
         if name != color_scheme {
             continue;
         }
-        if selected.is_some() {
-            return None;
-        }
-        let colors = colors.trim();
-        selected = Some(if colors.starts_with('{') {
-            colors.strip_prefix('{')?.strip_suffix('}')?;
-            colors
-        } else {
-            let variable = lua_identifier_literal_from_query(colors)?;
-            if !colors[variable.len()..].trim().is_empty() {
-                return None;
-            }
-            let colors = lua_static_table_variable_assignment_from_query(source, variable)?.trim();
-            colors.strip_prefix('{')?.strip_suffix('}')?;
-            colors
-        });
+        selected = Some(color_scheme_lua_table_value_from_query(
+            source, colors, false,
+        )?);
     }
 
     Some(selected)
+}
+
+fn color_scheme_lua_table_assignment_from_query<'a>(
+    source: &'a str,
+    color_scheme: &str,
+) -> Option<Option<&'a str>> {
+    let mut selected = None;
+    let mut line_start = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let Some(rest) = source.get(start..)?.strip_prefix("config") else {
+            line_start += line.len();
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            line_start += line.len();
+            continue;
+        }
+        let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('.') else {
+            line_start += line.len();
+            continue;
+        };
+        let Some(rest) = rest.strip_prefix("color_schemes") else {
+            line_start += line.len();
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            line_start += line.len();
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(rest) = rest.strip_prefix('[') else {
+            line_start += line.len();
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(literal) = lua_quoted_string_literal_from_query(rest)
+            .or_else(|| lua_long_bracket_literal_from_query(rest))
+        else {
+            line_start += line.len();
+            continue;
+        };
+        let Some(name) = parse_maybe_quoted_query_text(literal) else {
+            line_start += line.len();
+            continue;
+        };
+        let Some(rest) = lua_trim_start_comments(rest.get(literal.len()..)?) else {
+            line_start += line.len();
+            continue;
+        };
+        let Some(rest) = rest.strip_prefix(']') else {
+            line_start += line.len();
+            continue;
+        };
+        if name != color_scheme {
+            line_start += line.len();
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            line_start += line.len();
+            continue;
+        };
+        selected = Some(color_scheme_lua_table_value_from_query(
+            source, value, true,
+        )?);
+        line_start += line.len();
+    }
+
+    Some(selected)
+}
+
+fn color_scheme_lua_table_value_from_query<'a>(
+    source: &'a str,
+    colors: &'a str,
+    allow_trailing_lines: bool,
+) -> Option<&'a str> {
+    let colors = lua_trim_start_comments(colors)?.trim();
+    if colors.starts_with('{') {
+        let colors = lua_braced_table_literal_from_query(colors)?;
+        colors.strip_prefix('{')?.strip_suffix('}')?;
+        return Some(colors);
+    }
+
+    let variable_query = if allow_trailing_lines {
+        colors
+            .split_once('\n')
+            .map_or(colors, |(colors, _)| colors)
+            .trim()
+    } else {
+        colors
+    };
+    let variable = lua_identifier_literal_from_query(variable_query)?;
+    if !variable_query[variable.len()..].trim().is_empty() {
+        return None;
+    }
+    let colors = lua_static_table_variable_assignment_from_query(source, variable)?.trim();
+    colors.strip_prefix('{')?.strip_suffix('}')?;
+    Some(colors)
 }
 
 fn lua_static_table_variable_assignment_from_query<'a>(
@@ -41632,6 +41735,129 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_custom_color_scheme_bracket_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local project_scheme = {
+              foreground = '#202122',
+              background = '#232425',
+              cursor_bg = '#262728',
+            }
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {}
+            config.color_schemes['Project Scheme'] = project_scheme
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme bracket assignment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(32, 33, 34));
+        assert_eq!(effective.background_color, Color::Rgb(35, 36, 37));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(38, 39, 40));
+    }
+
+    #[test]
+    fn window_app_ignores_dynamic_wezterm_lua_color_scheme_bracket_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local dynamic_name = 'Other Scheme'
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#292a2b',
+                background = '#2c2d2e',
+              },
+            }
+            config.color_schemes[dynamic_name] = {
+              foreground = '#010203',
+              background = '#040506',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme config with ignored dynamic assignment");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(41, 42, 43));
+        assert_eq!(effective.background_color, Color::Rgb(44, 45, 46));
+    }
+
+    #[test]
+    fn window_app_uses_later_wezterm_lua_color_scheme_table_entry() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#010203',
+                background = '#040506',
+              },
+              ['Project Scheme'] = {
+                foreground = '#2f3031',
+                background = '#323334',
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected duplicate WezTerm custom color scheme table entry config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(47, 48, 49));
+        assert_eq!(effective.background_color, Color::Rgb(50, 51, 52));
+    }
+
+    #[test]
+    fn window_app_uses_later_wezterm_lua_color_scheme_bracket_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#010203',
+                background = '#040506',
+              },
+            }
+            config.color_schemes['Project Scheme'] = {
+              foreground = '#353637',
+              background = '#38393a',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected overriding WezTerm custom color scheme bracket assignment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(53, 54, 55));
+        assert_eq!(effective.background_color, Color::Rgb(56, 57, 58));
     }
 
     #[test]
