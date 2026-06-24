@@ -3054,7 +3054,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(window_content_alignment) =
-        lua_config_table_assignment_from_query(config, "window_content_alignment")
+        lua_config_table_or_static_variable_assignment_from_query(
+            config,
+            "window_content_alignment",
+        )
     {
         overrides.window_content_alignment = Some(
             native_window_content_alignment_lua_table_from_query(window_content_alignment)?,
@@ -68062,6 +68065,35 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm window content alignment config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_content_alignment,
+            NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Center,
+                vertical: NativeVerticalContentAlignment::Bottom,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_content_alignment_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local project_alignment = {
+              horizontal = 'Center',
+              vertical = 'Bottom',
+            }
+
+            config.term = 'xterm-256color'
+            config.window_content_alignment = project_alignment
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window content alignment static variable config");
         app.set_config_overrides(overrides);
 
         assert_eq!(

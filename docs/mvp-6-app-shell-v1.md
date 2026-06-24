@@ -998,9 +998,10 @@ runtime storage for tabs and split panes.
   automatic file watching, Lua `window:set_config_overrides` wiring, and
   broader config option coverage remain later parity work.
 - `rssh-app` parses native `window_padding` px and cell-unit side padding
-  inline or through top-level static table variables, and parses
+  inline or through top-level static table variables, and parses static
   `window_content_alignment` values for horizontal
-  `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom`. When explicitly
+  `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom` inline or
+  through top-level static table variables. When explicitly
   configured, non-cell-multiple window sizes keep their real framebuffer size,
   fill leftover gap pixels with the configured background, align the terminal
   cell grid into that gap, and reverse-map mouse coordinates through the same

@@ -1616,7 +1616,8 @@ keyboard, mouse, paste, resize
   reset restore the configured shape default.
 - Implemented in v1: native `window_padding` parses WezTerm-style px and
   cell-unit side padding inline or through top-level static table variables.
-  Native `window_content_alignment` parses WezTerm-style
+  Native `window_content_alignment` parses WezTerm-style static tables, inline
+  or through top-level static table variables, for
   horizontal `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom`
   values. When explicitly configured, native resize keeps the real framebuffer
   pixel size, renders terminal cells into the aligned grid, fills leftover gap
