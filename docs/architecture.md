@@ -1092,8 +1092,8 @@ keyboard, mouse, paste, resize
   `local colors, metadata = ...` or
   `colors, metadata = ...` assignments. Static `load_scheme` variable
   references resolve to the latest top-level binding before the `config.colors`
-  assignment and ignore helper-function-local bindings plus later rebinding,
-  including top-level static mutations such as
+  assignment and ignore helper-function-local bindings/mutations plus later
+  rebinding, including top-level static mutations such as
   `colors.background = '#101010'` and bracket-key variants such as
   `colors['background'] = '#101010'`, indexed slot mutations such as
   `colors.indexed[136] = '#101010'`, ANSI/bright slot mutations such as

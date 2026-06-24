@@ -2394,10 +2394,11 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                     Path::new(&load_scheme.path),
                     &mut overrides,
                 )?;
-                if let Some(variable) = load_scheme.variable.as_deref() {
+                if let Some(variable) = load_scheme.variable.as_ref() {
                     parsed |= apply_lua_color_variable_mutation_overrides(
                         config,
-                        variable,
+                        &variable.name,
+                        variable.mutation_max_start,
                         &mut overrides,
                     )?;
                 }
@@ -3193,8 +3194,14 @@ enum NativeColorSchemeLuaSource<'a> {
     Table(&'a str),
     LoadScheme {
         path: String,
-        variable: Option<String>,
+        variable: Option<NativeLoadSchemeVariableReference>,
     },
+}
+
+#[derive(Debug, Clone)]
+struct NativeLoadSchemeVariableReference {
+    name: String,
+    mutation_max_start: usize,
 }
 
 fn apply_lua_color_scheme_source_overrides(
@@ -3208,8 +3215,13 @@ fn apply_lua_color_scheme_source_overrides(
         }
         NativeColorSchemeLuaSource::LoadScheme { path, variable } => {
             let mut parsed = apply_toml_color_scheme_file_overrides(Path::new(&path), overrides)?;
-            if let Some(variable) = variable.as_deref() {
-                parsed |= apply_lua_color_variable_mutation_overrides(config, variable, overrides)?;
+            if let Some(variable) = variable.as_ref() {
+                parsed |= apply_lua_color_variable_mutation_overrides(
+                    config,
+                    &variable.name,
+                    variable.mutation_max_start,
+                    overrides,
+                )?;
             }
             Some(parsed)
         }
@@ -3781,7 +3793,10 @@ fn color_scheme_lua_source_value_from_query<'a>(
     {
         return Some(NativeColorSchemeLuaSource::LoadScheme {
             path,
-            variable: Some(variable.to_owned()),
+            variable: Some(NativeLoadSchemeVariableReference {
+                name: variable.to_owned(),
+                mutation_max_start: max_start,
+            }),
         });
     }
 
@@ -4458,15 +4473,27 @@ fn apply_lua_colors_table_overrides(
 fn apply_lua_color_variable_mutation_overrides(
     source: &str,
     variable: &str,
+    mutation_max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    if let Some(colors) = lua_color_variable_mutation_table_from_query(source, variable) {
+    if let Some(colors) =
+        lua_color_variable_mutation_table_from_query(source, variable, mutation_max_start)
+    {
         parsed |= apply_lua_colors_table_overrides(&colors, overrides)?;
     }
-    parsed |=
-        apply_lua_color_variable_palette_slot_mutation_overrides(source, variable, overrides)?;
-    parsed |= apply_lua_color_variable_tab_bar_mutation_overrides(source, variable, overrides)?;
+    parsed |= apply_lua_color_variable_palette_slot_mutation_overrides(
+        source,
+        variable,
+        mutation_max_start,
+        overrides,
+    )?;
+    parsed |= apply_lua_color_variable_tab_bar_mutation_overrides(
+        source,
+        variable,
+        mutation_max_start,
+        overrides,
+    )?;
 
     Some(parsed)
 }
@@ -5102,6 +5129,129 @@ fn lua_source_index_starts_statement(source: &str, index: usize) -> bool {
     true
 }
 
+fn lua_top_level_statement_start_indices_before_offset(
+    source: &str,
+    max_start: usize,
+) -> Option<Vec<usize>> {
+    let source = source.get(..max_start)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut table_depth = 0usize;
+    let mut starts = Vec::new();
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&source[index..])
+                {
+                    let content_and_rest = &source[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(source.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                    continue;
+                }
+            }
+            '{' => {
+                table_depth = table_depth.saturating_add(1);
+                continue;
+            }
+            '}' => {
+                table_depth = table_depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if lua_block_depth == 0
+            && table_depth == 0
+            && !character.is_whitespace()
+            && lua_source_index_starts_statement(source, index)
+        {
+            starts.push(index);
+        }
+    }
+
+    Some(starts)
+}
+
 fn lua_config_field_access_rest_from_query<'a>(query: &'a str, field: &str) -> Option<&'a str> {
     let query = lua_trim_start_comments(query)?;
     if let Some(rest) = query.strip_prefix('.') {
@@ -5298,7 +5448,7 @@ fn lua_table_key_from_text(key: &str) -> String {
 
 struct NativeLoadSchemeColorsAssignment {
     path: String,
-    variable: Option<String>,
+    variable: Option<NativeLoadSchemeVariableReference>,
 }
 
 enum NativeConfigColorsLuaSource<'a> {
@@ -5491,11 +5641,15 @@ fn lua_config_colors_source_value_from_query<'a>(
     }
 
     let variable = lua_identifier_literal_from_query(value)?;
+    let mutation_max_start = lua_source_slice_start_offset(source, variable)?;
     let path = lua_load_scheme_assignment_before_slice_from_query(source, variable, value)?;
     Some(NativeConfigColorsLuaSource::LoadScheme(
         NativeLoadSchemeColorsAssignment {
             path,
-            variable: Some(variable.to_owned()),
+            variable: Some(NativeLoadSchemeVariableReference {
+                name: variable.to_owned(),
+                mutation_max_start,
+            }),
         },
     ))
 }
@@ -5516,6 +5670,7 @@ fn lua_config_load_scheme_colors_assignment_from_query(
     .or_else(|| {
         let colors_variable =
             lua_config_assignment_from_query(source, "colors", lua_identifier_literal_from_query)?;
+        let mutation_max_start = lua_source_slice_start_offset(source, colors_variable)?;
         let path = lua_load_scheme_assignment_before_slice_from_query(
             source,
             colors_variable,
@@ -5523,7 +5678,10 @@ fn lua_config_load_scheme_colors_assignment_from_query(
         )?;
         Some(NativeLoadSchemeColorsAssignment {
             path,
-            variable: Some(colors_variable.to_owned()),
+            variable: Some(NativeLoadSchemeVariableReference {
+                name: colors_variable.to_owned(),
+                mutation_max_start,
+            }),
         })
     })
 }
@@ -5683,30 +5841,27 @@ fn lua_load_scheme_assignment_path_from_query(query: &str, variable: &str) -> Op
         .and_then(parse_maybe_quoted_query_text)
 }
 
-fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) -> Option<String> {
+fn lua_color_variable_mutation_table_from_query(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+) -> Option<String> {
     let mut fields = Vec::new();
     let mut indexed_fields = BTreeMap::new();
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
         let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            line_start += line.len();
             continue;
         };
         if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            line_start += line.len();
             continue;
         }
         let rest = source.get(start + variable.len()..)?.trim_start();
         let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
         if field_name == "tab_bar" {
-            line_start += line.len();
             continue;
         }
         if field_name == "indexed"
@@ -5714,25 +5869,20 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
         {
             let rest = lua_trim_start_comments(rest)?;
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             if value.is_empty() {
-                line_start += line.len();
                 continue;
             }
             indexed_fields.insert(index, value.to_owned());
-            line_start += line.len();
             continue;
         }
         let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
             continue;
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         if value.is_empty() {
-            line_start += line.len();
             continue;
         }
         if field_name == "indexed" {
@@ -5746,11 +5896,9 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
                 let index = split_lua_table_array_index_from_query(index.trim())?;
                 indexed_fields.insert(index, color.trim().to_owned());
             }
-            line_start += line.len();
             continue;
         }
         fields.push(format!("{field_name} = {value}"));
-        line_start += line.len();
     }
 
     if !indexed_fields.is_empty() {
@@ -5768,25 +5916,20 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
 fn apply_lua_color_variable_palette_slot_mutation_overrides(
     source: &str,
     variable: &str,
+    max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
         let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            line_start += line.len();
             continue;
         };
         if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            line_start += line.len();
             continue;
         }
         let rest = source.get(start + variable.len()..)?.trim_start();
         let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let Some(offset) = (match field_name.as_str() {
@@ -5794,7 +5937,6 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
             "brights" => Some(8),
             _ => None,
         }) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
@@ -5808,7 +5950,6 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
             }
             let rest = lua_trim_start_comments(rest)?;
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
@@ -5816,7 +5957,6 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
             palette[offset + index - 1] = lua_opaque_color_from_query(&value)?;
         } else {
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
@@ -5831,7 +5971,6 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
 
         overrides.ansi_palette = Some(palette);
         parsed = true;
-        line_start += line.len();
     }
 
     Some(parsed)
@@ -5840,29 +5979,23 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
 fn apply_lua_color_variable_tab_bar_mutation_overrides(
     source: &str,
     variable: &str,
+    max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
         let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
-            line_start += line.len();
             continue;
         };
         if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            line_start += line.len();
             continue;
         }
         let rest = source.get(start + variable.len()..)?.trim_start();
         let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         if field_name != "tab_bar" {
-            line_start += line.len();
             continue;
         }
 
@@ -5871,30 +6004,25 @@ fn apply_lua_color_variable_tab_bar_mutation_overrides(
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             parsed |=
                 apply_lua_colors_table_overrides(&format!("{{\ntab_bar = {value}\n}}"), overrides)?;
-            line_start += line.len();
             continue;
         }
 
         let Some((tab_bar_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
         if tab_bar_field == "background" {
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             let value = parse_maybe_quoted_query_text(value)?;
             overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
             parsed = true;
-            line_start += line.len();
             continue;
         }
 
         if !lua_tab_bar_item_color_name(&tab_bar_field) {
-            line_start += line.len();
             continue;
         }
         if let Some(value) = rest.strip_prefix('=') {
@@ -5903,24 +6031,20 @@ fn apply_lua_color_variable_tab_bar_mutation_overrides(
                 &format!("{{\ntab_bar = {{ {tab_bar_field} = {value} }}\n}}"),
                 overrides,
             )?;
-            line_start += line.len();
             continue;
         }
 
         let Some((item_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
         let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
             continue;
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         if apply_lua_tab_bar_item_color_mutation(overrides, &tab_bar_field, &item_field, value)? {
             parsed = true;
         }
-        line_start += line.len();
     }
 
     Some(parsed)
@@ -44870,6 +44994,56 @@ mod tests {
         assert_eq!(effective.background_color, Color::Rgb(52, 53, 54));
         let _ = std::fs::remove_file(top_level_scheme_file);
         let _ = std::fs::remove_file(helper_scheme_file);
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_load_scheme_color_mutations() {
+        static NEXT_LOAD_SCHEME_HELPER_MUTATION_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let scheme_id = NEXT_LOAD_SCHEME_HELPER_MUTATION_ID.fetch_add(1, Ordering::Relaxed);
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-helper-mutation-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [colors]
+            foreground = "#313233"
+            background = "#343536"
+            cursor_bg = "#373839"
+            "##,
+        )
+        .expect("expected temp load_scheme helper mutation TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            local function ignored()
+              colors.background = '#010203'
+              colors.cursor_bg = '#040506'
+            end
+
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme helper mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.background_color, Color::Rgb(52, 53, 54));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(55, 56, 57));
+        let _ = std::fs::remove_file(scheme_file);
     }
 
     #[test]
