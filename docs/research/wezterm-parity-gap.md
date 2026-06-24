@@ -2061,7 +2061,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   TOML path can also feed `config.colors` directly or through the first returned
   variable from `local colors, metadata = ...` or `colors, metadata = ...`
   assignments, including top-level static mutations such as
-  `colors.background = '#101010'` or multiline table mutations such as
+  `colors.background = '#101010'` and bracket-key variants such as
+  `colors['background'] = '#101010'`, or multiline table mutations such as
   `colors.ansi = { ... }` before assignment. When no in-file or configured-dir
   scheme matches, the default WezTerm custom scheme directories are also
   searched: `$HOME/.config/wezterm/colors` on POSIX and `colors` next to the

@@ -4002,12 +4002,11 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
             continue;
         }
         let rest = source.get(start + variable.len()..)?.trim_start();
-        let Some(rest) = rest.strip_prefix('.') else {
+        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
             line_start += line.len();
             continue;
         };
-        let field_name = lua_identifier_literal_from_query(rest)?;
-        let rest = lua_trim_start_comments(rest.get(field_name.len()..)?)?;
+        let rest = lua_trim_start_comments(rest)?;
         let Some(value) = rest.strip_prefix('=') else {
             line_start += line.len();
             continue;
@@ -4022,6 +4021,27 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
     }
 
     (!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n")))
+}
+
+fn lua_color_variable_mutation_field_from_query(query: &str) -> Option<(String, &str)> {
+    let query = lua_trim_start_comments(query)?;
+    if let Some(rest) = query.strip_prefix('.') {
+        let field_name = lua_identifier_literal_from_query(rest)?;
+        return Some((field_name.to_owned(), rest.get(field_name.len()..)?));
+    }
+
+    let rest = query.strip_prefix('[')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let literal = lua_quoted_string_literal_from_query(rest)
+        .or_else(|| lua_long_bracket_literal_from_query(rest))?;
+    let field_name = parse_maybe_quoted_query_text(literal)?;
+    let after_literal = lua_trim_start_comments(rest.get(literal.len()..)?)?;
+    let after_bracket = after_literal.strip_prefix(']')?;
+
+    Some((
+        non_empty_spawn_command_option_value(&field_name).ok()?,
+        after_bracket,
+    ))
 }
 
 fn lua_color_variable_mutation_value_literal_from_query(query: &str) -> Option<&str> {
@@ -42066,6 +42086,60 @@ mod tests {
             effective.ansi_palette.expect("expected ANSI palette")[15],
             Color::Rgb(46, 47, 48)
         );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_bracket_color_mutations() {
+        static NEXT_LOAD_SCHEME_BRACKET_MUTATION_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-bracket-mutation-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_BRACKET_MUTATION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#313233"
+            background = "#343536"
+            cursor_bg = "#373839"
+            cursor_border = "#3a3b3c"
+            "##,
+        )
+        .expect("expected temp load_scheme bracket mutation TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors['background'] = '#3d3e3f'
+            colors["cursor_bg"] = '#404142'
+            colors[[[cursor_border]]] = '#434445'
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme bracket-mutated colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(49, 50, 51));
+        assert_eq!(effective.background_color, Color::Rgb(61, 62, 63));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(64, 65, 66));
+        assert_eq!(effective.cursor_border_color, Some(Color::Rgb(67, 68, 69)));
         let _ = std::fs::remove_file(scheme_file);
     }
 
