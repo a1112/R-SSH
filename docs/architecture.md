@@ -457,7 +457,9 @@ keyboard, mouse, paste, resize
   custom event name and dispatches it through a typed native handler with the
   active window id and pane id. Structured command-palette `emit event <name>`
   and action-name `emitevent <name>` queries use the same quote-aware event-name
-  parsing. Lua `wezterm.on`/`wezterm.emit` wiring remains future parity work.
+  parsing. WezTerm-style Lua `EmitEvent { ... }` / `EmitEvent({ ... })` table
+  queries tolerate trailing comma fields. Lua `wezterm.on`/`wezterm.emit`
+  wiring remains future parity work.
 - Completed in v1: native WezTerm-style `ActivateKeyTable`, `PopKeyTable`, and
   `ClearKeyTableStack` action payloads maintain a per-window key-table
   activation stack, expose the active table in native window status and the
