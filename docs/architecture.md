@@ -292,8 +292,9 @@ keyboard, mouse, paste, resize
   accept `wezterm.action_callback(...)` values as no-op native placeholders so
   official callback-shaped bindings can load, static table variable assignments
   such as `config.keys = user_keys` or
-  `config.key_tables = user_key_tables`, `config.leader = user_leader`,
-  static return-table fields such as
+  `config.key_tables = user_key_tables`, or `config.leader = user_leader`.
+  Leader `key`, `mods`, and `timeout_milliseconds` fields parse inline or
+  through top-level static scalar variables. Static return-table fields such as
   `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, and top-level static
   `table.insert(config.keys, { ... })` appends plus

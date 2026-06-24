@@ -1086,7 +1086,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   string table keys with long-bracket values for leader fields, key-table names,
   and nested assignment fields, static table variable assignments such as
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
-  `config.leader = user_leader`, and
+  `config.leader = user_leader`, and leader `key`, `mods`, and
+  `timeout_milliseconds` fields inline or through top-level static scalar
+  variables,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
@@ -1169,7 +1171,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   before normal input resumes. Static WezTerm-style `config.leader` snippets
   now parse `key`, `mods`, and optional `timeout_milliseconds` into the same
   native leader runtime, including bracketed string table keys with
-  long-bracket values; full keys config-file wiring remains open.
+  long-bracket values and field values supplied through top-level static
+  scalar variables; full keys config-file wiring remains open.
 - Native `DisableDefaultAssignment` action payloads now suppress matching
   built-in default app-shell, window-level, and scrollback shortcuts from native
   user key assignments, leaving the key for the later input path. Structured
@@ -1968,7 +1971,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   string table keys with long-bracket values for key-table names and nested
   assignment fields, static table variable assignments such as
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
-  `config.leader = user_leader`, and
+  `config.leader = user_leader`, and leader `key`, `mods`, and
+  `timeout_milliseconds` fields inline or through top-level static scalar
+  variables,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and

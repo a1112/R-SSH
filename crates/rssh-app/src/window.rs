@@ -3207,7 +3207,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     if let Some(leader) =
         lua_config_table_or_static_variable_assignment_from_query(config, "leader")
     {
-        overrides.leader = Some(native_leader_lua_table_from_query(leader)?);
+        overrides.leader = Some(native_leader_lua_table_from_query(config, leader)?);
         parsed = true;
     }
     if let Some(launch_menu) =
@@ -7861,7 +7861,10 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
     None
 }
 
-fn native_leader_lua_table_from_query(value: &str) -> Option<NativeLeaderKey> {
+fn native_leader_lua_table_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
+) -> Option<NativeLeaderKey> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut key = None;
     let mut mods = None;
@@ -7879,19 +7882,33 @@ fn native_leader_lua_table_from_query(value: &str) -> Option<NativeLeaderKey> {
             if key.is_some() {
                 return None;
             }
-            key = Some(parse_maybe_quoted_query_text(value)?);
+            key = Some(
+                lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?,
+            );
         } else if name.eq_ignore_ascii_case("mods") {
             if mods.is_some() {
                 return None;
             }
-            mods = Some(parse_maybe_quoted_query_text(value)?);
+            mods = Some(
+                lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?,
+            );
         } else if name.eq_ignore_ascii_case("timeout_milliseconds")
             || name.eq_ignore_ascii_case("timeout-milliseconds")
         {
             if timeout_milliseconds.is_some() {
                 return None;
             }
-            timeout_milliseconds = Some(value.parse().ok()?);
+            timeout_milliseconds = Some(
+                lua_static_number_assignment_value_from_query(
+                    source,
+                    value,
+                    lua_unsigned_integer_literal_from_query,
+                )?
+                .parse()
+                .ok()?,
+            );
         } else {
             return None;
         }
@@ -67153,6 +67170,62 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm leader static variable config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert!(!app.debug_overlay_active_for_test());
+
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("|".into()),
+            PhysicalKey::Code(WinitKeyCode::Backslash),
+            Some("|"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_leader_static_field_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local leader_key = 'a'
+            local leader_mods = 'CTRL'
+            local leader_timeout = 1000
+
+            config.leader = {
+              key = leader_key,
+              mods = leader_mods,
+              timeout_milliseconds = leader_timeout,
+            }
+
+            config.keys = {
+              {
+                key = '|',
+                mods = 'LEADER|SHIFT',
+                action = act.ShowDebugOverlay,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm leader static field variable config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL;
