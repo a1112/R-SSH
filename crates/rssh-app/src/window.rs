@@ -2299,9 +2299,18 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(default_prog) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "default_prog")
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "default_prog",
+        )
     {
-        overrides.default_prog = Some(split_lua_table_string_array(default_prog)?);
+        overrides.default_prog = Some(split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: default_prog.max_start,
+            }),
+            &default_prog.value,
+        )?);
         parsed = true;
     }
     if let Some(default_cwd) = lua_config_string_assignment_from_query(config, "default_cwd") {
@@ -70237,6 +70246,41 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm default_prog variable config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_default_prog_table_insert() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = {}
+            table.insert(config.default_prog, 'nu')
+            table.insert(config.default_prog, '--login')
+            config.default_cwd = 'C:/Project Dir'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm default_prog table insert config");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::NewTab));
