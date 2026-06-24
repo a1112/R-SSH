@@ -4943,7 +4943,7 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_braced_table_literal_from_query(rest)?,
+        value: lua_table_insert_value_table_from_query(source, rest, start)?,
     })
 }
 
@@ -68687,6 +68687,39 @@ mod tests {
             .expect("expected launch_menu overrides");
         assert_eq!(launch_menu.len(), 2);
         assert_eq!(launch_menu[0].label.as_deref(), Some("Inserted Monitor"));
+        assert_eq!(launch_menu[1].label.as_deref(), Some("Existing Shell"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_positioned_launch_menu_variable_insert() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            local monitor = {
+              label = 'Variable Monitor',
+              args = { 'top' },
+            }
+
+            config.launch_menu = {
+              {
+                label = 'Existing Shell',
+                args = { 'cmd' },
+              },
+            }
+            table.insert(config.launch_menu, 1, monitor)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm positioned launch_menu table.insert variable config");
+
+        let launch_menu = overrides
+            .launch_menu
+            .expect("expected launch_menu overrides");
+        assert_eq!(launch_menu.len(), 2);
+        assert_eq!(launch_menu[0].label.as_deref(), Some("Variable Monitor"));
         assert_eq!(launch_menu[1].label.as_deref(), Some("Existing Shell"));
     }
 

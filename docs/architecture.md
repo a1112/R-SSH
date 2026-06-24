@@ -353,7 +353,8 @@ keyboard, mouse, paste, resize
   static `table.insert(config.launch_menu, { ... })` append entries and
   `table.insert(config.launch_menu, index, { ... })` numeric-position inserts,
   with bracket field selectors such as `config['launch_menu']` and static
-  table variables such as `table.insert(config.launch_menu, item)` supported.
+  table variables such as `table.insert(config.launch_menu, item)` or
+  `table.insert(config.launch_menu, index, item)` supported.
   Static WezTerm-style `config.keys` actions can also carry
   `ShowLauncherArgs` table payloads through the implemented native action
   subset. Remote/mux domains, richer default-mode UI styling, broader Lua key
