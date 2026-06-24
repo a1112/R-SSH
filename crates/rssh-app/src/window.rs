@@ -4930,7 +4930,7 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    if let Some(value) = lua_braced_table_literal_from_query(rest) {
+    if let Some(value) = lua_table_insert_value_table_from_query(source, rest, start) {
         return Some(LuaTableInsertValue {
             position: None,
             value,
@@ -4945,6 +4945,69 @@ fn lua_config_table_insert_append_value_from_query<'a>(
         position: Some(position),
         value: lua_braced_table_literal_from_query(rest)?,
     })
+}
+
+fn lua_table_insert_value_table_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<&'a str> {
+    if let Some(value) = lua_braced_table_literal_from_query(query) {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    lua_static_table_variable_assignment_before_offset_from_query(source, variable, max_start)
+}
+
+fn lua_static_table_variable_assignment_before_offset_from_query<'a>(
+    source: &'a str,
+    variable: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let mut line_start = 0usize;
+    let mut selected = None;
+    let source = source.get(..max_start)?;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let mut rest = source.get(start..)?;
+        if let Some(after_local) = rest.strip_prefix("local") {
+            if after_local
+                .chars()
+                .next()
+                .is_some_and(is_lua_identifier_character)
+            {
+                line_start += line.len();
+                continue;
+            }
+            rest = after_local.trim_start();
+        }
+        let Some(after_variable) = rest.strip_prefix(variable) else {
+            line_start += line.len();
+            continue;
+        };
+        if after_variable
+            .chars()
+            .next()
+            .is_some_and(is_lua_identifier_character)
+        {
+            line_start += line.len();
+            continue;
+        }
+        let rest = lua_trim_start_comments(after_variable)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            line_start += line.len();
+            continue;
+        };
+        if let Some(table) = lua_braced_table_literal_from_query(lua_trim_start_comments(value)?) {
+            selected = Some(table);
+        }
+        line_start += line.len();
+    }
+
+    selected
 }
 
 fn lua_config_field_access_rest_from_query<'a>(query: &'a str, field: &str) -> Option<&'a str> {
@@ -68542,6 +68605,33 @@ mod tests {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-H"]);
         assert_eq!(launch.cwd(), Some("/tmp/inserted"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_table_insert_static_variable_entries() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            local monitor = {
+              label = 'Variable Monitor',
+              args = { 'top' },
+            }
+
+            config.launch_menu = {}
+            table.insert(config.launch_menu, monitor)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu table.insert variable config");
+
+        let launch_menu = overrides
+            .launch_menu
+            .expect("expected launch_menu overrides");
+        assert_eq!(launch_menu.len(), 1);
+        assert_eq!(launch_menu[0].label.as_deref(), Some("Variable Monitor"));
     }
 
     #[test]

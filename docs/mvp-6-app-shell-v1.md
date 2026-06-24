@@ -372,7 +372,8 @@ runtime storage for tabs and split panes.
   environment entries, and top-level static
   `table.insert(config.launch_menu, { ... })` append entries plus
   `table.insert(config.launch_menu, index, { ... })` numeric-position inserts,
-  with bracket field selectors such as `config['launch_menu']` supported.
+  with bracket field selectors such as `config['launch_menu']` and static
+  table variables such as `table.insert(config.launch_menu, item)` supported.
   Static
   WezTerm-style `config.keys` actions can also carry `ShowLauncherArgs` table
   payloads through the implemented native action subset. Remote/mux domains,
