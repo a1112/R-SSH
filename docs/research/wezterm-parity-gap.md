@@ -1104,6 +1104,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` through top-level static string
   variables,
+  static `config.keys = user_keys` assignments with top-level
+  `table.insert(user_keys, { ... })` appends before the config assignment,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
@@ -2004,6 +2006,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` through top-level static string
   variables,
+  static `config.keys = user_keys` assignments with top-level
+  `table.insert(user_keys, { ... })` appends before the config assignment,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
