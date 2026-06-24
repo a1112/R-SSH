@@ -279,7 +279,8 @@ keyboard, mouse, paste, resize
   path. Static Lua `config.keys` and `config.key_tables` action fields also
   accept `wezterm.action_callback(...)` values as no-op native placeholders so
   official callback-shaped bindings can load, static table variable assignments
-  such as `config.keys = user_keys`, and top-level static
+  such as `config.keys = user_keys` or
+  `config.key_tables = user_key_tables`, and top-level static
   `table.insert(config.keys, { ... })` appends plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
   static table variables such as

@@ -4852,9 +4852,12 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
                 let after_config = lua_trim_start_comments(after_config)?;
                 if let Some(after_assignment) = after_config.strip_prefix('=') {
                     let after_assignment = lua_trim_start_comments(after_assignment)?;
-                    if let Some(table) = lua_braced_table_literal_from_query(after_assignment) {
+                    if let Some(table) =
+                        lua_table_insert_value_table_from_query(source, after_assignment, index)
+                    {
                         let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-                        let mut literal_from_query = lua_braced_table_literal_from_query;
+                        let mut literal_from_query =
+                            |value| lua_table_insert_value_table_from_query(source, value, index);
                         if let Some(value) = lua_config_table_field_assignment_from_query(
                             table,
                             "key_tables",
@@ -4874,8 +4877,11 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
         {
             let rest = lua_trim_start_comments(source.get(index + "key_tables".len()..)?)?;
             if let Some(rest) = rest.strip_prefix('=')
-                && let Some(value) =
-                    lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+                && let Some(value) = lua_table_insert_value_table_from_query(
+                    source,
+                    lua_trim_start_comments(rest)?,
+                    index,
+                )
             {
                 selected = Some(value.to_owned());
             }
@@ -4886,7 +4892,11 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
             && let Some(rest) =
                 lua_config_bracket_assignment_rest_from_query(source, index, receiver, "key_tables")
             && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
-            && let Some(value) = lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+            && let Some(value) = lua_table_insert_value_table_from_query(
+                source,
+                lua_trim_start_comments(rest)?,
+                index,
+            )
         {
             selected = Some(value.to_owned());
         }
@@ -65164,6 +65174,64 @@ mod tests {
         .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"left");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_tables_static_variable_assignment() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_key_tables = {
+              resize_pane = {
+                { key = 'h', action = act.SendString 'from-table-variable' },
+              },
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = user_key_tables
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-table-variable");
         assert_eq!(app.active_key_table_for_test(), None);
     }
 

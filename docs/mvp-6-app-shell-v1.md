@@ -561,7 +561,8 @@ runtime storage for tabs and split panes.
   implemented native assignment subset into runtime key-table overrides,
   including bracketed string table keys with long-bracket values for key-table
   names and nested assignment fields, static table variable assignments such as
-  `config.keys = user_keys`, and top-level static
+  `config.keys = user_keys` or `config.key_tables = user_key_tables`, and
+  top-level static
   `table.insert(config.keys, { ... })` appends plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
   static table variables such as
