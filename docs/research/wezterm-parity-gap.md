@@ -1080,7 +1080,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   now parse native key assignment tables and leader configuration into the same
   override/runtime path for the implemented action subset, including bracketed
   string table keys with long-bracket values for leader fields, key-table names,
-  and nested assignment fields, plus top-level static
+  and nested assignment fields, static table variable assignments such as
+  `config.keys = user_keys`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
   `table.insert(config.key_tables.<name>, { ... })` nested appends plus
   static table variables such as
@@ -1949,7 +1950,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.leader` now parse the implemented native assignment subset and
   leader configuration into runtime key-table overrides, including bracketed
   string table keys with long-bracket values for key-table names and nested
-  assignment fields, plus top-level static
+  assignment fields, static table variable assignments such as
+  `config.keys = user_keys`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
   `table.insert(config.key_tables.<name>, { ... })` nested appends plus
   static table variables such as

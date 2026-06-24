@@ -4667,9 +4667,12 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
                 let after_config = lua_trim_start_comments(after_config)?;
                 if let Some(after_assignment) = after_config.strip_prefix('=') {
                     let after_assignment = lua_trim_start_comments(after_assignment)?;
-                    if let Some(table) = lua_braced_table_literal_from_query(after_assignment) {
+                    if let Some(table) =
+                        lua_table_insert_value_table_from_query(source, after_assignment, index)
+                    {
                         let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-                        let mut literal_from_query = lua_braced_table_literal_from_query;
+                        let mut literal_from_query =
+                            |value| lua_table_insert_value_table_from_query(source, value, index);
                         if let Some(value) = lua_config_table_field_assignment_from_query(
                             table,
                             field,
@@ -4689,8 +4692,11 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
         {
             let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
             if let Some(rest) = rest.strip_prefix('=')
-                && let Some(value) =
-                    lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+                && let Some(value) = lua_table_insert_value_table_from_query(
+                    source,
+                    lua_trim_start_comments(rest)?,
+                    index,
+                )
             {
                 selected = Some(value.to_owned());
             }
@@ -4701,7 +4707,11 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
             && let Some(rest) =
                 lua_config_bracket_assignment_rest_from_query(source, index, receiver, field)
             && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
-            && let Some(value) = lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+            && let Some(value) = lua_table_insert_value_table_from_query(
+                source,
+                lua_trim_start_comments(rest)?,
+                index,
+            )
         {
             selected = Some(value.to_owned());
         }
@@ -65573,6 +65583,38 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("inserted".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_variable_assignment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_keys = {
+              {
+                key = 'H',
+                mods = 'CTRL|SHIFT',
+                action = act.SendString 'from-variable',
+              },
+            }
+
+            config.keys = user_keys
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable keys config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+H".to_owned(),
+                command: WindowCommand::SendString("from-variable".to_owned()),
             }])
         );
     }
