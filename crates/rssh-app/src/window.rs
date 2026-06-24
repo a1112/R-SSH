@@ -6817,6 +6817,18 @@ fn lua_static_table_variable_assignment_with_insert_appends_before_offset_from_q
         }
 
         if let Some(assignment) =
+            lua_static_table_variable_indexed_field_assignment_from_query(source, start, variable)
+        {
+            selected = Some(lua_table_with_index_field_assigned(
+                selected.take(),
+                assignment.index,
+                &assignment.key,
+                assignment.value,
+            )?);
+            continue;
+        }
+
+        if let Some(assignment) =
             lua_static_table_variable_index_or_append_assignment_from_query(source, start, variable)
         {
             selected = Some(lua_table_with_index_or_append_assigned_field(
@@ -7501,6 +7513,33 @@ fn lua_static_table_variable_index_assignment_from_query<'a>(
         return None;
     }
     lua_table_index_assignment_value_from_query(source, after_variable, start)
+}
+
+fn lua_static_table_variable_indexed_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableIndexedFieldAssignment<'a>> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let after_variable = lua_trim_start_comments(after_variable)?;
+    let (index, rest) = lua_table_array_index_access_rest_from_query(after_variable)?;
+    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableIndexedFieldAssignment {
+        index,
+        key,
+        value: lua_top_level_statement_value_from_query(rest)?,
+    })
 }
 
 fn lua_static_table_variable_insert_append_value_from_query<'a>(
@@ -71413,6 +71452,36 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+H".to_owned(),
                 command: WindowCommand::SendString("from-variable-index".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_variable_index_field_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_keys = {}
+            user_keys[1] = {}
+            user_keys[1].key = 'H'
+            user_keys[1].mods = 'CTRL|SHIFT'
+            user_keys[1].action = act.SendString 'from-variable-index-fields'
+
+            config.keys = user_keys
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable indexed field keys config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+H".to_owned(),
+                command: WindowCommand::SendString("from-variable-index-fields".to_owned()),
             }])
         );
     }

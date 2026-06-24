@@ -1116,8 +1116,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables,
   static `config.keys = user_keys` assignments with top-level
   `table.insert(user_keys, { ... })` appends and indexed assignments such as
-  `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }` before the
-  config assignment,
+  `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }`, plus
+  direct indexed field mutations on existing binding tables such as
+  `user_keys[1].key = 'H'`, `user_keys[1].mods = 'CTRL|SHIFT'`, and
+  `user_keys[1].action = act.SendString '...'`, before the config assignment,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and direct indexed assignments
@@ -2047,8 +2049,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables,
   static `config.keys = user_keys` assignments with top-level
   `table.insert(user_keys, { ... })` appends and indexed assignments such as
-  `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }` before the
-  config assignment,
+  `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }`, plus
+  direct indexed field mutations on existing binding tables such as
+  `user_keys[1].key = 'H'`, `user_keys[1].mods = 'CTRL|SHIFT'`, and
+  `user_keys[1].action = act.SendString '...'`, before the config assignment,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and direct indexed assignments
