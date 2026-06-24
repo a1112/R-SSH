@@ -4735,7 +4735,9 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
 
 fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str) -> Option<String> {
     if let Some(table) = lua_config_static_return_table_from_query(source) {
-        let mut literal_from_query = lua_braced_table_literal_from_query;
+        let max_start = lua_source_slice_start_offset(source, table)?;
+        let mut literal_from_query =
+            |value| lua_table_insert_value_table_from_query(source, value, max_start);
         return lua_config_table_field_assignment_from_query(
             table,
             "key_tables",
@@ -65234,6 +65236,65 @@ mod tests {
         .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"from-table-variable");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_return_key_tables_static_variable_assignment() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            local user_key_tables = {
+              resize_pane = {
+                { key = 'h', action = act.SendString 'from-return-table-variable' },
+              },
+            }
+
+            return {
+              keys = {
+                {
+                  key = 'Space',
+                  mods = 'CTRL|SHIFT',
+                  action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+                },
+              },
+              key_tables = user_key_tables,
+            }
+            "#,
+        )
+        .expect("expected WezTerm return-table static variable key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-return-table-variable"
+        );
         assert_eq!(app.active_key_table_for_test(), None);
     }
 
