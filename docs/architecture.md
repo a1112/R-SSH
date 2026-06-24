@@ -870,8 +870,9 @@ keyboard, mouse, paste, resize
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`, and
   `show_tabs_in_tab_bar`) and emits
   `window-config-reloaded` on every set. `automatically_reload_config` is
-  stored with WezTerm's default `true` and included in effective config
-  snapshots. `check_for_updates` is stored with WezTerm's default `true`,
+  stored with WezTerm's default `true`, parses inline or through top-level
+  static bool variables, and is included in effective config snapshots.
+  `check_for_updates` is stored with WezTerm's default `true`,
   `check_for_updates_interval_seconds` with the default `86400`, and
   `show_update_window` with the compatibility default `false`; actual update
   checks and update-window UI remain future parity work. `max_fps` is stored
@@ -889,14 +890,16 @@ keyboard, mouse, paste, resize
   `prefer_egl`/`enable_wayland` with `true`; actual renderer front-end, WebGPU
   adapter, EGL, and Wayland/X11 startup selection remain future parity work.
   `use_resize_increments` is
-  stored with WezTerm's default `false` and included in effective config
-  snapshots; when enabled on X11/Wayland/macOS-capable builds, native windows
+  stored with WezTerm's default `false`, parses inline or through top-level
+  static bool variables, and is included in effective config snapshots; when
+  enabled on X11/Wayland/macOS-capable builds, native windows
   set their resize increments to the current terminal cell size and refresh the
   hint after font, `cell_width`, or `line_height` changes. Unsupported
   platforms keep the WezTerm-style no-op behavior. `debug_key_events` and
   `log_unknown_escape_sequences` are
-  stored with WezTerm's default `false` and included in effective config
-  snapshots. `treat_left_ctrlalt_as_altgr` is stored with WezTerm's default
+  stored with WezTerm's default `false`, parse inline or through top-level
+  static bool variables, and are included in effective config snapshots.
+  `treat_left_ctrlalt_as_altgr` is stored with WezTerm's default
   `false`; when enabled, Ctrl+Alt text key events are routed as AltGr text
   input instead of matching Ctrl+Alt key bindings, while exact platform
   left/right modifier source tracking remains future parity work.

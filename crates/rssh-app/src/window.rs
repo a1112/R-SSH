@@ -4666,8 +4666,10 @@ fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<
 
 #[allow(dead_code)]
 fn lua_config_bool_assignment_from_query(source: &str, field: &str) -> Option<bool> {
-    lua_config_assignment_from_query(source, field, lua_bool_literal_from_query)
-        .and_then(|value| value.parse().ok())
+    lua_config_assignment_from_query(source, field, |value| {
+        lua_static_bool_assignment_value_from_query(source, value)
+    })
+    .and_then(|value| value.parse().ok())
 }
 
 #[allow(dead_code)]
@@ -5208,6 +5210,23 @@ fn lua_static_number_assignment_value_from_query<'a>(
     )
 }
 
+fn lua_static_bool_assignment_value_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+) -> Option<&'a str> {
+    if let Some(value) = lua_bool_literal_from_query(query) {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let max_start = lua_source_slice_start_offset(source, variable)?;
+    lua_static_bool_variable_assignment_before_offset_from_query(source, variable, max_start)
+}
+
 fn lua_static_identifier_value_rest_is_statement_end(rest: &str) -> bool {
     for character in rest.chars() {
         match character {
@@ -5246,6 +5265,37 @@ fn lua_static_string_variable_assignment_before_offset_from_query<'a>(
         if let Some(value) = lua_quoted_string_literal_from_query(value)
             .or_else(|| lua_long_bracket_literal_from_query(value))
         {
+            selected = Some(value);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_bool_variable_assignment_before_offset_from_query<'a>(
+    source: &'a str,
+    variable: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(variable) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        if let Some(value) = lua_bool_literal_from_query(value) {
             selected = Some(value);
         }
     }
@@ -68789,6 +68839,39 @@ mod tests {
         assert_eq!(logs.len(), 1);
         assert!(logs[0].contains("INFO key_event"));
         assert!(logs[0].contains("key: Character(\"x\")"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_diagnostics_static_bool_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local reload_config = false
+            local resize_increments = true
+            local debug_keys = true
+            local unknown_escapes = true
+            local missing_glyphs = false
+
+            config.automatically_reload_config = reload_config
+            config.use_resize_increments = resize_increments
+            config.debug_key_events = debug_keys
+            config.log_unknown_escape_sequences = unknown_escapes
+            config.warn_about_missing_glyphs = missing_glyphs
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm diagnostics static bool variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.automatically_reload_config);
+        assert!(effective.use_resize_increments);
+        assert!(effective.debug_key_events);
+        assert!(effective.log_unknown_escape_sequences);
+        assert!(!effective.warn_about_missing_glyphs);
     }
 
     #[test]

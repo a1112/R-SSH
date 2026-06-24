@@ -1236,7 +1236,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   default `Ctrl+Shift+R` shortcut dispatches the same typed native
   `window-config-reloaded` hook with the window id and active pane id.
   Action-name `reloadconfiguration` queries dispatch the same command.
-  `automatically_reload_config` is retained with WezTerm's default `true` in
+  `automatically_reload_config` is retained with WezTerm's default `true`,
+  parses inline or through top-level static bool variables, and is included in
   the native effective config. `check_for_updates` is retained with WezTerm's
   default `true`, `check_for_updates_interval_seconds` with the default
   `86400`, and `show_update_window` with the compatibility default `false`;
@@ -1254,7 +1255,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   front-end, WebGPU adapter, EGL, and Wayland/X11 startup selection remain open.
   `use_resize_increments`,
   `debug_key_events`, and `log_unknown_escape_sequences` are retained with
-  WezTerm's default `false` in the native effective config. When
+  WezTerm's default `false`, parse inline or through top-level static bool
+  variables, and are included in the native effective config. When
   `use_resize_increments` is enabled on X11/Wayland/macOS-capable builds, the
   native window advertises resize increments based on the current terminal cell
   width and height and refreshes them after font, `cell_width`, or
