@@ -3239,27 +3239,7 @@ fn color_scheme_lua_table_assignment_from_query<'a>(
             line_start += line.len();
             continue;
         }
-        let rest = lua_trim_start_comments(rest)?;
-        let Some(rest) = rest.strip_prefix('[') else {
-            line_start += line.len();
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        let Some(literal) = lua_quoted_string_literal_from_query(rest)
-            .or_else(|| lua_long_bracket_literal_from_query(rest))
-        else {
-            line_start += line.len();
-            continue;
-        };
-        let Some(name) = parse_maybe_quoted_query_text(literal) else {
-            line_start += line.len();
-            continue;
-        };
-        let Some(rest) = lua_trim_start_comments(rest.get(literal.len()..)?) else {
-            line_start += line.len();
-            continue;
-        };
-        let Some(rest) = rest.strip_prefix(']') else {
+        let Some((name, rest)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
             line_start += line.len();
             continue;
         };
@@ -3279,6 +3259,24 @@ fn color_scheme_lua_table_assignment_from_query<'a>(
     }
 
     Some(selected)
+}
+
+fn color_scheme_lua_table_assignment_key_from_query(query: &str) -> Option<(String, &str)> {
+    let query = lua_trim_start_comments(query)?;
+    if let Some(rest) = query.strip_prefix('.') {
+        let field_name = lua_identifier_literal_from_query(rest)?;
+        return Some((field_name.to_owned(), rest.get(field_name.len()..)?));
+    }
+
+    let rest = query.strip_prefix('[')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let literal = lua_quoted_string_literal_from_query(rest)
+        .or_else(|| lua_long_bracket_literal_from_query(rest))?;
+    let name = parse_maybe_quoted_query_text(literal)?;
+    let rest = lua_trim_start_comments(rest.get(literal.len()..)?)?;
+    let rest = rest.strip_prefix(']')?;
+
+    Some((name, rest))
 }
 
 fn color_scheme_lua_table_value_from_query<'a>(
@@ -41764,6 +41762,35 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(32, 33, 34));
         assert_eq!(effective.background_color, Color::Rgb(35, 36, 37));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(38, 39, 40));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_custom_color_scheme_dot_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local project_scheme = {
+              foreground = '#3b3c3d',
+              background = '#3e3f40',
+              cursor_bg = '#414243',
+            }
+
+            config.color_scheme = 'ProjectScheme'
+            config.color_schemes = {}
+            config.color_schemes.ProjectScheme = project_scheme
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme dot assignment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(59, 60, 61));
+        assert_eq!(effective.background_color, Color::Rgb(62, 63, 64));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(65, 66, 67));
     }
 
     #[test]

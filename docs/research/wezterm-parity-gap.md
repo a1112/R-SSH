@@ -2051,8 +2051,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   resolution for this option remains later parity work.
 - Static WezTerm-style Lua `config.color_schemes` entries can now define
   custom in-file schemes inline or through static top-level Lua table variables,
-  and static `config.color_schemes['Name'] = scheme` assignments can append or
-  replace named schemes after initialization. `config.color_scheme` selects one by name before `config.colors` is
+  and static `config.color_schemes['Name'] = scheme` or
+  `config.color_schemes.Name = scheme` assignments can append or replace named
+  schemes after initialization. `config.color_scheme` selects one by name before `config.colors` is
   applied. Static `config.color_scheme_dirs` lists parse into effective config
   and scan configured directories for matching TOML scheme files. A TOML scheme
   whose `[metadata].name` or file stem matches `config.color_scheme` reuses the
