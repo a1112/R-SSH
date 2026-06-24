@@ -5543,35 +5543,144 @@ fn lua_load_scheme_assignment_before_offset_from_query(
     max_start: usize,
 ) -> Option<String> {
     let source = source.get(..max_start)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut table_depth = 0usize;
     let mut selected = None;
 
-    for line in source.lines() {
-        let line = line.trim_start();
-        let rest = if let Some(rest) = line.strip_prefix("local") {
-            if rest.chars().next().is_some_and(is_lua_identifier_character) {
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
                 continue;
             }
-            rest.trim_start()
-        } else {
-            line
-        };
-        let Some((names, value)) = rest.trim_start().split_once('=') else {
-            continue;
-        };
-        let Some(first_name) = names.split(',').next().map(str::trim) else {
-            continue;
-        };
-        if first_name != variable {
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
             continue;
         }
-        if let Some(path) = lua_wezterm_color_load_scheme_path_literal_from_query(value)
-            .and_then(parse_maybe_quoted_query_text)
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&source[index..])
+                {
+                    let content_and_rest = &source[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(source.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                    continue;
+                }
+            }
+            '{' => {
+                table_depth = table_depth.saturating_add(1);
+                continue;
+            }
+            '}' => {
+                table_depth = table_depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if lua_block_depth == 0
+            && table_depth == 0
+            && lua_source_index_starts_statement(source, index)
+            && let Some(path) =
+                lua_load_scheme_assignment_path_from_query(source.get(index..)?, variable)
         {
             selected = Some(path);
         }
     }
 
     selected
+}
+
+fn lua_load_scheme_assignment_path_from_query(query: &str, variable: &str) -> Option<String> {
+    let rest = if let Some(rest) = query.trim_start().strip_prefix("local") {
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            return None;
+        }
+        lua_trim_start_comments(rest)?
+    } else {
+        query.trim_start()
+    };
+    let (names, value) = rest.split_once('=')?;
+    if names.contains('\n') || names.contains('\r') || names.contains(';') {
+        return None;
+    }
+    let first_name = names.split(',').next()?.trim();
+    if first_name != variable {
+        return None;
+    }
+    lua_wezterm_color_load_scheme_path_literal_from_query(value)
+        .and_then(parse_maybe_quoted_query_text)
 }
 
 fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) -> Option<String> {
@@ -44695,6 +44804,72 @@ mod tests {
         let _ = std::fs::remove_file(first_scheme_file);
         let _ = std::fs::remove_file(second_scheme_file);
         let _ = std::fs::remove_file(third_scheme_file);
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_load_scheme_variable_assignments() {
+        static NEXT_LOAD_SCHEME_HELPER_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let scheme_id = NEXT_LOAD_SCHEME_HELPER_ID.fetch_add(1, Ordering::Relaxed);
+        let mut top_level_scheme_file = std::env::temp_dir();
+        top_level_scheme_file.push(format!(
+            "rssh-load-scheme-helper-top-level-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let mut helper_scheme_file = std::env::temp_dir();
+        helper_scheme_file.push(format!(
+            "rssh-load-scheme-helper-inner-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&top_level_scheme_file);
+        let _ = std::fs::remove_file(&helper_scheme_file);
+        std::fs::write(
+            &top_level_scheme_file,
+            r##"
+            [colors]
+            foreground = "#313233"
+            background = "#343536"
+            "##,
+        )
+        .expect("expected top-level temp load_scheme TOML color scheme");
+        std::fs::write(
+            &helper_scheme_file,
+            r##"
+            [colors]
+            foreground = "#010203"
+            background = "#040506"
+            "##,
+        )
+        .expect("expected helper temp load_scheme TOML color scheme");
+        let top_level_scheme_file_query =
+            top_level_scheme_file.to_string_lossy().replace('\\', "/");
+        let helper_scheme_file_query = helper_scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+
+            local colors = wezterm.color.load_scheme('{}')
+            local function ignored()
+              colors = wezterm.color.load_scheme('{}')
+            end
+
+            config.colors = colors
+
+            return config
+            "##,
+            top_level_scheme_file_query, helper_scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme helper assignment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(49, 50, 51));
+        assert_eq!(effective.background_color, Color::Rgb(52, 53, 54));
+        let _ = std::fs::remove_file(top_level_scheme_file);
+        let _ = std::fs::remove_file(helper_scheme_file);
     }
 
     #[test]
