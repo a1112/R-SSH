@@ -27970,7 +27970,11 @@ fn send_string_lua_table_from_query(value: &str) -> Option<String> {
     let mut string = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value)?;
         match name.to_ascii_lowercase().as_str() {
@@ -90330,6 +90334,24 @@ mod tests {
         assert_eq!(written.lock().unwrap().as_slice(), b"alpha beta");
         assert_eq!(app.scrollback_offset, 0);
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_send_string_wezterm_action_table_trailing_comma_query() {
+        for query in [
+            "wezterm.action.SendString { string = \"alpha beta\", }",
+            "wezterm.action.SendString({ string = \"alpha beta\", })",
+        ] {
+            let mut app = NativeWindowApp::new(None);
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::SendString("alpha beta".to_owned())]
+            );
+        }
     }
 
     #[test]

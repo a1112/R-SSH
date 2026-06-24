@@ -325,7 +325,9 @@ keyboard, mouse, paste, resize
 - Implemented in v1: native `WindowCommand::SendString` writes the provided
   string bytes directly to the active PTY input path as typed input, without
   bracketed-paste wrapping. Structured command-palette `send string <text>` and
-  action-name `sendstring <text>` queries dispatch the same typed payload path.
+  action-name `sendstring <text>` queries dispatch the same typed payload path,
+  and WezTerm-style Lua `SendString { ... }` / `SendString({ ... })` table
+  queries tolerate trailing comma fields.
 - Implemented in v1: native `WindowCommand::SendKey` encodes the specified key
   and modifiers through the active terminal input mode and writes the resulting
   bytes directly to the active PTY input path without re-matching key
