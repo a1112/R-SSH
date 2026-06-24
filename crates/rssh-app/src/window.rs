@@ -2298,7 +2298,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.tab_max_width = Some(tab_max_width);
         parsed = true;
     }
-    if let Some(default_prog) = lua_config_table_assignment_from_query(config, "default_prog") {
+    if let Some(default_prog) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "default_prog")
+    {
         overrides.default_prog = Some(split_lua_table_string_array(default_prog)?);
         parsed = true;
     }
@@ -66430,6 +66432,40 @@ mod tests {
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
         assert_eq!(command.env_value("TERM"), Some("wezterm"));
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_default_prog_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local shell = { 'nu', '--login' }
+
+            config.default_prog = shell
+            config.default_cwd = 'C:/Project Dir'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm default_prog variable config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
     }
 
     #[test]
