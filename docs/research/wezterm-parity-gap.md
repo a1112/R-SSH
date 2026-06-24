@@ -1116,6 +1116,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts, with bracket field selectors such as `config['key_tables']`
   supported for nested inserts. Static
+  `config.key_tables = user_key_tables` assignments also merge top-level nested
+  inserts such as `table.insert(user_key_tables.resize_pane, { ... })` before
+  the config assignment. Static
   `config.keys` and `config.key_tables` action fields also accept
   `wezterm.action_callback(...)` values as no-op native placeholders so
   official callback-shaped bindings can load; full Lua callback execution, full
@@ -2017,7 +2020,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.key_tables.<name>, index, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts, with bracket field selectors such as `config['key_tables']`
-  supported for nested inserts; full Lua config evaluation, default key-table
+  supported for nested inserts. Static
+  `config.key_tables = user_key_tables` assignments also merge top-level nested
+  inserts such as `table.insert(user_key_tables.resize_pane, { ... })` before
+  the config assignment; full Lua config evaluation, default key-table
   merging, and config-file reload wiring remain open.
 - Copy mode semantic-zone movement can scroll into retained history and supports
   typed Prompt/Input/Output filters.
