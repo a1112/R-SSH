@@ -5193,6 +5193,26 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
                 max_start: index,
             });
         }
+
+        if lua_block_depth == 0
+            && let Some((key_table_name, assignment)) =
+                lua_config_nested_key_table_index_assignment_from_query(
+                    source,
+                    index,
+                    receiver,
+                    "key_tables",
+                )
+        {
+            selected = Some(LuaTableAssignmentWithMaxStart {
+                value: lua_key_tables_with_index_assigned_assignment(
+                    selected.take().map(|assignment| assignment.value),
+                    &key_table_name,
+                    assignment.index,
+                    assignment.value,
+                )?,
+                max_start: index,
+            });
+        }
     }
 
     selected
@@ -5200,6 +5220,11 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
 
 struct LuaTableInsertValue<'a> {
     position: Option<usize>,
+    value: &'a str,
+}
+
+struct LuaTableIndexAssignment<'a> {
+    index: usize,
     value: &'a str,
 }
 
@@ -5320,6 +5345,18 @@ fn lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_f
                 selected.take(),
                 &key_table_name,
                 table,
+            )?);
+            continue;
+        }
+
+        if let Some((key_table_name, assignment)) =
+            lua_static_key_tables_variable_index_assignment_from_query(source, start, variable)
+        {
+            selected = Some(lua_key_tables_with_index_assigned_assignment(
+                selected.take(),
+                &key_table_name,
+                assignment.index,
+                assignment.value,
             )?);
             continue;
         }
@@ -5445,6 +5482,45 @@ fn lua_static_key_tables_variable_field_assignment_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     let table = lua_table_insert_value_table_from_query(source, rest, start)?;
     Some((key_table_name, table))
+}
+
+fn lua_static_key_tables_variable_index_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<(String, LuaTableIndexAssignment<'a>)> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let (key_table_name, rest) =
+        lua_nested_table_insert_key_from_query(source, after_variable, start)?;
+    let assignment = lua_table_index_assignment_value_from_query(source, rest, start)?;
+    Some((key_table_name, assignment))
+}
+
+fn lua_table_index_assignment_value_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<LuaTableIndexAssignment<'a>> {
+    let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
+    let after_open = lua_trim_start_comments(after_open)?;
+    let literal = lua_unsigned_integer_literal_from_query(after_open)?;
+    let index = literal.parse().ok()?;
+    let rest = lua_trim_start_comments(after_open.get(literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableIndexAssignment {
+        index,
+        value: lua_table_insert_value_table_from_query(source, rest, max_start)?,
+    })
 }
 
 fn lua_static_table_variable_insert_append_value_from_query<'a>(
@@ -6195,6 +6271,21 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
     ))
 }
 
+fn lua_config_nested_key_table_index_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<(String, LuaTableIndexAssignment<'a>)> {
+    let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (name, rest) = lua_nested_table_insert_key_from_query(source, rest, start)?;
+    let assignment = lua_table_index_assignment_value_from_query(source, rest, start)?;
+    Some((name, assignment))
+}
+
 fn lua_nested_table_insert_key_from_query<'a>(
     source: &str,
     query: &'a str,
@@ -6320,6 +6411,136 @@ fn lua_key_tables_with_inserted_assignment(
             "{} = {{ {assignment} }}",
             lua_table_key_from_text(key_table_name)
         ));
+    }
+
+    Some(format!("{{ {} }}", fields.join(",\n")))
+}
+
+fn lua_key_tables_with_index_assigned_assignment(
+    key_tables: Option<String>,
+    key_table_name: &str,
+    index: usize,
+    assignment: &str,
+) -> Option<String> {
+    let Some(key_tables) = key_tables else {
+        return Some(format!(
+            "{{ {} = {} }}",
+            lua_table_key_from_text(key_table_name),
+            lua_table_with_index_assigned_field(None, index, assignment)?
+        ));
+    };
+
+    let table = key_tables
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim();
+    let mut fields = Vec::new();
+    let mut assigned = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            fields.push(field.to_owned());
+            continue;
+        };
+        let Some(name) = split_lua_table_key_from_query(key.trim()) else {
+            fields.push(field.to_owned());
+            continue;
+        };
+        if name == key_table_name {
+            fields.push(format!(
+                "{} = {}",
+                key.trim(),
+                lua_table_with_index_assigned_field(
+                    Some(value.trim().to_owned()),
+                    index,
+                    assignment
+                )?
+            ));
+            assigned = true;
+        } else {
+            fields.push(field.to_owned());
+        }
+    }
+
+    if !assigned {
+        fields.push(format!(
+            "{} = {}",
+            lua_table_key_from_text(key_table_name),
+            lua_table_with_index_assigned_field(None, index, assignment)?
+        ));
+    }
+
+    Some(format!("{{ {} }}", fields.join(",\n")))
+}
+
+fn lua_table_with_index_assigned_field(
+    table: Option<String>,
+    index: usize,
+    field: &str,
+) -> Option<String> {
+    if index == 0 {
+        return None;
+    }
+
+    let Some(table) = table else {
+        if index != 1 {
+            return None;
+        }
+        return Some(format!("{{ {field} }}"));
+    };
+
+    let table_fields = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut implicit_fields = Vec::new();
+    let mut indexed_fields = BTreeMap::new();
+
+    for table_field in split_lua_table_top_level_fields(table_fields)? {
+        let table_field = table_field.trim();
+        if table_field.is_empty() {
+            continue;
+        }
+
+        if let Some((key, value)) = split_lua_table_assignment_from_field(table_field)
+            && let Some(existing_index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !implicit_fields.is_empty()
+                || existing_index == 0
+                || indexed_fields.contains_key(&existing_index)
+            {
+                return None;
+            }
+            indexed_fields.insert(existing_index, value.trim().to_owned());
+            continue;
+        }
+
+        if !indexed_fields.is_empty() {
+            return None;
+        }
+        implicit_fields.push(table_field.to_owned());
+    }
+
+    let mut fields = if indexed_fields.is_empty() {
+        implicit_fields
+    } else {
+        let mut fields = Vec::new();
+        for existing_index in 1..=indexed_fields.len() {
+            fields.push(indexed_fields.remove(&existing_index)?);
+        }
+        fields
+    };
+
+    if index > fields.len() + 1 {
+        return None;
+    }
+    if index <= fields.len() {
+        fields[index - 1] = field.to_owned();
+    } else {
+        fields.push(field.to_owned());
     }
 
     Some(format!("{{ {} }}", fields.join(",\n")))
@@ -67622,6 +67843,66 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_key_tables_static_variable_index_assignment() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_key_tables = {
+              resize_pane = {},
+            }
+            user_key_tables.resize_pane[1] = {
+              key = 'h',
+              action = act.SendString 'from-index-assignment',
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = user_key_tables
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable indexed key table assignment config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-index-assignment");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_key_tables_static_field_variables() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -67910,6 +68191,64 @@ mod tests {
         .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"left");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_index_assignment() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              resize_pane = {},
+            }
+            config.key_tables.resize_pane[1] = {
+              key = 'h',
+              action = act.SendString 'from-config-index',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm indexed key table assignment config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-config-index");
         assert_eq!(app.active_key_table_for_test(), None);
     }
 
