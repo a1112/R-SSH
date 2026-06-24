@@ -2053,8 +2053,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   custom in-file schemes inline or through static top-level Lua table variables,
   and static `config.color_schemes['Name'] = scheme` or
   `config.color_schemes.Name = scheme` assignments can append or replace named
-  schemes after initialization. `config.color_scheme` selects one by name before `config.colors` is
-  applied. Static `config.color_scheme_dirs` lists parse into effective config
+  schemes after initialization. Selected custom scheme entries also support
+  static top-level field mutations such as
+  `config.color_schemes['Name'].background = '#101010'` and bracket-key
+  variants such as `config.color_schemes['Name']['cursor_bg'] = '#101010'`.
+  `config.color_scheme` selects one by name before `config.colors` is applied.
+  Static `config.color_scheme_dirs` lists parse into effective config
   and scan configured directories for matching TOML scheme files. A TOML scheme
   whose `[metadata].name` or file stem matches `config.color_scheme` reuses the
   same implemented color fields as `config.colors`, so explicit `config.colors`
