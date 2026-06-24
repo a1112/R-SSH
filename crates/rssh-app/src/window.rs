@@ -3767,7 +3767,9 @@ fn color_scheme_lua_source_value_from_query<'a>(
         colors.strip_prefix('{')?.strip_suffix('}')?;
         return Some(NativeColorSchemeLuaSource::Table(colors));
     }
-    if let Some(path) = lua_load_scheme_assignment_from_query(source, variable) {
+    if let Some(path) =
+        lua_load_scheme_assignment_before_slice_from_query(source, variable, value_query)
+    {
         return Some(NativeColorSchemeLuaSource::LoadScheme {
             path,
             variable: Some(variable.to_owned()),
@@ -3798,12 +3800,20 @@ fn color_scheme_lua_source_value_end_from_query(
 }
 
 fn lua_source_slice_end_offset(source: &str, slice: &str) -> Option<usize> {
+    let start = lua_source_slice_start_offset(source, slice)?;
+    start
+        .checked_add(slice.len())
+        .filter(|end| *end <= source.len())
+}
+
+fn lua_source_slice_start_offset(source: &str, slice: &str) -> Option<usize> {
     let source_start = source.as_ptr() as usize;
     let slice_start = slice.as_ptr() as usize;
-    let end = slice_start
-        .checked_sub(source_start)?
-        .checked_add(slice.len())?;
-    (end <= source.len()).then_some(end)
+    let start = slice_start.checked_sub(source_start)?;
+    start
+        .checked_add(slice.len())
+        .filter(|end| *end <= source.len())?;
+    Some(start)
 }
 
 fn lua_static_table_variable_assignment_from_query<'a>(
@@ -4726,7 +4736,7 @@ fn lua_config_colors_source_value_from_query<'a>(
     }
 
     let variable = lua_identifier_literal_from_query(value)?;
-    let path = lua_load_scheme_assignment_from_query(source, variable)?;
+    let path = lua_load_scheme_assignment_before_slice_from_query(source, variable, value)?;
     Some(NativeConfigColorsLuaSource::LoadScheme(
         NativeLoadSchemeColorsAssignment {
             path,
@@ -4751,7 +4761,11 @@ fn lua_config_load_scheme_colors_assignment_from_query(
     .or_else(|| {
         let colors_variable =
             lua_config_assignment_from_query(source, "colors", lua_identifier_literal_from_query)?;
-        let path = lua_load_scheme_assignment_from_query(source, colors_variable)?;
+        let path = lua_load_scheme_assignment_before_slice_from_query(
+            source,
+            colors_variable,
+            colors_variable,
+        )?;
         Some(NativeLoadSchemeColorsAssignment {
             path,
             variable: Some(colors_variable.to_owned()),
@@ -4759,7 +4773,23 @@ fn lua_config_load_scheme_colors_assignment_from_query(
     })
 }
 
-fn lua_load_scheme_assignment_from_query(source: &str, variable: &str) -> Option<String> {
+fn lua_load_scheme_assignment_before_slice_from_query(
+    source: &str,
+    variable: &str,
+    reference: &str,
+) -> Option<String> {
+    let reference_start = lua_source_slice_start_offset(source, reference)?;
+    lua_load_scheme_assignment_before_offset_from_query(source, variable, reference_start)
+}
+
+fn lua_load_scheme_assignment_before_offset_from_query(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+) -> Option<String> {
+    let source = source.get(..max_start)?;
+    let mut selected = None;
+
     for line in source.lines() {
         let line = line.trim_start();
         let rest = if let Some(rest) = line.strip_prefix("local") {
@@ -4782,11 +4812,11 @@ fn lua_load_scheme_assignment_from_query(source: &str, variable: &str) -> Option
         if let Some(path) = lua_wezterm_color_load_scheme_path_literal_from_query(value)
             .and_then(parse_maybe_quoted_query_text)
         {
-            return Some(path);
+            selected = Some(path);
         }
     }
 
-    None
+    selected
 }
 
 fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) -> Option<String> {
@@ -43762,6 +43792,86 @@ mod tests {
         assert_eq!(effective.background_color, Color::Rgb(68, 69, 70));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(71, 72, 73));
         let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_uses_latest_wezterm_lua_load_scheme_variable_assignment_before_config_colors() {
+        static NEXT_LOAD_SCHEME_REASSIGN_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let scheme_id = NEXT_LOAD_SCHEME_REASSIGN_ID.fetch_add(1, Ordering::Relaxed);
+        let mut first_scheme_file = std::env::temp_dir();
+        first_scheme_file.push(format!(
+            "rssh-load-scheme-reassign-first-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let mut second_scheme_file = std::env::temp_dir();
+        second_scheme_file.push(format!(
+            "rssh-load-scheme-reassign-second-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let mut third_scheme_file = std::env::temp_dir();
+        third_scheme_file.push(format!(
+            "rssh-load-scheme-reassign-third-{}-{scheme_id}.toml",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&first_scheme_file);
+        let _ = std::fs::remove_file(&second_scheme_file);
+        let _ = std::fs::remove_file(&third_scheme_file);
+        std::fs::write(
+            &first_scheme_file,
+            r##"
+            [colors]
+            foreground = "#010203"
+            background = "#040506"
+            "##,
+        )
+        .expect("expected first temp load_scheme reassignment TOML color scheme");
+        std::fs::write(
+            &second_scheme_file,
+            r##"
+            [colors]
+            foreground = "#111213"
+            background = "#141516"
+            "##,
+        )
+        .expect("expected second temp load_scheme reassignment TOML color scheme");
+        std::fs::write(
+            &third_scheme_file,
+            r##"
+            [colors]
+            foreground = "#212223"
+            background = "#242526"
+            "##,
+        )
+        .expect("expected third temp load_scheme reassignment TOML color scheme");
+        let first_scheme_file_query = first_scheme_file.to_string_lossy().replace('\\', "/");
+        let second_scheme_file_query = second_scheme_file.to_string_lossy().replace('\\', "/");
+        let third_scheme_file_query = third_scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+
+            local colors = wezterm.color.load_scheme('{}')
+            colors = wezterm.color.load_scheme('{}')
+            config.colors = colors
+            colors = wezterm.color.load_scheme('{}')
+
+            return config
+            "##,
+            first_scheme_file_query, second_scheme_file_query, third_scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme variable reassignment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(17, 18, 19));
+        assert_eq!(effective.background_color, Color::Rgb(20, 21, 22));
+        let _ = std::fs::remove_file(first_scheme_file);
+        let _ = std::fs::remove_file(second_scheme_file);
+        let _ = std::fs::remove_file(third_scheme_file);
     }
 
     #[test]

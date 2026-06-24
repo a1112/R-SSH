@@ -1065,7 +1065,9 @@ keyboard, mouse, paste, resize
   entries directly or through static variables whose supported static mutations
   are applied, or `config.colors` directly or through the first returned variable from
   `local colors, metadata = ...` or
-  `colors, metadata = ...` assignments, including top-level static mutations such as
+  `colors, metadata = ...` assignments. Static `load_scheme` variable
+  references resolve to the latest binding before the `config.colors`
+  assignment and ignore later rebinding, including top-level static mutations such as
   `colors.background = '#101010'` and bracket-key variants such as
   `colors['background'] = '#101010'`, indexed slot mutations such as
   `colors.indexed[136] = '#101010'`, ANSI/bright slot mutations such as
