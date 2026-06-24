@@ -2414,8 +2414,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `clean_exit_codes` for non-zero statuses that should count as clean.
   Native `exit_behavior_messaging` controls held-pane status text verbosity,
   with `None` suppressing the message and verbose/brief messages using
-  WezTerm's documented success/failure prefixes. Lua config parsing remains
-  open.
+  WezTerm's documented success/failure prefixes. Static Lua config parsing
+  covers `exit_behavior`, `exit_behavior_messaging`, and `clean_exit_codes`
+  inline or through top-level static table variables.
 - Command palette close actions now follow WezTerm's pane/tab/window lifecycle:
   closing the final pane in a tab closes the tab when possible, and closing the
   final tab/pane requests native-window shutdown.

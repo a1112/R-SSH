@@ -806,8 +806,9 @@ runtime storage for tabs and split panes.
   Native `exit_behavior_messaging` controls held-pane status text verbosity,
   with `None` suppressing the message and verbose text reporting the actual
   `exit_behavior` value that kept the pane open; verbose/brief messages use
-  WezTerm's documented success/failure prefixes. Lua config parsing remains
-  later work.
+  WezTerm's documented success/failure prefixes. Static Lua config parsing
+  covers `exit_behavior`, `exit_behavior_messaging`, and `clean_exit_codes`
+  inline or through top-level static table variables.
 - `rssh-app` includes copy mode (`Ctrl+Shift+X`) with Vim-like movement and copy
   actions (Space/`v`, `V`, `y`, `Enter`, cursor movement keys,
   Home/End/`^`/`$`, etc.), and the command palette exposes WezTerm-style
@@ -1896,7 +1897,8 @@ runtime storage for tabs and split panes.
 - Multi-PTY runtime orchestration is still basic and process-local; there is no
   mux server/client or remote domain attachment yet. Local process exit behavior
   covers the native `exit_behavior`, `clean_exit_codes`, and
-  `exit_behavior_messaging` subset, but Lua config parsing remains pending.
+  `exit_behavior_messaging` subset, including static Lua config parsing for
+  those fields.
 - The tab bar is basic text UI only; Lua/custom tab title formatting,
   external CLI/mux tab-title control, richer new-tab launcher behavior,
   pane-local scrollbar UI, richer split-drag affordances, and richer focus

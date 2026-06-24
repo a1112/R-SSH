@@ -762,7 +762,9 @@ keyboard, mouse, paste, resize
   statuses that should count as clean. Native `exit_behavior_messaging` controls
   held-pane status text verbosity, with `None` suppressing the message and
   verbose text reporting the actual `exit_behavior` value that kept the pane
-  open. Lua config parsing and exact message text parity remain future work.
+  open. Static Lua config parsing covers `exit_behavior`,
+  `exit_behavior_messaging`, and `clean_exit_codes` inline or through top-level
+  static table variables; exact message text parity remains future work.
 - Completed in v1: ClosePane follows WezTerm-style lifecycle cascading by
   closing a single-pane tab when another tab exists, while final tab/pane close
   actions request native-window shutdown from the window manager. The manager

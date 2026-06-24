@@ -3150,7 +3150,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(clean_exit_codes) =
-        lua_config_table_assignment_from_query(config, "clean_exit_codes")
+        lua_config_table_or_static_variable_assignment_from_query(config, "clean_exit_codes")
     {
         overrides.clean_exit_codes = Some(split_lua_table_u32_array(clean_exit_codes)?);
         parsed = true;
@@ -69321,6 +69321,34 @@ mod tests {
             effective.exit_behavior_messaging,
             NativeExitBehaviorMessaging::Brief
         );
+
+        let close_window = app.apply_pane_exit_behavior(
+            rssh_core::PaneId::new(1),
+            &PtyExitStatus::from_exit_code(143),
+        );
+        assert!(close_window);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_clean_exit_codes_static_variable() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("tool"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local clean_codes = { 130, [2] = 143 }
+
+            config.exit_behavior = 'CloseOnCleanExit'
+            config.clean_exit_codes = clean_codes
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm clean exit codes table variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.clean_exit_codes, [130, 143]);
 
         let close_window = app.apply_pane_exit_behavior(
             rssh_core::PaneId::new(1),
