@@ -2727,7 +2727,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(webgpu_preferred_adapter) =
-        lua_config_table_assignment_from_query(config, "webgpu_preferred_adapter")
+        lua_config_table_or_static_variable_assignment_from_query(
+            config,
+            "webgpu_preferred_adapter",
+        )
     {
         overrides.webgpu_preferred_adapter = Some(
             native_webgpu_preferred_adapter_lua_table_from_query(webgpu_preferred_adapter)?,
@@ -68357,6 +68360,45 @@ mod tests {
         );
         assert!(!effective.prefer_egl);
         assert!(!effective.enable_wayland);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_webgpu_preferred_adapter_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local preferred_adapter = {
+              backend = 'Vulkan',
+              device = 29730,
+              device_type = 'DiscreteGpu',
+              driver = 'radv',
+              driver_info = 'Mesa 22.3.4',
+              name = 'AMD Radeon Pro W6400 (RADV NAVI24)',
+              vendor = 4098,
+            }
+
+            config.term = 'xterm-256color'
+            config.webgpu_preferred_adapter = preferred_adapter
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm WebGPU preferred adapter static variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().webgpu_preferred_adapter,
+            Some(NativeWebGpuPreferredAdapter {
+                backend: Some("Vulkan".to_owned()),
+                device: Some(29_730),
+                device_type: Some("DiscreteGpu".to_owned()),
+                driver: Some("radv".to_owned()),
+                driver_info: Some("Mesa 22.3.4".to_owned()),
+                name: Some("AMD Radeon Pro W6400 (RADV NAVI24)".to_owned()),
+                vendor: Some(4_098),
+            })
+        );
     }
 
     #[test]

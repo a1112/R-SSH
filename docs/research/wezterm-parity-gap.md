@@ -1246,7 +1246,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   fade, and animated inline-image frames while respecting the global `max_fps`
   ceiling. `front_end` is retained
   with WezTerm's current default `OpenGL`, `webgpu_power_preference` with
-  `LowPower`, and `prefer_egl`/`enable_wayland` with `true`; actual renderer
+  `LowPower`, `webgpu_force_fallback_adapter` with `false`, optional static
+  `webgpu_preferred_adapter` tables inline or through top-level static table
+  variables, and `prefer_egl`/`enable_wayland` with `true`; actual renderer
   front-end, WebGPU adapter, EGL, and Wayland/X11 startup selection remain open.
   `use_resize_increments`,
   `debug_key_events`, and `log_unknown_escape_sequences` are retained with
