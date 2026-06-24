@@ -700,7 +700,9 @@ keyboard, mouse, paste, resize
   `Left`/`Middle`/`Right` buttons with non-zero streak values plus vertical
   `WheelUp`/`WheelDown` `streak = 1` with `mods`, `mouse_reporting`,
   `alt_screen`, implemented native `action` payloads, and top-level static
-  `table.insert(config.mouse_bindings, { ... })` appends. Mouse binding
+  `table.insert(config.mouse_bindings, { ... })` appends plus static item
+  variables such as `config.mouse_bindings = { binding }` with pre-use field
+  mutations. Mouse binding
   `action` payloads parse inline or through top-level static action variables,
   so bindings such as
   `ALT` + left drag can route to `StartWindowDrag`, middle-button release can
