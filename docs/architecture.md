@@ -1006,8 +1006,10 @@ keyboard, mouse, paste, resize
   close-window, close-tab, and close-pane confirmation targets skip the overlay
   when every affected pane's known local launch-program basename matches the
   list. Static Lua config parsing covers `window_close_confirmation` and
-  `skip_close_confirmation_for_processes_named` inline or through top-level
-  static table variables. Full child process tree inspection and
+  `skip_close_confirmation_for_processes_named` inline, through top-level
+  static table variables, or through
+  `table.insert(config.skip_close_confirmation_for_processes_named, ...)`
+  appends. Full child process tree inspection and
   `mux-is-process-stateful` remain future parity work.
 - Implemented in v1: opening the command palette dispatches a typed native
   `augment-command-palette` hook with the window id and active pane id. Returned

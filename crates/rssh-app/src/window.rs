@@ -3200,14 +3200,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(skip_close_confirmation_for_processes_named) =
-        lua_config_table_or_static_variable_assignment_from_query(
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
             config,
             "skip_close_confirmation_for_processes_named",
         )
     {
-        overrides.skip_close_confirmation_for_processes_named = Some(split_lua_table_string_array(
-            skip_close_confirmation_for_processes_named,
-        )?);
+        overrides.skip_close_confirmation_for_processes_named =
+            Some(split_lua_table_string_array_with_static_source(
+                Some(LuaStaticSource {
+                    source: config,
+                    max_start: skip_close_confirmation_for_processes_named.max_start,
+                }),
+                &skip_close_confirmation_for_processes_named.value,
+            )?);
         parsed = true;
     }
     if let Some(exit_behavior) = lua_config_string_assignment_from_query(config, "exit_behavior") {
@@ -73763,6 +73768,37 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm skip close confirmation table variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            ["top".to_owned(), "cmd.exe".to_owned()]
+        );
+
+        app.handle_window_close_requested();
+
+        assert!(app.window_close_requested_for_test());
+        assert!(app.close_confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_skip_close_confirmation_table_insert() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("top"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_close_confirmation = 'AlwaysPrompt'
+            config.skip_close_confirmation_for_processes_named = {}
+            table.insert(config.skip_close_confirmation_for_processes_named, 'top')
+            table.insert(config.skip_close_confirmation_for_processes_named, 'cmd.exe')
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm skip close confirmation table insert config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
