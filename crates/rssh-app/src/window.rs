@@ -5075,7 +5075,7 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
                 lua_table_with_inserted_field(
                     selected.take().map(|assignment| assignment.value),
                     insert.position,
-                    insert.value,
+                    &insert.value,
                 )
                 .map(|value| LuaTableAssignmentWithMaxStart {
                     value,
@@ -5176,7 +5176,7 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
                     lua_table_with_inserted_field(
                         selected.take().map(|assignment| assignment.value),
                         insert.position,
-                        insert.value,
+                        &insert.value,
                     )
                     .map(|value| LuaTableAssignmentWithMaxStart {
                         value,
@@ -5502,7 +5502,7 @@ fn lua_config_u32_array_assignment_with_insert_appends_with_max_start_from_query
                 lua_table_with_inserted_field(
                     selected.take().map(|assignment| assignment.value),
                     insert.position,
-                    insert.value,
+                    &insert.value,
                 )
                 .map(|value| LuaTableAssignmentWithMaxStart {
                     value,
@@ -5568,7 +5568,7 @@ fn lua_config_u32_array_assignment_with_insert_appends_with_max_start_from_query
                     lua_table_with_inserted_field(
                         selected.take().map(|assignment| assignment.value),
                         insert.position,
-                        insert.value,
+                        &insert.value,
                     )
                     .map(|value| LuaTableAssignmentWithMaxStart {
                         value,
@@ -5779,7 +5779,7 @@ fn lua_config_string_array_assignment_with_insert_appends_with_max_start_from_qu
                 lua_table_with_inserted_field(
                     selected.take().map(|assignment| assignment.value),
                     insert.position,
-                    insert.value,
+                    &insert.value,
                 )
                 .map(|value| LuaTableAssignmentWithMaxStart {
                     value,
@@ -5845,7 +5845,7 @@ fn lua_config_string_array_assignment_with_insert_appends_with_max_start_from_qu
                     lua_table_with_inserted_field(
                         selected.take().map(|assignment| assignment.value),
                         insert.position,
-                        insert.value,
+                        &insert.value,
                     )
                     .map(|value| LuaTableAssignmentWithMaxStart {
                         value,
@@ -6061,7 +6061,7 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
                     selected.take().map(|assignment| assignment.value),
                     &key_table_name,
                     insert.position,
-                    insert.value,
+                    &insert.value,
                 )?,
                 max_start: index,
             });
@@ -6178,7 +6178,7 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
                         selected.take().map(|assignment| assignment.value),
                         &key_table_name,
                         insert.position,
-                        insert.value,
+                        &insert.value,
                     )?,
                     max_start: index,
                 });
@@ -6189,9 +6189,9 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
     selected
 }
 
-struct LuaTableInsertValue<'a> {
+struct LuaTableInsertValue {
     position: Option<usize>,
-    value: &'a str,
+    value: String,
 }
 
 struct LuaTableIndexAssignment<'a> {
@@ -6293,7 +6293,7 @@ fn lua_static_table_variable_field_assignment_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableMapFieldAssignment {
         key,
-        value: lua_static_table_field_assignment_value_from_query(source, rest, start)?,
+        value: lua_top_level_statement_value_from_query(rest)?,
     })
 }
 
@@ -6362,7 +6362,7 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<LuaTableInsertValue<'a>> {
+) -> Option<LuaTableInsertValue> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -6381,7 +6381,9 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    if let Some(value) = lua_table_insert_value_table_from_query(source, rest, start) {
+    if let Some(value) =
+        lua_table_insert_argument_value_table_string_from_query(source, rest, start)
+    {
         return Some(LuaTableInsertValue {
             position: None,
             value,
@@ -6394,7 +6396,7 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_table_insert_value_table_from_query(source, rest, start)?,
+        value: lua_table_insert_argument_value_table_string_from_query(source, rest, start)?,
     })
 }
 
@@ -6433,7 +6435,7 @@ fn lua_config_u32_array_insert_append_value_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<LuaTableInsertValue<'a>> {
+) -> Option<LuaTableInsertValue> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -6455,7 +6457,7 @@ fn lua_config_u32_array_insert_append_value_from_query<'a>(
     if let Some(value) = lua_table_insert_value_u32_from_query(source, rest, start) {
         return Some(LuaTableInsertValue {
             position: None,
-            value,
+            value: value.to_owned(),
         });
     }
 
@@ -6465,7 +6467,7 @@ fn lua_config_u32_array_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_table_insert_value_u32_from_query(source, rest, start)?,
+        value: lua_table_insert_value_u32_from_query(source, rest, start)?.to_owned(),
     })
 }
 
@@ -6504,7 +6506,7 @@ fn lua_config_string_array_insert_append_value_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<LuaTableInsertValue<'a>> {
+) -> Option<LuaTableInsertValue> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -6526,7 +6528,7 @@ fn lua_config_string_array_insert_append_value_from_query<'a>(
     if let Some(value) = lua_table_insert_value_string_from_query(source, rest, start) {
         return Some(LuaTableInsertValue {
             position: None,
-            value,
+            value: value.to_owned(),
         });
     }
 
@@ -6536,7 +6538,7 @@ fn lua_config_string_array_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_table_insert_value_string_from_query(source, rest, start)?,
+        value: lua_table_insert_value_string_from_query(source, rest, start)?.to_owned(),
     })
 }
 
@@ -6592,6 +6594,25 @@ fn lua_table_insert_value_table_string_from_query(
 ) -> Option<String> {
     lua_table_insert_value_table_assignment_from_query(source, query, max_start)
         .map(|assignment| assignment.value)
+}
+
+fn lua_table_insert_argument_value_table_string_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    if let Some(value) = lua_braced_table_literal_from_query(query) {
+        return Some(value.to_owned());
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = lua_trim_start_comments(query.get(variable.len()..)?)?;
+    if !rest.starts_with(')') {
+        return None;
+    }
+    lua_static_table_variable_assignment_with_insert_appends_before_offset_from_query(
+        source, variable, max_start,
+    )
 }
 
 fn lua_table_insert_value_table_assignment_from_query(
@@ -6862,7 +6883,7 @@ fn lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_f
                 selected.take(),
                 &key_table_name,
                 insert.position,
-                insert.value,
+                &insert.value,
             )?);
         }
     }
@@ -6885,6 +6906,17 @@ fn lua_static_table_variable_assignment_with_insert_appends_before_offset_from_q
         };
         if let Some(table) = lua_static_table_variable_assignment_table_from_query(rest, variable) {
             selected = Some(table.to_owned());
+            continue;
+        }
+
+        if let Some(assignment) =
+            lua_static_table_variable_field_assignment_from_query(source, start, variable)
+        {
+            selected = Some(lua_table_with_assigned_field(
+                selected.take(),
+                &assignment.key,
+                assignment.value,
+            )?);
             continue;
         }
 
@@ -6917,7 +6949,7 @@ fn lua_static_table_variable_assignment_with_insert_appends_before_offset_from_q
             selected = Some(lua_table_with_inserted_field(
                 selected.take(),
                 insert.position,
-                insert.value,
+                &insert.value,
             )?);
         }
     }
@@ -7017,7 +7049,7 @@ fn lua_static_string_array_variable_assignment_with_insert_appends_before_offset
             selected = Some(lua_table_with_inserted_field(
                 selected.take(),
                 insert.position,
-                insert.value,
+                &insert.value,
             )?);
         }
     }
@@ -7062,7 +7094,7 @@ fn lua_static_u32_array_variable_assignment_with_insert_appends_before_offset_fr
             selected = Some(lua_table_with_inserted_field(
                 selected.take(),
                 insert.position,
-                insert.value,
+                &insert.value,
             )?);
         }
     }
@@ -7074,7 +7106,7 @@ fn lua_static_u32_array_variable_insert_append_value_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableInsertValue<'a>> {
+) -> Option<LuaTableInsertValue> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -7101,7 +7133,7 @@ fn lua_static_u32_array_variable_insert_append_value_from_query<'a>(
     if let Some(value) = lua_table_insert_value_u32_from_query(source, rest, start) {
         return Some(LuaTableInsertValue {
             position: None,
-            value,
+            value: value.to_owned(),
         });
     }
 
@@ -7111,7 +7143,7 @@ fn lua_static_u32_array_variable_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_table_insert_value_u32_from_query(source, rest, start)?,
+        value: lua_table_insert_value_u32_from_query(source, rest, start)?.to_owned(),
     })
 }
 
@@ -7178,7 +7210,7 @@ fn lua_static_string_array_variable_insert_append_value_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableInsertValue<'a>> {
+) -> Option<LuaTableInsertValue> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -7205,7 +7237,7 @@ fn lua_static_string_array_variable_insert_append_value_from_query<'a>(
     if let Some(value) = lua_table_insert_value_string_from_query(source, rest, start) {
         return Some(LuaTableInsertValue {
             position: None,
-            value,
+            value: value.to_owned(),
         });
     }
 
@@ -7215,7 +7247,7 @@ fn lua_static_string_array_variable_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_table_insert_value_string_from_query(source, rest, start)?,
+        value: lua_table_insert_value_string_from_query(source, rest, start)?.to_owned(),
     })
 }
 
@@ -7282,7 +7314,7 @@ fn lua_static_nested_table_insert_append_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<(String, LuaTableInsertValue<'a>)> {
+) -> Option<(String, LuaTableInsertValue)> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -7308,7 +7340,9 @@ fn lua_static_nested_table_insert_append_from_query<'a>(
         lua_nested_table_insert_key_from_query(source, after_variable, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    if let Some(value) = lua_table_insert_value_table_from_query(source, rest, start) {
+    if let Some(value) =
+        lua_table_insert_argument_value_table_string_from_query(source, rest, start)
+    {
         return Some((
             key_table_name,
             LuaTableInsertValue {
@@ -7326,7 +7360,7 @@ fn lua_static_nested_table_insert_append_from_query<'a>(
         key_table_name,
         LuaTableInsertValue {
             position: Some(position),
-            value: lua_table_insert_value_table_from_query(source, rest, start)?,
+            value: lua_table_insert_argument_value_table_string_from_query(source, rest, start)?,
         },
     ))
 }
@@ -7649,7 +7683,7 @@ fn lua_static_table_variable_insert_append_value_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableInsertValue<'a>> {
+) -> Option<LuaTableInsertValue> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -7673,7 +7707,9 @@ fn lua_static_table_variable_insert_append_value_from_query<'a>(
     }
     let rest = lua_trim_start_comments(after_variable)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    if let Some(value) = lua_table_insert_value_table_from_query(source, rest, start) {
+    if let Some(value) =
+        lua_table_insert_argument_value_table_string_from_query(source, rest, start)
+    {
         return Some(LuaTableInsertValue {
             position: None,
             value,
@@ -7686,7 +7722,7 @@ fn lua_static_table_variable_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     Some(LuaTableInsertValue {
         position: Some(position),
-        value: lua_table_insert_value_table_from_query(source, rest, start)?,
+        value: lua_table_insert_argument_value_table_string_from_query(source, rest, start)?,
     })
 }
 
@@ -8372,7 +8408,7 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<(String, LuaTableInsertValue<'a>)> {
+) -> Option<(String, LuaTableInsertValue)> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -8393,7 +8429,9 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
     let (name, rest) = lua_nested_table_insert_key_from_query(source, rest, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    if let Some(value) = lua_table_insert_value_table_from_query(source, rest, start) {
+    if let Some(value) =
+        lua_table_insert_argument_value_table_string_from_query(source, rest, start)
+    {
         return Some((
             name,
             LuaTableInsertValue {
@@ -8411,7 +8449,7 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
         name,
         LuaTableInsertValue {
             position: Some(position),
-            value: lua_table_insert_value_table_from_query(source, rest, start)?,
+            value: lua_table_insert_argument_value_table_string_from_query(source, rest, start)?,
         },
     ))
 }
@@ -71632,6 +71670,36 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("inserted".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_insert_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local binding = {}
+            binding.key = 'K'
+            binding.mods = 'CTRL|SHIFT'
+            binding.action = act.SendString 'from-insert-field-variable'
+
+            config.keys = {}
+            table.insert(config.keys, binding)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm table.insert field-built key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString("from-insert-field-variable".to_owned()),
             }])
         );
     }

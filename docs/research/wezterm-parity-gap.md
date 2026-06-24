@@ -1123,8 +1123,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and while tracking the same variable after `config.keys = user_keys`,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
-  `table.insert(config.keys, { ... })` appends and direct indexed assignments
-  such as `config.keys[index] = { ... }` or
+  `table.insert(config.keys, { ... })` appends, static item table variables
+  inserted as `table.insert(config.keys, binding)` with pre-insert field
+  mutations such as `binding.key = 'K'`, `binding.mods = 'CTRL|SHIFT'`, and
+  `binding.action = act.SendString '...'`, and direct indexed assignments such
+  as `config.keys[index] = { ... }` or
   `config.keys[#config.keys + 1] = { ... }`, plus direct indexed field
   mutations on existing binding tables such as `config.keys[1].key = 'K'`,
   `config.keys[1].mods = 'CTRL|SHIFT'`, and
@@ -2065,8 +2068,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and while tracking the same variable after `config.keys = user_keys`,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
-  `table.insert(config.keys, { ... })` appends and direct indexed assignments
-  such as `config.keys[index] = { ... }` or
+  `table.insert(config.keys, { ... })` appends, static item table variables
+  inserted as `table.insert(config.keys, binding)` with pre-insert field
+  mutations such as `binding.key = 'K'`, `binding.mods = 'CTRL|SHIFT'`, and
+  `binding.action = act.SendString '...'`, and direct indexed assignments such
+  as `config.keys[index] = { ... }` or
   `config.keys[#config.keys + 1] = { ... }`, plus direct indexed field
   mutations on existing binding tables such as `config.keys[1].key = 'K'`,
   `config.keys[1].mods = 'CTRL|SHIFT'`, and
