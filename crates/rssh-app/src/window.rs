@@ -26640,7 +26640,11 @@ fn copy_mode_jump_assignment_lua_table_from_query(
     let mut prev_char = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         match normalized_action_name_query(&name).as_str() {
             "prevchar" => {
@@ -57156,6 +57160,22 @@ mod tests {
     fn window_copy_mode_dispatches_wezterm_lua_jump_table_long_bracket_key_query() {
         let assignment = super::copy_mode_assignment_from_query(
             "wezterm.action.CopyMode { [[=[JumpForward]=]] = { [[=[prev_char]=]] = true } }",
+        )
+        .expect("expected CopyMode JumpForward query");
+
+        assert_eq!(
+            assignment,
+            super::WindowCopyModeAssignment::StartJump {
+                forward: true,
+                prev_char: true,
+            }
+        );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_lua_jump_table_trailing_comma_query() {
+        let assignment = super::copy_mode_assignment_from_query(
+            "wezterm.action.CopyMode { JumpForward = { prev_char = true, } }",
         )
         .expect("expected CopyMode JumpForward query");
 

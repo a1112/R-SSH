@@ -1819,7 +1819,8 @@ keyboard, mouse, paste, resize
   across retained source rows.
 - Implemented in v1: copy mode jump-to-char supports WezTerm-style
   `JumpForward`, `JumpBackward`, `JumpAgain`, and `JumpReverse` defaults on the
-  current source row.
+  current source row, including optional trailing commas in nested jump option
+  tables.
 - Implemented in v1: copy mode supports WezTerm-style `MoveToSelectionOtherEnd`
   and `MoveToSelectionOtherEndHoriz` through `o`/`O`.
 - Implemented in v1: ordinary copy-mode close follows WezTerm's

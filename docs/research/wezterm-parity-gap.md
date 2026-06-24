@@ -1978,7 +1978,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `JumpForward = { prev_char = ... }` and
   `JumpBackward = { prev_char = ... }` assignment tables start the same
   target-character jump flow as `f`/`t`/`F`/`T`, including bracketed string
-  table keys with long-bracket values.
+  table keys with long-bracket values and optional trailing commas in the
+  nested jump option table.
   `MoveForwardSemanticZoneOfType = 'Input'` and
   `MoveBackwardSemanticZoneOfType = 'Prompt'` assignment values reuse the
   typed OSC 133 semantic-zone movement path.
