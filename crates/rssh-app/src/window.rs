@@ -2377,16 +2377,25 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         parsed |= apply_default_toml_color_scheme_dirs_overrides(color_scheme, &mut overrides)?;
     }
-    if let Some(load_scheme) = lua_config_load_scheme_colors_assignment_from_query(config) {
-        parsed |=
-            apply_toml_color_scheme_file_overrides(Path::new(&load_scheme.path), &mut overrides)?;
-        if let Some(variable) = load_scheme.variable.as_deref() {
-            parsed |=
-                apply_lua_color_variable_mutation_overrides(config, variable, &mut overrides)?;
+    if let Some(colors_source) = lua_config_colors_source_from_query(config)? {
+        match colors_source {
+            NativeConfigColorsLuaSource::Table(colors) => {
+                parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
+            }
+            NativeConfigColorsLuaSource::LoadScheme(load_scheme) => {
+                parsed |= apply_toml_color_scheme_file_overrides(
+                    Path::new(&load_scheme.path),
+                    &mut overrides,
+                )?;
+                if let Some(variable) = load_scheme.variable.as_deref() {
+                    parsed |= apply_lua_color_variable_mutation_overrides(
+                        config,
+                        variable,
+                        &mut overrides,
+                    )?;
+                }
+            }
         }
-    }
-    if let Some(colors) = lua_config_table_assignment_from_query(config, "colors") {
-        parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
     }
     if let Some(notification_handling) =
         lua_config_string_assignment_from_query(config, "notification_handling")
@@ -4508,6 +4517,191 @@ fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> O
 struct NativeLoadSchemeColorsAssignment {
     path: String,
     variable: Option<String>,
+}
+
+enum NativeConfigColorsLuaSource<'a> {
+    Table(&'a str),
+    LoadScheme(NativeLoadSchemeColorsAssignment),
+}
+
+fn lua_config_colors_source_from_query<'a>(
+    source: &'a str,
+) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
+    if let Some(source) = lua_config_colors_direct_source_from_query(source)? {
+        return Some(Some(source));
+    }
+
+    if let Some(colors) = lua_config_table_assignment_from_query(source, "colors") {
+        return Some(Some(NativeConfigColorsLuaSource::Table(colors)));
+    }
+
+    if let Some(load_scheme) = lua_config_load_scheme_colors_assignment_from_query(source) {
+        return Some(Some(NativeConfigColorsLuaSource::LoadScheme(load_scheme)));
+    }
+
+    Some(None)
+}
+
+fn lua_config_colors_direct_source_from_query<'a>(
+    source: &'a str,
+) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
+    let mut selected = None;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index..])
+        {
+            let content_and_rest = &source[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(source.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if source[index..].starts_with("colors")
+            && lua_config_assignment_field_has_boundaries(source, index, "colors")
+            && lua_config_dot_assignment_has_config_receiver(source, index)
+            && lua_block_depth == 0
+        {
+            let rest = lua_trim_start_comments(source.get(index + "colors".len()..)?)?;
+            if let Some(rest) = rest.strip_prefix('=')
+                && let Some(source) = lua_config_colors_source_value_from_query(
+                    source,
+                    lua_trim_start_comments(rest)?,
+                )
+            {
+                selected = Some(source);
+            }
+        }
+
+        if character == '['
+            && lua_block_depth == 0
+            && let Some(rest) =
+                lua_config_bracket_assignment_rest_from_query(source, index, "colors")
+            && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
+            && let Some(source) =
+                lua_config_colors_source_value_from_query(source, lua_trim_start_comments(rest)?)
+        {
+            selected = Some(source);
+        }
+    }
+
+    Some(selected)
+}
+
+fn lua_config_colors_source_value_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
+) -> Option<NativeConfigColorsLuaSource<'a>> {
+    let value = lua_trim_start_comments(value)?.trim_start();
+    if value.starts_with('{') {
+        let colors = lua_braced_table_literal_from_query(value)?;
+        return Some(NativeConfigColorsLuaSource::Table(colors));
+    }
+
+    if let Some(path) = lua_wezterm_color_load_scheme_path_literal_from_query(value)
+        .and_then(parse_maybe_quoted_query_text)
+    {
+        return Some(NativeConfigColorsLuaSource::LoadScheme(
+            NativeLoadSchemeColorsAssignment {
+                path,
+                variable: None,
+            },
+        ));
+    }
+
+    let variable = lua_identifier_literal_from_query(value)?;
+    let path = lua_load_scheme_assignment_from_query(source, variable)?;
+    Some(NativeConfigColorsLuaSource::LoadScheme(
+        NativeLoadSchemeColorsAssignment {
+            path,
+            variable: Some(variable.to_owned()),
+        },
+    ))
 }
 
 fn lua_config_load_scheme_colors_assignment_from_query(
@@ -43346,6 +43540,62 @@ mod tests {
             scheme_file_query
         ))
         .expect("expected WezTerm load_scheme mutated colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(33, 34, 35));
+        assert_eq!(effective.background_color, Color::Rgb(42, 43, 44));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(45, 46, 47));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_uses_later_wezterm_lua_load_scheme_colors_assignment_after_table() {
+        static NEXT_LOAD_SCHEME_ORDER_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-order-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_ORDER_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#212223"
+            background = "#242526"
+            cursor_bg = "#272829"
+            "##,
+        )
+        .expect("expected temp load_scheme order TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            config.colors = {{
+              foreground = '#010203',
+              background = '#040506',
+              cursor_bg = '#070809',
+            }}
+            colors.background = '#2a2b2c'
+            colors.cursor_bg = '#2d2e2f'
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected later WezTerm load_scheme colors assignment config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

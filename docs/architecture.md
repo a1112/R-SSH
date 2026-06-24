@@ -1065,7 +1065,10 @@ keyboard, mouse, paste, resize
   `colors.indexed[136] = '#101010'`, ANSI/bright slot mutations such as
   `colors.ansi[2] = '#101010'`, tab-bar nested mutations such as
   `colors.tab_bar.active_tab.bg_color = '#101010'`, or multiline table mutations such as
-  `colors.ansi = { ... }` before assignment. When no in-file or configured-dir
+  `colors.ansi = { ... }` before assignment. When complete `config.colors`
+  table assignments and load-scheme-backed `config.colors = colors`
+  assignments both appear, the static parser chooses the later source before
+  applying supported mutations. When no in-file or configured-dir
   scheme matches, the default WezTerm custom scheme directories are also
   searched: `$HOME/.config/wezterm/colors` on POSIX and `colors` next to the
   executable on Windows. These color overrides drive the default text
