@@ -3843,30 +3843,30 @@ fn lua_static_table_variable_assignment_from_query<'a>(
             }
             rest = after_local.trim_start();
         }
-        let Some(after_variable) = rest.strip_prefix(variable) else {
-            line_start += line.len();
-            continue;
-        };
-        if after_variable
-            .chars()
-            .next()
-            .is_some_and(is_lua_identifier_character)
-        {
-            line_start += line.len();
-            continue;
-        }
-        let rest = lua_trim_start_comments(after_variable)?;
-        let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
-            continue;
-        };
-        if let Some(table) = lua_braced_table_literal_from_query(lua_trim_start_comments(value)?) {
+        if let Some(table) = lua_static_table_variable_assignment_table_from_query(rest, variable) {
             return Some(table);
         }
         line_start += line.len();
     }
 
     None
+}
+
+fn lua_static_table_variable_assignment_table_from_query<'a>(
+    query: &'a str,
+    variable: &str,
+) -> Option<&'a str> {
+    let after_variable = query.strip_prefix(variable)?;
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(after_variable)?;
+    let value = rest.strip_prefix('=')?;
+    lua_braced_table_literal_from_query(lua_trim_start_comments(value)?)
 }
 
 fn apply_toml_color_scheme_dirs_overrides(
@@ -4989,49 +4989,144 @@ fn lua_static_table_variable_assignment_before_offset_from_query<'a>(
     variable: &str,
     max_start: usize,
 ) -> Option<&'a str> {
-    let mut line_start = 0usize;
-    let mut selected = None;
     let source = source.get(..max_start)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut table_depth = 0usize;
+    let mut selected = None;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
-        let mut rest = source.get(start..)?;
-        if let Some(after_local) = rest.strip_prefix("local") {
-            if after_local
-                .chars()
-                .next()
-                .is_some_and(is_lua_identifier_character)
-            {
-                line_start += line.len();
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
                 continue;
             }
-            rest = after_local.trim_start();
+            block_comment_end = None;
         }
-        let Some(after_variable) = rest.strip_prefix(variable) else {
-            line_start += line.len();
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
             continue;
-        };
-        if after_variable
-            .chars()
-            .next()
-            .is_some_and(is_lua_identifier_character)
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&source[index..])
+                {
+                    let content_and_rest = &source[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(source.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                    continue;
+                }
+            }
+            '{' => {
+                table_depth = table_depth.saturating_add(1);
+                continue;
+            }
+            '}' => {
+                table_depth = table_depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
         {
-            line_start += line.len();
+            lua_block_depth = lua_block_depth.saturating_add(1);
             continue;
         }
-        let rest = lua_trim_start_comments(after_variable)?;
-        let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
             continue;
-        };
-        if let Some(table) = lua_braced_table_literal_from_query(lua_trim_start_comments(value)?) {
-            selected = Some(table);
         }
-        line_start += line.len();
+
+        if lua_block_depth == 0
+            && table_depth == 0
+            && lua_source_index_starts_statement(source, index)
+        {
+            let rest = if lua_source_keyword_at(source, index, "local") {
+                lua_trim_start_comments(source.get(index + "local".len()..)?)?
+            } else {
+                source.get(index..)?
+            };
+            if let Some(table) =
+                lua_static_table_variable_assignment_table_from_query(rest, variable)
+            {
+                selected = Some(table);
+            }
+        }
     }
 
     selected
+}
+
+fn lua_source_index_starts_statement(source: &str, index: usize) -> bool {
+    for character in source[..index].chars().rev() {
+        if matches!(character, '\n' | '\r') {
+            return true;
+        }
+        if character.is_whitespace() {
+            continue;
+        }
+        return character == ';';
+    }
+    true
 }
 
 fn lua_config_field_access_rest_from_query<'a>(query: &'a str, field: &str) -> Option<&'a str> {
@@ -66316,6 +66411,34 @@ mod tests {
         assert_eq!(app.default_prog, None);
         assert_eq!(app.default_cwd, None);
         assert_eq!(app.term, "wezterm");
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_static_table_variable_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            local user_keys = {}
+            local function ignored()
+              user_keys = {
+                {
+                  key = 'H',
+                  mods = 'CTRL|SHIFT',
+                  action = act.SendString 'bad-helper-binding',
+                },
+              }
+            end
+
+            local config = {}
+            config.keys = user_keys
+            return config
+            "#,
+        )
+        .expect("expected WezTerm empty user keys config");
+
+        assert_eq!(overrides.key_assignments, Some(Vec::new()));
     }
 
     #[test]
