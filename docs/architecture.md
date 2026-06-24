@@ -1080,9 +1080,9 @@ keyboard, mouse, paste, resize
   `colors.compose_cursor`; static `config.color_schemes` entries can define
   custom in-file schemes inline, through whole-table assignments such as
   `config.color_schemes = schemes` including top-level
-  `schemes['Name'] = { ... }` entries assigned before that reference, or
-  through static top-level Lua table variables assigned before their reference,
-  and static top-level
+  `schemes['Name'] = { ... }` entries and their supported static field
+  mutations assigned before that reference, or through static top-level Lua
+  table variables assigned before their reference, and static top-level
   `config.color_schemes['Name'] = scheme` or
   `config.color_schemes.Name = scheme` assignments can append or replace named
   schemes after initialization. Selected custom scheme entries also support
