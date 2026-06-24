@@ -4927,14 +4927,8 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let after_receiver = lua_config_receiver_prefix_rest(rest, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let after_field = lua_trim_start_comments(after_receiver.strip_prefix('.')?)?;
-    if !after_field.starts_with(field)
-        || !lua_config_assignment_field_has_boundaries(after_field, 0, field)
-    {
-        return None;
-    }
-
-    let rest = lua_trim_start_comments(after_field.get(field.len()..)?)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     if let Some(value) = lua_braced_table_literal_from_query(rest) {
         return Some(LuaTableInsertValue {
@@ -4951,6 +4945,28 @@ fn lua_config_table_insert_append_value_from_query<'a>(
         position: Some(position),
         value: lua_braced_table_literal_from_query(rest)?,
     })
+}
+
+fn lua_config_field_access_rest_from_query<'a>(query: &'a str, field: &str) -> Option<&'a str> {
+    let query = lua_trim_start_comments(query)?;
+    if let Some(rest) = query.strip_prefix('.') {
+        let rest = lua_trim_start_comments(rest)?;
+        if !rest.starts_with(field) || !lua_config_assignment_field_has_boundaries(rest, 0, field) {
+            return None;
+        }
+        return rest.get(field.len()..);
+    }
+
+    let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
+    let key_literal = lua_quoted_string_literal_from_query(after_open)
+        .or_else(|| lua_long_bracket_literal_from_query(after_open))?;
+    let key = parse_maybe_quoted_query_text(key_literal)?;
+    if key != field {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
+    rest.strip_prefix(']')
 }
 
 fn lua_config_nested_table_insert_append_from_query<'a>(
@@ -68474,6 +68490,31 @@ mod tests {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-H"]);
         assert_eq!(launch.cwd(), Some("/tmp/inserted"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_bracket_key_table_insert_entries() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config['launch_menu'] = {}
+            table.insert(config['launch_menu'], {
+              label = 'Bracket Insert',
+              args = { 'top' },
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu bracket-key table.insert config");
+
+        let launch_menu = overrides
+            .launch_menu
+            .expect("expected launch_menu overrides");
+        assert_eq!(launch_menu.len(), 1);
+        assert_eq!(launch_menu[0].label.as_deref(), Some("Bracket Insert"));
     }
 
     #[test]
