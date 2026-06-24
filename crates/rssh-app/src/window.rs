@@ -5604,17 +5604,44 @@ fn lua_config_colors_source_value_from_query<'a>(
     }
 
     let variable = lua_identifier_literal_from_query(value)?;
-    let mutation_max_start = lua_source_slice_start_offset(source, variable)?;
-    let path = lua_load_scheme_assignment_before_slice_from_query(source, variable, value)?;
-    Some(NativeConfigColorsLuaSource::LoadScheme(
-        NativeLoadSchemeColorsAssignment {
-            path,
-            variable: Some(NativeLoadSchemeVariableReference {
-                name: variable.to_owned(),
-                mutation_max_start,
-            }),
-        },
-    ))
+    let reference_start = lua_source_slice_start_offset(source, variable)?;
+    lua_config_colors_variable_source_before_offset(source, variable, reference_start)
+}
+
+fn lua_config_colors_variable_source_before_offset<'a>(
+    source: &'a str,
+    variable: &str,
+    reference_start: usize,
+) -> Option<NativeConfigColorsLuaSource<'a>> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, reference_start)? {
+        let statement = source.get(start..)?;
+        let table_statement = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            statement
+        };
+        if let Some(table) =
+            lua_static_table_variable_assignment_table_from_query(table_statement, variable)
+        {
+            selected = Some(NativeConfigColorsLuaSource::Table(table));
+            continue;
+        }
+        if let Some(path) = lua_load_scheme_assignment_path_from_query(statement, variable) {
+            selected = Some(NativeConfigColorsLuaSource::LoadScheme(
+                NativeLoadSchemeColorsAssignment {
+                    path,
+                    variable: Some(NativeLoadSchemeVariableReference {
+                        name: variable.to_owned(),
+                        mutation_max_start: reference_start,
+                    }),
+                },
+            ));
+        }
+    }
+
+    selected
 }
 
 fn lua_config_load_scheme_colors_assignment_from_query(
@@ -43773,6 +43800,33 @@ mod tests {
             uses_configured_foreground,
             "default text foreground did not use colors.foreground"
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_colors_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local colors = {
+              foreground = '#010203',
+              background = '#040506',
+              cursor_bg = '#070809',
+            }
+
+            config.colors = colors
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm colors static variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
+        assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(7, 8, 9));
     }
 
     #[test]

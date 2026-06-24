@@ -2121,8 +2121,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.color.load_scheme('path')` calls with a constant
   TOML path can also feed selected `config.color_schemes['Name']` entries
   directly or through static variables whose supported static mutations are
-  applied, or `config.colors` directly or through the first returned variable
-  from `local colors, metadata = ...` or
+  applied, or `config.colors` directly, through a static table variable, or
+  through the first returned variable from `local colors, metadata = ...` or
   `colors, metadata = ...`
   assignments. Static `load_scheme` variable references resolve to the latest
   top-level binding before the `config.colors` assignment and ignore
@@ -2133,8 +2133,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `colors.ansi[2] = '#101010'`, tab-bar nested mutations such as
   `colors.tab_bar.active_tab.bg_color = '#101010'`, or multiline table mutations such as
   `colors.ansi = { ... }` before assignment. When complete `config.colors`
-  table assignments and load-scheme-backed `config.colors = colors`
-  assignments both appear, the static parser chooses the later source before
+  table assignments, static table-variable `config.colors = colors`
+  assignments, and load-scheme-backed `config.colors = colors` assignments
+  appear together, the static parser chooses the later source before
   applying supported mutations; a top-level `return { colors = ... }` table or
   returned static config variable such as `return cfg` is treated as the
   returned config and wins over earlier unreturned `config.colors`
