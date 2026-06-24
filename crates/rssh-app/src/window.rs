@@ -4089,6 +4089,7 @@ fn lua_load_scheme_assignment_from_query(source: &str, variable: &str) -> Option
 
 fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) -> Option<String> {
     let mut fields = Vec::new();
+    let mut indexed_fields = BTreeMap::new();
     let mut line_start = 0usize;
 
     for line in source.split_inclusive('\n') {
@@ -4108,6 +4109,23 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
+        if field_name == "indexed"
+            && let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest)
+        {
+            let rest = lua_trim_start_comments(rest)?;
+            let Some(value) = rest.strip_prefix('=') else {
+                line_start += line.len();
+                continue;
+            };
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            if value.is_empty() {
+                line_start += line.len();
+                continue;
+            }
+            indexed_fields.insert(index, value.to_owned());
+            line_start += line.len();
+            continue;
+        }
         let Some(value) = rest.strip_prefix('=') else {
             line_start += line.len();
             continue;
@@ -4117,11 +4135,43 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
             line_start += line.len();
             continue;
         }
+        if field_name == "indexed" {
+            let indexed_table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+            for entry in split_lua_table_top_level_fields(indexed_table)? {
+                let entry = entry.trim();
+                if entry.is_empty() {
+                    continue;
+                }
+                let (index, color) = split_lua_table_assignment_from_field(entry)?;
+                let index = split_lua_table_array_index_from_query(index.trim())?;
+                indexed_fields.insert(index, color.trim().to_owned());
+            }
+            line_start += line.len();
+            continue;
+        }
         fields.push(format!("{field_name} = {value}"));
         line_start += line.len();
     }
 
+    if !indexed_fields.is_empty() {
+        let indexed_fields = indexed_fields
+            .into_iter()
+            .map(|(index, value)| format!("[{index}] = {value}"))
+            .collect::<Vec<_>>()
+            .join(",\n");
+        fields.push(format!("indexed = {{\n{indexed_fields}\n}}"));
+    }
+
     (!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n")))
+}
+
+fn lua_color_variable_mutation_array_index_from_query(query: &str) -> Option<(usize, &str)> {
+    let query = lua_trim_start_comments(query)?;
+    let rest = query.strip_prefix('[')?;
+    let (index, rest) = rest.split_once(']')?;
+    let index = index.trim().parse::<usize>().ok()?;
+
+    Some((index, rest))
 }
 
 fn lua_color_variable_mutation_field_from_query(query: &str) -> Option<(String, &str)> {
@@ -42393,6 +42443,108 @@ mod tests {
         assert_eq!(effective.background_color, Color::Rgb(61, 62, 63));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(64, 65, 66));
         assert_eq!(effective.cursor_border_color, Some(Color::Rgb(67, 68, 69)));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_indexed_palette_mutations() {
+        static NEXT_LOAD_SCHEME_INDEXED_MUTATION_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-indexed-mutation-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_INDEXED_MUTATION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors.indexed]
+            136 = "#010203"
+            "##,
+        )
+        .expect("expected temp load_scheme indexed mutation TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors.indexed[136] = '#464748'
+            colors.indexed[137] = '#494a4b'
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme indexed palette mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let indexed = effective.indexed_palette.expect("expected indexed palette");
+        assert_eq!(indexed[136], Some(Color::Rgb(70, 71, 72)));
+        assert_eq!(indexed[137], Some(Color::Rgb(73, 74, 75)));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_merges_wezterm_lua_load_scheme_indexed_palette_table_and_slot_mutations() {
+        static NEXT_LOAD_SCHEME_INDEXED_MERGE_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-indexed-merge-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_INDEXED_MERGE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#010203"
+            "##,
+        )
+        .expect("expected temp load_scheme indexed merge TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors.indexed = {{
+              [136] = '#4c4d4e',
+            }}
+            colors.indexed[137] = '#4f5051'
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme indexed palette merged mutation config");
+        app.set_config_overrides(overrides);
+
+        let indexed = app
+            .native_effective_config()
+            .indexed_palette
+            .expect("expected indexed palette");
+        assert_eq!(indexed[136], Some(Color::Rgb(76, 77, 78)));
+        assert_eq!(indexed[137], Some(Color::Rgb(79, 80, 81)));
         let _ = std::fs::remove_file(scheme_file);
     }
 
