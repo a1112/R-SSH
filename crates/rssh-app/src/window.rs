@@ -3334,6 +3334,9 @@ fn color_scheme_lua_source_value_from_query<'a>(
         colors.strip_prefix('{')?.strip_suffix('}')?;
         return Some(NativeColorSchemeLuaSource::Table(colors));
     }
+    if let Some(path) = lua_load_scheme_assignment_from_query(source, variable) {
+        return Some(NativeColorSchemeLuaSource::LoadSchemePath(path));
+    }
 
     None
 }
@@ -42248,6 +42251,58 @@ mod tests {
             effective.ansi_palette.expect("expected ANSI palette")[1],
             Color::Rgb(0, 0, 2)
         );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_custom_color_scheme_from_load_scheme_variable() {
+        static NEXT_COLOR_SCHEME_LOAD_SCHEME_VARIABLE_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-color-scheme-load-scheme-variable-{}-{}.toml",
+            std::process::id(),
+            NEXT_COLOR_SCHEME_LOAD_SCHEME_VARIABLE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#444546"
+            background = "#474849"
+            cursor_bg = "#4a4b4c"
+            "##,
+        )
+        .expect("expected temp custom color_scheme variable load_scheme TOML scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local project_scheme = wezterm.color.load_scheme('{}')
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {{
+              ['Project Scheme'] = project_scheme,
+            }}
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm custom color_scheme variable load_scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(68, 69, 70));
+        assert_eq!(effective.background_color, Color::Rgb(71, 72, 73));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(74, 75, 76));
         let _ = std::fs::remove_file(scheme_file);
     }
 
