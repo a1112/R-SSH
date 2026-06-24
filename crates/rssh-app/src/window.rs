@@ -5076,7 +5076,7 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
         name,
         LuaTableInsertValue {
             position: Some(position),
-            value: lua_braced_table_literal_from_query(rest)?,
+            value: lua_table_insert_value_table_from_query(source, rest, start)?,
         },
     ))
 }
@@ -65369,6 +65369,71 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm positioned key table table.insert config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"inserted");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_positioned_variable_insert() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local inserted_binding = {
+              key = 'h',
+              action = act.SendString 'inserted',
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              resize_pane = {
+                {
+                  key = 'h',
+                  action = act.SendString 'original',
+                },
+              },
+            }
+            table.insert(config.key_tables.resize_pane, 1, inserted_binding)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm positioned key table variable insert config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
