@@ -402,8 +402,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `xim_im_name`; `treat_east_asian_ambiguous_width_as_wide` updates terminal
   character width calculation for ambiguous East Asian width characters, and
   static numeric `cell_widths` override tables parse inline or through
-  top-level static table variables from WezTerm-style Lua and take priority
-  over that ambiguous-width setting. When enabled,
+  top-level static table variables from WezTerm-style Lua, with
+  `first`/`last`/`width` fields inline or through top-level static number
+  variables, and take priority over that ambiguous-width setting. When enabled,
   `normalize_output_to_unicode_nfc` normalizes contiguous ordinary terminal
   output runs to Unicode NFC before rendering, including leading combining
   marks that arrive in the next PTY chunk when they compose with the prior
@@ -1148,9 +1149,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Emacs, AppleSymbols, WindowsLong, and WindowsSymbols styles. The
   ambiguous-width option is applied to terminal character width calculation for
   active and new panes; static numeric `config.cell_widths` tables parse into
-  the same native override path and take priority over the ambiguous-width
-  option. `config.normalize_output_to_unicode_nfc` normalizes contiguous
-  ordinary terminal output runs to Unicode NFC before cells are written,
+  the same native override path, with `first`/`last`/`width` fields inline or
+  through top-level static number variables, and take priority over the
+  ambiguous-width option. `config.normalize_output_to_unicode_nfc` normalizes
+  contiguous ordinary terminal output runs to Unicode NFC before cells are written,
   including leading combining marks that arrive in the next PTY chunk when
   they compose with the prior cell without changing display width.
   `treat_left_ctrlalt_as_altgr`

@@ -270,8 +270,10 @@ keyboard, mouse, paste, resize
   WindowsSymbols styles. `treat_east_asian_ambiguous_width_as_wide` updates
   terminal character width calculation for ambiguous East Asian width characters
   in active and new panes. Static numeric `cell_widths` override tables parse
-  inline or through top-level static table variables from WezTerm-style Lua and
-  take priority over the ambiguous-width setting in active and new panes.
+  inline or through top-level static table variables from WezTerm-style Lua,
+  with `first`/`last`/`width` fields inline or through top-level static number
+  variables, and take priority over the ambiguous-width setting in active and
+  new panes.
   `normalize_output_to_unicode_nfc` applies NFC
   normalization to contiguous ordinary terminal output runs before rendering,
   including leading combining marks that arrive in the next PTY chunk when
@@ -913,8 +915,9 @@ keyboard, mouse, paste, resize
   default `false` and, when enabled, makes the terminal runtime treat East
   Asian ambiguous-width characters as two cells wide; static numeric
   `cell_widths` override tables are stored and applied with higher priority
-  than that ambiguous-width setting, while dynamic Lua/exact nightly parity
-  remains future work. `normalize_output_to_unicode_nfc` is stored with
+  than that ambiguous-width setting, with `first`/`last`/`width` fields inline
+  or through top-level static number variables, while dynamic Lua/exact nightly
+  parity remains future work. `normalize_output_to_unicode_nfc` is stored with
   WezTerm's default `false` and, when enabled, normalizes contiguous ordinary
   terminal output runs to Unicode NFC before the cells are written, including
   leading combining marks that arrive in the next PTY chunk when they compose
