@@ -1084,7 +1084,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   override/runtime path for the implemented action subset, including bracketed
   string table keys with long-bracket values for leader fields, key-table names,
   and nested assignment fields, static table variable assignments such as
-  `config.keys = user_keys` or `config.key_tables = user_key_tables`, and
+  `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
+  `config.leader = user_leader`, and
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
@@ -1959,7 +1960,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   leader configuration into runtime key-table overrides, including bracketed
   string table keys with long-bracket values for key-table names and nested
   assignment fields, static table variable assignments such as
-  `config.keys = user_keys` or `config.key_tables = user_key_tables`, and
+  `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
+  `config.leader = user_leader`, and
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and

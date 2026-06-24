@@ -3194,7 +3194,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         )?);
         parsed = true;
     }
-    if let Some(leader) = lua_config_table_assignment_from_query(config, "leader") {
+    if let Some(leader) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "leader")
+    {
         overrides.leader = Some(native_leader_lua_table_from_query(leader)?);
         parsed = true;
     }
@@ -66454,6 +66456,56 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm leader config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert!(!app.debug_overlay_active_for_test());
+
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("|".into()),
+            PhysicalKey::Code(WinitKeyCode::Backslash),
+            Some("|"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_leader_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local user_leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 }
+
+            config.leader = user_leader
+
+            config.keys = {
+              {
+                key = '|',
+                mods = 'LEADER|SHIFT',
+                action = act.ShowDebugOverlay,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm leader static variable config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL;
