@@ -7997,11 +7997,15 @@ fn native_easing_lua_value_from_query(value: &str) -> Option<NativeEasingFunctio
 #[allow(dead_code)]
 fn native_easing_lua_table_from_query(value: &str) -> Option<NativeEasingFunction> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-    let fields = split_lua_table_top_level_fields(table)?;
-    let [field] = fields.as_slice() else {
+    let mut fields = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty());
+    let field = fields.next()?;
+    if fields.next().is_some() {
         return None;
-    };
-    let (key, value) = split_lua_table_assignment_from_field(field.trim())?;
+    }
+    let (key, value) = split_lua_table_assignment_from_field(field)?;
     let key = split_lua_table_key_from_query(key.trim())?;
     if key != "CubicBezier" {
         return None;
@@ -71537,6 +71541,33 @@ mod tests {
                 y1_per_mille: 0,
                 x2_per_mille: 580,
                 y2_per_mille: 1_000,
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cubic_bezier_easing_trailing_comma() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cursor_blink_ease_in = { CubicBezier = { 0.1, 0.2, 0.3, 0.4 }, }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CubicBezier easing config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().cursor_blink_ease_in,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 100,
+                y1_per_mille: 200,
+                x2_per_mille: 300,
+                y2_per_mille: 400,
             })
         );
     }

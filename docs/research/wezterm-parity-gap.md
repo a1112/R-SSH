@@ -1756,7 +1756,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.colors.visual_bell` snippets now parse into
   the same native override path, including bracketed string table keys with
   long-bracket values for visual-bell fields, nested `CubicBezier` easing
-  tables, and `colors.visual_bell`. Lua event wiring remains open.
+  tables with trailing comma fields, and `colors.visual_bell`. Lua event
+  wiring remains open.
 - Native window now dispatches a typed focus-change hook with the window id,
   active pane id, and focused/unfocused state while preserving CSI
   focus-reporting writes.
@@ -2290,7 +2291,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Static WezTerm-style Lua snippets for those fields now parse into the same
   native override path, including string easing names and
   `{ CubicBezier = { ... } }` table easing forms inline or through top-level
-  static variables.
+  static variables, including trailing comma fields.
 - Native terminal rendering applies WezTerm-style `underline_thickness`
   overrides to terminal text underline decorations using px, DPI-scaled pt,
   percent-of-default, and cell-fraction units. Horizontal split dividers use
