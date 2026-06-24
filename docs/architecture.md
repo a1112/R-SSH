@@ -707,8 +707,10 @@ keyboard, mouse, paste, resize
   `adjust_window_size_when_changing_font_size`; `freetype_render_target`
   defaults to the effective load target when unset, while `dpi` overrides the
   detected window DPI for renderer state and FreeType defaults until cleared,
-  and `freetype_load_flags` defaults to `DEFAULT` below 100 DPI and
-  `NO_HINTING` at 100 DPI or higher. Custom block glyph, square-glyph overflow,
+  `freetype_load_flags` defaults to `DEFAULT` below 100 DPI and
+  `NO_HINTING` at 100 DPI or higher, and static Lua `font_dirs` tables parse
+  inline or through top-level static table variables. Custom block glyph,
+  square-glyph overflow,
   FreeType interpreter-version, PCF long-family-name, display pixel-geometry,
   font-directory, font-locator, and font shaper options are retained in
   effective config with WezTerm defaults, but actual renderer glyph strategy,

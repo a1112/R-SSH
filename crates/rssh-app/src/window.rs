@@ -2459,7 +2459,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.font_shaper = Some(NativeFontShaper::parse(&font_shaper)?);
         parsed = true;
     }
-    if let Some(font_dirs) = lua_config_table_assignment_from_query(config, "font_dirs") {
+    if let Some(font_dirs) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "font_dirs")
+    {
         overrides.font_dirs = Some(split_lua_table_string_array(font_dirs)?);
         parsed = true;
     }
@@ -68702,6 +68704,34 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font dirs and locator config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_dirs,
+            vec!["fonts".to_owned(), "vendor/fonts".to_owned()]
+        );
+        assert_eq!(
+            effective.font_locator,
+            Some(NativeFontLocator::ConfigDirsOnly)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_dirs_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local dirs = { 'fonts', 'vendor/fonts' }
+
+            config.font_dirs = dirs
+            config.font_locator = 'ConfigDirsOnly'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font dirs table variable config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

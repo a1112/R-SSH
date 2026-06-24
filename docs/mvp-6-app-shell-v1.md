@@ -749,8 +749,9 @@ runtime storage for tabs and split panes.
   snippets for those fields now parse into the same native override path.
   `config.dpi` overrides the detected native window DPI for renderer state and
   FreeType defaults until the override is cleared. Static `config.font_dirs`
-  and `config.font_locator = 'ConfigDirsOnly'` snippets are retained in
-  effective config. Actual renderer glyph strategy, configured font-directory
+  snippets parse inline or through top-level static table variables, and
+  `config.font_locator = 'ConfigDirsOnly'` snippets are retained in effective
+  config. Actual renderer glyph strategy, configured font-directory
   scanning, font-locator application, shaping-engine application, FreeType
   interpreter application, subpixel geometry application, PCF font-resolution
   changes, and full Lua config evaluation remain later parity work.
