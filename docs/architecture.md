@@ -304,13 +304,14 @@ keyboard, mouse, paste, resize
   targets such as `config.key_tables[name]` also resolve top-level static
   string variables.
   Static `config.keys = user_keys` assignments also merge top-level
-  `table.insert(user_keys, { ... })` appends that occur before the config
-  assignment.
+  `table.insert(user_keys, { ... })` appends and indexed assignments such as
+  `user_keys[1] = { ... }` that occur before the config assignment.
   Leader `key`, `mods`, and `timeout_milliseconds` fields parse inline or
   through top-level static scalar variables. Static return-table fields such as
   `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, and top-level static
-  `table.insert(config.keys, { ... })` appends plus
+  `table.insert(config.keys, { ... })` appends and direct indexed assignments
+  such as `config.keys[index] = { ... }`, plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
   static table variables such as
   `table.insert(config.key_tables.<name>, item)` or

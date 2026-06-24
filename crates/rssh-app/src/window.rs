@@ -4984,6 +4984,23 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
                 })?,
             );
         }
+
+        if lua_block_depth == 0
+            && let Some(assignment) =
+                lua_config_table_index_assignment_from_query(source, index, receiver, field)
+        {
+            selected = Some(
+                lua_table_with_index_assigned_field(
+                    selected.take().map(|assignment| assignment.value),
+                    assignment.index,
+                    assignment.value,
+                )
+                .map(|value| LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: index,
+                })?,
+            );
+        }
     }
 
     selected
@@ -5269,6 +5286,18 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     })
 }
 
+fn lua_config_table_index_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<LuaTableIndexAssignment<'a>> {
+    let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    lua_table_index_assignment_value_from_query(source, rest, start)
+}
+
 fn lua_table_insert_value_table_from_query<'a>(
     source: &'a str,
     query: &'a str,
@@ -5391,6 +5420,17 @@ fn lua_static_table_variable_assignment_with_insert_appends_before_offset_from_q
         };
         if let Some(table) = lua_static_table_variable_assignment_table_from_query(rest, variable) {
             selected = Some(table.to_owned());
+            continue;
+        }
+
+        if let Some(assignment) =
+            lua_static_table_variable_index_assignment_from_query(source, start, variable)
+        {
+            selected = Some(lua_table_with_index_assigned_field(
+                selected.take(),
+                assignment.index,
+                assignment.value,
+            )?);
             continue;
         }
 
@@ -5521,6 +5561,24 @@ fn lua_table_index_assignment_value_from_query<'a>(
         index,
         value: lua_table_insert_value_table_from_query(source, rest, max_start)?,
     })
+}
+
+fn lua_static_table_variable_index_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableIndexAssignment<'a>> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    lua_table_index_assignment_value_from_query(source, after_variable, start)
 }
 
 fn lua_static_table_variable_insert_append_value_from_query<'a>(
@@ -68617,6 +68675,35 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_key_index_assignment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {}
+            config.keys[1] = {
+              key = 'K',
+              mods = 'CTRL|SHIFT',
+              action = act.SendString 'from-config-index',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm indexed key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString("from-config-index".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_key_static_variable_assignment() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -68675,6 +68762,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+H".to_owned(),
                 command: WindowCommand::SendString("from-variable-insert".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_variable_index_assignment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_keys = {}
+            user_keys[1] = {
+              key = 'H',
+              mods = 'CTRL|SHIFT',
+              action = act.SendString 'from-variable-index',
+            }
+
+            config.keys = user_keys
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable indexed keys config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+H".to_owned(),
+                command: WindowCommand::SendString("from-variable-index".to_owned()),
             }])
         );
     }
