@@ -1080,7 +1080,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ActivateKeyTable { ... }` and
   `wezterm.action.ActivateKeyTable({ ... })` table-call queries dispatch the
   same implemented activation payload fields, including bracketed string table
-  keys with long-bracket values. Action-name
+  keys with long-bracket values and trailing comma table fields. Action-name
   `activatekeytable ...`, `popkeytable`, and `clearkeytablestack` aliases
   dispatch the same activation and stack mutation payloads as their spaced query
   forms. Native `key_tables` overrides now match table entries from the

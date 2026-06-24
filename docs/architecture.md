@@ -477,7 +477,9 @@ keyboard, mouse, paste, resize
   `until-unknown`, and `prevent fallback`/`prevent_fallback`/
   `prevent-fallback` fields instead of silently overriding them, and accept
   `timeout=<ms>` plus single-token boolean assignment forms such as
-  `one_shot=false` and `prevent-fallback=true`. Action-name `popkeytable` and
+  `one_shot=false` and `prevent-fallback=true`. WezTerm-style Lua
+  `ActivateKeyTable { ... }` / `ActivateKeyTable({ ... })` table queries
+  tolerate trailing comma fields. Action-name `popkeytable` and
   `clearkeytablestack` aliases dispatch the same stack mutation payloads as
   `pop key table` and `clear key table stack`.
   Native `key_tables` overrides now match table entries from the activation
