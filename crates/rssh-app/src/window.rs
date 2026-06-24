@@ -11474,7 +11474,20 @@ fn native_user_key_assignment_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<NativeUserKeyAssignment> {
-    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut key = None;
     let mut mods = None;
     let mut command = None;
@@ -71700,6 +71713,35 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("from-insert-field-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_static_field_variable_item() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local binding = {}
+            binding.key = 'K'
+            binding.mods = 'CTRL|SHIFT'
+            binding.action = act.SendString 'from-table-field-variable-item'
+
+            config.keys = { binding }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key table field-built item variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString("from-table-field-variable-item".to_owned()),
             }])
         );
     }

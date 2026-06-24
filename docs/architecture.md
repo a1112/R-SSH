@@ -327,8 +327,9 @@ keyboard, mouse, paste, resize
   `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, and top-level static
   `table.insert(config.keys, { ... })` appends, static item table variables
-  inserted as `table.insert(config.keys, binding)` with pre-insert field
-  mutations such as `binding.key = 'K'`, `binding.mods = 'CTRL|SHIFT'`, and
+  used as `config.keys = { binding }` or
+  `table.insert(config.keys, binding)` with pre-use field mutations such as
+  `binding.key = 'K'`, `binding.mods = 'CTRL|SHIFT'`, and
   `binding.action = act.SendString '...'`, and direct indexed assignments such
   as `config.keys[index] = { ... }`, `config.keys[index] = binding`, or
   `config.keys[#config.keys + 1] = { ... }`, plus direct indexed field
