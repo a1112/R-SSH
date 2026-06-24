@@ -4552,7 +4552,9 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
     field: &str,
 ) -> Option<String> {
     if let Some(table) = lua_config_static_return_table_from_query(source) {
-        let mut literal_from_query = lua_braced_table_literal_from_query;
+        let max_start = lua_source_slice_start_offset(source, table)?;
+        let mut literal_from_query =
+            |value| lua_table_insert_value_table_from_query(source, value, max_start);
         return lua_config_table_field_assignment_from_query(table, field, &mut literal_from_query)
             .map(str::to_owned);
     }
@@ -65683,6 +65685,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+H".to_owned(),
                 command: WindowCommand::SendString("from-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_return_key_static_variable_assignment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            local user_keys = {
+              {
+                key = 'R',
+                mods = 'CTRL|SHIFT',
+                action = act.SendString 'from-return-variable',
+              },
+            }
+
+            return {
+              keys = user_keys,
+            }
+            "#,
+        )
+        .expect("expected WezTerm return-table static variable keys config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+R".to_owned(),
+                command: WindowCommand::SendString("from-return-variable".to_owned()),
             }])
         );
     }
