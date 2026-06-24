@@ -185,7 +185,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   values plus vertical `WheelUp`/`WheelDown` `streak = 1` with `mods`,
   `mouse_reporting`, `alt_screen`, and implemented native `action` payloads,
   including top-level static `table.insert(config.mouse_bindings, { ... })`
-  appends, so custom bindings such as `ALT` + left drag can dispatch
+  appends, with `action` payloads inline or through top-level static action
+  variables, so custom bindings such as `ALT` + left drag can dispatch
   `StartWindowDrag`, middle-button release can dispatch `PastePrimarySelection`,
   `CTRL` + wheel-up can dispatch `IncreaseFontSize`, double-left-down can
   dispatch a custom action, and non-left button streaks are tracked for user
@@ -838,7 +839,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   streak subset and vertical `WheelUp`/`WheelDown` `streak = 1` subset with
   `mouse_reporting` and `alt_screen` filters for implemented action payloads,
   including top-level static `table.insert(config.mouse_bindings, { ... })`
-  appends, and matching user mouse bindings override the implemented default mouse
+  appends and top-level static action variables for action payloads, and
+  matching user mouse bindings override the implemented default mouse
   assignment for the same button/streak/modifiers/reporting/alternate-screen
   state; `DisableDefaultAssignment` mouse bindings suppress that matching
   default without consuming the event, matching WezTerm's opt-out semantics
