@@ -4828,6 +4828,11 @@ struct LuaTableAssignmentWithMaxStart {
     max_start: usize,
 }
 
+struct LuaTableMapAssignment {
+    value: String,
+    variable: Option<String>,
+}
+
 fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
     source: &str,
     field: &str,
@@ -5072,6 +5077,7 @@ fn lua_config_table_map_assignment_with_field_mutations_from_query(
 
     let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
     let mut selected = None;
+    let mut selected_variable: Option<String> = None;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let statement = source.get(start..)?;
@@ -5097,6 +5103,7 @@ fn lua_config_table_map_assignment_with_field_mutations_from_query(
                         field,
                         &mut literal_from_query,
                     ) {
+                        selected_variable = None;
                         selected = Some(LuaTableAssignmentWithMaxStart {
                             value,
                             max_start: start,
@@ -5110,16 +5117,17 @@ fn lua_config_table_map_assignment_with_field_mutations_from_query(
             {
                 let after_field = lua_trim_start_comments(after_field)?;
                 if let Some(after_assignment) = after_field.strip_prefix('=')
-                    && let Some(value) = lua_table_map_value_table_string_from_query(
+                    && let Some(assignment) = lua_table_map_assignment_from_query(
                         source,
                         lua_trim_start_comments(after_assignment)?,
                         start,
                     )
                 {
                     selected = Some(LuaTableAssignmentWithMaxStart {
-                        value,
+                        value: assignment.value,
                         max_start: start,
                     });
+                    selected_variable = assignment.variable;
                     continue;
                 }
             }
@@ -5139,6 +5147,34 @@ fn lua_config_table_map_assignment_with_field_mutations_from_query(
                     max_start: start,
                 })?,
             );
+        }
+
+        if let Some(variable) = selected_variable.clone() {
+            let rest = if lua_source_keyword_at(source, start, "local") {
+                lua_trim_start_comments(source.get(start + "local".len()..)?)?
+            } else {
+                source.get(start..)?
+            };
+            if lua_static_table_variable_assignment_table_from_query(rest, &variable).is_some() {
+                selected_variable = None;
+                continue;
+            }
+
+            if let Some(assignment) =
+                lua_static_table_map_variable_field_assignment_from_query(source, start, &variable)
+            {
+                selected = Some(
+                    lua_table_with_assigned_field(
+                        selected.take().map(|assignment| assignment.value),
+                        &assignment.key,
+                        assignment.value,
+                    )
+                    .map(|value| LuaTableAssignmentWithMaxStart {
+                        value,
+                        max_start: start,
+                    })?,
+                );
+            }
         }
     }
 
@@ -6131,8 +6167,19 @@ fn lua_table_map_value_table_string_from_query(
     query: &str,
     max_start: usize,
 ) -> Option<String> {
+    lua_table_map_assignment_from_query(source, query, max_start).map(|assignment| assignment.value)
+}
+
+fn lua_table_map_assignment_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<LuaTableMapAssignment> {
     if let Some(value) = lua_braced_table_literal_from_query(query) {
-        return Some(value.to_owned());
+        return Some(LuaTableMapAssignment {
+            value: value.to_owned(),
+            variable: None,
+        });
     }
 
     let variable = lua_identifier_literal_from_query(query)?;
@@ -6140,9 +6187,14 @@ fn lua_table_map_value_table_string_from_query(
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
     }
-    lua_static_table_map_variable_assignment_with_field_mutations_before_offset_from_query(
-        source, variable, max_start,
-    )
+    let value =
+        lua_static_table_map_variable_assignment_with_field_mutations_before_offset_from_query(
+            source, variable, max_start,
+        )?;
+    Some(LuaTableMapAssignment {
+        value,
+        variable: Some(variable.to_owned()),
+    })
 }
 
 fn lua_u32_array_value_table_string_from_query(
@@ -71139,6 +71191,80 @@ mod tests {
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
         assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_environment_static_variable_post_assignment_mutations()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local env = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = env
+            env.PROJECT_MODE = 'dev'
+            env['FEATURE_FLAG'] = 'on'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm environment variable post-assignment mutation config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+        assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_stops_following_reassigned_wezterm_lua_environment_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local env = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = env
+            env.PROJECT_MODE = 'dev'
+            env = {}
+            env['FEATURE_FLAG'] = 'on'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm environment variable reassignment config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+        assert_eq!(command.env_value("FEATURE_FLAG"), None);
     }
 
     #[test]
