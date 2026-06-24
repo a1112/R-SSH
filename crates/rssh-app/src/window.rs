@@ -5093,7 +5093,7 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
                 lua_table_with_index_or_append_assigned_field(
                     selected.take().map(|assignment| assignment.value),
                     assignment.index,
-                    assignment.value,
+                    &assignment.value,
                 )
                 .map(|value| LuaTableAssignmentWithMaxStart {
                     value,
@@ -5159,7 +5159,7 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
                     lua_table_with_index_or_append_assigned_field(
                         selected.take().map(|assignment| assignment.value),
                         assignment.index,
-                        assignment.value,
+                        &assignment.value,
                     )
                     .map(|value| LuaTableAssignmentWithMaxStart {
                         value,
@@ -6102,7 +6102,7 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
                     selected.take().map(|assignment| assignment.value),
                     &key_table_name,
                     assignment.index,
-                    assignment.value,
+                    &assignment.value,
                 )?,
                 max_start: index,
             });
@@ -6163,7 +6163,7 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
                         selected.take().map(|assignment| assignment.value),
                         &key_table_name,
                         assignment.index,
-                        assignment.value,
+                        &assignment.value,
                     )?,
                     max_start: index,
                 });
@@ -6194,14 +6194,14 @@ struct LuaTableInsertValue {
     value: String,
 }
 
-struct LuaTableIndexAssignment<'a> {
+struct LuaTableIndexAssignment<V> {
     index: usize,
-    value: &'a str,
+    value: V,
 }
 
-struct LuaTableIndexOrAppendAssignment<'a> {
+struct LuaTableIndexOrAppendAssignment<V> {
     index: Option<usize>,
-    value: &'a str,
+    value: V,
 }
 
 struct LuaTableIndexedFieldAssignment<'a> {
@@ -6405,7 +6405,7 @@ fn lua_config_table_index_or_append_assignment_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<String>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
     let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
@@ -6476,7 +6476,7 @@ fn lua_config_u32_array_index_or_append_assignment_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<&'a str>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
     let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
@@ -6547,7 +6547,7 @@ fn lua_config_string_array_index_or_append_assignment_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<&'a str>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
     let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
@@ -6871,7 +6871,7 @@ fn lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_f
                 selected.take(),
                 &key_table_name,
                 assignment.index,
-                assignment.value,
+                &assignment.value,
             )?);
             continue;
         }
@@ -6938,7 +6938,7 @@ fn lua_static_table_variable_assignment_with_insert_appends_before_offset_from_q
             selected = Some(lua_table_with_index_or_append_assigned_field(
                 selected.take(),
                 assignment.index,
-                assignment.value,
+                &assignment.value,
             )?);
             continue;
         }
@@ -7151,7 +7151,7 @@ fn lua_static_u32_array_variable_index_or_append_assignment_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<&'a str>> {
     if let Some(assignment) =
         lua_static_u32_array_variable_index_assignment_from_query(source, start, variable)
     {
@@ -7192,7 +7192,7 @@ fn lua_static_u32_array_variable_index_assignment_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableIndexAssignment<'a>> {
+) -> Option<LuaTableIndexAssignment<&'a str>> {
     let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
         return None;
     };
@@ -7255,7 +7255,7 @@ fn lua_static_string_array_variable_index_or_append_assignment_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<&'a str>> {
     if let Some(assignment) =
         lua_static_string_array_variable_index_assignment_from_query(source, start, variable)
     {
@@ -7296,7 +7296,7 @@ fn lua_static_string_array_variable_index_assignment_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableIndexAssignment<'a>> {
+) -> Option<LuaTableIndexAssignment<&'a str>> {
     let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
         return None;
     };
@@ -7392,7 +7392,7 @@ fn lua_static_key_tables_variable_index_or_append_assignment_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<(String, LuaTableIndexOrAppendAssignment<'a>)> {
+) -> Option<(String, LuaTableIndexOrAppendAssignment<String>)> {
     let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
         return None;
     };
@@ -7460,7 +7460,7 @@ fn lua_table_index_assignment_value_from_query<'a>(
     source: &'a str,
     query: &'a str,
     max_start: usize,
-) -> Option<LuaTableIndexAssignment<'a>> {
+) -> Option<LuaTableIndexAssignment<String>> {
     let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
     let after_open = lua_trim_start_comments(after_open)?;
     let literal = lua_unsigned_integer_literal_from_query(after_open)?;
@@ -7470,7 +7470,7 @@ fn lua_table_index_assignment_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableIndexAssignment {
         index,
-        value: lua_table_insert_value_table_from_query(source, rest, max_start)?,
+        value: lua_table_insert_value_table_string_from_query(source, rest, max_start)?,
     })
 }
 
@@ -7478,7 +7478,7 @@ fn lua_u32_array_index_assignment_value_from_query<'a>(
     source: &'a str,
     query: &'a str,
     max_start: usize,
-) -> Option<LuaTableIndexAssignment<'a>> {
+) -> Option<LuaTableIndexAssignment<&'a str>> {
     let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
     let after_open = lua_trim_start_comments(after_open)?;
     let literal = lua_unsigned_integer_literal_from_query(after_open)?;
@@ -7496,7 +7496,7 @@ fn lua_string_array_index_assignment_value_from_query<'a>(
     source: &'a str,
     query: &'a str,
     max_start: usize,
-) -> Option<LuaTableIndexAssignment<'a>> {
+) -> Option<LuaTableIndexAssignment<&'a str>> {
     let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
     let after_open = lua_trim_start_comments(after_open)?;
     let literal = lua_unsigned_integer_literal_from_query(after_open)?;
@@ -7514,7 +7514,7 @@ fn lua_table_length_append_assignment_value_after_target_from_query<'a>(
     source: &'a str,
     query: &'a str,
     max_start: usize,
-) -> Option<&'a str> {
+) -> Option<String> {
     let rest = lua_trim_start_comments(query)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('+')?)?;
     let literal = lua_unsigned_integer_literal_from_query(rest)?;
@@ -7524,7 +7524,7 @@ fn lua_table_length_append_assignment_value_after_target_from_query<'a>(
     let rest = lua_trim_start_comments(rest.get(literal.len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
-    lua_table_insert_value_table_from_query(source, rest, max_start)
+    lua_table_insert_value_table_string_from_query(source, rest, max_start)
 }
 
 fn lua_u32_array_length_append_assignment_value_after_target_from_query<'a>(
@@ -7567,7 +7567,7 @@ fn lua_static_nested_table_length_append_assignment_from_query<'a>(
     max_start: usize,
     variable: &str,
     key_table_name: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<String>> {
     let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
     let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
     let after_hash = lua_trim_start_comments(after_hash)?;
@@ -7597,7 +7597,7 @@ fn lua_static_table_variable_index_or_append_assignment_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<String>> {
     if let Some(assignment) =
         lua_static_table_variable_index_assignment_from_query(source, start, variable)
     {
@@ -7638,7 +7638,7 @@ fn lua_static_table_variable_index_assignment_from_query<'a>(
     source: &'a str,
     start: usize,
     variable: &str,
-) -> Option<LuaTableIndexAssignment<'a>> {
+) -> Option<LuaTableIndexAssignment<String>> {
     let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
         return None;
     };
@@ -8459,7 +8459,7 @@ fn lua_config_nested_key_table_index_or_append_assignment_from_query<'a>(
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<(String, LuaTableIndexOrAppendAssignment<'a>)> {
+) -> Option<(String, LuaTableIndexOrAppendAssignment<String>)> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
     let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
@@ -8513,7 +8513,7 @@ fn lua_config_nested_table_length_append_assignment_from_query<'a>(
     receiver: &str,
     field: &str,
     key_table_name: &str,
-) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+) -> Option<LuaTableIndexOrAppendAssignment<String>> {
     let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
     let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
     let after_hash = lua_trim_start_comments(after_hash)?;
@@ -71729,6 +71729,36 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("from-config-index".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_index_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local binding = {}
+            binding.key = 'K'
+            binding.mods = 'CTRL|SHIFT'
+            binding.action = act.SendString 'from-index-field-variable'
+
+            config.keys = {}
+            config.keys[1] = binding
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm indexed field-built key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString("from-index-field-variable".to_owned()),
             }])
         );
     }

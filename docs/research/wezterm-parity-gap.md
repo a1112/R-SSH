@@ -1127,7 +1127,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   inserted as `table.insert(config.keys, binding)` with pre-insert field
   mutations such as `binding.key = 'K'`, `binding.mods = 'CTRL|SHIFT'`, and
   `binding.action = act.SendString '...'`, and direct indexed assignments such
-  as `config.keys[index] = { ... }` or
+  as `config.keys[index] = { ... }`, `config.keys[index] = binding`, or
   `config.keys[#config.keys + 1] = { ... }`, plus direct indexed field
   mutations on existing binding tables such as `config.keys[1].key = 'K'`,
   `config.keys[1].mods = 'CTRL|SHIFT'`, and
@@ -2072,7 +2072,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   inserted as `table.insert(config.keys, binding)` with pre-insert field
   mutations such as `binding.key = 'K'`, `binding.mods = 'CTRL|SHIFT'`, and
   `binding.action = act.SendString '...'`, and direct indexed assignments such
-  as `config.keys[index] = { ... }` or
+  as `config.keys[index] = { ... }`, `config.keys[index] = binding`, or
   `config.keys[#config.keys + 1] = { ... }`, plus direct indexed field
   mutations on existing binding tables such as `config.keys[1].key = 'K'`,
   `config.keys[1].mods = 'CTRL|SHIFT'`, and
