@@ -1802,8 +1802,11 @@ runtime storage for tabs and split panes.
   immediately. Native `skip_close_confirmation_for_processes_named` uses
   WezTerm's default stateless-process list or a custom override to skip
   close-window, close-tab, and close-pane confirmation when every affected
-  pane's known local launch-program basename matches; child process tree
-  inspection and `mux-is-process-stateful` remain later parity work.
+  pane's known local launch-program basename matches. Static Lua config parsing
+  covers `window_close_confirmation` and
+  `skip_close_confirmation_for_processes_named` inline or through top-level
+  static table variables; child process tree inspection and
+  `mux-is-process-stateful` remain later parity work.
 - The tab bar can hide tab indices via the native
   `show_tab_index_in_tab_bar` effective-config field and hide tab labels via
   `show_tabs_in_tab_bar`, and can switch tabs with vertical mouse wheel input

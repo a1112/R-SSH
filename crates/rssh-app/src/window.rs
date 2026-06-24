@@ -3135,7 +3135,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(skip_close_confirmation_for_processes_named) =
-        lua_config_table_assignment_from_query(
+        lua_config_table_or_static_variable_assignment_from_query(
             config,
             "skip_close_confirmation_for_processes_named",
         )
@@ -69252,6 +69252,36 @@ mod tests {
             effective.window_close_confirmation,
             NativeWindowCloseConfirmation::NeverPrompt
         );
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            ["top".to_owned(), "cmd.exe".to_owned()]
+        );
+
+        app.handle_window_close_requested();
+
+        assert!(app.window_close_requested_for_test());
+        assert!(app.close_confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_skip_close_confirmation_static_variable() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("top"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local stateless_processes = { 'top', 'cmd.exe' }
+
+            config.window_close_confirmation = 'AlwaysPrompt'
+            config.skip_close_confirmation_for_processes_named = stateless_processes
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm skip close confirmation table variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
         assert_eq!(
             effective.skip_close_confirmation_for_processes_named,
             ["top".to_owned(), "cmd.exe".to_owned()]
