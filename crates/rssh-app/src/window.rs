@@ -4527,6 +4527,10 @@ enum NativeConfigColorsLuaSource<'a> {
 fn lua_config_colors_source_from_query<'a>(
     source: &'a str,
 ) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
+    if let Some(source) = lua_config_colors_return_table_source_from_query(source)? {
+        return Some(Some(source));
+    }
+
     if let Some(source) = lua_config_colors_direct_source_from_query(source)? {
         return Some(Some(source));
     }
@@ -4540,6 +4544,21 @@ fn lua_config_colors_source_from_query<'a>(
     }
 
     Some(None)
+}
+
+fn lua_config_colors_return_table_source_from_query<'a>(
+    source: &'a str,
+) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
+    let mut literal_from_query = lua_color_variable_mutation_value_literal_from_query;
+    let Some(colors) =
+        lua_config_return_table_assignment_from_query(source, "colors", &mut literal_from_query)
+    else {
+        return Some(None);
+    };
+
+    Some(Some(lua_config_colors_source_value_from_query(
+        source, colors,
+    )?))
 }
 
 fn lua_config_colors_direct_source_from_query<'a>(
@@ -44087,6 +44106,38 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
         assert_eq!(effective.background_color, Color::Rgb(7, 8, 9));
+    }
+
+    #[test]
+    fn window_app_uses_wezterm_lua_return_table_colors_after_config_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#010203',
+              background = '#040506',
+              cursor_bg = '#070809',
+            }
+
+            return {
+              colors = {
+                foreground = '#101112',
+                background = '#131415',
+                cursor_bg = '#161718',
+              },
+            }
+            "##,
+        )
+        .expect("expected WezTerm return table colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
     }
 
     #[test]
