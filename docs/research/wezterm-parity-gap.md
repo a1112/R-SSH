@@ -1079,7 +1079,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   string table keys with long-bracket values for leader fields, key-table names,
   and nested assignment fields, plus top-level static
   `table.insert(config.keys, { ... })` appends and
-  `table.insert(config.key_tables.<name>, { ... })` nested appends. Static
+  `table.insert(config.key_tables.<name>, { ... })` nested appends plus
+  `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
+  inserts. Static
   `config.keys` and `config.key_tables` action fields also accept
   `wezterm.action_callback(...)` values as no-op native placeholders so
   official callback-shaped bindings can load; full Lua callback execution, full
@@ -1942,9 +1944,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   string table keys with long-bracket values for key-table names and nested
   assignment fields, plus top-level static
   `table.insert(config.keys, { ... })` appends and
-  `table.insert(config.key_tables.<name>, { ... })` nested appends; full Lua
-  config evaluation, default key-table merging, and config-file reload wiring
-  remain open.
+  `table.insert(config.key_tables.<name>, { ... })` nested appends plus
+  `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
+  inserts; full Lua config evaluation, default key-table merging, and
+  config-file reload wiring remain open.
 - Copy mode semantic-zone movement can scroll into retained history and supports
   typed Prompt/Input/Output filters.
 - Copy mode source-row selection anchors now preserve and copy selections that
