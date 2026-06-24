@@ -295,6 +295,8 @@ keyboard, mouse, paste, resize
   official callback-shaped bindings can load, static table variable assignments
   such as `config.keys = user_keys` or
   `config.key_tables = user_key_tables`, or `config.leader = user_leader`.
+  Top-level `config.keys` assignment `key` and `mods` fields parse inline or
+  through top-level static string variables.
   Leader `key`, `mods`, and `timeout_milliseconds` fields parse inline or
   through top-level static scalar variables. Static return-table fields such as
   `return { keys = user_keys }` or

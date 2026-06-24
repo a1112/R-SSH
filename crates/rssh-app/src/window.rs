@@ -3189,8 +3189,16 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         )?);
         parsed = true;
     }
-    if let Some(keys) = lua_config_table_assignment_with_insert_appends_from_query(config, "keys") {
-        overrides.key_assignments = Some(native_key_assignments_lua_table_from_query(&keys)?);
+    if let Some(keys) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(config, "keys")
+    {
+        overrides.key_assignments = Some(native_key_assignments_lua_table_from_query(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: keys.max_start,
+            }),
+            &keys.value,
+        )?);
         parsed = true;
     }
     if let Some(key_tables) =
@@ -8122,7 +8130,7 @@ fn native_key_tables_lua_table_from_query(
         }
         key_tables.insert(
             name,
-            native_key_assignments_lua_table_from_query(value.trim())?,
+            native_key_assignments_lua_table_from_query(None, value.trim())?,
         );
     }
 
@@ -8130,6 +8138,7 @@ fn native_key_tables_lua_table_from_query(
 }
 
 fn native_key_assignments_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Vec<NativeUserKeyAssignment>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -8149,7 +8158,7 @@ fn native_key_assignments_lua_table_from_query(
             }
             indexed_assignments.insert(
                 index,
-                native_user_key_assignment_lua_table_from_query(value.trim())?,
+                native_user_key_assignment_lua_table_from_query(static_source, value.trim())?,
             );
             continue;
         }
@@ -8157,7 +8166,10 @@ fn native_key_assignments_lua_table_from_query(
         if !indexed_assignments.is_empty() {
             return None;
         }
-        assignments.push(native_user_key_assignment_lua_table_from_query(field)?);
+        assignments.push(native_user_key_assignment_lua_table_from_query(
+            static_source,
+            field,
+        )?);
     }
 
     if !indexed_assignments.is_empty() {
@@ -8169,7 +8181,10 @@ fn native_key_assignments_lua_table_from_query(
     Some(assignments)
 }
 
-fn native_user_key_assignment_lua_table_from_query(value: &str) -> Option<NativeUserKeyAssignment> {
+fn native_user_key_assignment_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeUserKeyAssignment> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut key = None;
     let mut mods = None;
@@ -8188,13 +8203,13 @@ fn native_user_key_assignment_lua_table_from_query(value: &str) -> Option<Native
                 if key.is_some() {
                     return None;
                 }
-                key = Some(parse_maybe_quoted_query_text(value)?);
+                key = Some(parse_maybe_static_query_text(static_source, value)?);
             }
             "mods" | "mod" => {
                 if mods.is_some() {
                     return None;
                 }
-                mods = Some(parse_maybe_quoted_query_text(value)?);
+                mods = Some(parse_maybe_static_query_text(static_source, value)?);
             }
             "action" => {
                 if command.is_some() {
@@ -67189,6 +67204,38 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+H".to_owned(),
                 command: WindowCommand::SendString("from-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local copy_key = 'H'
+            local copy_mods = 'CTRL|SHIFT'
+
+            config.keys = {
+              {
+                key = copy_key,
+                mods = copy_mods,
+                action = act.SendString 'from-field-variable',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+H".to_owned(),
+                command: WindowCommand::SendString("from-field-variable".to_owned()),
             }])
         );
     }
