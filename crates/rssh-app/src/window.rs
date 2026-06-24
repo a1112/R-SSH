@@ -5759,7 +5759,7 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
     let after_receiver = lua_trim_start_comments(after_receiver)?;
     let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
     let rest = lua_trim_start_comments(rest)?;
-    let (name, rest) = lua_nested_table_insert_key_from_query(rest)?;
+    let (name, rest) = lua_nested_table_insert_key_from_query(source, rest, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     if let Some(value) = lua_table_insert_value_table_from_query(source, rest, start) {
@@ -5785,7 +5785,11 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
     ))
 }
 
-fn lua_nested_table_insert_key_from_query(query: &str) -> Option<(String, &str)> {
+fn lua_nested_table_insert_key_from_query<'a>(
+    source: &str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<(String, &'a str)> {
     let query = lua_trim_start_comments(query)?;
     if let Some(rest) = query.strip_prefix('.') {
         let rest = lua_trim_start_comments(rest)?;
@@ -5794,11 +5798,22 @@ fn lua_nested_table_insert_key_from_query(query: &str) -> Option<(String, &str)>
     }
 
     let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
-    let key_literal = lua_quoted_string_literal_from_query(after_open)
-        .or_else(|| lua_long_bracket_literal_from_query(after_open))?;
-    let key = parse_maybe_quoted_query_text(key_literal)?;
-    let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
-    Some((key, rest.strip_prefix(']')?))
+    if let Some(key_literal) = lua_quoted_string_literal_from_query(after_open)
+        .or_else(|| lua_long_bracket_literal_from_query(after_open))
+    {
+        let key = parse_maybe_quoted_query_text(key_literal)?;
+        let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
+        return Some((key, rest.strip_prefix(']')?));
+    }
+
+    let variable = lua_identifier_literal_from_query(after_open)?;
+    let rest = lua_trim_start_comments(after_open.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix(']')?;
+    let key =
+        lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+            .and_then(parse_maybe_quoted_query_text)?;
+    let key = non_empty_spawn_command_option_value(&key).ok()?;
+    Some((key, rest))
 }
 
 fn lua_table_with_inserted_field(
@@ -8148,7 +8163,7 @@ fn native_key_tables_lua_table_from_query(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         if key_tables.contains_key(&name) {
             return None;
         }
@@ -31807,15 +31822,38 @@ fn hwb_to_rgb(hue_degrees: f64, whiteness: f64, blackness: f64) -> [u8; 3] {
 }
 
 fn split_lua_table_key_from_query(key: &str) -> Option<String> {
+    split_lua_table_key_from_query_with_static_source(None, key)
+}
+
+fn split_lua_table_key_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    key: &str,
+) -> Option<String> {
     if let Some(rest) = key.trim().strip_prefix('[') {
         let quoted = lua_trim_start_comments(rest)?;
-        let literal = lua_quoted_string_literal_from_query(quoted)
-            .or_else(|| lua_long_bracket_literal_from_query(quoted))?;
-        let close = lua_trim_start_comments(quoted.get(literal.len()..)?)?;
+        if let Some(literal) = lua_quoted_string_literal_from_query(quoted)
+            .or_else(|| lua_long_bracket_literal_from_query(quoted))
+        {
+            let close = lua_trim_start_comments(quoted.get(literal.len()..)?)?;
+            if close.trim_start() != "]" {
+                return None;
+            }
+            let value = parse_maybe_quoted_query_text(literal)?;
+            return non_empty_spawn_command_option_value(&value).ok();
+        }
+
+        let static_source = static_source?;
+        let variable = lua_identifier_literal_from_query(quoted)?;
+        let close = lua_trim_start_comments(quoted.get(variable.len()..)?)?;
         if close.trim_start() != "]" {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(literal)?;
+        let value = lua_static_string_variable_assignment_before_offset_from_query(
+            static_source.source,
+            variable,
+            static_source.max_start,
+        )
+        .and_then(parse_maybe_quoted_query_text)?;
         return non_empty_spawn_command_option_value(&value).ok();
     }
     non_empty_spawn_command_option_value(key).ok()
@@ -66780,6 +66818,63 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_key_tables_static_name_variable() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local mode_name = 'resize_pane'
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              [mode_name] = {
+                { key = 'h', action = act.SendString 'from-name-variable' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key_tables static name variable config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-name-variable");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_return_key_tables_static_variable_assignment() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -67011,6 +67106,68 @@ mod tests {
         .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"left");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_static_name_variable_nested_insert() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local mode_name = 'resize_pane'
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              resize_pane = {},
+            }
+            table.insert(config.key_tables[mode_name], {
+              key = 'h',
+              action = act.SendString 'from-insert-name-variable',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key table static name variable insert config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-insert-name-variable"
+        );
         assert_eq!(app.active_key_table_for_test(), None);
     }
 

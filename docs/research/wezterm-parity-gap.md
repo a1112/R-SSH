@@ -1093,6 +1093,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `timeout_milliseconds` fields inline or through top-level static scalar
   variables, plus top-level `config.keys` and `config.key_tables` assignment
   `key` and `mods` fields inline or through top-level static string variables,
+  `config.key_tables = { [name] = ... }` key-table names and nested insert
+  targets such as `config.key_tables[name]` through top-level static string
+  variables,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
@@ -1980,6 +1983,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `timeout_milliseconds` fields inline or through top-level static scalar
   variables, plus top-level `config.keys` and `config.key_tables` assignment
   `key` and `mods` fields inline or through top-level static string variables,
+  `config.key_tables = { [name] = ... }` key-table names and nested insert
+  targets such as `config.key_tables[name]` through top-level static string
+  variables,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
