@@ -2065,7 +2065,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   assignments, including top-level static mutations such as
   `colors.background = '#101010'` and bracket-key variants such as
   `colors['background'] = '#101010'`, indexed slot mutations such as
-  `colors.indexed[136] = '#101010'`, or multiline table mutations such as
+  `colors.indexed[136] = '#101010'`, ANSI/bright slot mutations such as
+  `colors.ansi[2] = '#101010'`, or multiline table mutations such as
   `colors.ansi = { ... }` before assignment. When no in-file or configured-dir
   scheme matches, the default WezTerm custom scheme directories are also
   searched: `$HOME/.config/wezterm/colors` on POSIX and `colors` next to the

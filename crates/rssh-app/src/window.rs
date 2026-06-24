@@ -3973,10 +3973,14 @@ fn apply_lua_color_variable_mutation_overrides(
     variable: &str,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
-    let Some(colors) = lua_color_variable_mutation_table_from_query(source, variable) else {
-        return Some(false);
-    };
-    apply_lua_colors_table_overrides(&colors, overrides)
+    let mut parsed = false;
+    if let Some(colors) = lua_color_variable_mutation_table_from_query(source, variable) {
+        parsed |= apply_lua_colors_table_overrides(&colors, overrides)?;
+    }
+    parsed |=
+        apply_lua_color_variable_palette_slot_mutation_overrides(source, variable, overrides)?;
+
+    Some(parsed)
 }
 
 #[allow(dead_code)]
@@ -4163,6 +4167,78 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
     }
 
     (!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n")))
+}
+
+fn apply_lua_color_variable_palette_slot_mutation_overrides(
+    source: &str,
+    variable: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+    let mut line_start = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
+            line_start += line.len();
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            line_start += line.len();
+            continue;
+        }
+        let rest = source.get(start + variable.len()..)?.trim_start();
+        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+            line_start += line.len();
+            continue;
+        };
+        let Some(offset) = (match field_name.as_str() {
+            "ansi" => Some(0),
+            "brights" => Some(8),
+            _ => None,
+        }) else {
+            line_start += line.len();
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let mut palette = overrides
+            .ansi_palette
+            .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+
+        if let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest) {
+            if !(1..=8).contains(&index) {
+                return None;
+            }
+            let rest = lua_trim_start_comments(rest)?;
+            let Some(value) = rest.strip_prefix('=') else {
+                line_start += line.len();
+                continue;
+            };
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            let value = parse_maybe_quoted_query_text(value)?;
+            palette[offset + index - 1] = lua_opaque_color_from_query(&value)?;
+        } else {
+            let Some(value) = rest.strip_prefix('=') else {
+                line_start += line.len();
+                continue;
+            };
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            let values = split_lua_table_string_array(value)?;
+            let colors = values
+                .iter()
+                .map(|value| lua_opaque_color_from_query(value))
+                .collect::<Option<Vec<_>>>()?;
+            let colors = <[Color; 8]>::try_from(colors).ok()?;
+            palette[offset..offset + 8].copy_from_slice(&colors);
+        }
+
+        overrides.ansi_palette = Some(palette);
+        parsed = true;
+        line_start += line.len();
+    }
+
+    Some(parsed)
 }
 
 fn lua_color_variable_mutation_array_index_from_query(query: &str) -> Option<(usize, &str)> {
@@ -42545,6 +42621,138 @@ mod tests {
             .expect("expected indexed palette");
         assert_eq!(indexed[136], Some(Color::Rgb(76, 77, 78)));
         assert_eq!(indexed[137], Some(Color::Rgb(79, 80, 81)));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_ansi_palette_slot_mutations() {
+        static NEXT_LOAD_SCHEME_ANSI_SLOT_MUTATION_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-ansi-slot-mutation-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_ANSI_SLOT_MUTATION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            ansi = [
+              "#000001",
+              "#000002",
+              "#000003",
+              "#000004",
+              "#000005",
+              "#000006",
+              "#000007",
+              "#000008",
+            ]
+            brights = [
+              "#000009",
+              "#00000a",
+              "#00000b",
+              "#00000c",
+              "#00000d",
+              "#00000e",
+              "#00000f",
+              "#000010",
+            ]
+            "##,
+        )
+        .expect("expected temp load_scheme ANSI slot mutation TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors.ansi[2] = '#525354'
+            colors.brights[8] = '#555657'
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme ANSI slot mutation config");
+        app.set_config_overrides(overrides);
+
+        let palette = app
+            .native_effective_config()
+            .ansi_palette
+            .expect("expected ANSI palette");
+        assert_eq!(palette[0], Color::Rgb(0, 0, 1));
+        assert_eq!(palette[1], Color::Rgb(82, 83, 84));
+        assert_eq!(palette[8], Color::Rgb(0, 0, 9));
+        assert_eq!(palette[15], Color::Rgb(85, 86, 87));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_ansi_palette_mutations_in_order() {
+        static NEXT_LOAD_SCHEME_ANSI_ORDER_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-ansi-order-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_ANSI_ORDER_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#010203"
+            "##,
+        )
+        .expect("expected temp load_scheme ANSI order TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors.ansi[2] = '#58595a'
+            colors.ansi = {{
+              '#5b5c5d',
+              '#5e5f60',
+              '#616263',
+              '#646566',
+              '#676869',
+              '#6a6b6c',
+              '#6d6e6f',
+              '#707172',
+            }}
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme ANSI mutation order config");
+        app.set_config_overrides(overrides);
+
+        let palette = app
+            .native_effective_config()
+            .ansi_palette
+            .expect("expected ANSI palette");
+        assert_eq!(palette[0], Color::Rgb(91, 92, 93));
+        assert_eq!(palette[1], Color::Rgb(94, 95, 96));
         let _ = std::fs::remove_file(scheme_file);
     }
 
