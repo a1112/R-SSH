@@ -1421,7 +1421,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   calls such as
   `wezterm.action.PromptInputLine({ description = "Rename tab", prompt = "name: ", initial_value = "old name" })`,
   routing the same `description`, `prompt`, and `initial_value` fields as the
-  existing `Action { ... }` and command-palette query forms.
+  existing `Action { ... }` and command-palette query forms, including
+  trailing-comma table fields.
 - WezTerm-style input-selector table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.InputSelector({ title = "Pick Reply", choices = "decline=No thanks ; lgtm=LGTM", alphabet = "ab" })`,
