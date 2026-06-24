@@ -2439,12 +2439,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(NativeNotificationHandling::parse(&notification_handling)?);
         parsed = true;
     }
-    if let Some(environment) = lua_config_table_or_static_variable_assignment_from_query(
+    if let Some(environment) = lua_config_table_map_assignment_with_field_mutations_from_query(
         config,
         "set_environment_variables",
     ) {
         overrides.set_environment_variables =
-            Some(split_lua_table_environment_from_query(environment)?);
+            Some(split_lua_table_environment_from_query(&environment.value)?);
         parsed = true;
     }
     if let Some(font_size) = lua_config_f32_assignment_from_query(config, "font_size") {
@@ -5054,6 +5054,98 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
     selected
 }
 
+fn lua_config_table_map_assignment_with_field_mutations_from_query(
+    source: &str,
+    field: &str,
+) -> Option<LuaTableAssignmentWithMaxStart> {
+    if let Some(table) = lua_config_static_return_table_from_query(source) {
+        let max_start = lua_source_slice_start_offset(source, table)?;
+        let mut literal_from_query =
+            |value| lua_table_insert_value_table_string_from_query(source, value, max_start);
+        return lua_config_table_field_assignment_string_from_query(
+            table,
+            field,
+            &mut literal_from_query,
+        )
+        .map(|value| LuaTableAssignmentWithMaxStart { value, max_start });
+    }
+
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        let statement = source.get(start..)?;
+        let after_receiver = if lua_source_keyword_at(source, start, "local") {
+            let rest = lua_trim_start_comments(source.get(start + "local".len()..)?)?;
+            lua_config_receiver_prefix_rest(rest, receiver)
+        } else {
+            lua_config_receiver_prefix_rest(statement, receiver)
+        };
+
+        if let Some(after_receiver) = after_receiver {
+            let after_receiver = lua_trim_start_comments(after_receiver)?;
+            if let Some(after_assignment) = after_receiver.strip_prefix('=') {
+                let after_assignment = lua_trim_start_comments(after_assignment)?;
+                if let Some(table) =
+                    lua_table_insert_value_table_string_from_query(source, after_assignment, start)
+                {
+                    let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+                    let mut literal_from_query = |value| {
+                        lua_table_insert_value_table_string_from_query(source, value, start)
+                    };
+                    if let Some(value) = lua_config_table_field_assignment_string_from_query(
+                        table,
+                        field,
+                        &mut literal_from_query,
+                    ) {
+                        selected = Some(LuaTableAssignmentWithMaxStart {
+                            value,
+                            max_start: start,
+                        });
+                    }
+                }
+            }
+
+            if let Some(after_field) =
+                lua_config_field_access_rest_from_query(after_receiver, field)
+            {
+                let after_field = lua_trim_start_comments(after_field)?;
+                if let Some(after_assignment) = after_field.strip_prefix('=')
+                    && let Some(value) = lua_table_insert_value_table_string_from_query(
+                        source,
+                        lua_trim_start_comments(after_assignment)?,
+                        start,
+                    )
+                {
+                    selected = Some(LuaTableAssignmentWithMaxStart {
+                        value,
+                        max_start: start,
+                    });
+                    continue;
+                }
+            }
+        }
+
+        if let Some(assignment) =
+            lua_config_table_map_field_assignment_from_query(source, start, receiver, field)
+        {
+            selected = Some(
+                lua_table_with_assigned_field(
+                    selected.take().map(|assignment| assignment.value),
+                    &assignment.key,
+                    assignment.value,
+                )
+                .map(|value| LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: start,
+                })?,
+            );
+        }
+    }
+
+    selected
+}
+
 fn lua_config_u32_array_assignment_with_insert_appends_with_max_start_from_query(
     source: &str,
     field: &str,
@@ -5747,6 +5839,45 @@ struct LuaTableIndexAssignment<'a> {
 struct LuaTableIndexOrAppendAssignment<'a> {
     index: Option<usize>,
     value: &'a str,
+}
+
+struct LuaTableMapFieldAssignment<'a> {
+    key: String,
+    value: &'a str,
+}
+
+fn lua_config_table_map_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<LuaTableMapFieldAssignment<'a>> {
+    let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableMapFieldAssignment {
+        key,
+        value: lua_static_string_assignment_value_from_query(source, rest)?,
+    })
+}
+
+fn lua_table_map_field_key_from_query(query: &str) -> Option<(String, &str)> {
+    if let Some(rest) = query.strip_prefix('.') {
+        let rest = lua_trim_start_comments(rest)?;
+        let key = lua_identifier_literal_from_query(rest)?;
+        return Some((key.to_owned(), rest.get(key.len()..)?));
+    }
+
+    let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
+    let key_literal = lua_quoted_string_literal_from_query(after_open)
+        .or_else(|| lua_long_bracket_literal_from_query(after_open))?;
+    let key = parse_maybe_quoted_query_text(key_literal)?;
+    let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
+    Some((key, rest.strip_prefix(']')?))
 }
 
 fn lua_config_table_insert_append_value_from_query<'a>(
@@ -7853,6 +7984,47 @@ fn lua_table_with_index_or_append_assigned_field(
         fields[index - 1] = field.to_owned();
     } else {
         fields.push(field.to_owned());
+    }
+
+    Some(format!("{{ {} }}", fields.join(",\n")))
+}
+
+fn lua_table_with_assigned_field(table: Option<String>, key: &str, value: &str) -> Option<String> {
+    let field = format!("{} = {}", lua_table_key_from_text(key), value.trim());
+    let Some(table) = table else {
+        return Some(format!("{{ {field} }}"));
+    };
+
+    let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut fields = Vec::new();
+    let mut assigned = false;
+
+    for existing in split_lua_table_top_level_fields(table)? {
+        let existing = existing.trim();
+        if existing.is_empty() {
+            continue;
+        }
+        let Some((existing_key, _existing_value)) = split_lua_table_assignment_from_field(existing)
+        else {
+            fields.push(existing.to_owned());
+            continue;
+        };
+        let Some(existing_key) = split_lua_table_key_from_query(existing_key.trim()) else {
+            fields.push(existing.to_owned());
+            continue;
+        };
+        if existing_key == key {
+            if !assigned {
+                fields.push(field.clone());
+                assigned = true;
+            }
+        } else {
+            fields.push(existing.to_owned());
+        }
+    }
+
+    if !assigned {
+        fields.push(field);
     }
 
     Some(format!("{{ {} }}", fields.join(",\n")))
@@ -70842,6 +71014,41 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm environment variable table config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+        assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_environment_field_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {}
+            config.set_environment_variables.PROJECT_MODE = 'dev'
+            config.set_environment_variables.FEATURE_FLAG = 'on'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm environment variable mutation config");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::NewTab));
