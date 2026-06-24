@@ -1416,7 +1416,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   calls such as
   `wezterm.action.PaneSelect({ mode = "SwapWithActive", show_pane_ids = true, alphabet = "12" })`,
   routing the same `mode`, `show_pane_ids`, and `alphabet` fields as the
-  existing command-palette query forms.
+  existing command-palette query forms, including trailing-comma table fields.
 - WezTerm-style prompt-input table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.PromptInputLine({ description = "Rename tab", prompt = "name: ", initial_value = "old name" })`,
@@ -2435,7 +2435,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.PaneSelect { mode = ..., show_pane_ids = ..., alphabet = ... }`
   and parenthesized table calls parse the same native option subset, with
   omitted `mode` defaulting to Activate, including bracketed string table keys
-  with long-bracket values.
+  with long-bracket values and trailing-comma table fields.
 - Pane-select swap modes now expose WezTerm-style mode entries `Pane Select Swap
   With Active` and `Pane Select Swap With Active Keep Focus`: selected panes
   exchange layout positions with the active pane, with focus either moving to the

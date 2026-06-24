@@ -33602,7 +33602,11 @@ fn pane_select_lua_table_from_query(query: &str) -> Option<WindowPaneSelectOptio
     let mut parsed_alphabet = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
 
@@ -86143,6 +86147,43 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.PaneSelect({ mode = 'SwapWithActive', show_pane_ids = true, alphabet = '12' })"
+                .to_owned(),
+        );
+
+        let expected = WindowCommand::PaneSelect(WindowPaneSelectOptions {
+            mode: WindowPaneSelectMode::SwapWithActive,
+            show_pane_ids: true,
+            alphabet: Some("12".to_owned()),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        assert!(app.command_palette_execute(expected));
+        let pane_select = app
+            .pane_select
+            .as_ref()
+            .expect("pane select should be active");
+        assert_eq!(pane_select.mode, WindowPaneSelectMode::SwapWithActive);
+        assert!(pane_select.show_pane_ids);
+        assert_eq!(pane_select.labels[0].label, "1");
+        assert_eq!(pane_select.labels[1].label, "2");
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_pane_select_wezterm_action_table_trailing_comma_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PaneSelect({ mode = 'SwapWithActive', show_pane_ids = true, alphabet = '12', })"
                 .to_owned(),
         );
 

@@ -525,8 +525,8 @@ keyboard, mouse, paste, resize
   alphabet }` payload and reject duplicate structured fields. WezTerm-style
   `wezterm.action.PaneSelect { mode = ..., show_pane_ids = ..., alphabet = ... }`
   and parenthesized table-call queries dispatch the same native field subset,
-  including long-bracket table keys; full config-file wiring remains future
-  parity work.
+  including long-bracket table keys and trailing-comma table fields; full
+  config-file wiring remains future parity work.
 - Completed in v1: WezTerm-style `ActivatePaneDirection` routes
   `Ctrl+Shift+Arrow` and command-palette Activate Pane Direction Left/Right/
   Up/Down/Next/Previous entries to directional pane focus changes. Native
