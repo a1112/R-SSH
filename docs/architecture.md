@@ -771,7 +771,8 @@ keyboard, mouse, paste, resize
   `group="<name with spaces>"`, so quoted group values with spaces do not retain
   their quotes. The native query subset rejects duplicate
   `copy_on_select`, `copy_to`, and `group` fields instead of silently overriding
-  them. The modal handles `Esc` /
+  them. WezTerm-style Lua `CharSelect { ... }` / `CharSelect({ ... })` table
+  queries tolerate trailing comma fields. The modal handles `Esc` /
   `Ctrl+G` cancellation
   plus typed text input, Backspace editing, `Ctrl+U` input clearing,
   `Ctrl+R` / `Ctrl+Shift+R` group cycling, and Enter acceptance for raw, `U+`,

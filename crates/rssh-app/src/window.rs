@@ -29973,7 +29973,11 @@ fn char_select_lua_table_from_query(value: &str) -> Option<WindowCharSelectOptio
     let mut parsed_group = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
 
@@ -65110,6 +65114,28 @@ mod tests {
                 group: Some("PeopleAndBody".to_owned()),
             })]
         );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_char_select_wezterm_action_table_trailing_comma_query() {
+        for query in [
+            "wezterm.action.CharSelect { copy_on_select = false, copy_to = 'PrimarySelection', group = 'PeopleAndBody', }",
+            "wezterm.action.CharSelect({ copy_on_select = false, copy_to = 'PrimarySelection', group = 'PeopleAndBody', })",
+        ] {
+            let mut app = NativeWindowApp::new(None);
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::CharSelectArgs(WindowCharSelectOptions {
+                    copy_on_select: false,
+                    copy_to: WindowCopyDestination::PrimarySelection,
+                    group: Some("PeopleAndBody".to_owned()),
+                })]
+            );
+        }
     }
 
     #[test]

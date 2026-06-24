@@ -309,7 +309,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `group=<name>` / `group="<name with spaces>"`,
   so quoted group values with spaces do not retain their quotes. Duplicate
   `copy_on_select`, `copy_to`, and `group` fields are rejected instead of
-  silently overriding an earlier field. When `group` is omitted, the overlay
+  silently overriding an earlier field. WezTerm-style Lua `CharSelect { ... }`
+  / `CharSelect({ ... })` table queries tolerate trailing comma fields. When
+  `group` is omitted, the overlay
   resolves it to `RecentlyUsed` after an accepted character selection and to
   `SmileysAndEmotion` before any selection history, matching WezTerm's default
   group rule; opening `RecentlyUsed` with no typed filter renders recent
@@ -1404,7 +1406,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.CharSelect({ copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" })`,
   routing the same `copy_on_select`, `copy_to`, and `group` fields as the
   existing command-palette query forms, including bracketed string table keys
-  with long-bracket values.
+  with long-bracket values and trailing comma table fields.
 - WezTerm-style quick-select table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.QuickSelectArgs({ pattern = "ticket-[0-9]+", action = "open-uri", alphabet = "12" })`,
