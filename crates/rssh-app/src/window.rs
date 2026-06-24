@@ -3255,7 +3255,8 @@ fn color_scheme_lua_mutation_source_from_config_query<'a>(
 ) -> Option<&'a str> {
     let mut mutation_start = 0usize;
 
-    if let Some(color_schemes) = lua_config_table_assignment_from_query(source, "color_schemes")
+    if let Some(color_schemes) =
+        lua_config_table_or_static_variable_assignment_from_query(source, "color_schemes")
         && color_scheme_lua_source_from_query(source, color_schemes, color_scheme)?.is_some()
     {
         mutation_start = lua_source_slice_end_offset(source, color_schemes)?;
@@ -3564,7 +3565,9 @@ fn color_scheme_lua_source_from_config_query<'a>(
 ) -> Option<Option<NativeColorSchemeLuaSource<'a>>> {
     let mut selected = None;
 
-    if let Some(color_schemes) = lua_config_table_assignment_from_query(source, "color_schemes") {
+    if let Some(color_schemes) =
+        lua_config_table_or_static_variable_assignment_from_query(source, "color_schemes")
+    {
         selected = color_scheme_lua_source_from_query(source, color_schemes, color_scheme)?;
     }
 
@@ -43915,6 +43918,36 @@ mod tests {
             "##,
         )
         .expect("expected WezTerm custom color scheme variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_custom_color_schemes_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local project_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#101112',
+                background = '#131415',
+                cursor_bg = '#161718',
+              },
+            }
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = project_schemes
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color_schemes static variable config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
