@@ -3157,8 +3157,8 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         )?);
         parsed = true;
     }
-    if let Some(keys) = lua_config_table_assignment_from_query(config, "keys") {
-        overrides.key_assignments = Some(native_key_assignments_lua_table_from_query(keys)?);
+    if let Some(keys) = lua_config_table_assignment_with_insert_appends_from_query(config, "keys") {
+        overrides.key_assignments = Some(native_key_assignments_lua_table_from_query(&keys)?);
         parsed = true;
     }
     if let Some(key_tables) = lua_config_table_assignment_from_query(config, "key_tables") {
@@ -64755,6 +64755,35 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+I".to_owned(),
                 command: WindowCommand::Nop,
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_insert_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {}
+            table.insert(config.keys, {
+              key = 'K',
+              mods = 'CTRL|SHIFT',
+              action = act.SendString 'inserted',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm table.insert key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString("inserted".to_owned()),
             }])
         );
     }

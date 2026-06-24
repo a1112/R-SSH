@@ -555,8 +555,9 @@ runtime storage for tabs and split panes.
   WezTerm-style `config.keys` and `config.key_tables` snippets parse the
   implemented native assignment subset into runtime key-table overrides,
   including bracketed string table keys with long-bracket values for key-table
-  names and nested assignment fields. Full Lua config evaluation remains later
-  parity work.
+  names and nested assignment fields, and top-level static
+  `table.insert(config.keys, { ... })` appends. Full Lua config evaluation
+  remains later parity work.
 - `rssh-app` includes a WezTerm-style `PaneSelect` overlay from the command
   palette entry `Pane Select`. It labels panes with the WezTerm default
   selection alphabet (`a`, `s`, `d`, ...) and honors the native effective
