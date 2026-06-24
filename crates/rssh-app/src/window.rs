@@ -26784,7 +26784,11 @@ fn close_current_confirm_lua_table_from_query(value: &str) -> Option<bool> {
     let mut confirm = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "confirm" => {
@@ -87024,6 +87028,35 @@ mod tests {
         );
         assert!(app.command_palette.is_none());
         assert!(!app.window_close_requested_for_test());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_close_current_wezterm_action_table_trailing_comma_queries() {
+        for (query, expected) in [
+            (
+                "wezterm.action.CloseCurrentPane { confirm = false, }",
+                WindowCommand::CloseCurrentPane { confirm: false },
+            ),
+            (
+                "wezterm.action.CloseCurrentPane({ confirm = false, })",
+                WindowCommand::CloseCurrentPane { confirm: false },
+            ),
+            (
+                "wezterm.action.CloseCurrentTab { confirm = true, }",
+                WindowCommand::CloseCurrentTab { confirm: true },
+            ),
+            (
+                "wezterm.action.CloseCurrentTab({ confirm = true, })",
+                WindowCommand::CloseCurrentTab { confirm: true },
+            ),
+        ] {
+            let mut app = NativeWindowApp::new(None);
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+
+            assert_eq!(app.command_palette_filtered_commands(), vec![expected]);
+        }
     }
 
     #[test]
