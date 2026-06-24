@@ -1429,7 +1429,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   routing the same `title`, `choices`, `alphabet`, `description`,
   `fuzzy_description`, and `fuzzy` fields as the existing `Action { ... }` and
   command-palette query forms, including table-of-table choices and text-only
-  `wezterm.format` labels.
+  `wezterm.format` labels plus trailing-comma table fields.
 - WezTerm-style confirmation table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,

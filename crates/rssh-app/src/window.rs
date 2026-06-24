@@ -27395,7 +27395,11 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
     let mut parsed_action = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let raw_value = value.trim();
         match name.to_ascii_lowercase().as_str() {
@@ -73693,6 +73697,46 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.InputSelector({ title = \"Pick Reply\", choices = \"decline=No thanks ; lgtm=LGTM\", alphabet = \"ab\", description = \"Choose one:\", fuzzy_description = \"Filter replies:\", fuzzy = true })"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::InputSelector(WindowInputSelectorOptions {
+            title: "Pick Reply".to_owned(),
+            choices: vec![
+                WindowInputSelectorChoice {
+                    label: "No thanks".to_owned(),
+                    id: Some("decline".to_owned()),
+                },
+                WindowInputSelectorChoice {
+                    label: "LGTM".to_owned(),
+                    id: Some("lgtm".to_owned()),
+                },
+            ],
+            alphabet: Some("ab".to_owned()),
+            description: Some("Choose one:".to_owned()),
+            fuzzy_description: Some("Filter replies:".to_owned()),
+            fuzzy: true,
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+
+        assert!(app.command_palette.is_none());
+        assert!(
+            app.effective_window_title()
+                .contains("Pick Reply: Filter replies:")
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_input_selector_wezterm_action_table_trailing_comma_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector({ title = \"Pick Reply\", choices = \"decline=No thanks ; lgtm=LGTM\", alphabet = \"ab\", description = \"Choose one:\", fuzzy_description = \"Filter replies:\", fuzzy = true, })"
                 .to_owned(),
         );
 

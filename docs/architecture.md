@@ -430,9 +430,9 @@ keyboard, mouse, paste, resize
   entries are accepted, and static `wezterm.format { { Text = ... } }` label
   values are reduced to their text for native selector labels. Static
   `action = wezterm.action_callback(...)` fields are accepted as native-handler
-  placeholders. Duplicate `fuzzy` fields are rejected instead of silently
-  overriding them; actual Lua `wezterm.action_callback` wiring remains future
-  parity work.
+  placeholders, and WezTerm-style Lua table calls skip trailing-comma fields.
+  Duplicate `fuzzy` fields are rejected instead of silently overriding them;
+  actual Lua `wezterm.action_callback` wiring remains future parity work.
 - Completed in v1: a native WezTerm-style `Confirmation` action payload carries
   a message string, required Yes action, and optional No/cancel action. It opens
   a modal confirmation overlay, dispatches a typed native handler with
