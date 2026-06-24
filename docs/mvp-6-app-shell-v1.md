@@ -64,7 +64,8 @@ runtime storage for tabs and split panes.
   is treated as the returned config and earlier assignments to unreturned config
   variables are ignored; supported repeated direct field assignments and
   whole-table assignments on that returned config use the latest static value
-  by source order.
+  by source order, and duplicate fields inside static config table constructors
+  use the later entry.
 - `rssh-app` app-shell action dispatch maps from typed actions to updated
   app state.
 - `rssh-app` keyboard handling recognizes app-shell shortcuts before PTY input:

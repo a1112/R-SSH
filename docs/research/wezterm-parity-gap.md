@@ -1779,7 +1779,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window_close_confirmation` and
   `skip_close_confirmation_for_processes_named`.
   Supported repeated direct field assignments and whole-table assignments on
-  the returned static config use the latest static value by source order.
+  the returned static config use the latest static value by source order, and
+  duplicate fields inside static config table constructors use the later entry.
   `warn_about_missing_glyphs` is retained with WezTerm's default `true`.
   Unknown ESC/CSI sequences are recorded by the terminal runtime and emitted
   as native stderr warnings when `log_unknown_escape_sequences` is enabled.

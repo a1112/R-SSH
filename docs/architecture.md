@@ -103,7 +103,8 @@ keyboard, mouse, paste, resize
   unreturned config variables do not leak into launch overrides when the file
   returns `{ ... }` or `return cfg`; supported direct field assignments and
   whole-table assignments on that returned config use the latest static value
-  by source order;
+  by source order, and duplicate fields inside static config table constructors
+  use the later entry;
   local/window/start/console CLI startup also accepts WezTerm-style `--cwd` for
   the initial child process, native window startup accepts WezTerm-style `start`
   as an alias for `window` and `-e` as an initial program alias, and native

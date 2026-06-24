@@ -5393,6 +5393,8 @@ fn lua_config_table_field_assignment_from_query<'a>(
     field: &str,
     literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
 ) -> Option<&'a str> {
+    let mut selected = None;
+
     for table_field in split_lua_table_top_level_fields(table)? {
         let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
             continue;
@@ -5401,11 +5403,11 @@ fn lua_config_table_field_assignment_from_query<'a>(
             continue;
         };
         if key == field {
-            return literal_from_query(lua_trim_start_comments(value)?);
+            selected = literal_from_query(lua_trim_start_comments(value)?);
         }
     }
 
-    None
+    selected
 }
 
 fn lua_config_static_return_table_from_query(source: &str) -> Option<&str> {
@@ -64809,6 +64811,40 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_uses_later_wezterm_lua_return_table_duplicate_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            return {
+              default_prog = { 'bad-shell', '--bad' },
+              default_cwd = 'C:/Bad Dir',
+              default_prog = { 'nu', '--login' },
+              default_cwd = 'C:/Project Dir',
+            }
+            "#,
+        )
+        .expect("expected duplicate WezTerm return-table launch config");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::NewTab));
