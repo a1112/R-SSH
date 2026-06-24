@@ -278,7 +278,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   defaults until the override is cleared, `freetype_render_target` following the
   effective load target when unset, and `freetype_load_flags` defaulting to
   `DEFAULT` below 100 DPI or `NO_HINTING` at 100 DPI or higher, plus
-  top-level static table variables for `config.font_dirs`. Custom block
+  top-level static table variables and `table.insert(config.font_dirs, ...)`
+  appends for `config.font_dirs`. Custom block
   glyph, square-glyph overflow, FreeType interpreter-version, PCF
   long-family-name, display pixel-geometry, font-directory, font-locator, and
   font shaper options are retained in effective config with WezTerm defaults,

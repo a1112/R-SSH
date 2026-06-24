@@ -2474,9 +2474,18 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(font_dirs) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "font_dirs")
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "font_dirs",
+        )
     {
-        overrides.font_dirs = Some(split_lua_table_string_array(font_dirs)?);
+        overrides.font_dirs = Some(split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: font_dirs.max_start,
+            }),
+            &font_dirs.value,
+        )?);
         parsed = true;
     }
     if let Some(font_locator) = lua_config_string_assignment_from_query(config, "font_locator") {
@@ -5011,6 +5020,233 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
     selected
 }
 
+fn lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+    source: &str,
+    field: &str,
+) -> Option<LuaTableAssignmentWithMaxStart> {
+    if let Some(table) = lua_config_static_return_table_from_query(source) {
+        let max_start = lua_source_slice_start_offset(source, table)?;
+        let mut literal_from_query =
+            |value| lua_string_array_value_table_string_from_query(source, value, max_start);
+        return lua_config_table_field_assignment_string_from_query(
+            table,
+            field,
+            &mut literal_from_query,
+        )
+        .map(|value| LuaTableAssignmentWithMaxStart { value, max_start });
+    }
+
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut selected = None;
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index..])
+        {
+            let content_and_rest = &source[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(source.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if lua_block_depth == 0 {
+            let after_config = if lua_source_keyword_at(source, index, "local") {
+                let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
+                lua_config_receiver_prefix_rest(rest, receiver)
+            } else {
+                lua_config_receiver_prefix_rest(source.get(index..)?, receiver)
+            };
+
+            if let Some(after_config) = after_config {
+                let after_config = lua_trim_start_comments(after_config)?;
+                if let Some(after_assignment) = after_config.strip_prefix('=') {
+                    let after_assignment = lua_trim_start_comments(after_assignment)?;
+                    if let Some(table) = lua_string_array_value_table_string_from_query(
+                        source,
+                        after_assignment,
+                        index,
+                    ) {
+                        let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+                        let mut literal_from_query = |value| {
+                            lua_string_array_value_table_string_from_query(source, value, index)
+                        };
+                        if let Some(value) = lua_config_table_field_assignment_string_from_query(
+                            table,
+                            field,
+                            &mut literal_from_query,
+                        ) {
+                            selected = Some(LuaTableAssignmentWithMaxStart {
+                                value,
+                                max_start: index,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        if source[index..].starts_with(field)
+            && lua_config_assignment_field_has_boundaries(source, index, field)
+            && lua_config_dot_assignment_has_receiver(source, index, receiver)
+            && lua_block_depth == 0
+        {
+            let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
+            if let Some(rest) = rest.strip_prefix('=')
+                && let Some(value) = lua_string_array_value_table_string_from_query(
+                    source,
+                    lua_trim_start_comments(rest)?,
+                    index,
+                )
+            {
+                selected = Some(LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: index,
+                });
+            }
+        }
+
+        if character == '['
+            && lua_block_depth == 0
+            && let Some(rest) =
+                lua_config_bracket_assignment_rest_from_query(source, index, receiver, field)
+            && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
+            && let Some(value) = lua_string_array_value_table_string_from_query(
+                source,
+                lua_trim_start_comments(rest)?,
+                index,
+            )
+        {
+            selected = Some(LuaTableAssignmentWithMaxStart {
+                value,
+                max_start: index,
+            });
+        }
+
+        if lua_block_depth == 0
+            && let Some(insert) = lua_config_string_array_insert_append_value_from_query(
+                source, index, receiver, field,
+            )
+        {
+            selected = Some(
+                lua_table_with_inserted_field(
+                    selected.take().map(|assignment| assignment.value),
+                    insert.position,
+                    insert.value,
+                )
+                .map(|value| LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: index,
+                })?,
+            );
+        }
+
+        if lua_block_depth == 0
+            && let Some(assignment) = lua_config_string_array_index_or_append_assignment_from_query(
+                source, index, receiver, field,
+            )
+        {
+            selected = Some(
+                lua_table_with_index_or_append_assigned_field(
+                    selected.take().map(|assignment| assignment.value),
+                    assignment.index,
+                    assignment.value,
+                )
+                .map(|value| LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: index,
+                })?,
+            );
+        }
+    }
+
+    selected
+}
+
 fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_query(
     source: &str,
 ) -> Option<LuaTableAssignmentWithMaxStart> {
@@ -5326,6 +5562,79 @@ fn lua_config_table_index_or_append_assignment_from_query<'a>(
     })
 }
 
+fn lua_config_string_array_insert_append_value_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<LuaTableInsertValue<'a>> {
+    if !lua_source_keyword_at(source, start, "table") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(source.get(start + "table".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('.')?)?;
+    if !rest.starts_with("insert") || !lua_config_assignment_field_has_boundaries(rest, 0, "insert")
+    {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest.get("insert".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let after_receiver = lua_config_receiver_prefix_rest(rest, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    if let Some(value) = lua_table_insert_value_string_from_query(source, rest, start) {
+        return Some(LuaTableInsertValue {
+            position: None,
+            value,
+        });
+    }
+
+    let position_literal = lua_unsigned_integer_literal_from_query(rest)?;
+    let position = position_literal.parse().ok()?;
+    let rest = lua_trim_start_comments(rest.get(position_literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    Some(LuaTableInsertValue {
+        position: Some(position),
+        value: lua_table_insert_value_string_from_query(source, rest, start)?,
+    })
+}
+
+fn lua_config_string_array_index_or_append_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+    let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    if let Some(assignment) =
+        lua_string_array_index_assignment_value_from_query(source, rest, start)
+    {
+        return Some(LuaTableIndexOrAppendAssignment {
+            index: Some(assignment.index),
+            value: assignment.value,
+        });
+    }
+
+    let after_open = lua_trim_start_comments(rest)?.strip_prefix('[')?;
+    let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
+    let after_hash = lua_trim_start_comments(after_hash)?;
+    let after_receiver = lua_config_receiver_prefix_rest(after_hash, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    Some(LuaTableIndexOrAppendAssignment {
+        index: None,
+        value: lua_string_array_length_append_assignment_value_after_target_from_query(
+            source, rest, start,
+        )?,
+    })
+}
+
 fn lua_table_insert_value_table_from_query<'a>(
     source: &'a str,
     query: &'a str,
@@ -5356,6 +5665,41 @@ fn lua_table_insert_value_table_string_from_query(
     lua_static_table_variable_assignment_with_insert_appends_before_offset_from_query(
         source, variable, max_start,
     )
+}
+
+fn lua_string_array_value_table_string_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    if let Some(value) = lua_braced_table_literal_from_query(query) {
+        return Some(value.to_owned());
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    lua_static_string_array_variable_assignment_with_insert_appends_before_offset_from_query(
+        source, variable, max_start,
+    )
+}
+
+fn lua_table_insert_value_string_from_query<'a>(
+    source: &str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<&'a str> {
+    if let Some(value) = lua_quoted_string_literal_from_query(query)
+        .or_else(|| lua_long_bracket_literal_from_query(query))
+    {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)?;
+    Some(variable)
 }
 
 fn lua_key_tables_value_table_string_from_query(
@@ -5476,6 +5820,155 @@ fn lua_static_table_variable_assignment_with_insert_appends_before_offset_from_q
     }
 
     selected
+}
+
+fn lua_static_string_array_variable_assignment_with_insert_appends_before_offset_from_query(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        if let Some(table) = lua_static_table_variable_assignment_table_from_query(rest, variable) {
+            selected = Some(table.to_owned());
+            continue;
+        }
+
+        if let Some(assignment) =
+            lua_static_string_array_variable_index_or_append_assignment_from_query(
+                source, start, variable,
+            )
+        {
+            selected = Some(lua_table_with_index_or_append_assigned_field(
+                selected.take(),
+                assignment.index,
+                assignment.value,
+            )?);
+            continue;
+        }
+
+        if let Some(insert) =
+            lua_static_string_array_variable_insert_append_value_from_query(source, start, variable)
+        {
+            selected = Some(lua_table_with_inserted_field(
+                selected.take(),
+                insert.position,
+                insert.value,
+            )?);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_string_array_variable_insert_append_value_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableInsertValue<'a>> {
+    if !lua_source_keyword_at(source, start, "table") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(source.get(start + "table".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('.')?)?;
+    if !rest.starts_with("insert") || !lua_config_assignment_field_has_boundaries(rest, 0, "insert")
+    {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest.get("insert".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let after_variable = rest.strip_prefix(variable)?;
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(after_variable)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    if let Some(value) = lua_table_insert_value_string_from_query(source, rest, start) {
+        return Some(LuaTableInsertValue {
+            position: None,
+            value,
+        });
+    }
+
+    let position_literal = lua_unsigned_integer_literal_from_query(rest)?;
+    let position = position_literal.parse().ok()?;
+    let rest = lua_trim_start_comments(rest.get(position_literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    Some(LuaTableInsertValue {
+        position: Some(position),
+        value: lua_table_insert_value_string_from_query(source, rest, start)?,
+    })
+}
+
+fn lua_static_string_array_variable_index_or_append_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableIndexOrAppendAssignment<'a>> {
+    if let Some(assignment) =
+        lua_static_string_array_variable_index_assignment_from_query(source, start, variable)
+    {
+        return Some(LuaTableIndexOrAppendAssignment {
+            index: Some(assignment.index),
+            value: assignment.value,
+        });
+    }
+
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let after_open = lua_trim_start_comments(after_variable)?.strip_prefix('[')?;
+    let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
+    let after_hash = lua_trim_start_comments(after_hash)?;
+    let Some(rest) = after_hash.strip_prefix(variable) else {
+        return None;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    Some(LuaTableIndexOrAppendAssignment {
+        index: None,
+        value: lua_string_array_length_append_assignment_value_after_target_from_query(
+            source, rest, start,
+        )?,
+    })
+}
+
+fn lua_static_string_array_variable_index_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableIndexAssignment<'a>> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    lua_string_array_index_assignment_value_from_query(source, after_variable, start)
 }
 
 fn lua_static_nested_table_insert_append_from_query<'a>(
@@ -5609,6 +6102,24 @@ fn lua_table_index_assignment_value_from_query<'a>(
     })
 }
 
+fn lua_string_array_index_assignment_value_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<LuaTableIndexAssignment<'a>> {
+    let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
+    let after_open = lua_trim_start_comments(after_open)?;
+    let literal = lua_unsigned_integer_literal_from_query(after_open)?;
+    let index = literal.parse().ok()?;
+    let rest = lua_trim_start_comments(after_open.get(literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableIndexAssignment {
+        index,
+        value: lua_table_insert_value_string_from_query(source, rest, max_start)?,
+    })
+}
+
 fn lua_table_length_append_assignment_value_after_target_from_query<'a>(
     source: &'a str,
     query: &'a str,
@@ -5624,6 +6135,23 @@ fn lua_table_length_append_assignment_value_after_target_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     lua_table_insert_value_table_from_query(source, rest, max_start)
+}
+
+fn lua_string_array_length_append_assignment_value_after_target_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let rest = lua_trim_start_comments(query)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('+')?)?;
+    let literal = lua_unsigned_integer_literal_from_query(rest)?;
+    if literal != "1" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    lua_table_insert_value_string_from_query(source, rest, max_start)
 }
 
 fn lua_static_nested_table_length_append_assignment_from_query<'a>(
@@ -72204,6 +72732,35 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font dirs table variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_dirs,
+            vec!["fonts".to_owned(), "vendor/fonts".to_owned()]
+        );
+        assert_eq!(
+            effective.font_locator,
+            Some(NativeFontLocator::ConfigDirsOnly)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_dirs_table_insert() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.font_dirs = {}
+            table.insert(config.font_dirs, 'fonts')
+            table.insert(config.font_dirs, 'vendor/fonts')
+            config.font_locator = 'ConfigDirsOnly'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font dirs table insert config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

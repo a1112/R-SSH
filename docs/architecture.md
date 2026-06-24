@@ -763,7 +763,8 @@ keyboard, mouse, paste, resize
   detected window DPI for renderer state and FreeType defaults until cleared,
   `freetype_load_flags` defaults to `DEFAULT` below 100 DPI and
   `NO_HINTING` at 100 DPI or higher, and static Lua `font_dirs` tables parse
-  inline or through top-level static table variables. Custom block glyph,
+  inline, through top-level static table variables, or through
+  `table.insert(config.font_dirs, ...)` appends. Custom block glyph,
   square-glyph overflow,
   FreeType interpreter-version, PCF long-family-name, display pixel-geometry,
   font-directory, font-locator, and font shaper options are retained in
