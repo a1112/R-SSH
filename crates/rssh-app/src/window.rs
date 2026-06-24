@@ -2438,11 +2438,15 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(cell_widths) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "cell_widths")
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "cell_widths",
+        )
     {
         overrides.cell_widths = Some(native_cell_widths_lua_table_from_query(
             config,
-            cell_widths,
+            &cell_widths.value,
+            cell_widths.max_start,
         )?);
         parsed = true;
     }
@@ -8406,6 +8410,7 @@ fn native_cell_width_from_ratio(ratio: f32) -> Option<NativeCellWidth> {
 fn native_cell_widths_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: usize,
 ) -> Option<Vec<NativeCellWidthOverride>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut overrides = Vec::new();
@@ -8418,7 +8423,7 @@ fn native_cell_widths_lua_table_from_query<'a>(
         let entry =
             split_lua_table_assignment_from_field(field).map_or(field, |(_, value)| value.trim());
         overrides.push(native_cell_width_override_lua_table_from_query(
-            source, entry,
+            source, entry, max_start,
         )?);
     }
 
@@ -8429,6 +8434,7 @@ fn native_cell_widths_lua_table_from_query<'a>(
 fn native_cell_width_override_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: usize,
 ) -> Option<NativeCellWidthOverride> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut first = None;
@@ -8444,11 +8450,22 @@ fn native_cell_width_override_lua_table_from_query<'a>(
         let key = split_lua_table_key_from_query(key.trim())?;
         let value = value.trim();
         match key.as_str() {
-            "first" => first = Some(lua_static_unsigned_u32_value_from_query(source, value)?),
-            "last" => last = Some(lua_static_unsigned_u32_value_from_query(source, value)?),
+            "first" => {
+                first = Some(lua_static_unsigned_u32_value_before_offset_from_query(
+                    source, value, max_start,
+                )?)
+            }
+            "last" => {
+                last = Some(lua_static_unsigned_u32_value_before_offset_from_query(
+                    source, value, max_start,
+                )?)
+            }
             "width" => {
                 width = Some(
-                    u16::try_from(lua_static_unsigned_u32_value_from_query(source, value)?).ok()?,
+                    u16::try_from(lua_static_unsigned_u32_value_before_offset_from_query(
+                        source, value, max_start,
+                    )?)
+                    .ok()?,
                 );
             }
             _ => return None,
@@ -8466,6 +8483,29 @@ fn lua_static_unsigned_u32_value_from_query<'a>(source: &'a str, value: &'a str)
     let value = lua_static_number_assignment_value_from_query(
         source,
         value,
+        lua_unsigned_u32_literal_from_query,
+    )?;
+    lua_unsigned_u32_value_from_query(value)
+}
+
+fn lua_static_unsigned_u32_value_before_offset_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
+    max_start: usize,
+) -> Option<u32> {
+    if let Some(value) = lua_unsigned_u32_literal_from_query(value) {
+        return lua_unsigned_u32_value_from_query(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let value = lua_static_number_variable_assignment_before_offset_from_query(
+        source,
+        variable,
+        max_start,
         lua_unsigned_u32_literal_from_query,
     )?;
     lua_unsigned_u32_value_from_query(value)
@@ -70894,6 +70934,33 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm cell width static field variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cell_widths,
+            vec![NativeCellWidthOverride::new(0x2606, 0x2606, 1)]
+        );
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cell_widths_table_insert() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.treat_east_asian_ambiguous_width_as_wide = true
+            config.cell_widths = {}
+            table.insert(config.cell_widths, { first = 0x2606, last = 0x2606, width = 1 })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm cell width table insert config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

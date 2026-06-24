@@ -270,7 +270,8 @@ keyboard, mouse, paste, resize
   WindowsSymbols styles. `treat_east_asian_ambiguous_width_as_wide` updates
   terminal character width calculation for ambiguous East Asian width characters
   in active and new panes. Static numeric `cell_widths` override tables parse
-  inline or through top-level static table variables from WezTerm-style Lua,
+  inline, through top-level static table variables, or through
+  `table.insert(config.cell_widths, { ... })` appends from WezTerm-style Lua,
   with `first`/`last`/`width` fields inline or through top-level static number
   variables, and take priority over the ambiguous-width setting in active and
   new panes.
