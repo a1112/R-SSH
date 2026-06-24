@@ -3197,12 +3197,18 @@ fn apply_lua_selected_color_scheme_mutation_overrides(
     color_scheme: &str,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
+    let mut parsed = false;
     let colors = lua_selected_color_scheme_mutation_table_from_query(source, color_scheme)?;
     if let Some(colors) = colors {
-        return apply_lua_colors_table_overrides(&colors, overrides);
+        parsed |= apply_lua_colors_table_overrides(&colors, overrides)?;
     }
+    parsed |= apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
+        source,
+        color_scheme,
+        overrides,
+    )?;
 
-    Some(false)
+    Some(parsed)
 }
 
 fn lua_selected_color_scheme_mutation_table_from_query(
@@ -3285,6 +3291,75 @@ fn lua_selected_color_scheme_mutation_table_from_query(
     }
 
     Some((!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n"))))
+}
+
+fn apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
+    source: &str,
+    color_scheme: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+    let mut line_start = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let Some(rest) =
+            lua_selected_color_scheme_mutation_rest_from_query(source.get(start..)?, color_scheme)
+        else {
+            line_start += line.len();
+            continue;
+        };
+        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+            line_start += line.len();
+            continue;
+        };
+        let Some(offset) = (match field_name.as_str() {
+            "ansi" => Some(0),
+            "brights" => Some(8),
+            _ => None,
+        }) else {
+            line_start += line.len();
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let mut palette = overrides
+            .ansi_palette
+            .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
+
+        if let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest) {
+            if !(1..=8).contains(&index) {
+                return None;
+            }
+            let rest = lua_trim_start_comments(rest)?;
+            let Some(value) = rest.strip_prefix('=') else {
+                line_start += line.len();
+                continue;
+            };
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            let value = parse_maybe_quoted_query_text(value)?;
+            palette[offset + index - 1] = lua_opaque_color_from_query(&value)?;
+        } else {
+            let Some(value) = rest.strip_prefix('=') else {
+                line_start += line.len();
+                continue;
+            };
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            let values = split_lua_table_string_array(value)?;
+            let colors = values
+                .iter()
+                .map(|value| lua_opaque_color_from_query(value))
+                .collect::<Option<Vec<_>>>()?;
+            let colors = <[Color; 8]>::try_from(colors).ok()?;
+            palette[offset..offset + 8].copy_from_slice(&colors);
+        }
+
+        overrides.ansi_palette = Some(palette);
+        parsed = true;
+        line_start += line.len();
+    }
+
+    Some(parsed)
 }
 
 fn lua_selected_color_scheme_mutation_rest_from_query<'a>(
@@ -42365,6 +42440,58 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
         assert_eq!(effective.background_color, Color::Rgb(10, 11, 12));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(13, 14, 15));
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_custom_color_scheme_entry_palette_slot_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                ansi = {
+                  '#000001',
+                  '#000002',
+                  '#000003',
+                  '#000004',
+                  '#000005',
+                  '#000006',
+                  '#000007',
+                  '#000008',
+                },
+                brights = {
+                  '#000009',
+                  '#00000a',
+                  '#00000b',
+                  '#00000c',
+                  '#00000d',
+                  '#00000e',
+                  '#00000f',
+                  '#000010',
+                },
+              },
+            }
+            config.color_schemes['Project Scheme'].ansi[2] = '#101112'
+            config.color_schemes['Project Scheme'].brights[8] = '#131415'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme entry palette slot mutation config");
+        app.set_config_overrides(overrides);
+
+        let palette = app
+            .native_effective_config()
+            .ansi_palette
+            .expect("expected ANSI palette");
+        assert_eq!(palette[0], Color::Rgb(0, 0, 1));
+        assert_eq!(palette[1], Color::Rgb(16, 17, 18));
+        assert_eq!(palette[8], Color::Rgb(0, 0, 9));
+        assert_eq!(palette[15], Color::Rgb(19, 20, 21));
     }
 
     #[test]

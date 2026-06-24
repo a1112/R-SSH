@@ -1358,7 +1358,9 @@ runtime storage for tabs and split panes.
   schemes after initialization. Selected custom scheme entries also support
   static top-level field mutations such as
   `config.color_schemes['Name'].background = '#101010'` and bracket-key
-  variants such as `config.color_schemes['Name']['cursor_bg'] = '#101010'`.
+  variants such as `config.color_schemes['Name']['cursor_bg'] = '#101010'`,
+  plus ANSI/bright slot mutations such as
+  `config.color_schemes['Name'].ansi[2] = '#101010'`.
   `config.color_scheme` selects one before `config.colors` applies overriding
   fields, and static `config.color_scheme_dirs` lists are retained in effective config and scan
   configured directories for matching TOML scheme files. External TOML schemes
