@@ -2785,7 +2785,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(quick_select_patterns) =
-        lua_config_table_assignment_from_query(config, "quick_select_patterns")
+        lua_config_table_or_static_variable_assignment_from_query(config, "quick_select_patterns")
     {
         overrides.quick_select_patterns =
             Some(split_lua_table_string_array(quick_select_patterns)?);
@@ -68333,6 +68333,32 @@ mod tests {
         assert!(effective.disable_default_quick_select_patterns);
         assert!(effective.quick_select_remove_styling);
         assert_eq!(effective.selection_word_boundary, " :");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_patterns_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local patterns = { 'ticket-[0-9]+', 'bug-[A-Z]+' }
+
+            config.quick_select_patterns = patterns
+            config.disable_default_quick_select_patterns = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm quick-select patterns table variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.quick_select_patterns,
+            vec!["ticket-[0-9]+".to_owned(), "bug-[A-Z]+".to_owned()]
+        );
+        assert!(effective.disable_default_quick_select_patterns);
     }
 
     #[test]

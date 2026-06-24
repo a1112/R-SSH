@@ -1789,10 +1789,11 @@ keyboard, mouse, paste, resize
   IPv4/IPv6, hex addresses, long numbers, emails), quick overlay navigation including
   `Ctrl+N`/`Ctrl+P`, PageDown/PageUp page-wise movement, WezTerm's Enter
   PriorMatch binding, configurable labels honoring `quick_select_alphabet`,
-  configurable `quick_select_patterns` appended to the defaults, configurable
-  `disable_default_quick_select_patterns` so configured patterns become the full
-  set, and `quick_select_remove_styling` stripping pane colors, text styling,
-  vertical alignment, hyperlink metadata, and inverse attributes before
+  configurable `quick_select_patterns` appended to the defaults, including
+  top-level static Lua table-variable assignments, configurable
+  `disable_default_quick_select_patterns` so configured patterns become the
+  full set, and `quick_select_remove_styling` stripping pane colors, text
+  styling, vertical alignment, hyperlink metadata, and inverse attributes before
   quick-select match/label highlights are applied, typed quick-select label
   prefixes hide non-matching labels while keeping matching labels visible,
   and same-text quick-select candidates are de-duplicated before label

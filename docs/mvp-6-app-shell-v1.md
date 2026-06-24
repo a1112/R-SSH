@@ -417,9 +417,10 @@ runtime storage for tabs and split panes.
   addresses, and long numbers. It supports keyboard navigation including
   `Ctrl+N`/`Ctrl+P`, PageDown/PageUp page-wise movement, WezTerm's Enter
   PriorMatch binding, configurable labels honoring `quick_select_alphabet`,
-  configurable `quick_select_patterns` appended to the defaults, configurable
-  `disable_default_quick_select_patterns` so configured patterns become the full
-  set, and native/effective-config storage for `quick_select_remove_styling`,
+  configurable `quick_select_patterns` appended to the defaults, including
+  top-level static Lua table-variable assignments, configurable
+  `disable_default_quick_select_patterns` so configured patterns become the
+  full set, and native/effective-config storage for `quick_select_remove_styling`,
   quote-aware command-palette `quick select alphabet <chars>` for the native
   `QuickSelectArgs { alphabet = ... }` subset, command-palette
   `quick select pattern <regex>` and

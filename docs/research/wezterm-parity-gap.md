@@ -891,7 +891,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Static WezTerm-style Lua `config.quick_select_alphabet`,
   `config.quick_select_patterns`, `config.disable_default_quick_select_patterns`,
   and `config.quick_select_remove_styling` snippets now parse into the same
-  native override path.
+  native override path, including top-level static table variables for
+  `config.quick_select_patterns`.
   The quote-aware command-palette query `quick select alphabet <chars>` covers the
   native `QuickSelectArgs { alphabet = ... }` subset, and
   `quick select pattern <regex>` plus
