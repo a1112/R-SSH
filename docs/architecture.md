@@ -330,7 +330,9 @@ keyboard, mouse, paste, resize
   and modifiers through the active terminal input mode and writes the resulting
   bytes directly to the active PTY input path without re-matching key
   assignments. Structured command-palette `send key <mods+key>` and action-name
-  `sendkey <mods+key>` queries dispatch the same typed payload path.
+  `sendkey <mods+key>` queries dispatch the same typed payload path, and
+  WezTerm-style Lua `SendKey { ... }` / `SendKey({ ... })` table queries
+  tolerate trailing comma fields.
 - Implemented in v1: app-shell `Multiple` sequences already implemented
   `AppAction` values in order.
 - Implemented in v1: app-shell exposes a named WezTerm-style
