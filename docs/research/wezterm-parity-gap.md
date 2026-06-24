@@ -400,8 +400,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `ime_preedit_rendering` with the `Builtin` default, plus optional
   `xim_im_name`; `treat_east_asian_ambiguous_width_as_wide` updates terminal
   character width calculation for ambiguous East Asian width characters, and
-  static numeric `cell_widths` override tables parse from WezTerm-style Lua and
-  take priority over that ambiguous-width setting. When enabled,
+  static numeric `cell_widths` override tables parse inline or through
+  top-level static table variables from WezTerm-style Lua and take priority
+  over that ambiguous-width setting. When enabled,
   `normalize_output_to_unicode_nfc` normalizes contiguous ordinary terminal
   output runs to Unicode NFC before rendering, including leading combining
   marks that arrive in the next PTY chunk when they compose with the prior

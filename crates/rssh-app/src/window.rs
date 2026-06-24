@@ -2427,7 +2427,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.cell_width = Some(native_cell_width_from_ratio(cell_width)?);
         parsed = true;
     }
-    if let Some(cell_widths) = lua_config_table_assignment_from_query(config, "cell_widths") {
+    if let Some(cell_widths) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "cell_widths")
+    {
         overrides.cell_widths = Some(native_cell_widths_lua_table_from_query(cell_widths)?);
         parsed = true;
     }
@@ -4480,6 +4482,16 @@ fn lua_config_dimension_assignment_from_query(source: &str, field: &str) -> Opti
 #[allow(dead_code)]
 fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> Option<&'a str> {
     lua_config_assignment_from_query(source, field, lua_braced_table_literal_from_query)
+}
+
+fn lua_config_table_or_static_variable_assignment_from_query<'a>(
+    source: &'a str,
+    field: &str,
+) -> Option<&'a str> {
+    lua_config_assignment_from_query(source, field, |value| {
+        let max_start = lua_source_slice_start_offset(source, value)?;
+        lua_table_insert_value_table_from_query(source, value, max_start)
+    })
 }
 
 fn lua_config_table_assignment_with_insert_appends_from_query(
@@ -67576,6 +67588,35 @@ mod tests {
                 NativeCellWidthOverride::new(0x2606, 0x2606, 1),
                 NativeCellWidthOverride::new(0xe000, 0xf8ff, 2),
             ]
+        );
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cell_widths_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local widths = {
+                { first = 0x2606, last = 0x2606, width = 1 },
+            }
+
+            config.treat_east_asian_ambiguous_width_as_wide = true
+            config.cell_widths = widths
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm cell width variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cell_widths,
+            vec![NativeCellWidthOverride::new(0x2606, 0x2606, 1)]
         );
 
         app.runtime.feed_pty_output("☆x".as_bytes());
