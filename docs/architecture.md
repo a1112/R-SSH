@@ -347,7 +347,8 @@ keyboard, mouse, paste, resize
   silently discarding them.
   Static WezTerm-style `config.launch_menu` snippets feed native launch-menu
   entries for the implemented `SpawnCommand` subset, including top-level
-  static `table.insert(config.launch_menu, { ... })` append entries.
+  static `table.insert(config.launch_menu, { ... })` append entries and
+  `table.insert(config.launch_menu, index, { ... })` numeric-position inserts.
   Static WezTerm-style `config.keys` actions can also carry
   `ShowLauncherArgs` table payloads through the implemented native action
   subset. Remote/mux domains, richer default-mode UI styling, broader Lua key

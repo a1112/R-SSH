@@ -370,7 +370,9 @@ runtime storage for tabs and split panes.
   entries for the implemented `SpawnCommand` subset, including bracketed string
   table keys with long-bracket values for launch-menu item fields and
   environment entries, and top-level static
-  `table.insert(config.launch_menu, { ... })` append entries. Static
+  `table.insert(config.launch_menu, { ... })` append entries plus
+  `table.insert(config.launch_menu, index, { ... })` numeric-position inserts.
+  Static
   WezTerm-style `config.keys` actions can also carry `ShowLauncherArgs` table
   payloads through the implemented native action subset. Remote/mux domains,
   richer default-mode UI styling, broader Lua key assignment/config parsing,

@@ -4707,10 +4707,14 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
         }
 
         if lua_block_depth == 0
-            && let Some(value) =
+            && let Some(insert) =
                 lua_config_table_insert_append_value_from_query(source, index, receiver, field)
         {
-            selected = Some(lua_table_with_appended_field(selected.take(), value)?);
+            selected = Some(lua_table_with_inserted_field(
+                selected.take(),
+                insert.position,
+                insert.value,
+            )?);
         }
     }
 
@@ -4896,12 +4900,17 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
     selected
 }
 
+struct LuaTableInsertValue<'a> {
+    position: Option<usize>,
+    value: &'a str,
+}
+
 fn lua_config_table_insert_append_value_from_query<'a>(
     source: &'a str,
     start: usize,
     receiver: &str,
     field: &str,
-) -> Option<&'a str> {
+) -> Option<LuaTableInsertValue<'a>> {
     if !lua_source_keyword_at(source, start, "table") {
         return None;
     }
@@ -4926,7 +4935,21 @@ fn lua_config_table_insert_append_value_from_query<'a>(
 
     let rest = lua_trim_start_comments(after_field.get(field.len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    lua_braced_table_literal_from_query(rest)
+    if let Some(value) = lua_braced_table_literal_from_query(rest) {
+        return Some(LuaTableInsertValue {
+            position: None,
+            value,
+        });
+    }
+
+    let position_literal = lua_unsigned_integer_literal_from_query(rest)?;
+    let position = position_literal.parse().ok()?;
+    let rest = lua_trim_start_comments(rest.get(position_literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    Some(LuaTableInsertValue {
+        position: Some(position),
+        value: lua_braced_table_literal_from_query(rest)?,
+    })
 }
 
 fn lua_config_nested_table_insert_append_from_query<'a>(
@@ -4981,15 +5004,43 @@ fn lua_nested_table_insert_key_from_query(query: &str) -> Option<(String, &str)>
 }
 
 fn lua_table_with_appended_field(table: Option<String>, field: &str) -> Option<String> {
+    lua_table_with_inserted_field(table, None, field)
+}
+
+fn lua_table_with_inserted_field(
+    table: Option<String>,
+    position: Option<usize>,
+    field: &str,
+) -> Option<String> {
     let Some(table) = table else {
+        if position.is_some_and(|position| position != 1) {
+            return None;
+        }
         return Some(format!("{{ {field} }}"));
     };
     let table_fields = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-    if table_fields.is_empty() {
-        return Some(format!("{{ {field} }}"));
+    let mut fields = if table_fields.is_empty() {
+        Vec::new()
+    } else {
+        split_lua_table_top_level_fields(table_fields)?
+            .into_iter()
+            .map(str::trim)
+            .filter(|field| !field.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+
+    match position {
+        Some(position) => {
+            if position == 0 || position > fields.len() + 1 {
+                return None;
+            }
+            fields.insert(position - 1, field.to_owned());
+        }
+        None => fields.push(field.to_owned()),
     }
 
-    Some(format!("{{ {table_fields},\n{field} }}"))
+    Some(format!("{{ {} }}", fields.join(",\n")))
 }
 
 fn lua_key_tables_with_appended_assignment(
@@ -68336,6 +68387,37 @@ mod tests {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-H"]);
         assert_eq!(launch.cwd(), Some("/tmp/inserted"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_positioned_table_insert_entries() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'Existing Shell',
+                args = { 'cmd' },
+              },
+            }
+            table.insert(config.launch_menu, 1, {
+              label = 'Inserted Monitor',
+              args = { 'top' },
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm positioned launch_menu table.insert config");
+
+        let launch_menu = overrides
+            .launch_menu
+            .expect("expected launch_menu overrides");
+        assert_eq!(launch_menu.len(), 2);
+        assert_eq!(launch_menu[0].label.as_deref(), Some("Inserted Monitor"));
+        assert_eq!(launch_menu[1].label.as_deref(), Some("Existing Shell"));
     }
 
     #[test]
