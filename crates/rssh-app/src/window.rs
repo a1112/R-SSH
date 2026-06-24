@@ -3290,39 +3290,30 @@ fn lua_selected_color_scheme_mutation_table_from_query(
     receiver: &str,
 ) -> Option<Option<String>> {
     let mut fields = Vec::new();
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let Some(rest) = lua_selected_color_scheme_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
             receiver,
         ) else {
-            line_start += line.len();
             continue;
         };
         let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
         if matches!(field_name.as_str(), "indexed" | "tab_bar") {
-            line_start += line.len();
             continue;
         }
         let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
             continue;
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         if value.is_empty() {
-            line_start += line.len();
             continue;
         }
         fields.push(format!("{field_name} = {value}"));
-        line_start += line.len();
     }
 
     Some((!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n"))))
@@ -3335,25 +3326,19 @@ fn apply_lua_selected_color_scheme_indexed_mutation_overrides(
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let Some(rest) = lua_selected_color_scheme_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
             receiver,
         ) else {
-            line_start += line.len();
             continue;
         };
         let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         if field_name != "indexed" {
-            line_start += line.len();
             continue;
         }
 
@@ -3364,7 +3349,6 @@ fn apply_lua_selected_color_scheme_indexed_mutation_overrides(
             }
             let rest = lua_trim_start_comments(rest)?;
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
@@ -3373,18 +3357,15 @@ fn apply_lua_selected_color_scheme_indexed_mutation_overrides(
             palette[index] = Some(lua_opaque_color_from_query(&value)?);
             overrides.indexed_palette = Some(palette);
             parsed = true;
-            line_start += line.len();
             continue;
         }
 
         let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
             continue;
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         parsed |=
             apply_lua_colors_table_overrides(&format!("{{\nindexed = {value}\n}}"), overrides)?;
-        line_start += line.len();
     }
 
     Some(parsed)
@@ -3397,21 +3378,16 @@ fn apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let Some(rest) = lua_selected_color_scheme_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
             receiver,
         ) else {
-            line_start += line.len();
             continue;
         };
         let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let Some(offset) = (match field_name.as_str() {
@@ -3419,7 +3395,6 @@ fn apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
             "brights" => Some(8),
             _ => None,
         }) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
@@ -3433,7 +3408,6 @@ fn apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
             }
             let rest = lua_trim_start_comments(rest)?;
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
@@ -3441,7 +3415,6 @@ fn apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
             palette[offset + index - 1] = lua_opaque_color_from_query(&value)?;
         } else {
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
@@ -3456,7 +3429,6 @@ fn apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
 
         overrides.ansi_palette = Some(palette);
         parsed = true;
-        line_start += line.len();
     }
 
     Some(parsed)
@@ -3469,25 +3441,19 @@ fn apply_lua_selected_color_scheme_tab_bar_mutation_overrides(
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let Some(rest) = lua_selected_color_scheme_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
             receiver,
         ) else {
-            line_start += line.len();
             continue;
         };
         let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         if field_name != "tab_bar" {
-            line_start += line.len();
             continue;
         }
 
@@ -3496,30 +3462,25 @@ fn apply_lua_selected_color_scheme_tab_bar_mutation_overrides(
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             parsed |=
                 apply_lua_colors_table_overrides(&format!("{{\ntab_bar = {value}\n}}"), overrides)?;
-            line_start += line.len();
             continue;
         }
 
         let Some((tab_bar_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
         if tab_bar_field == "background" {
             let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             let value = parse_maybe_quoted_query_text(value)?;
             overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
             parsed = true;
-            line_start += line.len();
             continue;
         }
 
         if !lua_tab_bar_item_color_name(&tab_bar_field) {
-            line_start += line.len();
             continue;
         }
         if let Some(value) = rest.strip_prefix('=') {
@@ -3528,24 +3489,20 @@ fn apply_lua_selected_color_scheme_tab_bar_mutation_overrides(
                 &format!("{{\ntab_bar = {{ {tab_bar_field} = {value} }}\n}}"),
                 overrides,
             )?;
-            line_start += line.len();
             continue;
         }
 
         let Some((item_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
         let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
             continue;
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         if apply_lua_tab_bar_item_color_mutation(overrides, &tab_bar_field, &item_field, value)? {
             parsed = true;
         }
-        line_start += line.len();
     }
 
     Some(parsed)
@@ -44238,6 +44195,40 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
         assert_eq!(effective.background_color, Color::Rgb(10, 11, 12));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(13, 14, 15));
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_color_scheme_entry_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#313233',
+                background = '#343536',
+                cursor_bg = '#373839',
+              },
+            }
+
+            local function ignored()
+              config.color_schemes['Project Scheme'].background = '#010203'
+              config.color_schemes['Project Scheme'].cursor_bg = '#040506'
+            end
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm helper color scheme entry mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(49, 50, 51));
+        assert_eq!(effective.background_color, Color::Rgb(52, 53, 54));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(55, 56, 57));
     }
 
     #[test]

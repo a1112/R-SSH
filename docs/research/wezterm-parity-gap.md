@@ -2095,11 +2095,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.color_schemes['Name'].indexed[136] = '#101010'`, plus ANSI/bright
   slot mutations such as
   `config.color_schemes['Name'].ansi[2] = '#101010'` and tab-bar nested
-  mutations such as
+  top-level mutations such as
   `config.color_schemes['Name'].tab_bar.active_tab.bg_color = '#101010'`.
-  Mutations are applied after the final selected static scheme definition, so
-  later full `config.color_schemes['Name'] = { ... }` assignments replace
-  earlier entry mutations. Returned static config variables such as `return cfg`
+  Helper-function-local mutations are ignored. Mutations are applied after the
+  final selected static scheme definition, so later full
+  `config.color_schemes['Name'] = { ... }` assignments replace earlier entry
+  mutations. Returned static config variables such as `return cfg`
   also carry `cfg.color_schemes['Name']` entry assignments and selected-scheme
   mutations while unreturned `config.color_schemes` assignments are ignored.
   `config.color_scheme` selects one by name before `config.colors` is applied.
