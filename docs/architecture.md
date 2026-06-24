@@ -495,7 +495,10 @@ keyboard, mouse, paste, resize
   same active-pane resize path with arbitrary cell amounts, and structured
   command-palette queries accept both `adjust pane size <direction> <amount>`
   and `adjustpanesize <direction> <amount>`, plus field forms such as
-  `adjustpanesize direction=<direction> amount=<cells>`.
+  `adjustpanesize direction=<direction> amount=<cells>`. WezTerm-style
+  `AdjustPaneSize { '<direction>', <cells> }` Lua table actions and
+  `wezterm.action { AdjustPaneSize = { '<direction>', <cells> } }` wrappers
+  dispatch the same payload, including trailing comma fields.
 - Completed in v1: pane zoom state is represented in app-shell state and
   rendered by the native window as a full-tab pane until toggled off through
   WezTerm-style `TogglePaneZoomState`, explicitly zoomed/unzoomed through

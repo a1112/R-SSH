@@ -29521,12 +29521,16 @@ fn adjust_pane_size_table_from_query(query: &str) -> Option<(ResizeDirection, u1
     let rest = strip_lua_function_call_from_query(query, "adjustpanesize")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "adjustpanesize="))?;
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-    let fields = split_lua_table_top_level_fields(table)?;
+    let fields = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+        .collect::<Vec<_>>();
     if fields.len() != 2 {
         return None;
     }
-    let direction = parse_maybe_quoted_query_text(fields[0].trim())?;
-    let amount = parse_single_query_value(fields[1].trim())?.parse().ok()?;
+    let direction = parse_maybe_quoted_query_text(fields[0])?;
+    let amount = parse_single_query_value(fields[1])?.parse().ok()?;
     Some((resize_direction_from_query(&direction)?, amount))
 }
 
@@ -91403,6 +91407,39 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action { AdjustPaneSize = { 'Left', 4 } }".to_owned(),
+        );
+
+        let expected = WindowCommand::AdjustPaneSize {
+            direction: rssh_core::app_shell::ResizeDirection::Left,
+            amount: 4,
+        };
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        let split = app.app_shell.active_tab().panes()[1]
+            .split()
+            .expect("split should be present");
+        assert_eq!(split.source_size_delta, -4);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_adjust_pane_size_wezterm_action_table_trailing_comma_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action { AdjustPaneSize = { 'Left', 4, } }".to_owned(),
         );
 
         let expected = WindowCommand::AdjustPaneSize {
