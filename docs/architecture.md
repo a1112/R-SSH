@@ -1893,7 +1893,9 @@ keyboard, mouse, paste, resize
   action-name `enterquickselect` queries dispatch that default entry. Lua
   option-table wiring accepts static
   `QuickSelectArgs.action = wezterm.action_callback(...)` values as
-  native-handler placeholders; arbitrary custom action execution remains open.
+  native-handler placeholders, skips trailing-comma table fields, and resolves
+  top-level static action variables for `QuickSelectArgs.action` inside static
+  WezTerm-style `config.keys`; arbitrary custom action execution remains open.
 
 ## Technology Choices
 

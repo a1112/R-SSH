@@ -1409,7 +1409,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   routing the same `pattern`/`patterns`, `action`, `alphabet`, `label`,
   `skip_action_on_paste`, and `scope_lines` fields as the existing
   command-palette query forms, including bracketed string table keys with
-  long-bracket values.
+  long-bracket values, trailing-comma table fields, and top-level static action
+  variables for `QuickSelectArgs.action` when parsed from static
+  WezTerm-style `config.keys`.
 - WezTerm-style pane-selection table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.PaneSelect({ mode = "SwapWithActive", show_pane_ids = true, alphabet = "12" })`,
@@ -1990,7 +1992,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `key` and `mods` fields inline or through top-level static string variables,
   top-level `config.keys` assignment `action` fields inline or through
   top-level static action variables including static action variables inside
-  `act.Multiple { ... }` tables,
+  `act.Multiple { ... }` and `act.QuickSelectArgs { action = ... }` tables,
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` through top-level static string
   variables,

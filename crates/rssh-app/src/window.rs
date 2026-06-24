@@ -8466,6 +8466,12 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::Multiple(commands));
     }
+    if let Some(static_source) = static_source
+        && let Some(options) =
+            quick_select_lua_table_from_query_with_static_source(Some(static_source), value)
+    {
+        return Some(WindowCommand::QuickSelect(options));
+    }
     if lua_action_callback_from_query(value) {
         return Some(WindowCommand::Nop);
     }
@@ -33335,6 +33341,13 @@ fn quick_select_options_from_query(query: &str) -> WindowQuickSelectOptions {
 }
 
 fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOptions> {
+    quick_select_lua_table_from_query_with_static_source(None, query)
+}
+
+fn quick_select_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowQuickSelectOptions> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     let value = strip_lua_function_call_from_query(query, "quickselectargs")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "quickselectargs="))?;
@@ -33349,7 +33362,11 @@ fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOpt
     let mut parsed_scope_lines = false;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = value.trim();
 
@@ -33400,6 +33417,7 @@ fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOpt
                     return None;
                 }
                 options.action = Some(quick_select_action_callback_or_key_assignment_from_query(
+                    static_source,
                     value,
                 )?);
                 parsed_action = true;
@@ -33429,9 +33447,19 @@ fn quick_select_lua_table_from_query(query: &str) -> Option<WindowQuickSelectOpt
 }
 
 fn quick_select_action_callback_or_key_assignment_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowQuickSelectAction> {
     let value = value.trim();
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_action_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return quick_select_action_callback_or_key_assignment_from_query(None, value);
+    }
     if lua_action_callback_from_query(value) {
         return Some(WindowQuickSelectAction::Nop);
     }
@@ -67800,6 +67828,46 @@ mod tests {
                     WindowCommand::SendString("alpha".to_owned()),
                     WindowCommand::SendString("beta".to_owned()),
                 ]),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_action_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local quick_copy = act.CopyTo 'Clipboard'
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  pattern = 'ticket-[0-9]+',
+                  action = quick_copy,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm quick select static action variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::CopyTo(
+                        WindowCopyDestination::Clipboard
+                    )),
+                    ..WindowQuickSelectOptions::default()
+                }),
             }])
         );
     }
