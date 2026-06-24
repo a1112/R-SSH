@@ -320,13 +320,16 @@ keyboard, mouse, paste, resize
   `table.insert(config.key_tables.<name>, index, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts and direct indexed assignments such as
-  `config.key_tables.<name>[index] = { ... }` parse into native key
-  assignments, with bracket field selectors such as `config['key_tables']`
-  supported for nested inserts. Static
+  `config.key_tables.<name>[index] = { ... }` or
+  `config.key_tables.<name>[#config.key_tables.<name> + 1] = { ... }` parse
+  into native key assignments, with bracket field selectors such as
+  `config['key_tables']` supported for nested inserts. Static
   `config.key_tables = user_key_tables` assignments also merge top-level nested
   inserts such as `table.insert(user_key_tables.resize_pane, { ... })` and
   static field assignments such as `user_key_tables.resize_pane = { ... }`, as
-  well as indexed assignments such as `user_key_tables.resize_pane[1] = { ... }`,
+  well as indexed assignments such as `user_key_tables.resize_pane[1] = { ... }`
+  or length appends such as
+  `user_key_tables.resize_pane[#user_key_tables.resize_pane + 1] = { ... }`,
   before the config assignment; actual Lua callback
   execution, default key-table merging, and config-file reload wiring remain
   future config parity work.

@@ -1119,12 +1119,16 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.key_tables.<name>, index, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts and direct indexed assignments such as
-  `config.key_tables.<name>[index] = { ... }`, with bracket field selectors
-  such as `config['key_tables']` supported for nested inserts. Static
+  `config.key_tables.<name>[index] = { ... }` or
+  `config.key_tables.<name>[#config.key_tables.<name> + 1] = { ... }`, with
+  bracket field selectors such as `config['key_tables']` supported for nested
+  inserts. Static
   `config.key_tables = user_key_tables` assignments also merge top-level nested
   inserts such as `table.insert(user_key_tables.resize_pane, { ... })` and
   static field assignments such as `user_key_tables.resize_pane = { ... }`, as
-  well as indexed assignments such as `user_key_tables.resize_pane[1] = { ... }`,
+  well as indexed assignments such as `user_key_tables.resize_pane[1] = { ... }`
+  or length appends such as
+  `user_key_tables.resize_pane[#user_key_tables.resize_pane + 1] = { ... }`,
   before the config assignment. Static
   `config.keys` and `config.key_tables` action fields also accept
   `wezterm.action_callback(...)` values as no-op native placeholders so
@@ -2031,12 +2035,16 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.key_tables.<name>, index, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts and direct indexed assignments such as
-  `config.key_tables.<name>[index] = { ... }`, with bracket field selectors
-  such as `config['key_tables']` supported for nested inserts. Static
+  `config.key_tables.<name>[index] = { ... }` or
+  `config.key_tables.<name>[#config.key_tables.<name> + 1] = { ... }`, with
+  bracket field selectors such as `config['key_tables']` supported for nested
+  inserts. Static
   `config.key_tables = user_key_tables` assignments also merge top-level nested
   inserts such as `table.insert(user_key_tables.resize_pane, { ... })` and
   static field assignments such as `user_key_tables.resize_pane = { ... }`, as
-  well as indexed assignments such as `user_key_tables.resize_pane[1] = { ... }`,
+  well as indexed assignments such as `user_key_tables.resize_pane[1] = { ... }`
+  or length appends such as
+  `user_key_tables.resize_pane[#user_key_tables.resize_pane + 1] = { ... }`,
   before the config assignment; full Lua config evaluation, default key-table
   merging, and config-file reload wiring remain open.
 - Copy mode semantic-zone movement can scroll into retained history and supports
