@@ -1077,11 +1077,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   override/runtime path for the implemented action subset, including bracketed
   string table keys with long-bracket values for leader fields, key-table names,
   and nested assignment fields, plus top-level static
-  `table.insert(config.keys, { ... })` appends. Static `config.keys` and
-  `config.key_tables` action fields also accept `wezterm.action_callback(...)`
-  values as no-op native placeholders so official callback-shaped bindings can
-  load; full Lua callback execution, full Lua config evaluation, default
-  key-table merging, and config-file reload wiring remain open.
+  `table.insert(config.keys, { ... })` appends and
+  `table.insert(config.key_tables.<name>, { ... })` nested appends. Static
+  `config.keys` and `config.key_tables` action fields also accept
+  `wezterm.action_callback(...)` values as no-op native placeholders so
+  official callback-shaped bindings can load; full Lua callback execution, full
+  Lua config evaluation, default key-table merging, and config-file reload
+  wiring remain open.
 - Native `Nop` action payloads now map to the no-effect app-shell action, so a
   native key/palette action can consume a trigger without mutating window state.
   Structured command-palette `nop` queries dispatch the same payload directly.
@@ -1938,8 +1940,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   leader configuration into runtime key-table overrides, including bracketed
   string table keys with long-bracket values for key-table names and nested
   assignment fields, plus top-level static
-  `table.insert(config.keys, { ... })` appends; full Lua config evaluation,
-  default key-table merging, and config-file reload wiring remain open.
+  `table.insert(config.keys, { ... })` appends and
+  `table.insert(config.key_tables.<name>, { ... })` nested appends; full Lua
+  config evaluation, default key-table merging, and config-file reload wiring
+  remain open.
 - Copy mode semantic-zone movement can scroll into retained history and supports
   typed Prompt/Input/Output filters.
 - Copy mode source-row selection anchors now preserve and copy selections that

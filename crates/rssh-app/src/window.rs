@@ -3161,8 +3161,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.key_assignments = Some(native_key_assignments_lua_table_from_query(&keys)?);
         parsed = true;
     }
-    if let Some(key_tables) = lua_config_table_assignment_from_query(config, "key_tables") {
-        overrides.key_tables = Some(native_key_tables_lua_table_from_query(key_tables)?);
+    if let Some(key_tables) =
+        lua_config_key_tables_assignment_with_insert_appends_from_query(config)
+    {
+        overrides.key_tables = Some(native_key_tables_lua_table_from_query(&key_tables)?);
         parsed = true;
     }
     if let Some(mouse_bindings) =
@@ -4715,6 +4717,185 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
     selected
 }
 
+fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str) -> Option<String> {
+    if let Some(table) = lua_config_static_return_table_from_query(source) {
+        let mut literal_from_query = lua_braced_table_literal_from_query;
+        return lua_config_table_field_assignment_from_query(
+            table,
+            "key_tables",
+            &mut literal_from_query,
+        )
+        .map(str::to_owned);
+    }
+
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut selected = None;
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index..])
+        {
+            let content_and_rest = &source[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(source.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if lua_block_depth == 0 {
+            let after_config = if lua_source_keyword_at(source, index, "local") {
+                let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
+                lua_config_receiver_prefix_rest(rest, receiver)
+            } else {
+                lua_config_receiver_prefix_rest(source.get(index..)?, receiver)
+            };
+
+            if let Some(after_config) = after_config {
+                let after_config = lua_trim_start_comments(after_config)?;
+                if let Some(after_assignment) = after_config.strip_prefix('=') {
+                    let after_assignment = lua_trim_start_comments(after_assignment)?;
+                    if let Some(table) = lua_braced_table_literal_from_query(after_assignment) {
+                        let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+                        let mut literal_from_query = lua_braced_table_literal_from_query;
+                        if let Some(value) = lua_config_table_field_assignment_from_query(
+                            table,
+                            "key_tables",
+                            &mut literal_from_query,
+                        ) {
+                            selected = Some(value.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+
+        if source[index..].starts_with("key_tables")
+            && lua_config_assignment_field_has_boundaries(source, index, "key_tables")
+            && lua_config_dot_assignment_has_receiver(source, index, receiver)
+            && lua_block_depth == 0
+        {
+            let rest = lua_trim_start_comments(source.get(index + "key_tables".len()..)?)?;
+            if let Some(rest) = rest.strip_prefix('=')
+                && let Some(value) =
+                    lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+            {
+                selected = Some(value.to_owned());
+            }
+        }
+
+        if character == '['
+            && lua_block_depth == 0
+            && let Some(rest) =
+                lua_config_bracket_assignment_rest_from_query(source, index, receiver, "key_tables")
+            && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
+            && let Some(value) = lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+        {
+            selected = Some(value.to_owned());
+        }
+
+        if lua_block_depth == 0
+            && let Some((key_table_name, value)) = lua_config_nested_table_insert_append_from_query(
+                source,
+                index,
+                receiver,
+                "key_tables",
+            )
+        {
+            selected = Some(lua_key_tables_with_appended_assignment(
+                selected.take(),
+                &key_table_name,
+                value,
+            )?);
+        }
+    }
+
+    selected
+}
+
 fn lua_config_table_insert_append_value_from_query<'a>(
     source: &'a str,
     start: usize,
@@ -4748,6 +4929,57 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     lua_braced_table_literal_from_query(rest)
 }
 
+fn lua_config_nested_table_insert_append_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<(String, &'a str)> {
+    if !lua_source_keyword_at(source, start, "table") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(source.get(start + "table".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('.')?)?;
+    if !rest.starts_with("insert") || !lua_config_assignment_field_has_boundaries(rest, 0, "insert")
+    {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest.get("insert".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let after_receiver = lua_config_receiver_prefix_rest(rest, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let after_field = lua_trim_start_comments(after_receiver.strip_prefix('.')?)?;
+    if !after_field.starts_with(field)
+        || !lua_config_assignment_field_has_boundaries(after_field, 0, field)
+    {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(after_field.get(field.len()..)?)?;
+    let (name, rest) = lua_nested_table_insert_key_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    Some((name, lua_braced_table_literal_from_query(rest)?))
+}
+
+fn lua_nested_table_insert_key_from_query(query: &str) -> Option<(String, &str)> {
+    let query = lua_trim_start_comments(query)?;
+    if let Some(rest) = query.strip_prefix('.') {
+        let rest = lua_trim_start_comments(rest)?;
+        let name = lua_identifier_literal_from_query(rest)?;
+        return Some((name.to_owned(), rest.get(name.len()..)?));
+    }
+
+    let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
+    let key_literal = lua_quoted_string_literal_from_query(after_open)
+        .or_else(|| lua_long_bracket_literal_from_query(after_open))?;
+    let key = parse_maybe_quoted_query_text(key_literal)?;
+    let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
+    Some((key, rest.strip_prefix(']')?))
+}
+
 fn lua_table_with_appended_field(table: Option<String>, field: &str) -> Option<String> {
     let Some(table) = table else {
         return Some(format!("{{ {field} }}"));
@@ -4758,6 +4990,70 @@ fn lua_table_with_appended_field(table: Option<String>, field: &str) -> Option<S
     }
 
     Some(format!("{{ {table_fields},\n{field} }}"))
+}
+
+fn lua_key_tables_with_appended_assignment(
+    key_tables: Option<String>,
+    key_table_name: &str,
+    assignment: &str,
+) -> Option<String> {
+    let Some(key_tables) = key_tables else {
+        return Some(format!(
+            "{{ {} = {{ {assignment} }} }}",
+            lua_table_key_from_text(key_table_name)
+        ));
+    };
+
+    let table = key_tables
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim();
+    let mut fields = Vec::new();
+    let mut appended = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            fields.push(field.to_owned());
+            continue;
+        };
+        let Some(name) = split_lua_table_key_from_query(key.trim()) else {
+            fields.push(field.to_owned());
+            continue;
+        };
+        if name == key_table_name {
+            fields.push(format!(
+                "{} = {}",
+                key.trim(),
+                lua_table_with_appended_field(Some(value.trim().to_owned()), assignment)?
+            ));
+            appended = true;
+        } else {
+            fields.push(field.to_owned());
+        }
+    }
+
+    if !appended {
+        fields.push(format!(
+            "{} = {{ {assignment} }}",
+            lua_table_key_from_text(key_table_name)
+        ));
+    }
+
+    Some(format!("{{ {} }}", fields.join(",\n")))
+}
+
+fn lua_table_key_from_text(key: &str) -> String {
+    if lua_identifier_literal_from_query(key).is_some_and(|identifier| identifier == key) {
+        return key.to_owned();
+    }
+
+    format!("[\"{}\"]", key.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 struct NativeLoadSchemeColorsAssignment {
@@ -64686,6 +64982,64 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"left");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_nested_table_insert_assignments() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              resize_pane = {},
+            }
+            table.insert(config.key_tables.resize_pane, {
+              key = 'h',
+              action = act.SendString 'left',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key table table.insert config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;

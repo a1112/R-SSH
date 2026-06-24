@@ -279,9 +279,10 @@ keyboard, mouse, paste, resize
   path. Static Lua `config.keys` and `config.key_tables` action fields also
   accept `wezterm.action_callback(...)` values as no-op native placeholders so
   official callback-shaped bindings can load, and top-level static
-  `table.insert(config.keys, { ... })` appends parse into native key
-  assignments; actual Lua callback execution, default key-table merging, and
-  config-file reload wiring remain future config parity work.
+  `table.insert(config.keys, { ... })` appends plus
+  `table.insert(config.key_tables.<name>, { ... })` nested appends parse into
+  native key assignments; actual Lua callback execution, default key-table
+  merging, and config-file reload wiring remain future config parity work.
 - Implemented in v1: native `WindowCommand::DisableDefaultAssignment` can be
   used in user key assignments to suppress matching built-in app-shell,
   window-level, and scrollback shortcuts, leaving the key available for the
