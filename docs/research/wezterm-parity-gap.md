@@ -1778,6 +1778,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `text_background_opacity`, `window_background_opacity`, `colors.foreground`, `colors.background`, `colors.ansi`, `colors.brights`, `colors.indexed`, `colors.selection_fg`, `colors.selection_bg`, `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, `colors.compose_cursor`, `config.color_scheme`, `config.color_schemes`, `config.color_scheme_dirs`, plus
   `window_close_confirmation` and
   `skip_close_confirmation_for_processes_named`.
+  Supported repeated direct field assignments on the returned static config use
+  the latest static value.
   `warn_about_missing_glyphs` is retained with WezTerm's default `true`.
   Unknown ESC/CSI sequences are recorded by the terminal runtime and emitted
   as native stderr warnings when `log_unknown_escape_sequences` is enabled.

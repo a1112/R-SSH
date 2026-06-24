@@ -62,7 +62,8 @@ runtime storage for tabs and split panes.
   shell before spawn while preserving the startup cwd. When a top-level static
   `return { ... }` config table or `return cfg` config variable is present, it
   is treated as the returned config and earlier assignments to unreturned config
-  variables are ignored.
+  variables are ignored; supported repeated direct field assignments on that
+  returned config use the latest static value.
 - `rssh-app` app-shell action dispatch maps from typed actions to updated
   app state.
 - `rssh-app` keyboard handling recognizes app-shell shortcuts before PTY input:
