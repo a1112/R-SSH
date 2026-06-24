@@ -2341,7 +2341,8 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.visual_bell = Some(native_visual_bell_lua_table_from_query(visual_bell)?);
         parsed = true;
     }
-    if let Some(tab_bar_style) = lua_config_table_assignment_from_query(config, "tab_bar_style")
+    if let Some(tab_bar_style) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "tab_bar_style")
         && let Some(tab_bar_style) = native_tab_bar_style_lua_table_from_query(tab_bar_style)?
     {
         overrides.tab_bar_style = tab_bar_style;
@@ -50401,6 +50402,49 @@ mod tests {
         assert!(
             tab_bar.contains("{ + }"),
             "new-tab button should be wrapped by configured tab_bar_style edges: {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_tab_bar_style_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local retro_edges = {
+              active_tab_left = wezterm.format({ { Text = '[' } }),
+              active_tab_right = wezterm.format({ { Text = ']' } }),
+              inactive_tab_left = wezterm.format({ { Text = '<' } }),
+              inactive_tab_right = wezterm.format({ { Text = '>' } }),
+              new_tab_left = wezterm.format({ { Text = '{' } }),
+              new_tab_right = wezterm.format({ { Text = '}' } }),
+            }
+
+            config.tab_bar_style = retro_edges
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style static variable config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should be wrapped by configured tab_bar_style static variable edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("[ 2:2* panes:1 x ]"),
+            "active tab should be wrapped by configured tab_bar_style static variable edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("{ + }"),
+            "new-tab button should be wrapped by configured tab_bar_style static variable edges: {tab_bar:?}"
         );
     }
 

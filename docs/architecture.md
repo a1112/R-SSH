@@ -166,7 +166,9 @@ keyboard, mouse, paste, resize
   command/confirmation paths, plus a
   configurable clickable new-tab button that reuses the app-shell `NewTab`
   action path and honors the native `show_new_tab_button_in_tab_bar`
-  effective-config field.
+  effective-config field. Retro tab labels and the new-tab button also honor
+  `tab_bar_style` edge `wezterm.format` items parsed inline or through
+  top-level static table variables.
 - Completed in v1: tab state can carry an explicit title, and tab bar labels
   prefer that explicit title before falling back to each tab's active-pane
   terminal title when OSC 0/1/2 or Sun OSC L/l title state is available.
