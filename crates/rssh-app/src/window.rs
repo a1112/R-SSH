@@ -2540,13 +2540,17 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     if let Some(foreground_text_hsb) =
         lua_config_table_or_static_variable_assignment_from_query(config, "foreground_text_hsb")
     {
-        overrides.foreground_text_hsb = Some(native_hsb_lua_table_from_query(foreground_text_hsb)?);
+        overrides.foreground_text_hsb = Some(native_hsb_lua_table_from_query(
+            config,
+            foreground_text_hsb,
+        )?);
         parsed = true;
     }
     if let Some(inactive_pane_hsb) =
         lua_config_table_or_static_variable_assignment_from_query(config, "inactive_pane_hsb")
     {
-        overrides.inactive_pane_hsb = Some(native_hsb_lua_table_from_query(inactive_pane_hsb)?);
+        overrides.inactive_pane_hsb =
+            Some(native_hsb_lua_table_from_query(config, inactive_pane_hsb)?);
         parsed = true;
     }
     if let Some(bold_brightens_ansi_colors) =
@@ -7457,7 +7461,10 @@ fn default_freetype_load_flags_for_dpi(dpi: u32) -> NativeFreetypeLoadFlags {
 }
 
 #[allow(dead_code)]
-fn native_hsb_lua_table_from_query(value: &str) -> Option<NativeInactivePaneHsb> {
+fn native_hsb_lua_table_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
+) -> Option<NativeInactivePaneHsb> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut hue = None;
     let mut saturation = None;
@@ -7470,9 +7477,13 @@ fn native_hsb_lua_table_from_query(value: &str) -> Option<NativeInactivePaneHsb>
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
-        let value = lua_unsigned_number_literal_from_query(value.trim())?
-            .parse::<f32>()
-            .ok()?;
+        let value = lua_static_number_assignment_value_from_query(
+            source,
+            value.trim(),
+            lua_unsigned_number_literal_from_query,
+        )?
+        .parse::<f32>()
+        .ok()?;
         match key.as_str() {
             "hue" => hue = Some(native_hsb_multiplier_from_ratio(value)?),
             "saturation" => saturation = Some(native_hsb_multiplier_from_ratio(value)?),
@@ -70015,6 +70026,55 @@ mod tests {
                 hue: NativeHsbMultiplier::from_f32(1.0),
                 saturation: NativeHsbMultiplier::from_f32(0.8),
                 brightness: NativeHsbMultiplier::from_f32(0.7),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hsb_static_field_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local foreground_hue = 1.0
+            local foreground_saturation = 0.9
+            local foreground_brightness = 0.6
+            local inactive_hue = 1.0
+            local inactive_saturation = 0.7
+            local inactive_brightness = 0.5
+
+            config.foreground_text_hsb = {
+              hue = foreground_hue,
+              saturation = foreground_saturation,
+              brightness = foreground_brightness,
+            }
+            config.inactive_pane_hsb = {
+              hue = inactive_hue,
+              saturation = inactive_saturation,
+              brightness = inactive_brightness,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm HSB static field variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.foreground_text_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.9),
+                brightness: NativeHsbMultiplier::from_f32(0.6),
+            }
+        );
+        assert_eq!(
+            effective.inactive_pane_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.7),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
             }
         );
     }

@@ -132,6 +132,8 @@ keyboard, mouse, paste, resize
   right/down split panes, with process-local per-pane runtime storage,
   WezTerm-style `foreground_text_hsb` transforms for terminal foreground and
   underline colors parsed inline or through top-level static table variables,
+  with hue/saturation/brightness fields also parsed through top-level static
+  number variables,
   WezTerm-style `bold_brightens_ansi_colors` handling for
   bold ANSI 0-7 foreground colors, WezTerm-style `underline_thickness` overrides for terminal
   text underline decorations and horizontal split dividers, WezTerm-style `underline_position` overrides for
@@ -144,7 +146,9 @@ keyboard, mouse, paste, resize
   background cells, `window_background_opacity` alpha transforms for default
   terminal background cells, plus
   `inactive_pane_hsb` color transforms for inactive pane Default/Indexed/RGB/RGBA
-  cells parsed inline or through top-level static table variables,
+  cells parsed inline or through top-level static table variables, with
+  hue/saturation/brightness fields also parsed through top-level static number
+  variables,
   click-to-focus with optional first-click swallowing honoring
   `swallow_mouse_click_on_pane_focus`, configurable window-focus click
   swallowing honoring `swallow_mouse_click_on_window_focus`, configurable
