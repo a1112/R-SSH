@@ -101,8 +101,9 @@ keyboard, mouse, paste, resize
   static WezTerm-style Lua return-table configs and returned config variables
   are treated as the final returned config table, so earlier assignments to
   unreturned config variables do not leak into launch overrides when the file
-  returns `{ ... }` or `return cfg`; supported direct field assignments on that
-  returned config use the latest static assignment for repeated fields;
+  returns `{ ... }` or `return cfg`; supported direct field assignments and
+  whole-table assignments on that returned config use the latest static value
+  by source order;
   local/window/start/console CLI startup also accepts WezTerm-style `--cwd` for
   the initial child process, native window startup accepts WezTerm-style `start`
   as an alias for `window` and `-e` as an initial program alias, and native

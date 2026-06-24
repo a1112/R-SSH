@@ -5297,6 +5297,32 @@ fn lua_config_assignment_from_query<'a>(
             continue;
         }
 
+        if lua_block_depth == 0 {
+            let after_config = if lua_source_keyword_at(source, index, "local") {
+                let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
+                lua_config_receiver_prefix_rest(rest, receiver)
+            } else {
+                lua_config_receiver_prefix_rest(source.get(index..)?, receiver)
+            };
+
+            if let Some(after_config) = after_config {
+                let after_config = lua_trim_start_comments(after_config)?;
+                if let Some(after_assignment) = after_config.strip_prefix('=') {
+                    let after_assignment = lua_trim_start_comments(after_assignment)?;
+                    if let Some(table) = lua_braced_table_literal_from_query(after_assignment) {
+                        let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+                        if let Some(value) = lua_config_table_field_assignment_from_query(
+                            table,
+                            field,
+                            &mut literal_from_query,
+                        ) {
+                            selected = Some(value);
+                        }
+                    }
+                }
+            }
+        }
+
         if source[index..].starts_with(field)
             && lua_config_assignment_field_has_boundaries(source, index, field)
             && lua_config_dot_assignment_has_receiver(source, index, receiver)
@@ -64714,6 +64740,43 @@ mod tests {
             "#,
         )
         .expect("expected later WezTerm launch config assignments");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_uses_later_wezterm_lua_config_table_assignment_after_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'bad-shell', '--bad' }
+            config.default_cwd = 'C:/Bad Dir'
+            config = {
+              default_prog = { 'nu', '--login' },
+              default_cwd = 'C:/Project Dir',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected later WezTerm config table assignment");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::NewTab));
