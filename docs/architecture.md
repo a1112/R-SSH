@@ -94,8 +94,8 @@ keyboard, mouse, paste, resize
   `default_prog` command arrays parse inline, through top-level static table
   variables, or through `table.insert(config.default_prog, ...)` appends, and
   `set_environment_variables` maps parse inline, through top-level static
-  table variables, or through top-level `config.set_environment_variables.NAME`
-  field mutations; native
+  table variables with field mutations, or through top-level
+  `config.set_environment_variables.NAME` field mutations; native
   `default_workspace` names the initial default workspace before spawn when no
   explicit startup workspace is present; native `default_domain` is retained in
   the effective config and `SpawnTab(DefaultDomain)` uses the local spawn path
