@@ -3074,7 +3074,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         )
     {
         overrides.window_content_alignment = Some(
-            native_window_content_alignment_lua_table_from_query(window_content_alignment)?,
+            native_window_content_alignment_lua_table_from_query(config, window_content_alignment)?,
         );
         parsed = true;
     }
@@ -7592,16 +7592,19 @@ fn native_window_padding_lua_table_from_query<'a>(
 }
 
 #[allow(dead_code)]
-fn native_window_content_alignment_lua_table_from_query(
-    value: &str,
+fn native_window_content_alignment_lua_table_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
 ) -> Option<NativeWindowContentAlignment> {
     let mut alignment = DEFAULT_WINDOW_CONTENT_ALIGNMENT;
     if let Some(horizontal) = lua_table_field_value_from_query(value, "horizontal")? {
-        let horizontal = parse_maybe_quoted_query_text(horizontal.trim())?;
+        let horizontal = lua_static_string_assignment_value_from_query(source, horizontal.trim())?;
+        let horizontal = parse_maybe_quoted_query_text(horizontal)?;
         alignment.horizontal = NativeHorizontalContentAlignment::parse(&horizontal)?;
     }
     if let Some(vertical) = lua_table_field_value_from_query(value, "vertical")? {
-        let vertical = parse_maybe_quoted_query_text(vertical.trim())?;
+        let vertical = lua_static_string_assignment_value_from_query(source, vertical.trim())?;
+        let vertical = parse_maybe_quoted_query_text(vertical)?;
         alignment.vertical = NativeVerticalContentAlignment::parse(&vertical)?;
     }
     Some(alignment)
@@ -68864,6 +68867,35 @@ mod tests {
             NativeWindowContentAlignment {
                 horizontal: NativeHorizontalContentAlignment::Center,
                 vertical: NativeVerticalContentAlignment::Bottom,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_content_alignment_static_field_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local horizontal_alignment = 'Right'
+            local vertical_alignment = 'Center'
+
+            config.window_content_alignment = {
+              horizontal = horizontal_alignment,
+              vertical = vertical_alignment,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window content alignment static field variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_content_alignment,
+            NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Right,
+                vertical: NativeVerticalContentAlignment::Center,
             }
         );
     }

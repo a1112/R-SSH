@@ -1649,7 +1649,8 @@ keyboard, mouse, paste, resize
   Native `window_content_alignment` parses WezTerm-style static tables, inline
   or through top-level static table variables, for
   horizontal `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom`
-  values. When explicitly configured, native resize keeps the real framebuffer
+  values, including field values supplied through top-level static string
+  variables. When explicitly configured, native resize keeps the real framebuffer
   pixel size, renders terminal cells into the aligned grid, fills leftover gap
   pixels with the configured background color, and maps mouse coordinates back
   through the same pixel offset.
