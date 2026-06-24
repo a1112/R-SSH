@@ -2374,9 +2374,18 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         )?;
     }
     if let Some(color_scheme_dirs) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "color_scheme_dirs")
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "color_scheme_dirs",
+        )
     {
-        let color_scheme_dirs = split_lua_table_string_array(color_scheme_dirs)?;
+        let color_scheme_dirs = split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: color_scheme_dirs.max_start,
+            }),
+            &color_scheme_dirs.value,
+        )?;
         if !in_file_color_scheme_found && let Some(color_scheme) = color_scheme.as_deref() {
             external_color_scheme_found = apply_toml_color_scheme_dirs_overrides(
                 &color_scheme_dirs,
@@ -47226,6 +47235,29 @@ mod tests {
             "##,
         )
         .expect("expected WezTerm color_scheme_dirs static variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().color_scheme_dirs,
+            vec!["schemes".to_owned(), "/opt/wezterm/colors".to_owned()]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_color_scheme_dirs_table_insert() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.color_scheme_dirs = {}
+            table.insert(config.color_scheme_dirs, 'schemes')
+            table.insert(config.color_scheme_dirs, '/opt/wezterm/colors')
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color_scheme_dirs table insert config");
         app.set_config_overrides(overrides);
 
         assert_eq!(

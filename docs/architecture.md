@@ -1167,9 +1167,10 @@ keyboard, mouse, paste, resize
   mutations while unreturned `config.color_schemes` assignments are ignored.
   `config.color_scheme`, inline or through a top-level static string variable,
   selects one before `config.colors` applies overriding fields, and static
-  `config.color_scheme_dirs` lists, inline or through top-level static table
-  variables, are retained in effective config and scan
-  configured directories for matching TOML scheme files. External TOML schemes
+  `config.color_scheme_dirs` lists, inline, through top-level static table
+  variables, or through `table.insert(config.color_scheme_dirs, ...)` appends,
+  are retained in effective config and scan configured directories for matching
+  TOML scheme files. External TOML schemes
   load when `[metadata].name` or the file stem matches `config.color_scheme`
   and reuse the same implemented color fields before `config.colors` applies
   overriding fields. Static `wezterm.color.load_scheme('path')` calls with a

@@ -2199,9 +2199,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   mutations while unreturned `config.color_schemes` assignments are ignored.
   `config.color_scheme`, inline or through a top-level static string variable,
   selects one by name before `config.colors` is applied. Static
-  `config.color_scheme_dirs` lists, inline or through top-level static table
-  variables, parse into effective config and scan configured directories for
-  matching TOML scheme files. A TOML scheme
+  `config.color_scheme_dirs` lists, inline, through top-level static table
+  variables, or through `table.insert(config.color_scheme_dirs, ...)` appends,
+  parse into effective config and scan configured directories for matching
+  TOML scheme files. A TOML scheme
   whose `[metadata].name` or file stem matches `config.color_scheme` reuses the
   same implemented color fields as `config.colors`, so explicit `config.colors`
   values override the selected scheme. Static
