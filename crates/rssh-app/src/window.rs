@@ -4702,8 +4702,7 @@ fn lua_config_easing_assignment_from_query(
     field: &str,
 ) -> Option<NativeEasingFunction> {
     lua_config_assignment_from_query(source, field, |value| {
-        lua_quoted_string_literal_from_query(value)
-            .or_else(|| lua_braced_table_literal_from_query(value))
+        lua_static_easing_assignment_value_from_query(source, value)
     })
     .and_then(native_easing_lua_value_from_query)
 }
@@ -5231,6 +5230,31 @@ fn lua_static_bool_assignment_value_from_query<'a>(
     }
     let max_start = lua_source_slice_start_offset(source, variable)?;
     lua_static_bool_variable_assignment_before_offset_from_query(source, variable, max_start)
+}
+
+fn lua_static_easing_assignment_value_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+) -> Option<&'a str> {
+    if let Some(value) = lua_quoted_string_literal_from_query(query)
+        .or_else(|| lua_long_bracket_literal_from_query(query))
+        .or_else(|| lua_braced_table_literal_from_query(query))
+    {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let max_start = lua_source_slice_start_offset(source, variable)?;
+    lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+        .or_else(|| {
+            lua_static_table_variable_assignment_before_offset_from_query(
+                source, variable, max_start,
+            )
+        })
 }
 
 fn lua_static_identifier_value_rest_is_statement_end(rest: &str) -> bool {
@@ -70180,6 +70204,52 @@ mod tests {
                 y1_per_mille: 0,
                 x2_per_mille: 580,
                 y2_per_mille: 1_000,
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_easing_static_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local cursor_enter = 'EaseIn'
+            local cursor_exit = { CubicBezier = { 0.2, 0.3, 0.4, 0.5 } }
+            local text_enter = 'Linear'
+            local text_exit = { CubicBezier = { 0.4, 0.5, 0.6, 0.7 } }
+
+            config.cursor_blink_ease_in = cursor_enter
+            config.cursor_blink_ease_out = cursor_exit
+            config.text_blink_ease_in = text_enter
+            config.text_blink_ease_out = text_exit
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm easing static variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.cursor_blink_ease_in, NativeEasingFunction::EaseIn);
+        assert_eq!(
+            effective.cursor_blink_ease_out,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 200,
+                y1_per_mille: 300,
+                x2_per_mille: 400,
+                y2_per_mille: 500,
+            })
+        );
+        assert_eq!(effective.text_blink_ease_in, NativeEasingFunction::Linear);
+        assert_eq!(
+            effective.text_blink_ease_out,
+            NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                x1_per_mille: 400,
+                y1_per_mille: 500,
+                x2_per_mille: 600,
+                y2_per_mille: 700,
             })
         );
     }

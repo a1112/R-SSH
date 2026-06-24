@@ -1610,7 +1610,10 @@ keyboard, mouse, paste, resize
   `text_blink_ease_out`, `text_blink_rapid_ease_in`, and
   `text_blink_rapid_ease_out`; SGR 5 and SGR 6 text blink use independent
   opacity phases and interpolate foreground/decorations toward the rendered
-  background. Native overrides also expose WezTerm-style
+  background. Static WezTerm-style Lua snippets for the cursor/text blink
+  easing fields parse string easing names and `{ CubicBezier = { ... } }`
+  table easing forms inline or through top-level static variables. Native
+  overrides also expose WezTerm-style
   `bold_brightens_ansi_colors`, with the `No`, `BrightAndBold`, and
   `BrightOnly` modes applied to bold ANSI 0-7 foreground colors. Native
   overrides also expose `default_cursor_style` for
