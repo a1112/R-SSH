@@ -6809,6 +6809,21 @@ fn lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_f
         }
 
         if let Some((key_table_name, assignment)) =
+            lua_static_key_tables_variable_indexed_field_assignment_from_query(
+                source, start, variable,
+            )
+        {
+            selected = Some(lua_key_tables_with_index_field_assigned(
+                selected.take(),
+                &key_table_name,
+                assignment.index,
+                &assignment.key,
+                assignment.value,
+            )?);
+            continue;
+        }
+
+        if let Some((key_table_name, assignment)) =
             lua_static_key_tables_variable_index_or_append_assignment_from_query(
                 source, start, variable,
             )
@@ -7356,6 +7371,37 @@ fn lua_static_key_tables_variable_index_or_append_assignment_from_query<'a>(
         &key_table_name,
     )?;
     Some((key_table_name, assignment))
+}
+
+fn lua_static_key_tables_variable_indexed_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<(String, LuaTableIndexedFieldAssignment<'a>)> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let (key_table_name, rest) =
+        lua_nested_table_insert_key_from_query(source, after_variable, start)?;
+    let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some((
+        key_table_name,
+        LuaTableIndexedFieldAssignment {
+            index,
+            key,
+            value: lua_top_level_statement_value_from_query(rest)?,
+        },
+    ))
 }
 
 fn lua_table_index_assignment_value_from_query<'a>(
@@ -70243,6 +70289,68 @@ mod tests {
         assert_eq!(
             written.lock().unwrap().as_slice(),
             b"from-nested-variable-insert"
+        );
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_key_tables_static_variable_index_field_assignments() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_key_tables = {
+              resize_pane = {},
+            }
+            user_key_tables.resize_pane[1] = {}
+            user_key_tables.resize_pane[1].key = 'h'
+            user_key_tables.resize_pane[1].action = act.SendString 'from-variable-index-fields'
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = user_key_tables
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable indexed field key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-variable-index-fields"
         );
         assert_eq!(app.active_key_table_for_test(), None);
     }
