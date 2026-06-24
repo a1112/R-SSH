@@ -2349,8 +2349,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         in_file_color_scheme_found = true;
         parsed |= apply_lua_color_scheme_source_overrides(config, source, &mut overrides)?;
+        let mutation_source =
+            color_scheme_lua_mutation_source_from_config_query(config, color_scheme)?;
         parsed |= apply_lua_selected_color_scheme_mutation_overrides(
-            config,
+            mutation_source,
             color_scheme,
             &mut overrides,
         )?;
@@ -3192,6 +3194,26 @@ fn apply_lua_color_scheme_source_overrides(
     }
 }
 
+fn color_scheme_lua_mutation_source_from_config_query<'a>(
+    source: &'a str,
+    color_scheme: &str,
+) -> Option<&'a str> {
+    let mut mutation_start = 0usize;
+
+    if let Some(color_schemes) = lua_config_table_assignment_from_query(source, "color_schemes")
+        && color_scheme_lua_source_from_query(source, color_schemes, color_scheme)?.is_some()
+    {
+        mutation_start = lua_source_slice_end_offset(source, color_schemes)?;
+    }
+
+    if let Some(assignment_end) = color_scheme_lua_assignment_end_from_query(source, color_scheme)?
+    {
+        mutation_start = assignment_end;
+    }
+
+    source.get(mutation_start..)
+}
+
 fn apply_lua_selected_color_scheme_mutation_overrides(
     source: &str,
     color_scheme: &str,
@@ -3610,6 +3632,58 @@ fn color_scheme_lua_assignment_from_query<'a>(
     Some(selected)
 }
 
+fn color_scheme_lua_assignment_end_from_query(
+    source: &str,
+    color_scheme: &str,
+) -> Option<Option<usize>> {
+    let mut selected = None;
+    let mut line_start = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let Some(rest) = source.get(start..)?.strip_prefix("config") else {
+            line_start += line.len();
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            line_start += line.len();
+            continue;
+        }
+        let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('.') else {
+            line_start += line.len();
+            continue;
+        };
+        let Some(rest) = rest.strip_prefix("color_schemes") else {
+            line_start += line.len();
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            line_start += line.len();
+            continue;
+        }
+        let Some((name, rest)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
+            line_start += line.len();
+            continue;
+        };
+        if name != color_scheme {
+            line_start += line.len();
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            line_start += line.len();
+            continue;
+        };
+        selected = Some(color_scheme_lua_source_value_end_from_query(
+            source, value, true,
+        )?);
+        line_start += line.len();
+    }
+
+    Some(selected)
+}
+
 fn color_scheme_lua_table_assignment_key_from_query(query: &str) -> Option<(String, &str)> {
     let query = lua_trim_start_comments(query)?;
     if let Some(rest) = query.strip_prefix('.') {
@@ -3675,6 +3749,35 @@ fn color_scheme_lua_source_value_from_query<'a>(
     }
 
     None
+}
+
+fn color_scheme_lua_source_value_end_from_query(
+    source: &str,
+    colors: &str,
+    allow_trailing_lines: bool,
+) -> Option<usize> {
+    let colors = lua_trim_start_comments(colors)?.trim_start();
+    if colors.starts_with('{') {
+        let colors = lua_braced_table_literal_from_query(colors)?;
+        return lua_source_slice_end_offset(source, colors);
+    }
+
+    let value_query = if allow_trailing_lines {
+        colors.split_once('\n').map_or(colors, |(colors, _)| colors)
+    } else {
+        colors
+    };
+    color_scheme_lua_source_value_from_query(source, colors, allow_trailing_lines)?;
+    lua_source_slice_end_offset(source, value_query)
+}
+
+fn lua_source_slice_end_offset(source: &str, slice: &str) -> Option<usize> {
+    let source_start = source.as_ptr() as usize;
+    let slice_start = slice.as_ptr() as usize;
+    let end = slice_start
+        .checked_sub(source_start)?
+        .checked_add(slice.len())?;
+    (end <= source.len()).then_some(end)
 }
 
 fn lua_static_table_variable_assignment_from_query<'a>(
@@ -42523,6 +42626,41 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.foreground_color, Color::Rgb(53, 54, 55));
         assert_eq!(effective.background_color, Color::Rgb(56, 57, 58));
+    }
+
+    #[test]
+    fn window_app_uses_later_wezterm_lua_color_scheme_assignment_after_entry_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {}
+            config.color_schemes['Project Scheme'] = {
+              foreground = '#010203',
+              background = '#040506',
+              cursor_bg = '#070809',
+            }
+            config.color_schemes['Project Scheme'].background = '#0a0b0c'
+            config.color_schemes['Project Scheme'].cursor_bg = '#0d0e0f'
+            config.color_schemes['Project Scheme'] = {
+              foreground = '#101112',
+              background = '#131415',
+              cursor_bg = '#161718',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected later WezTerm custom color scheme assignment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
     }
 
     #[test]

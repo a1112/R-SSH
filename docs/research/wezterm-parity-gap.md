@@ -2063,6 +2063,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.color_schemes['Name'].ansi[2] = '#101010'` and tab-bar nested
   mutations such as
   `config.color_schemes['Name'].tab_bar.active_tab.bg_color = '#101010'`.
+  Mutations are applied after the final selected static scheme definition, so
+  later full `config.color_schemes['Name'] = { ... }` assignments replace
+  earlier entry mutations.
   `config.color_scheme` selects one by name before `config.colors` is applied.
   Static `config.color_scheme_dirs` lists parse into effective config
   and scan configured directories for matching TOML scheme files. A TOML scheme
