@@ -648,7 +648,9 @@ runtime storage for tabs and split panes.
   subset when true, including built-in wheel scroll/alternate-screen arrow
   fallback when no user wheel binding matched. Mouse bindings that use
   `DisableDefaultAssignment` suppress the matching default mouse assignment
-  without consuming the event, matching WezTerm's opt-out semantics.
+  without consuming the event, matching WezTerm's opt-out semantics. Static
+  WezTerm-style `table.insert(config.mouse_bindings, { ... })` appends parse
+  into the same native mouse assignment path.
 - Native `hide_mouse_cursor_when_typing` defaults to true, hides the OS mouse
   cursor on key press while the cursor is inside the native window, and
   restores it on mouse motion or cursor leave.

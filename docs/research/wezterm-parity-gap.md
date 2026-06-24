@@ -184,11 +184,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right` buttons with non-zero streak
   values plus vertical `WheelUp`/`WheelDown` `streak = 1` with `mods`,
   `mouse_reporting`, `alt_screen`, and implemented native `action` payloads,
-  so custom bindings such as `ALT` + left drag can dispatch `StartWindowDrag`,
-  middle-button release can dispatch `PastePrimarySelection`, `CTRL` +
-  wheel-up can dispatch `IncreaseFontSize`, double-left-down can dispatch a
-  custom action, and non-left button streaks are tracked for user mouse
-  bindings. Matching user mouse bindings suppress the implemented default mouse
+  including top-level static `table.insert(config.mouse_bindings, { ... })`
+  appends, so custom bindings such as `ALT` + left drag can dispatch
+  `StartWindowDrag`, middle-button release can dispatch `PastePrimarySelection`,
+  `CTRL` + wheel-up can dispatch `IncreaseFontSize`, double-left-down can
+  dispatch a custom action, and non-left button streaks are tracked for user
+  mouse bindings. Matching user mouse bindings suppress the implemented default mouse
   assignment for the same button, streak, modifiers, mouse-reporting state, and
   alternate-screen state; default mouse assignments are skipped while the pane
   has captured mouse reporting unless the configured bypass modifier is held;
@@ -826,7 +827,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   covers the native `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right` non-zero
   streak subset and vertical `WheelUp`/`WheelDown` `streak = 1` subset with
   `mouse_reporting` and `alt_screen` filters for implemented action payloads,
-  and matching user mouse bindings override the implemented default mouse
+  including top-level static `table.insert(config.mouse_bindings, { ... })`
+  appends, and matching user mouse bindings override the implemented default mouse
   assignment for the same button/streak/modifiers/reporting/alternate-screen
   state; `DisableDefaultAssignment` mouse bindings suppress that matching
   default without consuming the event, matching WezTerm's opt-out semantics

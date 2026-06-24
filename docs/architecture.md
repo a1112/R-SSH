@@ -596,7 +596,8 @@ keyboard, mouse, paste, resize
   `config.mouse_bindings` now parses the native `Down`/`Up`/`Drag` plus
   `Left`/`Middle`/`Right` buttons with non-zero streak values plus vertical
   `WheelUp`/`WheelDown` `streak = 1` with `mods`, `mouse_reporting`,
-  `alt_screen`, and implemented native `action` payloads, so bindings such as
+  `alt_screen`, implemented native `action` payloads, and top-level static
+  `table.insert(config.mouse_bindings, { ... })` appends, so bindings such as
   `ALT` + left drag can route to `StartWindowDrag`, middle-button release can
   route to `PastePrimarySelection`, `CTRL` + wheel-up can route to
   `IncreaseFontSize`, double-left-down can route to a custom action, and
