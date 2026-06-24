@@ -5031,6 +5031,24 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
         }
 
         if lua_block_depth == 0
+            && let Some(assignment) =
+                lua_config_table_static_field_assignment_from_query(source, index, receiver, field)
+        {
+            selected = Some(
+                lua_table_with_assigned_field(
+                    selected.take().map(|assignment| assignment.value),
+                    &assignment.key,
+                    assignment.value,
+                )
+                .map(|value| LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: index,
+                })?,
+            );
+            continue;
+        }
+
+        if lua_block_depth == 0
             && let Some(insert) =
                 lua_config_table_insert_append_value_from_query(source, index, receiver, field)
         {
@@ -6131,6 +6149,25 @@ fn lua_config_table_map_field_assignment_from_query<'a>(
     Some(LuaTableMapFieldAssignment {
         key,
         value: lua_static_string_assignment_value_from_query(source, rest)?,
+    })
+}
+
+fn lua_config_table_static_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<LuaTableMapFieldAssignment<'a>> {
+    let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableMapFieldAssignment {
+        key,
+        value: lua_static_table_field_assignment_value_from_query(source, rest, start)?,
     })
 }
 
@@ -71562,6 +71599,58 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm leader static variable config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert!(!app.debug_overlay_active_for_test());
+
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("|".into()),
+            PhysicalKey::Code(WinitKeyCode::Backslash),
+            Some("|"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_leader_direct_field_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.leader = {}
+            config.leader.key = 'a'
+            config.leader.mods = 'CTRL'
+            config.leader.timeout_milliseconds = 1000
+
+            config.keys = {
+              {
+                key = '|',
+                mods = 'LEADER|SHIFT',
+                action = act.ShowDebugOverlay,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm leader direct field config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL;
