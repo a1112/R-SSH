@@ -3046,7 +3046,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         ));
         parsed = true;
     }
-    if let Some(window_padding) = lua_config_table_assignment_from_query(config, "window_padding") {
+    if let Some(window_padding) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "window_padding")
+    {
         overrides.window_padding =
             Some(native_window_padding_lua_table_from_query(window_padding)?);
         parsed = true;
@@ -69578,6 +69580,39 @@ mod tests {
         assert_eq!(rect.column, 1);
         assert_eq!(rect.rows, 3);
         assert_eq!(rect.columns, 17);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_padding_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local project_padding = {
+              left = 8,
+              right = 16,
+              top = 16,
+              bottom = 32,
+            }
+
+            config.term = 'xterm-256color'
+            config.window_padding = project_padding
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window padding static variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::Pixels(16),
+                bottom: NativeWindowPaddingDimension::Pixels(32),
+            }
+        );
     }
 
     #[test]

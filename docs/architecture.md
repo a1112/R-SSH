@@ -1614,7 +1614,9 @@ keyboard, mouse, paste, resize
   falls back to configured cursor foreground/background colors when the
   reverse-video cursor contrast is too low; `DECSCUSR 0` and full terminal
   reset restore the configured shape default.
-- Implemented in v1: native `window_content_alignment` parses WezTerm-style
+- Implemented in v1: native `window_padding` parses WezTerm-style px and
+  cell-unit side padding inline or through top-level static table variables.
+  Native `window_content_alignment` parses WezTerm-style
   horizontal `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom`
   values. When explicitly configured, native resize keeps the real framebuffer
   pixel size, renders terminal cells into the aligned grid, fills leftover gap

@@ -997,7 +997,9 @@ runtime storage for tabs and split panes.
   WezTerm-style configuration error window UI, actual Lua config reload,
   automatic file watching, Lua `window:set_config_overrides` wiring, and
   broader config option coverage remain later parity work.
-- `rssh-app` parses native `window_content_alignment` values for horizontal
+- `rssh-app` parses native `window_padding` px and cell-unit side padding
+  inline or through top-level static table variables, and parses
+  `window_content_alignment` values for horizontal
   `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom`. When explicitly
   configured, non-cell-multiple window sizes keep their real framebuffer size,
   fill leftover gap pixels with the configured background, align the terminal
