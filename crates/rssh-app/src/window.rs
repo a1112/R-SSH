@@ -5132,6 +5132,24 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
                 continue;
             }
 
+            if let Some(assignment) = lua_static_table_variable_indexed_field_assignment_from_query(
+                source, index, &variable,
+            ) {
+                selected = Some(
+                    lua_table_with_index_field_assigned(
+                        selected.take().map(|assignment| assignment.value),
+                        assignment.index,
+                        &assignment.key,
+                        assignment.value,
+                    )
+                    .map(|value| LuaTableAssignmentWithMaxStart {
+                        value,
+                        max_start: index,
+                    })?,
+                );
+                continue;
+            }
+
             if let Some(assignment) =
                 lua_static_table_variable_index_or_append_assignment_from_query(
                     source, index, &variable,
@@ -71482,6 +71500,35 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+H".to_owned(),
                 command: WindowCommand::SendString("from-variable-index-fields".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_key_static_variable_post_assignment_index_fields() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_keys = {}
+            config.keys = user_keys
+            user_keys[1] = {}
+            user_keys[1].key = 'H'
+            user_keys[1].mods = 'CTRL|SHIFT'
+            user_keys[1].action = act.SendString 'from-post-variable-index-fields'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm post-assignment static variable indexed field keys config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+H".to_owned(),
+                command: WindowCommand::SendString("from-post-variable-index-fields".to_owned()),
             }])
         );
     }

@@ -314,8 +314,8 @@ keyboard, mouse, paste, resize
   `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }`, plus
   direct indexed field mutations on existing binding tables such as
   `user_keys[1].key = 'H'`, `user_keys[1].mods = 'CTRL|SHIFT'`, and
-  `user_keys[1].action = act.SendString '...'`, that occur before the config
-  assignment.
+  `user_keys[1].action = act.SendString '...'`, before the config assignment
+  and while tracking the same variable after `config.keys = user_keys`.
   Leader `key`, `mods`, and `timeout_milliseconds` fields parse inline or
   through top-level static scalar variables, direct top-level config field
   mutations such as `config.leader.key = 'a'`,
