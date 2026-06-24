@@ -688,7 +688,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   now feed native launch-menu entries for the implemented `SpawnCommand`
   subset (`label`, optional `args`, `cwd`, `set_environment_variables`, and the
   local-domain selector), including bracketed string table keys with
-  long-bracket values for launch-menu item fields and environment entries, plus
+  long-bracket values for launch-menu item fields and environment entries,
+  launch item `label`, `args` entries, `cwd`, `domain`, and environment values
+  supplied inline or through top-level static string variables, plus
   default-program launch entries when `args` is omitted, and top-level static
   `table.insert(config.launch_menu, { ... })` append entries plus
   `table.insert(config.launch_menu, index, { ... })` numeric-position inserts,

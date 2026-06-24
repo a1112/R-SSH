@@ -3214,9 +3214,16 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(launch_menu) =
-        lua_config_table_assignment_with_insert_appends_from_query(config, "launch_menu")
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "launch_menu",
+        )
     {
-        overrides.launch_menu = Some(native_launch_menu_lua_table_from_query(&launch_menu)?);
+        overrides.launch_menu = Some(native_launch_menu_lua_table_from_query(
+            config,
+            &launch_menu.value,
+            launch_menu.max_start,
+        )?);
         parsed = true;
     }
 
@@ -4752,12 +4759,28 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
     source: &str,
     field: &str,
 ) -> Option<String> {
+    lua_config_table_assignment_with_insert_appends_with_max_start_from_query(source, field)
+        .map(|assignment| assignment.value)
+}
+
+struct LuaTableAssignmentWithMaxStart {
+    value: String,
+    max_start: usize,
+}
+
+fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+    source: &str,
+    field: &str,
+) -> Option<LuaTableAssignmentWithMaxStart> {
     if let Some(table) = lua_config_static_return_table_from_query(source) {
         let max_start = lua_source_slice_start_offset(source, table)?;
         let mut literal_from_query =
             |value| lua_table_insert_value_table_from_query(source, value, max_start);
         return lua_config_table_field_assignment_from_query(table, field, &mut literal_from_query)
-            .map(str::to_owned);
+            .map(|value| LuaTableAssignmentWithMaxStart {
+                value: value.to_owned(),
+                max_start,
+            });
     }
 
     let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
@@ -4881,7 +4904,10 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
                             field,
                             &mut literal_from_query,
                         ) {
-                            selected = Some(value.to_owned());
+                            selected = Some(LuaTableAssignmentWithMaxStart {
+                                value: value.to_owned(),
+                                max_start: index,
+                            });
                         }
                     }
                 }
@@ -4901,7 +4927,10 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
                     index,
                 )
             {
-                selected = Some(value.to_owned());
+                selected = Some(LuaTableAssignmentWithMaxStart {
+                    value: value.to_owned(),
+                    max_start: index,
+                });
             }
         }
 
@@ -4916,18 +4945,27 @@ fn lua_config_table_assignment_with_insert_appends_from_query(
                 index,
             )
         {
-            selected = Some(value.to_owned());
+            selected = Some(LuaTableAssignmentWithMaxStart {
+                value: value.to_owned(),
+                max_start: index,
+            });
         }
 
         if lua_block_depth == 0
             && let Some(insert) =
                 lua_config_table_insert_append_value_from_query(source, index, receiver, field)
         {
-            selected = Some(lua_table_with_inserted_field(
-                selected.take(),
-                insert.position,
-                insert.value,
-            )?);
+            selected = Some(
+                lua_table_with_inserted_field(
+                    selected.take().map(|assignment| assignment.value),
+                    insert.position,
+                    insert.value,
+                )
+                .map(|value| LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: index,
+                })?,
+            );
         }
     }
 
@@ -7973,10 +8011,15 @@ fn native_leader_lua_table_from_query<'a>(
     })
 }
 
-fn native_launch_menu_lua_table_from_query(value: &str) -> Option<Vec<NativeLaunchMenuItem>> {
+fn native_launch_menu_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeLaunchMenuItem>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut items = Vec::new();
     let mut indexed_items = BTreeMap::new();
+    let static_source = Some(LuaStaticSource { source, max_start });
 
     for field in split_lua_table_top_level_fields(table)? {
         let field = field.trim();
@@ -7991,7 +8034,7 @@ fn native_launch_menu_lua_table_from_query(value: &str) -> Option<Vec<NativeLaun
             }
             indexed_items.insert(
                 index,
-                native_launch_menu_item_lua_table_from_query(value.trim())?,
+                native_launch_menu_item_lua_table_from_query(static_source, value.trim())?,
             );
             continue;
         }
@@ -7999,7 +8042,10 @@ fn native_launch_menu_lua_table_from_query(value: &str) -> Option<Vec<NativeLaun
         if !indexed_items.is_empty() {
             return None;
         }
-        items.push(native_launch_menu_item_lua_table_from_query(field)?);
+        items.push(native_launch_menu_item_lua_table_from_query(
+            static_source,
+            field,
+        )?);
     }
 
     if !indexed_items.is_empty() {
@@ -8011,7 +8057,16 @@ fn native_launch_menu_lua_table_from_query(value: &str) -> Option<Vec<NativeLaun
     Some(items)
 }
 
-fn native_launch_menu_item_lua_table_from_query(value: &str) -> Option<NativeLaunchMenuItem> {
+#[derive(Clone, Copy)]
+struct LuaStaticSource<'a> {
+    source: &'a str,
+    max_start: usize,
+}
+
+fn native_launch_menu_item_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeLaunchMenuItem> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut label = None;
 
@@ -8026,22 +8081,25 @@ fn native_launch_menu_item_lua_table_from_query(value: &str) -> Option<NativeLau
             if label.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value.trim())?;
+            let value = parse_maybe_static_query_text(static_source, value.trim())?;
             label = Some(non_empty_spawn_command_option_value(&value).ok()?);
         }
     }
 
     Some(NativeLaunchMenuItem {
         label,
-        command: native_launch_menu_command_lua_table_from_query(value)?,
+        command: native_launch_menu_command_lua_table_from_query(static_source, value)?,
     })
 }
 
-fn native_launch_menu_command_lua_table_from_query(value: &str) -> Option<NativeLaunchMenuCommand> {
-    spawn_command_table_from_query(value, false)
+fn native_launch_menu_command_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeLaunchMenuCommand> {
+    spawn_command_table_from_query_with_static_source(static_source, value, false)
         .map(NativeLaunchMenuCommand::Command)
         .or_else(|| {
-            spawn_command_table_options_from_query(value, false)
+            spawn_command_table_options_from_query_with_static_source(static_source, value, false)
                 .map(NativeLaunchMenuCommand::Options)
         })
 }
@@ -29828,6 +29886,36 @@ fn parse_non_empty_query_text(value: &str) -> Option<&str> {
     (!value.is_empty()).then_some(value)
 }
 
+fn parse_maybe_static_query_text(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return parse_maybe_quoted_query_text(value);
+    }
+
+    parse_maybe_quoted_query_text(value)
+}
+
+fn lua_static_string_assignment_value_before_offset_from_query<'a>(
+    source: &'a str,
+    query: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+}
+
 fn parse_maybe_quoted_query_text(value: &str) -> Option<String> {
     let value = value.trim();
     if value.starts_with('"') || value.starts_with('\'') {
@@ -30530,6 +30618,14 @@ fn spawn_command_table_from_query(
     value: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQuery> {
+    spawn_command_table_from_query_with_static_source(None, value, allow_position)
+}
+
+fn spawn_command_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    allow_position: bool,
+) -> Option<WindowSpawnCommandQuery> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut args = None;
     let mut cwd = None;
@@ -30549,18 +30645,21 @@ fn spawn_command_table_from_query(
             if args.is_some() {
                 return None;
             }
-            args = Some(split_lua_table_string_array(value)?);
+            args = Some(split_lua_table_string_array_with_static_source(
+                static_source,
+                value,
+            )?);
         } else if key.eq_ignore_ascii_case("cwd") {
             if cwd.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
+            let value = parse_maybe_static_query_text(static_source, value)?;
             cwd = Some(non_empty_spawn_command_option_value(&value).ok()?);
         } else if key.eq_ignore_ascii_case("label") {
             if label.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
+            let value = parse_maybe_static_query_text(static_source, value)?;
             label = Some(non_empty_spawn_command_option_value(&value).ok()?);
         } else if key.eq_ignore_ascii_case("set_environment_variables")
             || key.eq_ignore_ascii_case("set-environment-variables")
@@ -30568,12 +30667,13 @@ fn spawn_command_table_from_query(
             if !environment.is_empty() {
                 return None;
             }
-            environment = split_lua_table_environment_from_query(value)?;
+            environment =
+                split_lua_table_environment_from_query_with_static_source(static_source, value)?;
         } else if key.eq_ignore_ascii_case("domain") {
             if domain.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
+            let value = parse_maybe_static_query_text(static_source, value)?;
             domain = Some(spawn_command_domain_from_query(&value)?);
         } else if key.eq_ignore_ascii_case("position") {
             if !allow_position || window_position.is_some() {
@@ -30603,6 +30703,14 @@ fn spawn_command_table_options_from_query(
     value: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQueryOptions> {
+    spawn_command_table_options_from_query_with_static_source(None, value, allow_position)
+}
+
+fn spawn_command_table_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    allow_position: bool,
+) -> Option<WindowSpawnCommandQueryOptions> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowSpawnCommandQueryOptions::default();
     let mut label = None;
@@ -30620,13 +30728,13 @@ fn spawn_command_table_options_from_query(
             if options.cwd.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
+            let value = parse_maybe_static_query_text(static_source, value)?;
             options.cwd = Some(non_empty_spawn_command_option_value(&value).ok()?);
         } else if key.eq_ignore_ascii_case("label") {
             if label.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
+            let value = parse_maybe_static_query_text(static_source, value)?;
             label = Some(non_empty_spawn_command_option_value(&value).ok()?);
         } else if key.eq_ignore_ascii_case("set_environment_variables")
             || key.eq_ignore_ascii_case("set-environment-variables")
@@ -30634,12 +30742,13 @@ fn spawn_command_table_options_from_query(
             if !options.environment.is_empty() {
                 return None;
             }
-            options.environment = split_lua_table_environment_from_query(value)?;
+            options.environment =
+                split_lua_table_environment_from_query_with_static_source(static_source, value)?;
         } else if key.eq_ignore_ascii_case("domain") {
             if options.domain.is_some() {
                 return None;
             }
-            let value = parse_maybe_quoted_query_text(value)?;
+            let value = parse_maybe_static_query_text(static_source, value)?;
             options.domain = Some(spawn_command_domain_from_query(&value)?);
         } else if key.eq_ignore_ascii_case("position") {
             if !allow_position || options.window_position.is_some() {
@@ -30659,6 +30768,13 @@ fn spawn_command_table_options_from_query(
 }
 
 fn split_lua_table_environment_from_query(value: &str) -> Option<BTreeMap<String, String>> {
+    split_lua_table_environment_from_query_with_static_source(None, value)
+}
+
+fn split_lua_table_environment_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<BTreeMap<String, String>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut environment = BTreeMap::new();
     for field in split_lua_table_top_level_fields(table)? {
@@ -30668,7 +30784,7 @@ fn split_lua_table_environment_from_query(value: &str) -> Option<BTreeMap<String
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = parse_maybe_static_query_text(static_source, value.trim())?;
         environment.insert(name, value);
     }
     Some(environment)
@@ -31667,6 +31783,13 @@ fn split_lua_table_key_from_query(key: &str) -> Option<String> {
 }
 
 fn split_lua_table_string_array(value: &str) -> Option<Vec<String>> {
+    split_lua_table_string_array_with_static_source(None, value)
+}
+
+fn split_lua_table_string_array_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<String>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut values = Vec::new();
     let mut indexed_values = BTreeMap::new();
@@ -31680,14 +31803,17 @@ fn split_lua_table_string_array(value: &str) -> Option<Vec<String>> {
                 if !values.is_empty() || index == 0 || indexed_values.contains_key(&index) {
                     return None;
                 }
-                indexed_values.insert(index, parse_maybe_quoted_query_text(value.trim())?);
+                indexed_values.insert(
+                    index,
+                    parse_maybe_static_query_text(static_source, value.trim())?,
+                );
                 continue;
             }
         }
         if !indexed_values.is_empty() {
             return None;
         }
-        values.push(parse_maybe_quoted_query_text(field)?);
+        values.push(parse_maybe_static_query_text(static_source, field)?);
     }
     if !indexed_values.is_empty() {
         return (1..=indexed_values.len())
@@ -71083,6 +71209,64 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm launch_menu config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::launch_menu_items(),
+                title: Some("Pick Launch".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        app.command_palette_set_query("monitor".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "System Monitor");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-H"]);
+        assert_eq!(launch.cwd(), Some("/tmp/project"));
+        assert_eq!(
+            launch.environment().get("LAUNCH_MENU"),
+            Some(&"1".to_owned())
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_static_field_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local menu_label = 'System Monitor'
+            local program = 'top'
+            local flag = '-H'
+            local project_cwd = '/tmp/project'
+            local launch_menu_enabled = '1'
+
+            config.launch_menu = {
+              {
+                label = menu_label,
+                args = { program, flag },
+                cwd = project_cwd,
+                set_environment_variables = {
+                  LAUNCH_MENU = launch_menu_enabled,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu static field variable config");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
