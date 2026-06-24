@@ -2060,8 +2060,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   same implemented color fields as `config.colors`, so explicit `config.colors`
   values override the selected scheme. Static
   `wezterm.color.load_scheme('path')` calls with a constant
-  TOML path can also feed `config.colors` directly or through the first returned
-  variable from `local colors, metadata = ...` or `colors, metadata = ...`
+  TOML path can also feed selected `config.color_schemes['Name']` entries, or
+  `config.colors` directly or through the first returned variable from
+  `local colors, metadata = ...` or `colors, metadata = ...`
   assignments, including top-level static mutations such as
   `colors.background = '#101010'` and bracket-key variants such as
   `colors['background'] = '#101010'`, indexed slot mutations such as

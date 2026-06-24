@@ -2345,10 +2345,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     let mut in_file_color_scheme_found = false;
     let mut external_color_scheme_found = false;
     if let Some(color_scheme) = color_scheme.as_deref()
-        && let Some(colors) = color_scheme_lua_table_from_config_query(config, color_scheme)?
+        && let Some(source) = color_scheme_lua_source_from_config_query(config, color_scheme)?
     {
         in_file_color_scheme_found = true;
-        parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
+        parsed |= apply_lua_color_scheme_source_overrides(source, &mut overrides)?;
     }
     if let Some(color_scheme_dirs) =
         lua_config_table_assignment_from_query(config, "color_scheme_dirs")
@@ -3160,28 +3160,47 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     parsed.then_some(overrides)
 }
 
-fn color_scheme_lua_table_from_config_query<'a>(
+enum NativeColorSchemeLuaSource<'a> {
+    Table(&'a str),
+    LoadSchemePath(String),
+}
+
+fn apply_lua_color_scheme_source_overrides(
+    source: NativeColorSchemeLuaSource<'_>,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    match source {
+        NativeColorSchemeLuaSource::Table(colors) => {
+            apply_lua_colors_table_overrides(colors, overrides)
+        }
+        NativeColorSchemeLuaSource::LoadSchemePath(path) => {
+            apply_toml_color_scheme_file_overrides(Path::new(&path), overrides)
+        }
+    }
+}
+
+fn color_scheme_lua_source_from_config_query<'a>(
     source: &'a str,
     color_scheme: &str,
-) -> Option<Option<&'a str>> {
+) -> Option<Option<NativeColorSchemeLuaSource<'a>>> {
     let mut selected = None;
 
     if let Some(color_schemes) = lua_config_table_assignment_from_query(source, "color_schemes") {
-        selected = color_scheme_lua_table_from_query(source, color_schemes, color_scheme)?;
+        selected = color_scheme_lua_source_from_query(source, color_schemes, color_scheme)?;
     }
 
-    if let Some(colors) = color_scheme_lua_table_assignment_from_query(source, color_scheme)? {
-        selected = Some(colors);
+    if let Some(source) = color_scheme_lua_assignment_from_query(source, color_scheme)? {
+        selected = Some(source);
     }
 
     Some(selected)
 }
 
-fn color_scheme_lua_table_from_query<'a>(
+fn color_scheme_lua_source_from_query<'a>(
     source: &'a str,
     color_schemes: &'a str,
     color_scheme: &str,
-) -> Option<Option<&'a str>> {
+) -> Option<Option<NativeColorSchemeLuaSource<'a>>> {
     let table = color_schemes
         .trim()
         .strip_prefix('{')?
@@ -3201,7 +3220,7 @@ fn color_scheme_lua_table_from_query<'a>(
         if name != color_scheme {
             continue;
         }
-        selected = Some(color_scheme_lua_table_value_from_query(
+        selected = Some(color_scheme_lua_source_value_from_query(
             source, colors, false,
         )?);
     }
@@ -3209,10 +3228,10 @@ fn color_scheme_lua_table_from_query<'a>(
     Some(selected)
 }
 
-fn color_scheme_lua_table_assignment_from_query<'a>(
+fn color_scheme_lua_assignment_from_query<'a>(
     source: &'a str,
     color_scheme: &str,
-) -> Option<Option<&'a str>> {
+) -> Option<Option<NativeColorSchemeLuaSource<'a>>> {
     let mut selected = None;
     let mut line_start = 0usize;
 
@@ -3252,7 +3271,7 @@ fn color_scheme_lua_table_assignment_from_query<'a>(
             line_start += line.len();
             continue;
         };
-        selected = Some(color_scheme_lua_table_value_from_query(
+        selected = Some(color_scheme_lua_source_value_from_query(
             source, value, true,
         )?);
         line_start += line.len();
@@ -3279,19 +3298,19 @@ fn color_scheme_lua_table_assignment_key_from_query(query: &str) -> Option<(Stri
     Some((name, rest))
 }
 
-fn color_scheme_lua_table_value_from_query<'a>(
+fn color_scheme_lua_source_value_from_query<'a>(
     source: &'a str,
     colors: &'a str,
     allow_trailing_lines: bool,
-) -> Option<&'a str> {
+) -> Option<NativeColorSchemeLuaSource<'a>> {
     let colors = lua_trim_start_comments(colors)?.trim();
     if colors.starts_with('{') {
         let colors = lua_braced_table_literal_from_query(colors)?;
         colors.strip_prefix('{')?.strip_suffix('}')?;
-        return Some(colors);
+        return Some(NativeColorSchemeLuaSource::Table(colors));
     }
 
-    let variable_query = if allow_trailing_lines {
+    let value_query = if allow_trailing_lines {
         colors
             .split_once('\n')
             .map_or(colors, |(colors, _)| colors)
@@ -3299,13 +3318,24 @@ fn color_scheme_lua_table_value_from_query<'a>(
     } else {
         colors
     };
+    if let Some(path) = lua_wezterm_color_load_scheme_path_literal_from_query(value_query)
+        .and_then(parse_maybe_quoted_query_text)
+    {
+        return Some(NativeColorSchemeLuaSource::LoadSchemePath(path));
+    }
+
+    let variable_query = value_query;
     let variable = lua_identifier_literal_from_query(variable_query)?;
     if !variable_query[variable.len()..].trim().is_empty() {
         return None;
     }
-    let colors = lua_static_table_variable_assignment_from_query(source, variable)?.trim();
-    colors.strip_prefix('{')?.strip_suffix('}')?;
-    Some(colors)
+    if let Some(colors) = lua_static_table_variable_assignment_from_query(source, variable) {
+        let colors = colors.trim();
+        colors.strip_prefix('{')?.strip_suffix('}')?;
+        return Some(NativeColorSchemeLuaSource::Table(colors));
+    }
+
+    None
 }
 
 fn lua_static_table_variable_assignment_from_query<'a>(
@@ -42154,6 +42184,71 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.foreground_color, Color::Rgb(53, 54, 55));
         assert_eq!(effective.background_color, Color::Rgb(56, 57, 58));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_custom_color_scheme_from_load_scheme() {
+        static NEXT_COLOR_SCHEME_LOAD_SCHEME_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-color-scheme-load-scheme-{}-{}.toml",
+            std::process::id(),
+            NEXT_COLOR_SCHEME_LOAD_SCHEME_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#3b3c3d"
+            background = "#3e3f40"
+            cursor_bg = "#414243"
+            ansi = [
+              "#000001",
+              "#000002",
+              "#000003",
+              "#000004",
+              "#000005",
+              "#000006",
+              "#000007",
+              "#000008",
+            ]
+            "##,
+        )
+        .expect("expected temp custom color_scheme load_scheme TOML scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {{
+              ['Project Scheme'] = wezterm.color.load_scheme('{}'),
+            }}
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm custom color_scheme load_scheme config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(59, 60, 61));
+        assert_eq!(effective.background_color, Color::Rgb(62, 63, 64));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(65, 66, 67));
+        assert_eq!(
+            effective.ansi_palette.expect("expected ANSI palette")[1],
+            Color::Rgb(0, 0, 2)
+        );
+        let _ = std::fs::remove_file(scheme_file);
     }
 
     #[test]
