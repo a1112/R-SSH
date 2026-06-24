@@ -2094,8 +2094,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   resolution for this option remains later parity work.
 - Static WezTerm-style Lua `config.color_schemes` entries can now define
   custom in-file schemes inline, through whole-table assignments such as
-  `config.color_schemes = schemes`, or through static top-level Lua table
-  variables assigned before their reference, and static top-level
+  `config.color_schemes = schemes` including top-level
+  `schemes['Name'] = { ... }` entries assigned before that reference, or
+  through static top-level Lua table variables assigned before their reference,
+  and static top-level
   `config.color_schemes['Name'] = scheme` or
   `config.color_schemes.Name = scheme` assignments can append or replace named
   schemes after initialization. Selected custom scheme entries also support

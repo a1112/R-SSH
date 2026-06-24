@@ -3571,8 +3571,64 @@ fn color_scheme_lua_source_from_config_query<'a>(
         selected = color_scheme_lua_source_from_query(source, color_schemes, color_scheme)?;
     }
 
+    if let Some(source) =
+        color_scheme_lua_variable_assignment_from_config_query(source, color_scheme)?
+    {
+        selected = Some(source);
+    }
+
     if let Some(source) = color_scheme_lua_assignment_from_query(source, color_scheme, receiver)? {
         selected = Some(source);
+    }
+
+    Some(selected)
+}
+
+fn color_scheme_lua_variable_assignment_from_config_query<'a>(
+    source: &'a str,
+    color_scheme: &str,
+) -> Option<Option<NativeColorSchemeLuaSource<'a>>> {
+    let Some(variable) = lua_config_assignment_from_query(
+        source,
+        "color_schemes",
+        lua_identifier_literal_from_query,
+    ) else {
+        return Some(None);
+    };
+    let Some(max_start) = lua_source_slice_start_offset(source, variable) else {
+        return Some(None);
+    };
+    color_scheme_lua_variable_assignment_before_offset(source, variable, color_scheme, max_start)
+}
+
+fn color_scheme_lua_variable_assignment_before_offset<'a>(
+    source: &'a str,
+    variable: &str,
+    color_scheme: &str,
+    max_start: usize,
+) -> Option<Option<NativeColorSchemeLuaSource<'a>>> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let Some((name, rest)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
+            continue;
+        };
+        if name != color_scheme {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        selected = Some(color_scheme_lua_source_value_from_query(
+            source, value, true,
+        )?);
     }
 
     Some(selected)
@@ -43948,6 +44004,36 @@ mod tests {
             "##,
         )
         .expect("expected WezTerm color_schemes static variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_custom_color_schemes_static_variable_entries() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local project_schemes = {}
+
+            project_schemes['Project Scheme'] = {
+              foreground = '#101112',
+              background = '#131415',
+              cursor_bg = '#161718',
+            }
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = project_schemes
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color_schemes static variable entry config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
