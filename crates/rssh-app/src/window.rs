@@ -6136,6 +6136,24 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
             }
 
             if let Some((key_table_name, assignment)) =
+                lua_static_key_tables_variable_indexed_field_assignment_from_query(
+                    source, index, &variable,
+                )
+            {
+                selected = Some(LuaTableAssignmentWithMaxStart {
+                    value: lua_key_tables_with_index_field_assigned(
+                        selected.take().map(|assignment| assignment.value),
+                        &key_table_name,
+                        assignment.index,
+                        &assignment.key,
+                        assignment.value,
+                    )?,
+                    max_start: index,
+                });
+                continue;
+            }
+
+            if let Some((key_table_name, assignment)) =
                 lua_static_key_tables_variable_index_or_append_assignment_from_query(
                     source, index, &variable,
                 )
@@ -70479,6 +70497,68 @@ mod tests {
         assert_eq!(
             written.lock().unwrap().as_slice(),
             b"from-post-assignment-index"
+        );
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_key_tables_variable_post_assignment_index_fields() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_key_tables = {
+              resize_pane = {},
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = user_key_tables
+            user_key_tables.resize_pane[1] = {}
+            user_key_tables.resize_pane[1].key = 'h'
+            user_key_tables.resize_pane[1].action = act.SendString 'from-post-index-fields'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm post-assignment indexed field key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-post-index-fields"
         );
         assert_eq!(app.active_key_table_for_test(), None);
     }

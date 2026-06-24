@@ -1154,7 +1154,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   before the config assignment, and post-assignment top-level nested inserts
   such as `table.insert(user_key_tables.resize_pane, { ... })` plus indexed
   assignments such as `user_key_tables.resize_pane[1] = { ... }` and field
-  assignments such as `user_key_tables.resize_pane = { ... }`. Static
+  assignments such as `user_key_tables.resize_pane = { ... }`, plus direct
+  indexed field mutations such as `user_key_tables.resize_pane[1].key = 'h'`.
+  Static
   `config.keys` and `config.key_tables` action fields also accept
   `wezterm.action_callback(...)` values as no-op native placeholders so
   official callback-shaped bindings can load; full Lua callback execution, full
@@ -2094,9 +2096,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   before the config assignment, and post-assignment top-level nested inserts
   such as `table.insert(user_key_tables.resize_pane, { ... })` plus indexed
   assignments such as `user_key_tables.resize_pane[1] = { ... }` and field
-  assignments such as `user_key_tables.resize_pane = { ... }`; full Lua config
-  evaluation, default key-table merging, and config-file reload wiring remain
-  open.
+  assignments such as `user_key_tables.resize_pane = { ... }`, plus direct
+  indexed field mutations such as `user_key_tables.resize_pane[1].key = 'h'`;
+  full Lua config evaluation, default key-table merging, and config-file reload
+  wiring remain open.
 - Copy mode semantic-zone movement can scroll into retained history and supports
   typed Prompt/Input/Output filters.
 - Copy mode source-row selection anchors now preserve and copy selections that
