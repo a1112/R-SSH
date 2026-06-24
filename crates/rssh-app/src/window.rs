@@ -2414,9 +2414,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(NativeNotificationHandling::parse(&notification_handling)?);
         parsed = true;
     }
-    if let Some(environment) =
-        lua_config_table_assignment_from_query(config, "set_environment_variables")
-    {
+    if let Some(environment) = lua_config_table_or_static_variable_assignment_from_query(
+        config,
+        "set_environment_variables",
+    ) {
         overrides.set_environment_variables =
             Some(split_lua_table_environment_from_query(environment)?);
         parsed = true;
@@ -66466,6 +66467,43 @@ mod tests {
             app.default_cwd.as_deref(),
         );
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_environment_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local env = {
+              PROJECT_MODE = 'dev',
+              FEATURE_FLAG = 'on',
+            }
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = env
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm environment variable table config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+        assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
     }
 
     #[test]

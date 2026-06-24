@@ -91,8 +91,8 @@ keyboard, mouse, paste, resize
   inherited cwd, omitted-spawn `SwitchToWorkspace`/new-workspace creation also
   uses `default_prog`, and no-program `SpawnWindow` requests inherit the active
   pane launch/cwd when no `default_prog` override is active; WezTerm-style Lua
-  `default_prog` command arrays parse inline or through top-level static table
-  variables; native
+  `default_prog` command arrays and `set_environment_variables` maps parse
+  inline or through top-level static table variables; native
   `default_workspace` names the initial default workspace before spawn when no
   explicit startup workspace is present; native `default_domain` is retained in
   the effective config and `SpawnTab(DefaultDomain)` uses the local spawn path
