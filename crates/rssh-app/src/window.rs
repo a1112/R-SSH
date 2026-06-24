@@ -3061,8 +3061,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     if let Some(window_padding) =
         lua_config_table_or_static_variable_assignment_from_query(config, "window_padding")
     {
-        overrides.window_padding =
-            Some(native_window_padding_lua_table_from_query(window_padding)?);
+        overrides.window_padding = Some(native_window_padding_lua_table_from_query(
+            config,
+            window_padding,
+        )?);
         parsed = true;
     }
     if let Some(window_content_alignment) =
@@ -7550,7 +7552,10 @@ fn native_webgpu_preferred_adapter_lua_table_from_query(
 }
 
 #[allow(dead_code)]
-fn native_window_padding_lua_table_from_query(value: &str) -> Option<NativeWindowPadding> {
+fn native_window_padding_lua_table_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
+) -> Option<NativeWindowPadding> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut padding = DEFAULT_WINDOW_PADDING;
 
@@ -7562,11 +7567,17 @@ fn native_window_padding_lua_table_from_query(value: &str) -> Option<NativeWindo
         let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query(key.trim())?;
         let value = value.trim();
-        let dimension = if let Some(value) = parse_maybe_quoted_query_text(value) {
-            NativeWindowPaddingDimension::parse(&value)?
-        } else {
-            NativeWindowPaddingDimension::parse(lua_unsigned_number_literal_from_query(value)?)?
-        };
+        let value = lua_static_string_assignment_value_from_query(source, value)
+            .and_then(parse_maybe_quoted_query_text)
+            .or_else(|| {
+                lua_static_number_assignment_value_from_query(
+                    source,
+                    value,
+                    lua_unsigned_number_literal_from_query,
+                )
+                .map(str::to_owned)
+            })?;
+        let dimension = NativeWindowPaddingDimension::parse(&value)?;
 
         match key.as_str() {
             "left" => padding.left = dimension,
@@ -70717,6 +70728,41 @@ mod tests {
                 right: NativeWindowPaddingDimension::Pixels(16),
                 top: NativeWindowPaddingDimension::Pixels(16),
                 bottom: NativeWindowPaddingDimension::Pixels(32),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_padding_static_field_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local left_padding = 8
+            local right_padding = 16
+            local top_padding = '1cell'
+            local bottom_padding = '2pt'
+
+            config.window_padding = {
+              left = left_padding,
+              right = right_padding,
+              top = top_padding,
+              bottom = bottom_padding,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window padding static field variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::CellFractionPerMille(1_000),
+                bottom: NativeWindowPaddingDimension::Points(2),
             }
         );
     }
