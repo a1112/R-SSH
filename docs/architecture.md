@@ -319,8 +319,9 @@ keyboard, mouse, paste, resize
   inserts parse into native key assignments, with bracket field selectors such
   as `config['key_tables']` supported for nested inserts. Static
   `config.key_tables = user_key_tables` assignments also merge top-level nested
-  inserts such as `table.insert(user_key_tables.resize_pane, { ... })` before
-  the config assignment; actual Lua callback
+  inserts such as `table.insert(user_key_tables.resize_pane, { ... })` and
+  static field assignments such as `user_key_tables.resize_pane = { ... }`
+  before the config assignment; actual Lua callback
   execution, default key-table merging, and config-file reload wiring remain
   future config parity work.
 - Implemented in v1: native `WindowCommand::DisableDefaultAssignment` can be

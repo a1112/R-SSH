@@ -5313,6 +5313,17 @@ fn lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_f
             continue;
         }
 
+        if let Some((key_table_name, table)) =
+            lua_static_key_tables_variable_field_assignment_from_query(source, start, variable)
+        {
+            selected = Some(lua_key_tables_with_assigned_table(
+                selected.take(),
+                &key_table_name,
+                table,
+            )?);
+            continue;
+        }
+
         if let Some((key_table_name, insert)) =
             lua_static_nested_table_insert_append_from_query(source, start, variable)
         {
@@ -5411,6 +5422,29 @@ fn lua_static_nested_table_insert_append_from_query<'a>(
             value: lua_table_insert_value_table_from_query(source, rest, start)?,
         },
     ))
+}
+
+fn lua_static_key_tables_variable_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<(String, &'a str)> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let (key_table_name, rest) =
+        lua_nested_table_insert_key_from_query(source, after_variable, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    let table = lua_table_insert_value_table_from_query(source, rest, start)?;
+    Some((key_table_name, table))
 }
 
 fn lua_static_table_variable_insert_append_value_from_query<'a>(
@@ -6286,6 +6320,58 @@ fn lua_key_tables_with_inserted_assignment(
             "{} = {{ {assignment} }}",
             lua_table_key_from_text(key_table_name)
         ));
+    }
+
+    Some(format!("{{ {} }}", fields.join(",\n")))
+}
+
+fn lua_key_tables_with_assigned_table(
+    key_tables: Option<String>,
+    key_table_name: &str,
+    assignments: &str,
+) -> Option<String> {
+    let field = format!(
+        "{} = {}",
+        lua_table_key_from_text(key_table_name),
+        assignments.trim()
+    );
+    let Some(key_tables) = key_tables else {
+        return Some(format!("{{ {field} }}"));
+    };
+
+    let table = key_tables
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim();
+    let mut fields = Vec::new();
+    let mut assigned = false;
+
+    for existing in split_lua_table_top_level_fields(table)? {
+        let existing = existing.trim();
+        if existing.is_empty() {
+            continue;
+        }
+        let Some((key, _value)) = split_lua_table_assignment_from_field(existing) else {
+            fields.push(existing.to_owned());
+            continue;
+        };
+        let Some(name) = split_lua_table_key_from_query(key.trim()) else {
+            fields.push(existing.to_owned());
+            continue;
+        };
+        if name == key_table_name {
+            if !assigned {
+                fields.push(field.clone());
+                assigned = true;
+            }
+        } else {
+            fields.push(existing.to_owned());
+        }
+    }
+
+    if !assigned {
+        fields.push(field);
     }
 
     Some(format!("{{ {} }}", fields.join(",\n")))
@@ -67475,6 +67561,63 @@ mod tests {
             written.lock().unwrap().as_slice(),
             b"from-nested-variable-insert"
         );
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_tables_static_variable_field_assignment() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_key_tables = {}
+            user_key_tables.resize_pane = {
+              { key = 'h', action = act.SendString 'from-field-assignment' },
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = user_key_tables
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable field assignment key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-field-assignment");
         assert_eq!(app.active_key_table_for_test(), None);
     }
 
