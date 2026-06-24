@@ -60,9 +60,9 @@ runtime storage for tabs and split panes.
   WezTerm-style Lua `default_prog`/`default_cwd` parsing now feeds the native
   launch override path, and `default_prog` is applied to the initial default
   shell before spawn while preserving the startup cwd. When a top-level static
-  `return { ... }` config table is present, it is treated as the returned config
-  and earlier `config.<field>` assignments are ignored for fields not in that
-  table.
+  `return { ... }` config table or `return cfg` config variable is present, it
+  is treated as the returned config and earlier assignments to unreturned config
+  variables are ignored.
 - `rssh-app` app-shell action dispatch maps from typed actions to updated
   app state.
 - `rssh-app` keyboard handling recognizes app-shell shortcuts before PTY input:
@@ -1390,8 +1390,9 @@ runtime storage for tabs and split panes.
   `colors.ansi = { ... }` before assignment. When complete `config.colors`
   table assignments and load-scheme-backed `config.colors = colors`
   assignments both appear, the static parser chooses the later source before
-  applying supported mutations; a top-level `return { colors = ... }` table is
-  treated as the returned config and wins over earlier `config.colors`
+  applying supported mutations; a top-level `return { colors = ... }` table or
+  returned static config variable such as `return cfg` is treated as the
+  returned config and wins over earlier unreturned `config.colors`
   assignments. When no in-file or configured-dir
   scheme matches, the default WezTerm custom scheme directories are also
   searched: `$HOME/.config/wezterm/colors` on POSIX and `colors` next to the

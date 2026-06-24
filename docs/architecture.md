@@ -98,9 +98,10 @@ keyboard, mouse, paste, resize
   `prefer_to_spawn_tabs` is retained with WezTerm's default `false` and, when
   enabled, routes unpositioned same-process `SpawnWindow` requests into a new
   tab while preserving positioned spawn-window requests as detached windows;
-  static WezTerm-style Lua return-table configs are treated as the final
-  returned config table, so earlier `config.<field>` assignments do not leak
-  into launch overrides when the file returns `{ ... }`;
+  static WezTerm-style Lua return-table configs and returned config variables
+  are treated as the final returned config table, so earlier assignments to
+  unreturned config variables do not leak into launch overrides when the file
+  returns `{ ... }` or `return cfg`;
   local/window/start/console CLI startup also accepts WezTerm-style `--cwd` for
   the initial child process, native window startup accepts WezTerm-style `start`
   as an alias for `window` and `-e` as an initial program alias, and native
@@ -1071,8 +1072,9 @@ keyboard, mouse, paste, resize
   `colors.ansi = { ... }` before assignment. When complete `config.colors`
   table assignments and load-scheme-backed `config.colors = colors`
   assignments both appear, the static parser chooses the later source before
-  applying supported mutations; a top-level `return { colors = ... }` table is
-  treated as the returned config and wins over earlier `config.colors`
+  applying supported mutations; a top-level `return { colors = ... }` table or
+  returned static config variable such as `return cfg` is treated as the
+  returned config and wins over earlier unreturned `config.colors`
   assignments. When no in-file or configured-dir
   scheme matches, the default WezTerm custom scheme directories are also
   searched: `$HOME/.config/wezterm/colors` on POSIX and `colors` next to the

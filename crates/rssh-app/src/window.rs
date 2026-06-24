@@ -4538,8 +4538,9 @@ fn lua_config_colors_source_from_query<'a>(
             source, colors,
         )?));
     }
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
 
-    if let Some(source) = lua_config_colors_direct_source_from_query(source)? {
+    if let Some(source) = lua_config_colors_direct_source_from_query(source, receiver)? {
         return Some(Some(source));
     }
 
@@ -4556,6 +4557,7 @@ fn lua_config_colors_source_from_query<'a>(
 
 fn lua_config_colors_direct_source_from_query<'a>(
     source: &'a str,
+    receiver: &str,
 ) -> Option<Option<NativeConfigColorsLuaSource<'a>>> {
     let mut selected = None;
     let mut quote = None;
@@ -4656,7 +4658,7 @@ fn lua_config_colors_direct_source_from_query<'a>(
 
         if source[index..].starts_with("colors")
             && lua_config_assignment_field_has_boundaries(source, index, "colors")
-            && lua_config_dot_assignment_has_config_receiver(source, index)
+            && lua_config_dot_assignment_has_receiver(source, index, receiver)
             && lua_block_depth == 0
         {
             let rest = lua_trim_start_comments(source.get(index + "colors".len()..)?)?;
@@ -4673,7 +4675,7 @@ fn lua_config_colors_direct_source_from_query<'a>(
         if character == '['
             && lua_block_depth == 0
             && let Some(rest) =
-                lua_config_bracket_assignment_rest_from_query(source, index, "colors")
+                lua_config_bracket_assignment_rest_from_query(source, index, receiver, "colors")
             && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
             && let Some(source) =
                 lua_config_colors_source_value_from_query(source, lua_trim_start_comments(rest)?)
@@ -5149,6 +5151,7 @@ fn lua_config_assignment_from_query<'a>(
     if let Some(table) = lua_config_static_return_table_from_query(source) {
         return lua_config_table_field_assignment_from_query(table, field, &mut literal_from_query);
     }
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
 
     let mut quote = None;
     let mut escape = false;
@@ -5248,7 +5251,7 @@ fn lua_config_assignment_from_query<'a>(
 
         if source[index..].starts_with(field)
             && lua_config_assignment_field_has_boundaries(source, index, field)
-            && lua_config_dot_assignment_has_config_receiver(source, index)
+            && lua_config_dot_assignment_has_receiver(source, index, receiver)
             && lua_block_depth == 0
         {
             let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
@@ -5261,7 +5264,8 @@ fn lua_config_assignment_from_query<'a>(
 
         if character == '['
             && lua_block_depth == 0
-            && let Some(rest) = lua_config_bracket_assignment_rest_from_query(source, index, field)
+            && let Some(rest) =
+                lua_config_bracket_assignment_rest_from_query(source, index, receiver, field)
             && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
             && let Some(value) = literal_from_query(lua_trim_start_comments(rest)?)
         {
@@ -5269,20 +5273,29 @@ fn lua_config_assignment_from_query<'a>(
         }
     }
 
-    lua_config_table_initializer_assignment_from_query(source, field, &mut literal_from_query)
+    lua_config_table_initializer_assignment_from_query(
+        source,
+        receiver,
+        field,
+        &mut literal_from_query,
+    )
 }
 
 #[allow(dead_code)]
 fn lua_config_dot_assignment_has_config_receiver(source: &str, start: usize) -> bool {
+    lua_config_dot_assignment_has_receiver(source, start, "config")
+}
+
+fn lua_config_dot_assignment_has_receiver(source: &str, start: usize, receiver: &str) -> bool {
     let prefix = source[..start].trim_end();
     let Some(receiver_prefix) = prefix.strip_suffix('.') else {
         return false;
     };
     let receiver_prefix = receiver_prefix.trim_end();
-    let Some(receiver_start) = receiver_prefix.len().checked_sub("config".len()) else {
+    let Some(receiver_start) = receiver_prefix.len().checked_sub(receiver.len()) else {
         return false;
     };
-    if !receiver_prefix[receiver_start..].starts_with("config") {
+    if &receiver_prefix[receiver_start..] != receiver {
         return false;
     }
     let before_receiver = receiver_prefix[..receiver_start].chars().next_back();
@@ -5435,9 +5448,123 @@ fn lua_config_static_return_table_from_query(source: &str) -> Option<&str> {
     None
 }
 
+fn lua_config_static_return_identifier_from_query(source: &str) -> Option<&str> {
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index..])
+        {
+            let content_and_rest = &source[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(source.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if source[index..].starts_with("return")
+            && lua_config_assignment_field_has_boundaries(source, index, "return")
+            && lua_block_depth == 0
+        {
+            let rest = lua_trim_start_comments(source.get(index + "return".len()..)?)?;
+            let identifier = lua_identifier_literal_from_query(rest)?;
+            let after_identifier = lua_trim_start_comments(rest.get(identifier.len()..)?)?;
+            if after_identifier.is_empty() || after_identifier.starts_with(',') {
+                return Some(identifier);
+            }
+        }
+    }
+
+    None
+}
+
 #[allow(dead_code)]
 fn lua_config_table_initializer_assignment_from_query<'a>(
     source: &'a str,
+    receiver: &str,
     field: &str,
     literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
 ) -> Option<&'a str> {
@@ -5540,20 +5667,14 @@ fn lua_config_table_initializer_assignment_from_query<'a>(
         if lua_block_depth == 0 {
             let after_config = if lua_source_keyword_at(source, index, "local") {
                 let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
-                if !rest.starts_with("config") {
+                let Some(after_config) = lua_config_receiver_prefix_rest(rest, receiver) else {
                     continue;
-                }
-                let after_config = rest.get("config".len()..)?;
-                if after_config
-                    .chars()
-                    .next()
-                    .is_some_and(is_lua_identifier_character)
-                {
-                    continue;
-                }
+                };
                 after_config
-            } else if lua_source_keyword_at(source, index, "config") {
-                source.get(index + "config".len()..)?
+            } else if let Some(after_config) =
+                lua_config_receiver_prefix_rest(source.get(index..)?, receiver)
+            {
+                after_config
             } else {
                 continue;
             };
@@ -5583,6 +5704,18 @@ fn lua_config_table_initializer_assignment_from_query<'a>(
     }
 
     None
+}
+
+fn lua_config_receiver_prefix_rest<'a>(query: &'a str, receiver: &str) -> Option<&'a str> {
+    let after_receiver = query.strip_prefix(receiver)?;
+    if after_receiver
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    Some(after_receiver)
 }
 
 #[allow(dead_code)]
@@ -5616,9 +5749,10 @@ fn lua_trim_start_comments(mut source: &str) -> Option<&str> {
 fn lua_config_bracket_assignment_rest_from_query<'a>(
     source: &'a str,
     start: usize,
+    receiver: &str,
     field: &str,
 ) -> Option<&'a str> {
-    if !lua_config_bracket_assignment_has_config_receiver(source, start) {
+    if !lua_config_bracket_assignment_has_receiver(source, start, receiver) {
         return None;
     }
 
@@ -5636,11 +5770,15 @@ fn lua_config_bracket_assignment_rest_from_query<'a>(
 
 #[allow(dead_code)]
 fn lua_config_bracket_assignment_has_config_receiver(source: &str, start: usize) -> bool {
+    lua_config_bracket_assignment_has_receiver(source, start, "config")
+}
+
+fn lua_config_bracket_assignment_has_receiver(source: &str, start: usize, receiver: &str) -> bool {
     let prefix = source[..start].trim_end();
-    let Some(receiver_start) = prefix.len().checked_sub("config".len()) else {
+    let Some(receiver_start) = prefix.len().checked_sub(receiver.len()) else {
         return false;
     };
-    if !prefix[receiver_start..].starts_with("config") {
+    if &prefix[receiver_start..] != receiver {
         return false;
     }
     let before_receiver = prefix[..receiver_start].chars().next_back();
@@ -44152,6 +44290,39 @@ mod tests {
     }
 
     #[test]
+    fn window_app_uses_wezterm_lua_returned_config_variable_colors_after_config_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local cfg = {}
+
+            config.colors = {
+              foreground = '#010203',
+              background = '#040506',
+              cursor_bg = '#070809',
+            }
+
+            cfg.colors = {
+              foreground = '#101112',
+              background = '#131415',
+              cursor_bg = '#161718',
+            }
+
+            return cfg
+            "##,
+        )
+        .expect("expected returned WezTerm config variable colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_ansi_palette_for_framebuffer() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -64447,6 +64618,41 @@ mod tests {
             app.default_cwd.as_deref(),
         );
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_returned_config_variable_launch_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local cfg = {}
+
+            cfg.default_prog = { 'nu', '--login' }
+            cfg.default_cwd = 'C:/Project Dir'
+            cfg.term = 'wezterm'
+
+            return cfg
+            "#,
+        )
+        .expect("expected returned WezTerm config variable launch config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+        assert_eq!(command.env_value("TERM"), Some("wezterm"));
     }
 
     #[test]
