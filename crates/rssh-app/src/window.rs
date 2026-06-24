@@ -4658,8 +4658,10 @@ fn apply_lua_color_variable_mutation_overrides(
 
 #[allow(dead_code)]
 fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<String> {
-    lua_config_assignment_from_query(source, field, lua_quoted_string_literal_from_query)
-        .and_then(parse_maybe_quoted_query_text)
+    lua_config_assignment_from_query(source, field, |value| {
+        lua_static_string_assignment_value_from_query(source, value)
+    })
+    .and_then(parse_maybe_quoted_query_text)
 }
 
 #[allow(dead_code)]
@@ -5150,6 +5152,70 @@ fn lua_table_insert_value_table_from_query<'a>(
 
     let variable = lua_identifier_literal_from_query(query)?;
     lua_static_table_variable_assignment_before_offset_from_query(source, variable, max_start)
+}
+
+fn lua_static_string_assignment_value_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+) -> Option<&'a str> {
+    if let Some(value) = lua_quoted_string_literal_from_query(query)
+        .or_else(|| lua_long_bracket_literal_from_query(query))
+    {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let max_start = lua_source_slice_start_offset(source, variable)?;
+    lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+}
+
+fn lua_static_identifier_value_rest_is_statement_end(rest: &str) -> bool {
+    for character in rest.chars() {
+        match character {
+            ' ' | '\t' | '\r' => continue,
+            '\n' | ';' => return true,
+            '-' => return rest.trim_start().starts_with("--"),
+            _ => return false,
+        }
+    }
+    true
+}
+
+fn lua_static_string_variable_assignment_before_offset_from_query<'a>(
+    source: &'a str,
+    variable: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(variable) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        if let Some(value) = lua_quoted_string_literal_from_query(value)
+            .or_else(|| lua_long_bracket_literal_from_query(value))
+        {
+            selected = Some(value);
+        }
+    }
+
+    selected
 }
 
 fn lua_static_table_variable_assignment_before_offset_from_query<'a>(
@@ -44118,6 +44184,36 @@ mod tests {
             "##,
         )
         .expect("expected WezTerm custom color scheme variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_color_scheme_static_string_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local selected_scheme = 'Project Scheme'
+
+            config.color_scheme = selected_scheme
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#101112',
+                background = '#131415',
+                cursor_bg = '#161718',
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color_scheme static string variable config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

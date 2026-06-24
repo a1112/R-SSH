@@ -1102,9 +1102,10 @@ keyboard, mouse, paste, resize
   mutations. Returned static config variables such as `return cfg`
   also carry `cfg.color_schemes['Name']` entry assignments and selected-scheme
   mutations while unreturned `config.color_schemes` assignments are ignored.
-  `config.color_scheme` selects one before `config.colors` applies overriding
-  fields, and static `config.color_scheme_dirs` lists, inline or through top-level
-  static table variables, are retained in effective config and scan
+  `config.color_scheme`, inline or through a top-level static string variable,
+  selects one before `config.colors` applies overriding fields, and static
+  `config.color_scheme_dirs` lists, inline or through top-level static table
+  variables, are retained in effective config and scan
   configured directories for matching TOML scheme files. External TOML schemes
   load when `[metadata].name` or the file stem matches `config.color_scheme`
   and reuse the same implemented color fields before `config.colors` applies
