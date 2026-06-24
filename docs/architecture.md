@@ -1062,8 +1062,8 @@ keyboard, mouse, paste, resize
   `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, and
   `colors.compose_cursor`; static `config.color_schemes` entries can define
   custom in-file schemes inline or through static top-level Lua table variables
-  assigned before their reference, ignoring helper-function-local assignments,
-  and static `config.color_schemes['Name'] = scheme` or
+  assigned before their reference, and static top-level
+  `config.color_schemes['Name'] = scheme` or
   `config.color_schemes.Name = scheme` assignments can append or replace named
   schemes after initialization. Selected custom scheme entries also support
   static top-level field mutations such as
@@ -1075,8 +1075,8 @@ keyboard, mouse, paste, resize
   `config.color_schemes['Name'].ansi[2] = '#101010'` and tab-bar nested
   top-level mutations such as
   `config.color_schemes['Name'].tab_bar.active_tab.bg_color = '#101010'`.
-  Helper-function-local mutations are ignored. Mutations are applied after the
-  final selected static scheme definition, so later full
+  Helper-function-local assignments and mutations are ignored. Mutations are
+  applied after the final selected static scheme definition, so later full
   `config.color_schemes['Name'] = { ... }` assignments replace earlier entry
   mutations. Returned static config variables such as `return cfg`
   also carry `cfg.color_schemes['Name']` entry assignments and selected-scheme

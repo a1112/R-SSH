@@ -3593,44 +3593,33 @@ fn color_scheme_lua_assignment_from_query<'a>(
     receiver: &str,
 ) -> Option<Option<NativeColorSchemeLuaSource<'a>>> {
     let mut selected = None;
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let Some(rest) = lua_config_receiver_prefix_rest(source.get(start..)?, receiver) else {
-            line_start += line.len();
             continue;
         };
         let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('.') else {
-            line_start += line.len();
             continue;
         };
         let Some(rest) = rest.strip_prefix("color_schemes") else {
-            line_start += line.len();
             continue;
         };
         if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            line_start += line.len();
             continue;
         }
         let Some((name, rest)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         if name != color_scheme {
-            line_start += line.len();
             continue;
         }
         let rest = lua_trim_start_comments(rest)?;
         let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
             continue;
         };
         selected = Some(color_scheme_lua_source_value_from_query(
             source, value, true,
         )?);
-        line_start += line.len();
     }
 
     Some(selected)
@@ -3642,44 +3631,33 @@ fn color_scheme_lua_assignment_end_from_query(
     receiver: &str,
 ) -> Option<Option<usize>> {
     let mut selected = None;
-    let mut line_start = 0usize;
 
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let Some(rest) = lua_config_receiver_prefix_rest(source.get(start..)?, receiver) else {
-            line_start += line.len();
             continue;
         };
         let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('.') else {
-            line_start += line.len();
             continue;
         };
         let Some(rest) = rest.strip_prefix("color_schemes") else {
-            line_start += line.len();
             continue;
         };
         if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            line_start += line.len();
             continue;
         }
         let Some((name, rest)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
-            line_start += line.len();
             continue;
         };
         if name != color_scheme {
-            line_start += line.len();
             continue;
         }
         let rest = lua_trim_start_comments(rest)?;
         let Some(value) = rest.strip_prefix('=') else {
-            line_start += line.len();
             continue;
         };
         selected = Some(color_scheme_lua_source_value_end_from_query(
             source, value, true,
         )?);
-        line_start += line.len();
     }
 
     Some(selected)
@@ -44048,6 +44026,39 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(effective.foreground_color, Color::Rgb(53, 54, 55));
         assert_eq!(effective.background_color, Color::Rgb(56, 57, 58));
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_color_scheme_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {}
+            config.color_schemes['Project Scheme'] = {
+              foreground = '#202122',
+              background = '#232425',
+            }
+
+            local function ignored()
+              config.color_schemes['Project Scheme'] = {
+                foreground = '#010203',
+                background = '#040506',
+              }
+            end
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm helper color scheme assignment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(32, 33, 34));
+        assert_eq!(effective.background_color, Color::Rgb(35, 36, 37));
     }
 
     #[test]
