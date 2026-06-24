@@ -1091,8 +1091,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
   `config.leader = user_leader`, and leader `key`, `mods`, and
   `timeout_milliseconds` fields inline or through top-level static scalar
-  variables, plus top-level `config.keys` assignment `key` and `mods` fields
-  inline or through top-level static string variables,
+  variables, plus top-level `config.keys` and `config.key_tables` assignment
+  `key` and `mods` fields inline or through top-level static string variables,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and
@@ -1978,8 +1978,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
   `config.leader = user_leader`, and leader `key`, `mods`, and
   `timeout_milliseconds` fields inline or through top-level static scalar
-  variables, plus top-level `config.keys` assignment `key` and `mods` fields
-  inline or through top-level static string variables,
+  variables, plus top-level `config.keys` and `config.key_tables` assignment
+  `key` and `mods` fields inline or through top-level static string variables,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and

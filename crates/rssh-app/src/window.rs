@@ -3202,9 +3202,15 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(key_tables) =
-        lua_config_key_tables_assignment_with_insert_appends_from_query(config)
+        lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_query(config)
     {
-        overrides.key_tables = Some(native_key_tables_lua_table_from_query(&key_tables)?);
+        overrides.key_tables = Some(native_key_tables_lua_table_from_query(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: key_tables.max_start,
+            }),
+            &key_tables.value,
+        )?);
         parsed = true;
     }
     if let Some(mouse_bindings) =
@@ -4980,7 +4986,9 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
     selected
 }
 
-fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str) -> Option<String> {
+fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_query(
+    source: &str,
+) -> Option<LuaTableAssignmentWithMaxStart> {
     if let Some(table) = lua_config_static_return_table_from_query(source) {
         let max_start = lua_source_slice_start_offset(source, table)?;
         let mut literal_from_query =
@@ -4990,7 +4998,10 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
             "key_tables",
             &mut literal_from_query,
         )
-        .map(str::to_owned);
+        .map(|value| LuaTableAssignmentWithMaxStart {
+            value: value.to_owned(),
+            max_start,
+        });
     }
 
     let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
@@ -5114,7 +5125,10 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
                             "key_tables",
                             &mut literal_from_query,
                         ) {
-                            selected = Some(value.to_owned());
+                            selected = Some(LuaTableAssignmentWithMaxStart {
+                                value: value.to_owned(),
+                                max_start: index,
+                            });
                         }
                     }
                 }
@@ -5134,7 +5148,10 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
                     index,
                 )
             {
-                selected = Some(value.to_owned());
+                selected = Some(LuaTableAssignmentWithMaxStart {
+                    value: value.to_owned(),
+                    max_start: index,
+                });
             }
         }
 
@@ -5149,7 +5166,10 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
                 index,
             )
         {
-            selected = Some(value.to_owned());
+            selected = Some(LuaTableAssignmentWithMaxStart {
+                value: value.to_owned(),
+                max_start: index,
+            });
         }
 
         if lua_block_depth == 0
@@ -5160,12 +5180,15 @@ fn lua_config_key_tables_assignment_with_insert_appends_from_query(source: &str)
                 "key_tables",
             )
         {
-            selected = Some(lua_key_tables_with_inserted_assignment(
-                selected.take(),
-                &key_table_name,
-                insert.position,
-                insert.value,
-            )?);
+            selected = Some(LuaTableAssignmentWithMaxStart {
+                value: lua_key_tables_with_inserted_assignment(
+                    selected.take().map(|assignment| assignment.value),
+                    &key_table_name,
+                    insert.position,
+                    insert.value,
+                )?,
+                max_start: index,
+            });
         }
     }
 
@@ -8113,6 +8136,7 @@ fn native_launch_menu_command_lua_table_from_query(
 }
 
 fn native_key_tables_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -8130,7 +8154,7 @@ fn native_key_tables_lua_table_from_query(
         }
         key_tables.insert(
             name,
-            native_key_assignments_lua_table_from_query(None, value.trim())?,
+            native_key_assignments_lua_table_from_query(static_source, value.trim())?,
         );
     }
 
@@ -66694,6 +66718,64 @@ mod tests {
         .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"from-table-variable");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_tables_static_field_variables() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local move_key = 'h'
+            local move_mods = 'NONE'
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              resize_pane = {
+                { key = move_key, mods = move_mods, action = act.SendString 'from-field-variable' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key_tables static field variable config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-field-variable");
         assert_eq!(app.active_key_table_for_test(), None);
     }
 
