@@ -325,7 +325,10 @@ keyboard, mouse, paste, resize
   `return { key_tables = user_key_tables }`, and top-level static
   `table.insert(config.keys, { ... })` appends and direct indexed assignments
   such as `config.keys[index] = { ... }` or
-  `config.keys[#config.keys + 1] = { ... }`, plus
+  `config.keys[#config.keys + 1] = { ... }`, plus direct indexed field
+  mutations on existing binding tables such as `config.keys[1].key = 'K'`,
+  `config.keys[1].mods = 'CTRL|SHIFT'`, and
+  `config.keys[1].action = act.SendString '...'`, plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
   static table variables such as
   `table.insert(config.key_tables.<name>, item)` or

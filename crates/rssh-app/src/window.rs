@@ -5049,6 +5049,25 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
         }
 
         if lua_block_depth == 0
+            && let Some(assignment) =
+                lua_config_table_indexed_field_assignment_from_query(source, index, receiver, field)
+        {
+            selected = Some(
+                lua_table_with_index_field_assigned(
+                    selected.take().map(|assignment| assignment.value),
+                    assignment.index,
+                    &assignment.key,
+                    assignment.value,
+                )
+                .map(|value| LuaTableAssignmentWithMaxStart {
+                    value,
+                    max_start: index,
+                })?,
+            );
+            continue;
+        }
+
+        if lua_block_depth == 0
             && let Some(insert) =
                 lua_config_table_insert_append_value_from_query(source, index, receiver, field)
         {
@@ -6128,6 +6147,12 @@ struct LuaTableIndexOrAppendAssignment<'a> {
     value: &'a str,
 }
 
+struct LuaTableIndexedFieldAssignment<'a> {
+    index: usize,
+    key: String,
+    value: &'a str,
+}
+
 struct LuaTableMapFieldAssignment<'a> {
     key: String,
     value: &'a str,
@@ -6168,6 +6193,26 @@ fn lua_config_table_static_field_assignment_from_query<'a>(
     Some(LuaTableMapFieldAssignment {
         key,
         value: lua_static_table_field_assignment_value_from_query(source, rest, start)?,
+    })
+}
+
+fn lua_config_table_indexed_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<LuaTableIndexedFieldAssignment<'a>> {
+    let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableIndexedFieldAssignment {
+        index,
+        key,
+        value: lua_top_level_statement_value_from_query(rest)?,
     })
 }
 
@@ -6243,6 +6288,16 @@ fn lua_table_map_field_key_from_query(query: &str) -> Option<(String, &str)> {
     let key = parse_maybe_quoted_query_text(key_literal)?;
     let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
     Some((key, rest.strip_prefix(']')?))
+}
+
+fn lua_table_array_index_access_rest_from_query(query: &str) -> Option<(usize, &str)> {
+    let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
+    let after_open = lua_trim_start_comments(after_open)?;
+    let literal = lua_unsigned_integer_literal_from_query(after_open)?;
+    let index = literal.parse().ok()?;
+    let rest = lua_trim_start_comments(after_open.get(literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    Some((index, rest))
 }
 
 fn lua_config_table_insert_append_value_from_query<'a>(
@@ -8530,6 +8585,62 @@ fn lua_table_with_index_or_append_assigned_field(
     } else {
         fields.push(field.to_owned());
     }
+
+    Some(format!("{{ {} }}", fields.join(",\n")))
+}
+
+fn lua_table_with_index_field_assigned(
+    table: Option<String>,
+    index: usize,
+    key: &str,
+    value: &str,
+) -> Option<String> {
+    if index == 0 {
+        return None;
+    }
+
+    let table = table?;
+    let table_fields = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut implicit_fields = Vec::new();
+    let mut indexed_fields = BTreeMap::new();
+
+    for table_field in split_lua_table_top_level_fields(table_fields)? {
+        let table_field = table_field.trim();
+        if table_field.is_empty() {
+            continue;
+        }
+
+        if let Some((field_key, field_value)) = split_lua_table_assignment_from_field(table_field)
+            && let Some(existing_index) = split_lua_table_array_index_from_query(field_key.trim())
+        {
+            if !implicit_fields.is_empty()
+                || existing_index == 0
+                || indexed_fields.contains_key(&existing_index)
+            {
+                return None;
+            }
+            indexed_fields.insert(existing_index, field_value.trim().to_owned());
+            continue;
+        }
+
+        if !indexed_fields.is_empty() {
+            return None;
+        }
+        implicit_fields.push(table_field.to_owned());
+    }
+
+    let mut fields = if indexed_fields.is_empty() {
+        implicit_fields
+    } else {
+        let mut fields = Vec::new();
+        for existing_index in 1..=indexed_fields.len() {
+            fields.push(indexed_fields.remove(&existing_index)?);
+        }
+        fields
+    };
+
+    let existing = fields.get_mut(index - 1)?;
+    *existing = lua_table_with_assigned_field(Some(existing.clone()), key, value)?;
 
     Some(format!("{{ {} }}", fields.join(",\n")))
 }
@@ -71151,6 +71262,34 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("from-config-index".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_index_field_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {}
+            config.keys[1] = {}
+            config.keys[1].key = 'K'
+            config.keys[1].mods = 'CTRL|SHIFT'
+            config.keys[1].action = act.SendString 'from-config-index-fields'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm indexed key field config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString("from-config-index-fields".to_owned()),
             }])
         );
     }
