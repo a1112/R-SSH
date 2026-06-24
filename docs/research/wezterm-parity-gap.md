@@ -1434,7 +1434,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   calls such as
   `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,
   routing the same `message`, `action`, and optional `cancel` fields as the
-  existing `Action { ... }` and command-palette query forms.
+  existing `Action { ... }` and command-palette query forms, including
+  trailing-comma table fields.
 - WezTerm-style destination actions now accept single-argument function-call
   forms including `wezterm.action.CopyTo('PrimarySelection')`,
   `wezterm.action.CompleteSelection('PrimarySelection')`, and
