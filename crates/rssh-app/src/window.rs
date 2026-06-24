@@ -3979,6 +3979,7 @@ fn apply_lua_color_variable_mutation_overrides(
     }
     parsed |=
         apply_lua_color_variable_palette_slot_mutation_overrides(source, variable, overrides)?;
+    parsed |= apply_lua_color_variable_tab_bar_mutation_overrides(source, variable, overrides)?;
 
     Some(parsed)
 }
@@ -4113,6 +4114,10 @@ fn lua_color_variable_mutation_table_from_query(source: &str, variable: &str) ->
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
+        if field_name == "tab_bar" {
+            line_start += line.len();
+            continue;
+        }
         if field_name == "indexed"
             && let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest)
         {
@@ -4239,6 +4244,144 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
     }
 
     Some(parsed)
+}
+
+fn apply_lua_color_variable_tab_bar_mutation_overrides(
+    source: &str,
+    variable: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+    let mut line_start = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
+            line_start += line.len();
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            line_start += line.len();
+            continue;
+        }
+        let rest = source.get(start + variable.len()..)?.trim_start();
+        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+            line_start += line.len();
+            continue;
+        };
+        if field_name != "tab_bar" {
+            line_start += line.len();
+            continue;
+        }
+
+        let rest = lua_trim_start_comments(rest)?;
+        if let Some(value) = rest.strip_prefix('=') {
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            parsed |=
+                apply_lua_colors_table_overrides(&format!("{{\ntab_bar = {value}\n}}"), overrides)?;
+            line_start += line.len();
+            continue;
+        }
+
+        let Some((tab_bar_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+            line_start += line.len();
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        if tab_bar_field == "background" {
+            let Some(value) = rest.strip_prefix('=') else {
+                line_start += line.len();
+                continue;
+            };
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            let value = parse_maybe_quoted_query_text(value)?;
+            overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
+            parsed = true;
+            line_start += line.len();
+            continue;
+        }
+
+        if !lua_tab_bar_item_color_name(&tab_bar_field) {
+            line_start += line.len();
+            continue;
+        }
+        if let Some(value) = rest.strip_prefix('=') {
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            parsed |= apply_lua_colors_table_overrides(
+                &format!("{{\ntab_bar = {{ {tab_bar_field} = {value} }}\n}}"),
+                overrides,
+            )?;
+            line_start += line.len();
+            continue;
+        }
+
+        let Some((item_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+            line_start += line.len();
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            line_start += line.len();
+            continue;
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        if apply_lua_tab_bar_item_color_mutation(overrides, &tab_bar_field, &item_field, value)? {
+            parsed = true;
+        }
+        line_start += line.len();
+    }
+
+    Some(parsed)
+}
+
+fn lua_tab_bar_item_color_name(value: &str) -> bool {
+    matches!(
+        value,
+        "active_tab" | "inactive_tab" | "inactive_tab_hover" | "new_tab" | "new_tab_hover"
+    )
+}
+
+fn apply_lua_tab_bar_item_color_mutation(
+    overrides: &mut NativeConfigOverrides,
+    item_name: &str,
+    field_name: &str,
+    value: &str,
+) -> Option<bool> {
+    let colors = match item_name {
+        "active_tab" => &mut overrides.tab_bar_active_tab_colors,
+        "inactive_tab" => &mut overrides.tab_bar_inactive_tab_colors,
+        "inactive_tab_hover" => &mut overrides.tab_bar_inactive_tab_hover_colors,
+        "new_tab" => &mut overrides.tab_bar_new_tab_colors,
+        "new_tab_hover" => &mut overrides.tab_bar_new_tab_hover_colors,
+        _ => return Some(false),
+    };
+
+    match field_name {
+        "fg_color" => {
+            let value = parse_maybe_quoted_query_text(value)?;
+            colors.fg_color = Some(lua_opaque_color_from_query(&value)?);
+        }
+        "bg_color" => {
+            let value = parse_maybe_quoted_query_text(value)?;
+            colors.bg_color = Some(lua_opaque_color_from_query(&value)?);
+        }
+        "intensity" => {
+            let value = parse_maybe_quoted_query_text(value)?;
+            colors.intensity = Some(tab_bar_item_intensity_from_query(&value)?);
+        }
+        "underline" => {
+            let value = parse_maybe_quoted_query_text(value)?;
+            colors.underline = Some(tab_bar_item_underline_from_query(&value)?);
+        }
+        "italic" => colors.italic = Some(lua_bool_literal_from_query(value)? == "true"),
+        "strikethrough" => {
+            colors.strikethrough = Some(lua_bool_literal_from_query(value)? == "true");
+        }
+        _ => return Some(false),
+    }
+
+    Some(true)
 }
 
 fn lua_color_variable_mutation_array_index_from_query(query: &str) -> Option<(usize, &str)> {
@@ -42753,6 +42896,73 @@ mod tests {
             .expect("expected ANSI palette");
         assert_eq!(palette[0], Color::Rgb(91, 92, 93));
         assert_eq!(palette[1], Color::Rgb(94, 95, 96));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_tab_bar_nested_mutations() {
+        static NEXT_LOAD_SCHEME_TAB_BAR_MUTATION_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-tab-bar-mutation-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_TAB_BAR_MUTATION_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors.tab_bar]
+            background = "#010203"
+
+            [colors.tab_bar.active_tab]
+            fg_color = "#040506"
+            bg_color = "#070809"
+            intensity = "Bold"
+            "##,
+        )
+        .expect("expected temp load_scheme tab-bar mutation TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color.load_scheme('{}')
+
+            colors.tab_bar.background = '#101112'
+            colors.tab_bar.active_tab.bg_color = '#131415'
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme tab-bar nested mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.tab_bar_background_color,
+            Some(Color::Rgb(16, 17, 18))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.fg_color,
+            Some(Color::Rgb(4, 5, 6))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.bg_color,
+            Some(Color::Rgb(19, 20, 21))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.intensity,
+            Some(NativeFormatIntensity::Bold)
+        );
         let _ = std::fs::remove_file(scheme_file);
     }
 
