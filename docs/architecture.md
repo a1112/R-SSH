@@ -282,9 +282,10 @@ keyboard, mouse, paste, resize
   `table.insert(config.keys, { ... })` appends plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
-  inserts parse into native key assignments; actual Lua callback execution,
-  default key-table merging, and config-file reload wiring remain future config
-  parity work.
+  inserts parse into native key assignments, with bracket field selectors such
+  as `config['key_tables']` supported for nested inserts; actual Lua callback
+  execution, default key-table merging, and config-file reload wiring remain
+  future config parity work.
 - Implemented in v1: native `WindowCommand::DisableDefaultAssignment` can be
   used in user key assignments to suppress matching built-in app-shell,
   window-level, and scrollback shortcuts, leaving the key available for the

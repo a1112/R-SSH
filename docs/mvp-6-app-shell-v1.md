@@ -562,7 +562,9 @@ runtime storage for tabs and split panes.
   `table.insert(config.keys, { ... })` appends plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
-  inserts. Full Lua config evaluation remains later parity work.
+  inserts, with bracket field selectors such as `config['key_tables']`
+  supported for nested inserts. Full Lua config evaluation remains later parity
+  work.
 - `rssh-app` includes a WezTerm-style `PaneSelect` overlay from the command
   palette entry `Pane Select`. It labels panes with the WezTerm default
   selection alphabet (`a`, `s`, `d`, ...) and honors the native effective
