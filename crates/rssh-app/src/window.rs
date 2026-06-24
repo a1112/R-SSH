@@ -5806,6 +5806,7 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
     let mut long_bracket_end = None;
     let mut lua_block_depth = 0usize;
     let mut selected = None;
+    let mut selected_variable: Option<String> = None;
 
     for (index, character) in source.char_indices() {
         if let Some(end) = block_comment_end {
@@ -5939,16 +5940,17 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
         {
             let rest = lua_trim_start_comments(source.get(index + "key_tables".len()..)?)?;
             if let Some(rest) = rest.strip_prefix('=')
-                && let Some(value) = lua_key_tables_value_table_string_from_query(
+                && let Some(assignment) = lua_key_tables_value_table_assignment_from_query(
                     source,
                     lua_trim_start_comments(rest)?,
                     index,
                 )
             {
                 selected = Some(LuaTableAssignmentWithMaxStart {
-                    value,
+                    value: assignment.value,
                     max_start: index,
                 });
+                selected_variable = assignment.variable;
             }
         }
 
@@ -5957,16 +5959,17 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
             && let Some(rest) =
                 lua_config_bracket_assignment_rest_from_query(source, index, receiver, "key_tables")
             && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
-            && let Some(value) = lua_key_tables_value_table_string_from_query(
+            && let Some(assignment) = lua_key_tables_value_table_assignment_from_query(
                 source,
                 lua_trim_start_comments(rest)?,
                 index,
             )
         {
             selected = Some(LuaTableAssignmentWithMaxStart {
-                value,
+                value: assignment.value,
                 max_start: index,
             });
+            selected_variable = assignment.variable;
         }
 
         if lua_block_depth == 0
@@ -6006,6 +6009,34 @@ fn lua_config_key_tables_assignment_with_insert_appends_with_max_start_from_quer
                 )?,
                 max_start: index,
             });
+        }
+
+        if lua_block_depth == 0
+            && let Some(variable) = selected_variable.clone()
+        {
+            let rest = if lua_source_keyword_at(source, index, "local") {
+                lua_trim_start_comments(source.get(index + "local".len()..)?)?
+            } else {
+                source.get(index..)?
+            };
+            if lua_static_table_variable_assignment_table_from_query(rest, &variable).is_some() {
+                selected_variable = None;
+                continue;
+            }
+
+            if let Some((key_table_name, insert)) =
+                lua_static_nested_table_insert_append_from_query(source, index, &variable)
+            {
+                selected = Some(LuaTableAssignmentWithMaxStart {
+                    value: lua_key_tables_with_inserted_assignment(
+                        selected.take().map(|assignment| assignment.value),
+                        &key_table_name,
+                        insert.position,
+                        insert.value,
+                    )?,
+                    max_start: index,
+                });
+            }
         }
     }
 
@@ -6475,8 +6506,20 @@ fn lua_key_tables_value_table_string_from_query(
     query: &str,
     max_start: usize,
 ) -> Option<String> {
+    lua_key_tables_value_table_assignment_from_query(source, query, max_start)
+        .map(|assignment| assignment.value)
+}
+
+fn lua_key_tables_value_table_assignment_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<LuaTableValueAssignment> {
     if let Some(value) = lua_braced_table_literal_from_query(query) {
-        return Some(value.to_owned());
+        return Some(LuaTableValueAssignment {
+            value: value.to_owned(),
+            variable: None,
+        });
     }
 
     let variable = lua_identifier_literal_from_query(query)?;
@@ -6484,9 +6527,14 @@ fn lua_key_tables_value_table_string_from_query(
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
     }
-    lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_from_query(
-        source, variable, max_start,
-    )
+    let value =
+        lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_from_query(
+            source, variable, max_start,
+        )?;
+    Some(LuaTableValueAssignment {
+        value,
+        variable: Some(variable.to_owned()),
+    })
 }
 
 fn lua_static_key_tables_variable_assignment_with_insert_appends_before_offset_from_query(
@@ -69758,6 +69806,69 @@ mod tests {
         assert_eq!(
             written.lock().unwrap().as_slice(),
             b"from-nested-variable-insert"
+        );
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_key_tables_variable_post_assignment_nested_insert() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local user_key_tables = {
+              resize_pane = {},
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = user_key_tables
+            table.insert(user_key_tables.resize_pane, {
+              key = 'h',
+              action = act.SendString 'from-post-assignment-nested-insert',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm post-assignment nested table.insert key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-post-assignment-nested-insert"
         );
         assert_eq!(app.active_key_table_for_test(), None);
     }

@@ -336,9 +336,10 @@ keyboard, mouse, paste, resize
   well as indexed assignments such as `user_key_tables.resize_pane[1] = { ... }`
   or length appends such as
   `user_key_tables.resize_pane[#user_key_tables.resize_pane + 1] = { ... }`,
-  before the config assignment; actual Lua callback
-  execution, default key-table merging, and config-file reload wiring remain
-  future config parity work.
+  before the config assignment, and post-assignment top-level nested inserts
+  such as `table.insert(user_key_tables.resize_pane, { ... })`; actual Lua
+  callback execution, default key-table merging, and config-file reload wiring
+  remain future config parity work.
 - Implemented in v1: native `WindowCommand::DisableDefaultAssignment` can be
   used in user key assignments to suppress matching built-in app-shell,
   window-level, and scrollback shortcuts, leaving the key available for the
