@@ -131,7 +131,8 @@ keyboard, mouse, paste, resize
 - Completed in v1: the native window renders a basic configurable tab bar plus
   right/down split panes, with process-local per-pane runtime storage,
   WezTerm-style `foreground_text_hsb` transforms for terminal foreground and
-  underline colors, WezTerm-style `bold_brightens_ansi_colors` handling for
+  underline colors parsed inline or through top-level static table variables,
+  WezTerm-style `bold_brightens_ansi_colors` handling for
   bold ANSI 0-7 foreground colors, WezTerm-style `underline_thickness` overrides for terminal
   text underline decorations and horizontal split dividers, WezTerm-style `underline_position` overrides for
   terminal text underline placement, WezTerm-style `strikethrough_position`
@@ -142,7 +143,8 @@ keyboard, mouse, paste, resize
   `text_background_opacity` alpha transforms for non-default terminal
   background cells, `window_background_opacity` alpha transforms for default
   terminal background cells, plus
-  `inactive_pane_hsb` color transforms for inactive pane Default/Indexed/RGB/RGBA cells,
+  `inactive_pane_hsb` color transforms for inactive pane Default/Indexed/RGB/RGBA
+  cells parsed inline or through top-level static table variables,
   click-to-focus with optional first-click swallowing honoring
   `swallow_mouse_click_on_pane_focus`, configurable window-focus click
   swallowing honoring `swallow_mouse_click_on_window_focus`, configurable

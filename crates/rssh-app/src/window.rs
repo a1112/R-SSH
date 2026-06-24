@@ -2533,13 +2533,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(foreground_text_hsb) =
-        lua_config_table_assignment_from_query(config, "foreground_text_hsb")
+        lua_config_table_or_static_variable_assignment_from_query(config, "foreground_text_hsb")
     {
         overrides.foreground_text_hsb = Some(native_hsb_lua_table_from_query(foreground_text_hsb)?);
         parsed = true;
     }
     if let Some(inactive_pane_hsb) =
-        lua_config_table_assignment_from_query(config, "inactive_pane_hsb")
+        lua_config_table_or_static_variable_assignment_from_query(config, "inactive_pane_hsb")
     {
         overrides.inactive_pane_hsb = Some(native_hsb_lua_table_from_query(inactive_pane_hsb)?);
         parsed = true;
@@ -69091,6 +69091,52 @@ mod tests {
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
         assert_eq!(cell.foreground, Color::Rgb(50, 75, 100));
         assert_eq!(cell.background, Color::Rgba(20, 40, 60, 102));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hsb_static_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local foreground_hsb = {
+              hue = 1.0,
+              saturation = 1.0,
+              brightness = 0.5,
+            }
+            local inactive_hsb = {
+              hue = 1.0,
+              saturation = 0.8,
+              brightness = 0.7,
+            }
+
+            config.term = 'xterm-256color'
+            config.foreground_text_hsb = foreground_hsb
+            config.inactive_pane_hsb = inactive_hsb
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm HSB static variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.foreground_text_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(1.0),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            }
+        );
+        assert_eq!(
+            effective.inactive_pane_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.8),
+                brightness: NativeHsbMultiplier::from_f32(0.7),
+            }
+        );
     }
 
     #[test]

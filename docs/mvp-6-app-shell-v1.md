@@ -972,7 +972,9 @@ runtime storage for tabs and split panes.
   `show_close_tab_button_in_tabs`,
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`, and
   `show_tabs_in_tab_bar`) and emits
-  `window-config-reloaded` on every set. `automatically_reload_config` is
+  `window-config-reloaded` on every set. Static WezTerm-style
+  `foreground_text_hsb` and `inactive_pane_hsb` tables parse inline or through
+  top-level static table variables. `automatically_reload_config` is
   stored with WezTerm's default `true` and included in effective config
   snapshots. `check_for_updates` is stored with WezTerm's default `true`,
   `check_for_updates_interval_seconds` with the default `86400`, and
