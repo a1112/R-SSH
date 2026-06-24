@@ -4672,14 +4672,26 @@ fn lua_config_bool_assignment_from_query(source: &str, field: &str) -> Option<bo
 
 #[allow(dead_code)]
 fn lua_config_usize_assignment_from_query(source: &str, field: &str) -> Option<usize> {
-    lua_config_assignment_from_query(source, field, lua_unsigned_integer_literal_from_query)
-        .and_then(|value| value.parse().ok())
+    lua_config_assignment_from_query(source, field, |value| {
+        lua_static_number_assignment_value_from_query(
+            source,
+            value,
+            lua_unsigned_integer_literal_from_query,
+        )
+    })
+    .and_then(|value| value.parse().ok())
 }
 
 #[allow(dead_code)]
 fn lua_config_f32_assignment_from_query(source: &str, field: &str) -> Option<f32> {
-    lua_config_assignment_from_query(source, field, lua_unsigned_number_literal_from_query)
-        .and_then(|value| value.parse().ok())
+    lua_config_assignment_from_query(source, field, |value| {
+        lua_static_number_assignment_value_from_query(
+            source,
+            value,
+            lua_unsigned_number_literal_from_query,
+        )
+    })
+    .and_then(|value| value.parse().ok())
 }
 
 #[allow(dead_code)]
@@ -5173,6 +5185,29 @@ fn lua_static_string_assignment_value_from_query<'a>(
     lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
 }
 
+fn lua_static_number_assignment_value_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    mut literal_from_query: impl FnMut(&'a str) -> Option<&'a str>,
+) -> Option<&'a str> {
+    if let Some(value) = literal_from_query(query) {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let max_start = lua_source_slice_start_offset(source, variable)?;
+    lua_static_number_variable_assignment_before_offset_from_query(
+        source,
+        variable,
+        max_start,
+        literal_from_query,
+    )
+}
+
 fn lua_static_identifier_value_rest_is_statement_end(rest: &str) -> bool {
     for character in rest.chars() {
         match character {
@@ -5211,6 +5246,38 @@ fn lua_static_string_variable_assignment_before_offset_from_query<'a>(
         if let Some(value) = lua_quoted_string_literal_from_query(value)
             .or_else(|| lua_long_bracket_literal_from_query(value))
         {
+            selected = Some(value);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_number_variable_assignment_before_offset_from_query<'a>(
+    source: &'a str,
+    variable: &str,
+    max_start: usize,
+    mut literal_from_query: impl FnMut(&'a str) -> Option<&'a str>,
+) -> Option<&'a str> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(variable) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        if let Some(value) = literal_from_query(value) {
             selected = Some(value);
         }
     }
@@ -68782,6 +68849,30 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm frame-rate config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.max_fps, 144);
+        assert_eq!(effective.animation_fps, 24);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_frame_rate_static_number_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local redraw_rate = 144
+            local animation_rate = 24
+
+            config.max_fps = redraw_rate
+            config.animation_fps = animation_rate
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm frame-rate static number variable config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

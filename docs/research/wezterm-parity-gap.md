@@ -1241,11 +1241,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   default `true`, `check_for_updates_interval_seconds` with the default
   `86400`, and `show_update_window` with the compatibility default `false`;
   actual update checks and update-window UI remain open. `max_fps` is retained
-  with WezTerm's default `60` and throttles native redraw requests from
-  `about_to_wait` to the configured frame interval; `animation_fps` drives
-  dedicated redraw scheduling for active cursor/text blink easing, visual bell
-  fade, and animated inline-image frames while respecting the global `max_fps`
-  ceiling. `front_end` is retained
+  with WezTerm's default `60`, parses inline or through top-level static number
+  variables, and throttles native redraw requests from `about_to_wait` to the
+  configured frame interval; `animation_fps` also parses inline or through
+  top-level static number variables and drives dedicated redraw scheduling for
+  active cursor/text blink easing, visual bell fade, and animated inline-image
+  frames while respecting the global `max_fps` ceiling. `front_end` is retained
   with WezTerm's current default `OpenGL`, `webgpu_power_preference` with
   `LowPower`, `webgpu_force_fallback_adapter` with `false`, optional static
   `webgpu_preferred_adapter` tables inline or through top-level static table
