@@ -2083,7 +2083,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   snippets now parse into the same native override path; dynamic palette-aware
   resolution for this option remains later parity work.
 - Static WezTerm-style Lua `config.color_schemes` entries can now define
-  custom in-file schemes inline or through static top-level Lua table variables,
+  custom in-file schemes inline or through static top-level Lua table variables
+  assigned before their reference, ignoring helper-function-local assignments,
   and static `config.color_schemes['Name'] = scheme` or
   `config.color_schemes.Name = scheme` assignments can append or replace named
   schemes after initialization. Selected custom scheme entries also support

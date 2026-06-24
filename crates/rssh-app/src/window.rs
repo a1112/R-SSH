@@ -3768,7 +3768,10 @@ fn color_scheme_lua_source_value_from_query<'a>(
     if !variable_query[variable.len()..].trim().is_empty() {
         return None;
     }
-    if let Some(colors) = lua_static_table_variable_assignment_from_query(source, variable) {
+    let max_start = lua_source_slice_start_offset(source, value_query)?;
+    if let Some(colors) =
+        lua_static_table_variable_assignment_before_offset_from_query(source, variable, max_start)
+    {
         let colors = colors.trim();
         colors.strip_prefix('{')?.strip_suffix('}')?;
         return Some(NativeColorSchemeLuaSource::Table(colors));
@@ -3820,36 +3823,6 @@ fn lua_source_slice_start_offset(source: &str, slice: &str) -> Option<usize> {
         .checked_add(slice.len())
         .filter(|end| *end <= source.len())?;
     Some(start)
-}
-
-fn lua_static_table_variable_assignment_from_query<'a>(
-    source: &'a str,
-    variable: &str,
-) -> Option<&'a str> {
-    let mut line_start = 0usize;
-
-    for line in source.split_inclusive('\n') {
-        let trimmed = line.trim_start();
-        let start = line_start + line.len() - trimmed.len();
-        let mut rest = source.get(start..)?;
-        if let Some(after_local) = rest.strip_prefix("local") {
-            if after_local
-                .chars()
-                .next()
-                .is_some_and(is_lua_identifier_character)
-            {
-                line_start += line.len();
-                continue;
-            }
-            rest = after_local.trim_start();
-        }
-        if let Some(table) = lua_static_table_variable_assignment_table_from_query(rest, variable) {
-            return Some(table);
-        }
-        line_start += line.len();
-    }
-
-    None
 }
 
 fn lua_static_table_variable_assignment_table_from_query<'a>(
@@ -43696,6 +43669,43 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_ignores_wezterm_lua_config_helper_static_color_scheme_variable_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local project_scheme
+
+            local function ignored()
+              project_scheme = {
+                foreground = '#010203',
+                background = '#040506',
+              }
+            end
+
+            project_scheme = {
+              foreground = '#101112',
+              background = '#131415',
+            }
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = project_scheme,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
     }
 
     #[test]
