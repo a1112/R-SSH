@@ -34669,7 +34669,11 @@ fn search_query_lua_table_from_query(value: &str) -> Option<WindowSearchCommandQ
     let mut search_query = None;
 
     for field in split_lua_table_top_level_fields(table)? {
-        let (name, value) = split_lua_table_assignment_from_field(field.trim())?;
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
         let value = parse_maybe_quoted_query_text(value.trim())?;
         if search_query.is_some() {
@@ -88147,6 +88151,38 @@ mod tests {
             assert_eq!(search.query, expected_pattern);
             assert_eq!(search.match_type, expected_match_type);
             assert_eq!(app.selection, Some(expected_selection));
+            assert!(app.command_palette.is_none());
+            assert!(app.copy_mode.is_none());
+            assert!(app.quick_select.is_none());
+        }
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_search_wezterm_action_table_trailing_comma_query() {
+        for query in [
+            "wezterm.action.Search { Regex = 'ticket-[0-9]+', }",
+            "wezterm.action.Search({ Regex = 'ticket-[0-9]+', })",
+        ] {
+            let mut app = NativeWindowApp::new(None);
+            app.runtime.resize(rssh_core::TerminalSize::new(16, 1));
+            app.handle_pty_output(b"ticket-7 done").unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(query.to_owned());
+            let commands = app.command_palette_filtered_commands();
+            let command = commands.first().cloned().expect("expected search command");
+            app.command_palette_execute(command);
+
+            let search = app.search.as_ref().expect("search mode should be active");
+            assert_eq!(search.query, "ticket-[0-9]+");
+            assert_eq!(search.match_type, WindowSearchMatchType::Regex);
+            assert_eq!(
+                app.selection,
+                Some(WindowSelection::new(
+                    SelectionCell { row: 0, column: 0 },
+                    SelectionCell { row: 0, column: 7 },
+                ))
+            );
             assert!(app.command_palette.is_none());
             assert!(app.copy_mode.is_none());
             assert!(app.quick_select.is_none());

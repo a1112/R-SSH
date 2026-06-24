@@ -2084,7 +2084,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style `wezterm.action.Search { Regex = ... }`,
   `CaseSensitiveString`, `CaseInSensitiveString`, and
   bracketed string table keys with long-bracket values such as
-  `wezterm.action.Search { [[=[Regex]=]] = [[\d+]] }`, plus
+  `wezterm.action.Search { [[=[Regex]=]] = [[\d+]] }`, including table-field
+  trailing commas in `Search { ... }` / `Search({ ... })`, plus
   `wezterm.action.Search("CurrentSelectionOrEmptyString")` plus
   `wezterm.action.Search 'CurrentSelectionOrEmptyString'` Lua action queries
   dispatch the same native payload subset. Plain `Ctrl+F` stays available to
