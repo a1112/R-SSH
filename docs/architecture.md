@@ -703,9 +703,9 @@ keyboard, mouse, paste, resize
   `alt_screen`, implemented native `action` payloads, and top-level static
   `table.insert(config.mouse_bindings, { ... })` appends plus static item
   variables such as `config.mouse_bindings = { binding }` with pre-use field
-  mutations. Mouse binding
-  `action` payloads parse inline or through top-level static action variables,
-  so bindings such as
+  mutations. Mouse binding `event` payloads parse inline or through top-level
+  static event table variables, and `action` payloads parse inline or through
+  top-level static action variables, so bindings such as
   `ALT` + left drag can route to `StartWindowDrag`, middle-button release can
   route to `PastePrimarySelection`, `CTRL` + wheel-up can route to
   `IncreaseFontSize`, double-left-down can route to a custom action, and
