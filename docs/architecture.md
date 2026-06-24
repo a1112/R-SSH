@@ -314,7 +314,10 @@ keyboard, mouse, paste, resize
   `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }` that occur
   before the config assignment.
   Leader `key`, `mods`, and `timeout_milliseconds` fields parse inline or
-  through top-level static scalar variables. Static return-table fields such as
+  through top-level static scalar variables, and `config.leader = user_leader`
+  also merges post-assignment top-level field mutations such as
+  `user_leader.key = 'a'`, `user_leader.mods = 'CTRL'`, and
+  `user_leader.timeout_milliseconds = 1000`. Static return-table fields such as
   `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, and top-level static
   `table.insert(config.keys, { ... })` appends and direct indexed assignments

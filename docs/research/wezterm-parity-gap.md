@@ -1100,8 +1100,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
   `config.leader = user_leader`, and leader `key`, `mods`, and
   `timeout_milliseconds` fields inline or through top-level static scalar
-  variables, plus top-level `config.keys` and `config.key_tables` assignment
-  `key` and `mods` fields inline or through top-level static string variables,
+  variables, with `config.leader = user_leader` also merging post-assignment
+  top-level field mutations such as `user_leader.key = 'a'`,
+  `user_leader.mods = 'CTRL'`, and `user_leader.timeout_milliseconds = 1000`,
+  plus top-level `config.keys` and `config.key_tables` assignment `key` and
+  `mods` fields inline or through top-level static string variables,
   top-level `config.keys` assignment `action` fields inline or through
   top-level static action variables including static action variables inside
   `act.Multiple { ... }` tables,
@@ -1211,7 +1214,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   now parse `key`, `mods`, and optional `timeout_milliseconds` into the same
   native leader runtime, including bracketed string table keys with
   long-bracket values and field values supplied through top-level static
-  scalar variables; full keys config-file wiring remains open.
+  scalar variables, plus post-assignment top-level field mutations after
+  `config.leader = user_leader`; full keys config-file wiring remains open.
 - Native `DisableDefaultAssignment` action payloads now suppress matching
   built-in default app-shell, window-level, and scrollback shortcuts from native
   user key assignments, leaving the key for the later input path. Structured
@@ -2019,8 +2023,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
   `config.leader = user_leader`, and leader `key`, `mods`, and
   `timeout_milliseconds` fields inline or through top-level static scalar
-  variables, plus top-level `config.keys` and `config.key_tables` assignment
-  `key` and `mods` fields inline or through top-level static string variables,
+  variables, with `config.leader = user_leader` also merging post-assignment
+  top-level field mutations such as `user_leader.key = 'a'`,
+  `user_leader.mods = 'CTRL'`, and `user_leader.timeout_milliseconds = 1000`,
+  plus top-level `config.keys` and `config.key_tables` assignment `key` and
+  `mods` fields inline or through top-level static string variables,
   top-level `config.keys` assignment `action` fields inline or through
   top-level static action variables including static action variables inside
   `act.Multiple { ... }` and `act.QuickSelectArgs { action = ... }` tables,

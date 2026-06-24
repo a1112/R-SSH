@@ -3276,9 +3276,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(leader) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "leader")
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(config, "leader")
     {
-        overrides.leader = Some(native_leader_lua_table_from_query(config, leader)?);
+        overrides.leader = Some(native_leader_lua_table_from_query(
+            config,
+            &leader.value,
+            leader.max_start,
+        )?);
         parsed = true;
     }
     if let Some(launch_menu) =
@@ -5075,6 +5079,23 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
             }
 
             if let Some(assignment) =
+                lua_static_table_variable_field_assignment_from_query(source, index, &variable)
+            {
+                selected = Some(
+                    lua_table_with_assigned_field(
+                        selected.take().map(|assignment| assignment.value),
+                        &assignment.key,
+                        assignment.value,
+                    )
+                    .map(|value| LuaTableAssignmentWithMaxStart {
+                        value,
+                        max_start: index,
+                    })?,
+                );
+                continue;
+            }
+
+            if let Some(assignment) =
                 lua_static_table_variable_index_or_append_assignment_from_query(
                     source, index, &variable,
                 )
@@ -6111,6 +6132,65 @@ fn lua_config_table_map_field_assignment_from_query<'a>(
         key,
         value: lua_static_string_assignment_value_from_query(source, rest)?,
     })
+}
+
+fn lua_static_table_variable_field_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableMapFieldAssignment<'a>> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let (key, rest) = lua_table_map_field_key_from_query(after_variable)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableMapFieldAssignment {
+        key,
+        value: lua_static_table_field_assignment_value_from_query(source, rest, start)?,
+    })
+}
+
+fn lua_static_table_field_assignment_value_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<&'a str> {
+    if let Some(value) = lua_braced_table_literal_from_query(query)
+        .or_else(|| lua_quoted_string_literal_from_query(query))
+        .or_else(|| lua_long_bracket_literal_from_query(query))
+        .or_else(|| lua_bool_literal_from_query(query))
+        .or_else(|| lua_signed_number_literal_from_query(query))
+    {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+        .or_else(|| {
+            lua_static_number_variable_assignment_before_offset_from_query(
+                source,
+                variable,
+                max_start,
+                lua_signed_number_literal_from_query,
+            )
+        })
+        .or_else(|| {
+            lua_static_bool_variable_assignment_before_offset_from_query(
+                source, variable, max_start,
+            )
+        })
 }
 
 fn lua_table_map_field_key_from_query(query: &str) -> Option<(String, &str)> {
@@ -7410,6 +7490,29 @@ fn lua_static_number_assignment_value_from_query<'a>(
         return None;
     }
     let max_start = lua_source_slice_start_offset(source, variable)?;
+    lua_static_number_variable_assignment_before_offset_from_query(
+        source,
+        variable,
+        max_start,
+        literal_from_query,
+    )
+}
+
+fn lua_static_number_assignment_value_before_offset_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    max_start: usize,
+    mut literal_from_query: impl FnMut(&'a str) -> Option<&'a str>,
+) -> Option<&'a str> {
+    if let Some(value) = literal_from_query(query) {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
     lua_static_number_variable_assignment_before_offset_from_query(
         source,
         variable,
@@ -10737,6 +10840,7 @@ fn lua_braced_table_literal_from_query(query: &str) -> Option<&str> {
 fn native_leader_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: usize,
 ) -> Option<NativeLeaderKey> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut key = None;
@@ -10755,18 +10859,18 @@ fn native_leader_lua_table_from_query<'a>(
             if key.is_some() {
                 return None;
             }
-            key = Some(
-                lua_static_string_assignment_value_from_query(source, value)
-                    .and_then(parse_maybe_quoted_query_text)?,
-            );
+            key = Some(parse_maybe_static_query_text(
+                Some(LuaStaticSource { source, max_start }),
+                value,
+            )?);
         } else if name.eq_ignore_ascii_case("mods") {
             if mods.is_some() {
                 return None;
             }
-            mods = Some(
-                lua_static_string_assignment_value_from_query(source, value)
-                    .and_then(parse_maybe_quoted_query_text)?,
-            );
+            mods = Some(parse_maybe_static_query_text(
+                Some(LuaStaticSource { source, max_start }),
+                value,
+            )?);
         } else if name.eq_ignore_ascii_case("timeout_milliseconds")
             || name.eq_ignore_ascii_case("timeout-milliseconds")
         {
@@ -10774,9 +10878,10 @@ fn native_leader_lua_table_from_query<'a>(
                 return None;
             }
             timeout_milliseconds = Some(
-                lua_static_number_assignment_value_from_query(
+                lua_static_number_assignment_value_before_offset_from_query(
                     source,
                     value,
+                    max_start,
                     lua_unsigned_integer_literal_from_query,
                 )?
                 .parse()
@@ -71457,6 +71562,59 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm leader static variable config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert!(!app.debug_overlay_active_for_test());
+
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("|".into()),
+            PhysicalKey::Code(WinitKeyCode::Backslash),
+            Some("|"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_leader_static_variable_post_assignment_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local user_leader = {}
+
+            config.leader = user_leader
+            user_leader.key = 'a'
+            user_leader.mods = 'CTRL'
+            user_leader.timeout_milliseconds = 1000
+
+            config.keys = {
+              {
+                key = '|',
+                mods = 'LEADER|SHIFT',
+                action = act.ShowDebugOverlay,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm leader post-assignment field config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL;
