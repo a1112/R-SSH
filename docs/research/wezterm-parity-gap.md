@@ -2097,7 +2097,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.color_schemes = schemes` including top-level
   `schemes['Name'] = { ... }` entries and their supported static field
   mutations assigned before that reference, or through static top-level Lua
-  table variables assigned before their reference, and static top-level
+  table variables assigned before their reference with their own supported
+  static field mutations, and static top-level
   `config.color_schemes['Name'] = scheme` or
   `config.color_schemes.Name = scheme` assignments can append or replace named
   schemes after initialization. Selected custom scheme entries also support

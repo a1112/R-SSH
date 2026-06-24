@@ -3214,6 +3214,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 enum NativeColorSchemeLuaSource<'a> {
     Table {
         colors: &'a str,
+        variable: Option<NativeLoadSchemeVariableReference>,
         entry_mutation: Option<NativeColorSchemeEntryVariableReference>,
     },
     LoadScheme {
@@ -3272,9 +3273,18 @@ fn apply_lua_color_scheme_source_overrides(
     match source {
         NativeColorSchemeLuaSource::Table {
             colors,
+            variable,
             entry_mutation,
         } => {
             let mut parsed = apply_lua_colors_table_overrides(colors, overrides)?;
+            if let Some(variable) = variable.as_ref() {
+                parsed |= apply_lua_color_variable_mutation_overrides(
+                    config,
+                    &variable.name,
+                    variable.mutation_max_start,
+                    overrides,
+                )?;
+            }
             if let Some(entry_mutation) = entry_mutation.as_ref() {
                 parsed |= apply_lua_color_scheme_entry_mutation_overrides(
                     config,
@@ -3892,6 +3902,7 @@ fn color_scheme_lua_source_value_from_query<'a>(
         colors.strip_prefix('{')?.strip_suffix('}')?;
         return Some(NativeColorSchemeLuaSource::Table {
             colors,
+            variable: None,
             entry_mutation: None,
         });
     }
@@ -3927,6 +3938,10 @@ fn color_scheme_lua_source_value_from_query<'a>(
         colors.strip_prefix('{')?.strip_suffix('}')?;
         return Some(NativeColorSchemeLuaSource::Table {
             colors,
+            variable: Some(NativeLoadSchemeVariableReference {
+                name: variable.to_owned(),
+                mutation_max_start: max_start,
+            }),
             entry_mutation: None,
         });
     }
@@ -44109,6 +44124,38 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_config_custom_color_scheme_static_variable_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local project_scheme = {
+              foreground = '#101112',
+              background = '#131415',
+              cursor_bg = '#161718',
+            }
+            project_scheme.background = '#353637'
+            project_scheme['cursor_bg'] = '#38393a'
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = project_scheme,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme static variable mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
+        assert_eq!(effective.background_color, Color::Rgb(53, 54, 55));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(56, 57, 58));
     }
 
     #[test]
