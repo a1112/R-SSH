@@ -1399,7 +1399,8 @@ runtime storage for tabs and split panes.
   also carry `cfg.color_schemes['Name']` entry assignments and selected-scheme
   mutations while unreturned `config.color_schemes` assignments are ignored.
   `config.color_scheme` selects one before `config.colors` applies overriding
-  fields, and static `config.color_scheme_dirs` lists are retained in effective config and scan
+  fields, and static `config.color_scheme_dirs` lists, inline or through top-level
+  static table variables, are retained in effective config and scan
   configured directories for matching TOML scheme files. External TOML schemes
   load when `[metadata].name` or the file stem matches `config.color_scheme`
   and reuse the same implemented color fields before `config.colors` applies
