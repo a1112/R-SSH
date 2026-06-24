@@ -1359,7 +1359,9 @@ runtime storage for tabs and split panes.
   static top-level field mutations such as
   `config.color_schemes['Name'].background = '#101010'` and bracket-key
   variants such as `config.color_schemes['Name']['cursor_bg'] = '#101010'`,
-  plus ANSI/bright slot mutations such as
+  indexed slot mutations such as
+  `config.color_schemes['Name'].indexed[136] = '#101010'`, plus ANSI/bright
+  slot mutations such as
   `config.color_schemes['Name'].ansi[2] = '#101010'` and tab-bar nested
   mutations such as
   `config.color_schemes['Name'].tab_bar.active_tab.bg_color = '#101010'`.

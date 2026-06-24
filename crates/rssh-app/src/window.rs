@@ -3202,6 +3202,11 @@ fn apply_lua_selected_color_scheme_mutation_overrides(
     if let Some(colors) = colors {
         parsed |= apply_lua_colors_table_overrides(&colors, overrides)?;
     }
+    parsed |= apply_lua_selected_color_scheme_indexed_mutation_overrides(
+        source,
+        color_scheme,
+        overrides,
+    )?;
     parsed |= apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
         source,
         color_scheme,
@@ -3221,7 +3226,6 @@ fn lua_selected_color_scheme_mutation_table_from_query(
     color_scheme: &str,
 ) -> Option<Option<String>> {
     let mut fields = Vec::new();
-    let mut indexed_fields = BTreeMap::new();
     let mut line_start = 0usize;
 
     for line in source.split_inclusive('\n') {
@@ -3238,24 +3242,7 @@ fn lua_selected_color_scheme_mutation_table_from_query(
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
-        if field_name == "tab_bar" {
-            line_start += line.len();
-            continue;
-        }
-        if field_name == "indexed"
-            && let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest)
-        {
-            let rest = lua_trim_start_comments(rest)?;
-            let Some(value) = rest.strip_prefix('=') else {
-                line_start += line.len();
-                continue;
-            };
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            if value.is_empty() {
-                line_start += line.len();
-                continue;
-            }
-            indexed_fields.insert(index, value.to_owned());
+        if matches!(field_name.as_str(), "indexed" | "tab_bar") {
             line_start += line.len();
             continue;
         }
@@ -3268,34 +3255,70 @@ fn lua_selected_color_scheme_mutation_table_from_query(
             line_start += line.len();
             continue;
         }
-        if field_name == "indexed" {
-            let indexed_table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-            for entry in split_lua_table_top_level_fields(indexed_table)? {
-                let entry = entry.trim();
-                if entry.is_empty() {
-                    continue;
-                }
-                let (index, color) = split_lua_table_assignment_from_field(entry)?;
-                let index = split_lua_table_array_index_from_query(index.trim())?;
-                indexed_fields.insert(index, color.trim().to_owned());
-            }
-            line_start += line.len();
-            continue;
-        }
         fields.push(format!("{field_name} = {value}"));
         line_start += line.len();
     }
 
-    if !indexed_fields.is_empty() {
-        let indexed_fields = indexed_fields
-            .into_iter()
-            .map(|(index, value)| format!("[{index}] = {value}"))
-            .collect::<Vec<_>>()
-            .join(",\n");
-        fields.push(format!("indexed = {{\n{indexed_fields}\n}}"));
+    Some((!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n"))))
+}
+
+fn apply_lua_selected_color_scheme_indexed_mutation_overrides(
+    source: &str,
+    color_scheme: &str,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+    let mut line_start = 0usize;
+
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let start = line_start + line.len() - trimmed.len();
+        let Some(rest) =
+            lua_selected_color_scheme_mutation_rest_from_query(source.get(start..)?, color_scheme)
+        else {
+            line_start += line.len();
+            continue;
+        };
+        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+            line_start += line.len();
+            continue;
+        };
+        if field_name != "indexed" {
+            line_start += line.len();
+            continue;
+        }
+
+        let rest = lua_trim_start_comments(rest)?;
+        if let Some((index, rest)) = lua_color_variable_mutation_array_index_from_query(rest) {
+            if !(16..=255).contains(&index) {
+                return None;
+            }
+            let rest = lua_trim_start_comments(rest)?;
+            let Some(value) = rest.strip_prefix('=') else {
+                line_start += line.len();
+                continue;
+            };
+            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+            let value = parse_maybe_quoted_query_text(value)?;
+            let mut palette = overrides.indexed_palette.unwrap_or([None; 256]);
+            palette[index] = Some(lua_opaque_color_from_query(&value)?);
+            overrides.indexed_palette = Some(palette);
+            parsed = true;
+            line_start += line.len();
+            continue;
+        }
+
+        let Some(value) = rest.strip_prefix('=') else {
+            line_start += line.len();
+            continue;
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        parsed |=
+            apply_lua_colors_table_overrides(&format!("{{\nindexed = {value}\n}}"), overrides)?;
+        line_start += line.len();
     }
 
-    Some((!fields.is_empty()).then(|| format!("{{\n{}\n}}", fields.join(",\n"))))
+    Some(parsed)
 }
 
 fn apply_lua_selected_color_scheme_palette_slot_mutation_overrides(
@@ -42583,6 +42606,38 @@ mod tests {
         assert_eq!(palette[1], Color::Rgb(16, 17, 18));
         assert_eq!(palette[8], Color::Rgb(0, 0, 9));
         assert_eq!(palette[15], Color::Rgb(19, 20, 21));
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_lua_custom_color_scheme_entry_indexed_slot_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                indexed = {
+                  [136] = '#010203',
+                },
+              },
+            }
+            config.color_schemes['Project Scheme'].indexed[137] = '#040506'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm custom color scheme entry indexed slot mutation config");
+        app.set_config_overrides(overrides);
+
+        let indexed = app
+            .native_effective_config()
+            .indexed_palette
+            .expect("expected indexed palette");
+        assert_eq!(indexed[136], Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(indexed[137], Some(Color::Rgb(4, 5, 6)));
     }
 
     #[test]
