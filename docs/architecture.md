@@ -1043,8 +1043,9 @@ keyboard, mouse, paste, resize
   and reuse the same implemented color fields before `config.colors` applies
   overriding fields. Static `wezterm.color.load_scheme('path')` calls with a
   constant TOML path can also feed selected `config.color_schemes['Name']`
-  entries directly or through static variables, or `config.colors` directly or
-  through the first returned variable from `local colors, metadata = ...` or
+  entries directly or through static variables whose supported static mutations
+  are applied, or `config.colors` directly or through the first returned variable from
+  `local colors, metadata = ...` or
   `colors, metadata = ...` assignments, including top-level static mutations such as
   `colors.background = '#101010'` and bracket-key variants such as
   `colors['background'] = '#101010'`, indexed slot mutations such as
