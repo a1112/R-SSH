@@ -2338,7 +2338,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     if let Some(visual_bell) =
         lua_config_table_or_static_variable_assignment_from_query(config, "visual_bell")
     {
-        overrides.visual_bell = Some(native_visual_bell_lua_table_from_query(visual_bell)?);
+        overrides.visual_bell = Some(native_visual_bell_lua_table_from_query(
+            config,
+            visual_bell,
+        )?);
         parsed = true;
     }
     if let Some(tab_bar_style) =
@@ -30548,7 +30551,10 @@ fn split_lua_table_environment_from_query(value: &str) -> Option<BTreeMap<String
     Some(environment)
 }
 
-fn native_visual_bell_lua_table_from_query(value: &str) -> Option<NativeVisualBell> {
+fn native_visual_bell_lua_table_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
+) -> Option<NativeVisualBell> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut visual_bell = NativeVisualBell::default();
 
@@ -30562,22 +30568,33 @@ fn native_visual_bell_lua_table_from_query(value: &str) -> Option<NativeVisualBe
         let value = value.trim();
         match key.as_str() {
             "fade_in_duration_ms" => {
-                visual_bell.fade_in_duration_ms = lua_unsigned_integer_literal_from_query(value)?
-                    .parse()
-                    .ok()?;
+                visual_bell.fade_in_duration_ms = lua_static_number_assignment_value_from_query(
+                    source,
+                    value,
+                    lua_unsigned_integer_literal_from_query,
+                )?
+                .parse()
+                .ok()?;
             }
             "fade_out_duration_ms" => {
-                visual_bell.fade_out_duration_ms = lua_unsigned_integer_literal_from_query(value)?
-                    .parse()
-                    .ok()?;
+                visual_bell.fade_out_duration_ms = lua_static_number_assignment_value_from_query(
+                    source,
+                    value,
+                    lua_unsigned_integer_literal_from_query,
+                )?
+                .parse()
+                .ok()?;
             }
             "fade_in_function" => {
+                let value = lua_static_easing_assignment_value_from_query(source, value)?;
                 visual_bell.fade_in_function = native_easing_lua_value_from_query(value)?;
             }
             "fade_out_function" => {
+                let value = lua_static_easing_assignment_value_from_query(source, value)?;
                 visual_bell.fade_out_function = native_easing_lua_value_from_query(value)?;
             }
             "target" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)?;
                 let value = parse_maybe_quoted_query_text(value)?;
                 visual_bell.target = NativeVisualBellTarget::parse(&value)?;
             }
@@ -69802,6 +69819,49 @@ mod tests {
                 fade_out_duration_ms: 200,
                 fade_in_function: NativeEasingFunction::Linear,
                 fade_out_function: NativeEasingFunction::EaseInOut,
+                target: NativeVisualBellTarget::CursorColor,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_visual_bell_static_field_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+            local fade_in_ms = 25
+            local fade_out_ms = 175
+            local fade_in_easing = 'Linear'
+            local fade_out_easing = { CubicBezier = { 0.0, 0.0, 0.58, 1.0 } }
+            local bell_target = 'CursorColor'
+
+            config.visual_bell = {
+              fade_in_duration_ms = fade_in_ms,
+              fade_out_duration_ms = fade_out_ms,
+              fade_in_function = fade_in_easing,
+              fade_out_function = fade_out_easing,
+              target = bell_target,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm visual bell static field variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().visual_bell,
+            NativeVisualBell {
+                fade_in_duration_ms: 25,
+                fade_out_duration_ms: 175,
+                fade_in_function: NativeEasingFunction::Linear,
+                fade_out_function: NativeEasingFunction::CubicBezier(NativeCubicBezier {
+                    x1_per_mille: 0,
+                    y1_per_mille: 0,
+                    x2_per_mille: 580,
+                    y2_per_mille: 1_000,
+                }),
                 target: NativeVisualBellTarget::CursorColor,
             }
         );

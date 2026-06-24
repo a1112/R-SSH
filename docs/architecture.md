@@ -1075,7 +1075,8 @@ keyboard, mouse, paste, resize
   `CursorColor` fades return to the current rendered cursor color, including
   `force_reverse_video_cursor` cursor-cell foreground behavior. Static
   WezTerm-style Lua `config.visual_bell` snippets parse inline or through
-  top-level static table variables. Native
+  top-level static table variables, and its duration, easing, and target fields
+  parse inline or through top-level static scalar/table variables. Native
   `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`,
   `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`,
   `cursor_border_color`, and `cursor_fg_color` overrides stand in for WezTerm
