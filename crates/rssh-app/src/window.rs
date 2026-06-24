@@ -8461,6 +8461,12 @@ fn native_key_assignment_command_from_query(
     {
         return native_key_assignment_command_from_query(None, value);
     }
+    if let Some(static_source) = static_source
+        && let Some(commands) =
+            multiple_table_commands_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::Multiple(commands));
+    }
     if lua_action_callback_from_query(value) {
         return Some(WindowCommand::Nop);
     }
@@ -27762,6 +27768,22 @@ fn multiple_commands_from_query(query: &str) -> Option<Vec<WindowCommand>> {
 }
 
 fn multiple_table_commands_from_query(query: &str) -> Option<Vec<WindowCommand>> {
+    multiple_table_commands_from_query_with_parser(query, confirmation_nested_command_from_query)
+}
+
+fn multiple_table_commands_from_query_with_static_source(
+    static_source: LuaStaticSource<'_>,
+    query: &str,
+) -> Option<Vec<WindowCommand>> {
+    multiple_table_commands_from_query_with_parser(query, |command| {
+        native_key_assignment_command_from_query(Some(static_source), command)
+    })
+}
+
+fn multiple_table_commands_from_query_with_parser(
+    query: &str,
+    mut command_from_query: impl FnMut(&str) -> Option<WindowCommand>,
+) -> Option<Vec<WindowCommand>> {
     let query = strip_wezterm_action_prefix(query.trim()).unwrap_or(query.trim());
     let rest = strip_lua_function_call_from_query(query, "multiple")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "multiple="))?;
@@ -27779,13 +27801,13 @@ fn multiple_table_commands_from_query(query: &str) -> Option<Vec<WindowCommand>>
             if !commands.is_empty() || indexed_commands.contains_key(&index) {
                 return None;
             }
-            indexed_commands.insert(index, confirmation_nested_command_from_query(value.trim())?);
+            indexed_commands.insert(index, command_from_query(value.trim())?);
             continue;
         }
         if !indexed_commands.is_empty() {
             return None;
         }
-        commands.push(confirmation_nested_command_from_query(field)?);
+        commands.push(command_from_query(field)?);
     }
     if !indexed_commands.is_empty() {
         commands = (1..=indexed_commands.len())
@@ -67693,6 +67715,43 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+A".to_owned(),
                 command: WindowCommand::SendString("from-action-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_multiple_static_action_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local send_alpha = act.SendString 'alpha'
+
+            config.keys = {
+              {
+                key = 'M',
+                mods = 'CTRL|SHIFT',
+                action = act.Multiple {
+                  send_alpha,
+                  act.SendString 'beta',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key multiple static action variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+M".to_owned(),
+                command: WindowCommand::Multiple(vec![
+                    WindowCommand::SendString("alpha".to_owned()),
+                    WindowCommand::SendString("beta".to_owned()),
+                ]),
             }])
         );
     }
