@@ -827,8 +827,9 @@ keyboard, mouse, paste, resize
   verbose text reporting the actual `exit_behavior` value that kept the pane
   open. Static Lua config parsing covers `exit_behavior`,
   `exit_behavior_messaging`, and `clean_exit_codes` inline, through top-level
-  static table variables, or through `table.insert(config.clean_exit_codes, ...)`
-  appends; exact message text parity remains future work.
+  static table variables with pre/post-assignment `table.insert` appends, or
+  through `table.insert(config.clean_exit_codes, ...)` appends; exact message
+  text parity remains future work.
 - Completed in v1: ClosePane follows WezTerm-style lifecycle cascading by
   closing a single-pane tab when another tab exists, while final tab/pane close
   actions request native-window shutdown from the window manager. The manager
