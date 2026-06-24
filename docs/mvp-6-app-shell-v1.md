@@ -563,6 +563,8 @@ runtime storage for tabs and split panes.
   names and nested assignment fields, and top-level static
   `table.insert(config.keys, { ... })` appends plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
+  static table variables such as
+  `table.insert(config.key_tables.<name>, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts, with bracket field selectors such as `config['key_tables']`
   supported for nested inserts. Full Lua config evaluation remains later parity

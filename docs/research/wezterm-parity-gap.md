@@ -1083,6 +1083,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and nested assignment fields, plus top-level static
   `table.insert(config.keys, { ... })` appends and
   `table.insert(config.key_tables.<name>, { ... })` nested appends plus
+  static table variables such as
+  `table.insert(config.key_tables.<name>, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts, with bracket field selectors such as `config['key_tables']`
   supported for nested inserts. Static
@@ -1949,6 +1951,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   assignment fields, plus top-level static
   `table.insert(config.keys, { ... })` appends and
   `table.insert(config.key_tables.<name>, { ... })` nested appends plus
+  static table variables such as
+  `table.insert(config.key_tables.<name>, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts, with bracket field selectors such as `config['key_tables']`
   supported for nested inserts; full Lua config evaluation, default key-table

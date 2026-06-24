@@ -281,6 +281,8 @@ keyboard, mouse, paste, resize
   official callback-shaped bindings can load, and top-level static
   `table.insert(config.keys, { ... })` appends plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends and
+  static table variables such as
+  `table.insert(config.key_tables.<name>, item)`, plus
   `table.insert(config.key_tables.<name>, index, { ... })` numeric-position
   inserts parse into native key assignments, with bracket field selectors such
   as `config['key_tables']` supported for nested inserts; actual Lua callback

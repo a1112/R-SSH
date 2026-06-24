@@ -5058,7 +5058,7 @@ fn lua_config_nested_table_insert_append_from_query<'a>(
     let (name, rest) = lua_nested_table_insert_key_from_query(rest)?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    if let Some(value) = lua_braced_table_literal_from_query(rest) {
+    if let Some(value) = lua_table_insert_value_table_from_query(source, rest, start) {
         return Some((
             name,
             LuaTableInsertValue {
@@ -65188,6 +65188,66 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm key table table.insert config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"left");
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_variable_nested_insert() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            local resize_left = {
+              key = 'h',
+              action = act.SendString 'left',
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = {
+              resize_pane = {},
+            }
+            table.insert(config.key_tables.resize_pane, resize_left)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key table table.insert variable config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
