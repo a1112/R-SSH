@@ -343,10 +343,13 @@ keyboard, mouse, paste, resize
   documented single-space default prompt strings when omitted. Structured
   `show launcher <FLAGS>` queries reject unknown top-level fields instead of
   silently discarding them.
+  Static WezTerm-style `config.launch_menu` snippets feed native launch-menu
+  entries for the implemented `SpawnCommand` subset, including top-level
+  static `table.insert(config.launch_menu, { ... })` append entries.
   Static WezTerm-style `config.keys` actions can also carry
   `ShowLauncherArgs` table payloads through the implemented native action
   subset. Remote/mux domains, richer default-mode UI styling, broader Lua key
-  assignment/config parsing, dynamic Lua `launch_menu` construction, Lua
+  assignment/config parsing, broader dynamic Lua `launch_menu` construction, Lua
   `PromptInputLine` callback wiring, and Lua event/config wiring remain future
   parity work.
 - Completed in v1: app-shell CloseTab handling can select either the default

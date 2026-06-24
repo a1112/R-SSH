@@ -3175,8 +3175,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.leader = Some(native_leader_lua_table_from_query(leader)?);
         parsed = true;
     }
-    if let Some(launch_menu) = lua_config_table_assignment_from_query(config, "launch_menu") {
-        overrides.launch_menu = Some(native_launch_menu_lua_table_from_query(launch_menu)?);
+    if let Some(launch_menu) =
+        lua_config_table_assignment_with_insert_appends_from_query(config, "launch_menu")
+    {
+        overrides.launch_menu = Some(native_launch_menu_lua_table_from_query(&launch_menu)?);
         parsed = true;
     }
 
@@ -4539,6 +4541,221 @@ fn lua_config_dimension_assignment_from_query(source: &str, field: &str) -> Opti
 #[allow(dead_code)]
 fn lua_config_table_assignment_from_query<'a>(source: &'a str, field: &str) -> Option<&'a str> {
     lua_config_assignment_from_query(source, field, lua_braced_table_literal_from_query)
+}
+
+fn lua_config_table_assignment_with_insert_appends_from_query(
+    source: &str,
+    field: &str,
+) -> Option<String> {
+    if let Some(table) = lua_config_static_return_table_from_query(source) {
+        let mut literal_from_query = lua_braced_table_literal_from_query;
+        return lua_config_table_field_assignment_from_query(table, field, &mut literal_from_query)
+            .map(str::to_owned);
+    }
+
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut selected = None;
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index..])
+        {
+            let content_and_rest = &source[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(source.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if lua_block_depth == 0 {
+            let after_config = if lua_source_keyword_at(source, index, "local") {
+                let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
+                lua_config_receiver_prefix_rest(rest, receiver)
+            } else {
+                lua_config_receiver_prefix_rest(source.get(index..)?, receiver)
+            };
+
+            if let Some(after_config) = after_config {
+                let after_config = lua_trim_start_comments(after_config)?;
+                if let Some(after_assignment) = after_config.strip_prefix('=') {
+                    let after_assignment = lua_trim_start_comments(after_assignment)?;
+                    if let Some(table) = lua_braced_table_literal_from_query(after_assignment) {
+                        let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+                        let mut literal_from_query = lua_braced_table_literal_from_query;
+                        if let Some(value) = lua_config_table_field_assignment_from_query(
+                            table,
+                            field,
+                            &mut literal_from_query,
+                        ) {
+                            selected = Some(value.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+
+        if source[index..].starts_with(field)
+            && lua_config_assignment_field_has_boundaries(source, index, field)
+            && lua_config_dot_assignment_has_receiver(source, index, receiver)
+            && lua_block_depth == 0
+        {
+            let rest = lua_trim_start_comments(source.get(index + field.len()..)?)?;
+            if let Some(rest) = rest.strip_prefix('=')
+                && let Some(value) =
+                    lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+            {
+                selected = Some(value.to_owned());
+            }
+        }
+
+        if character == '['
+            && lua_block_depth == 0
+            && let Some(rest) =
+                lua_config_bracket_assignment_rest_from_query(source, index, receiver, field)
+            && let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('=')
+            && let Some(value) = lua_braced_table_literal_from_query(lua_trim_start_comments(rest)?)
+        {
+            selected = Some(value.to_owned());
+        }
+
+        if lua_block_depth == 0
+            && let Some(value) =
+                lua_config_table_insert_append_value_from_query(source, index, receiver, field)
+        {
+            selected = Some(lua_table_with_appended_field(selected.take(), value)?);
+        }
+    }
+
+    selected
+}
+
+fn lua_config_table_insert_append_value_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    receiver: &str,
+    field: &str,
+) -> Option<&'a str> {
+    if !lua_source_keyword_at(source, start, "table") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(source.get(start + "table".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('.')?)?;
+    if !rest.starts_with("insert") || !lua_config_assignment_field_has_boundaries(rest, 0, "insert")
+    {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest.get("insert".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let after_receiver = lua_config_receiver_prefix_rest(rest, receiver)?;
+    let after_receiver = lua_trim_start_comments(after_receiver)?;
+    let after_field = lua_trim_start_comments(after_receiver.strip_prefix('.')?)?;
+    if !after_field.starts_with(field)
+        || !lua_config_assignment_field_has_boundaries(after_field, 0, field)
+    {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(after_field.get(field.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    lua_braced_table_literal_from_query(rest)
+}
+
+fn lua_table_with_appended_field(table: Option<String>, field: &str) -> Option<String> {
+    let Some(table) = table else {
+        return Some(format!("{{ {field} }}"));
+    };
+    let table_fields = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    if table_fields.is_empty() {
+        return Some(format!("{{ {field} }}"));
+    }
+
+    Some(format!("{{ {table_fields},\n{field} }}"))
 }
 
 struct NativeLoadSchemeColorsAssignment {
@@ -67651,6 +67868,50 @@ mod tests {
             Some(&"1".to_owned())
         );
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_table_insert_entries() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {}
+            table.insert(config.launch_menu, {
+              label = 'Inserted Monitor',
+              args = { 'top', '-H' },
+              cwd = '/tmp/inserted',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu table.insert config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::launch_menu_items(),
+                title: None,
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        app.command_palette_set_query("inserted".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Inserted Monitor");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-H"]);
+        assert_eq!(launch.cwd(), Some("/tmp/inserted"));
     }
 
     #[test]

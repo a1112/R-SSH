@@ -369,12 +369,13 @@ runtime storage for tabs and split panes.
   Static WezTerm-style `config.launch_menu` snippets feed native launch-menu
   entries for the implemented `SpawnCommand` subset, including bracketed string
   table keys with long-bracket values for launch-menu item fields and
-  environment entries. Static WezTerm-style `config.keys` actions can also
-  carry `ShowLauncherArgs` table payloads through the implemented native action
-  subset. Remote/mux domains, richer default-mode UI styling, broader Lua key
-  assignment/config parsing, dynamic Lua `launch_menu` construction, Lua
-  `PromptInputLine` callback wiring, and Lua event/config wiring remain later
-  parity work.
+  environment entries, and top-level static
+  `table.insert(config.launch_menu, { ... })` append entries. Static
+  WezTerm-style `config.keys` actions can also carry `ShowLauncherArgs` table
+  payloads through the implemented native action subset. Remote/mux domains,
+  richer default-mode UI styling, broader Lua key assignment/config parsing,
+  broader dynamic Lua `launch_menu` construction, Lua `PromptInputLine`
+  callback wiring, and Lua event/config wiring remain later parity work.
 - `rssh-core` supports WezTerm's close-tab selection policy: callers can keep
   the default left-neighbor activation or request last-active-tab activation
   when closing the active tab.
