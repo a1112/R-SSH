@@ -1623,7 +1623,10 @@ keyboard, mouse, paste, resize
   and cell-fraction units to terminal text underline placement using the
   default underline row as the current baseline approximation. Native
   `strikethrough_position` applies px, DPI-scaled pt, percent-of-default, and
-  cell-fraction units to terminal text strikethrough decorations.
+  cell-fraction units to terminal text strikethrough decorations. Static
+  WezTerm-style Lua snippets for these decoration dimensions parse string
+  dimensions with units plus bare numeric pixel values inline or through
+  top-level static number variables.
   `force_reverse_video_cursor` forces native cursor
   fills to use the cursor cell's effective foreground color unless OSC 12 set
   an explicit cursor color, and OSC 112 resets that override. Native

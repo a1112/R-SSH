@@ -4711,8 +4711,14 @@ fn lua_config_easing_assignment_from_query(
 #[allow(dead_code)]
 fn lua_config_dimension_assignment_from_query(source: &str, field: &str) -> Option<String> {
     lua_config_string_assignment_from_query(source, field).or_else(|| {
-        lua_config_assignment_from_query(source, field, lua_signed_number_literal_from_query)
-            .map(str::to_owned)
+        lua_config_assignment_from_query(source, field, |value| {
+            lua_static_number_assignment_value_from_query(
+                source,
+                value,
+                lua_signed_number_literal_from_query,
+            )
+        })
+        .map(str::to_owned)
     })
 }
 
@@ -70195,6 +70201,48 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm numeric decoration dimensions");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cursor_thickness,
+            Some(NativeCursorThickness::Pixels(2))
+        );
+        assert_eq!(
+            effective.underline_thickness,
+            Some(NativeUnderlineThickness::Pixels(3))
+        );
+        assert_eq!(
+            effective.underline_position,
+            Some(NativeUnderlinePosition::Pixels(-4))
+        );
+        assert_eq!(
+            effective.strikethrough_position,
+            Some(NativeStrikethroughPosition::Pixels(5))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_numeric_decoration_dimension_static_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local cursor_width = 2.0
+            local underline_width = 3
+            local underline_offset = -4
+            local strike_offset = 5.0
+
+            config.cursor_thickness = cursor_width
+            config.underline_thickness = underline_width
+            config.underline_position = underline_offset
+            config.strikethrough_position = strike_offset
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm numeric decoration dimension static variables");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
