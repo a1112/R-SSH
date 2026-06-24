@@ -1106,11 +1106,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables,
   static `config.keys = user_keys` assignments with top-level
   `table.insert(user_keys, { ... })` appends and indexed assignments such as
-  `user_keys[1] = { ... }` before the config assignment,
+  `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }` before the
+  config assignment,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and direct indexed assignments
-  such as `config.keys[index] = { ... }`, plus
+  such as `config.keys[index] = { ... }` or
+  `config.keys[#config.keys + 1] = { ... }`, plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends plus
   static table variables such as
   `table.insert(config.key_tables.<name>, item)` or
@@ -2016,11 +2018,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables,
   static `config.keys = user_keys` assignments with top-level
   `table.insert(user_keys, { ... })` appends and indexed assignments such as
-  `user_keys[1] = { ... }` before the config assignment,
+  `user_keys[1] = { ... }` or `user_keys[#user_keys + 1] = { ... }` before the
+  config assignment,
   static return-table fields such as `return { keys = user_keys }` or
   `return { key_tables = user_key_tables }`, plus top-level static
   `table.insert(config.keys, { ... })` appends and direct indexed assignments
-  such as `config.keys[index] = { ... }`, plus
+  such as `config.keys[index] = { ... }` or
+  `config.keys[#config.keys + 1] = { ... }`, plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends plus
   static table variables such as
   `table.insert(config.key_tables.<name>, item)` or
