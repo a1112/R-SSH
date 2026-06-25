@@ -398,7 +398,9 @@ keyboard, mouse, paste, resize
   `sendkey <mods+key>` queries dispatch the same typed payload path, and
   WezTerm-style Lua `SendKey { ... }` / `SendKey({ ... })` table queries
   tolerate trailing comma fields, with `key` and `mods` fields inline or
-  through top-level static string variables.
+  through top-level static string variables. Parenthesized
+  `SendKey(send_key_opts)` calls also accept top-level static options table
+  variables.
 - Implemented in v1: app-shell `Multiple` sequences already implemented
   `AppAction` values in order.
 - Implemented in v1: app-shell exposes a named WezTerm-style

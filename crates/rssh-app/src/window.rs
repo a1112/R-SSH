@@ -31972,10 +31972,17 @@ fn send_key_from_query_with_static_source(
         query
     };
 
-    if let Some(value) = strip_lua_function_call_from_query(query, "sendkey")
-        && value.trim_start().starts_with('{')
-    {
-        return send_key_lua_table_from_query_with_static_source(static_source, value);
+    if let Some(value) = strip_lua_function_call_from_query(query, "sendkey") {
+        let value = value.trim();
+        if value.starts_with('{') {
+            return send_key_lua_table_from_query_with_static_source(static_source, value);
+        }
+        if static_source.is_some()
+            && let Some(send_key) =
+                send_key_lua_table_from_query_with_static_source(static_source, value)
+        {
+            return Some(send_key);
+        }
     }
 
     if let Some(value) = strip_query_table_assignment_from_prefix(query, "sendkey=")
@@ -32086,6 +32093,19 @@ fn send_key_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowSendKey> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut modifiers = ModifiersState::empty();
     let mut leader_required = false;
@@ -75696,6 +75716,43 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm SendKey static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendKey(WindowSendKey {
+                    key: Key::Named(NamedKey::ArrowLeft),
+                    modifiers: ModifiersState::ALT,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_send_key_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local send_key_opts = {
+              key = 'LeftArrow',
+              mods = 'ALT',
+            }
+
+            config.keys = {
+              {
+                key = 'K',
+                mods = 'CTRL|SHIFT',
+                action = act.SendKey(send_key_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SendKey static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,
