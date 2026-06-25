@@ -29885,8 +29885,15 @@ fn clear_scrollback_mode_from_query_with_static_source(
     };
 
     if let Some(rest) = strip_lua_function_call_from_query(query, "clearscrollback") {
-        if rest.trim_start().starts_with('{') {
+        let rest = rest.trim();
+        if rest.starts_with('{') {
             return clear_scrollback_lua_table_from_query_with_static_source(static_source, rest);
+        }
+        if static_source.is_some()
+            && let Some(mode) =
+                clear_scrollback_lua_table_from_query_with_static_source(static_source, rest)
+        {
+            return Some(mode);
         }
         let mode = parse_maybe_static_query_text(static_source, rest)?;
         return clear_scrollback_mode_from_query(&format!("clearscrollback {mode}"));
@@ -29927,6 +29934,19 @@ fn clear_scrollback_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowClearScrollbackMode> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut mode = None;
 
@@ -74957,6 +74977,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm ClearScrollback static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+K".to_owned(),
+                command: WindowCommand::ClearScrollback(
+                    WindowClearScrollbackMode::ScrollbackAndViewport,
+                ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_clear_scrollback_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local scroll_mode = 'ScrollbackAndViewport'
+            local clear_opts = {
+              mode = scroll_mode,
+            }
+
+            config.keys = {
+              {
+                key = 'K',
+                mods = 'CTRL|ALT',
+                action = act.ClearScrollback(clear_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ClearScrollback static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,

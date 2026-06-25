@@ -1458,7 +1458,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ClearScrollback { mode = ... }` table-call queries dispatch
   the same native payload path, including bracketed string table keys with
   long-bracket values and trailing comma table fields. Static `config.keys`
-  action tables also resolve top-level string variables for `mode`.
+  action tables also resolve top-level string variables for `mode` and
+  parenthesized static options table variables.
 - Command palette and native action payloads now expose WezTerm-style
   `ClearScrollback('ScrollbackAndViewport')`, clearing active-pane history plus
   the viewport while preserving the prompt/cursor row as the new first visible
@@ -1517,7 +1518,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - WezTerm-style clear-scrollback table actions now accept parenthesized Lua
   table calls such as
   `wezterm.action.ClearScrollback({ mode = "ScrollbackOnly" })`, in addition
-  to the existing `Action { mode = ... }` form.
+  to the existing `Action { mode = ... }` form, including top-level static
+  options table variables when parsed from static WezTerm-style `config.keys`.
 - WezTerm-style clear-scrollback Lua action calls now accept parenthesized
   mode strings such as
   `wezterm.action.ClearScrollback('ScrollbackAndViewport')`, matching the
