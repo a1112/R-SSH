@@ -512,7 +512,9 @@ keyboard, mouse, paste, resize
   top-level static string variables, table `choices` inline or through
   top-level static table variables whose entries can resolve static string
   labels and top-level static `wezterm.format` label variables, plus `fuzzy`
-  inline or through a top-level static bool variable. Static
+  inline or through a top-level static bool variable. Parenthesized
+  `InputSelector(input_opts)` calls also accept top-level static options table
+  variables. Static
   `action = wezterm.action_callback(...)` fields and top-level static callback variables
   are accepted as native-handler placeholders.
   Duplicate `fuzzy` fields are rejected instead of silently overriding them;

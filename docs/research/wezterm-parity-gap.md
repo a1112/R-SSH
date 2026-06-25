@@ -1076,7 +1076,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   top-level static string variables; table `choices` parse inline or through
   top-level static table variables whose entries can resolve static string
   labels and top-level static `wezterm.format` label variables; and `fuzzy`
-  parses inline or through a top-level static bool variable. Static
+  parses inline or through a top-level static bool variable. Parenthesized
+  `InputSelector(input_opts)` calls also accept top-level static options table
+  variables. Static
   `wezterm.format { { Text = ... } }`
   label values are reduced to their text for native selector labels, while style
   items are ignored until styled selector rows are implemented. Static
@@ -1570,7 +1572,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   command-palette query forms, including table-of-table choices and text-only
   `wezterm.format` labels, top-level static choices table variables, top-level
   static `wezterm.format` label variables, top-level static callback variables
-  for `action`, and trailing-comma table fields.
+  for `action`, top-level static options table variables in parenthesized
+  calls, and trailing-comma table fields.
 - WezTerm-style confirmation table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,
