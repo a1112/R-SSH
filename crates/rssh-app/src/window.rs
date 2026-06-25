@@ -7808,6 +7808,23 @@ fn lua_static_bool_assignment_value_from_query<'a>(
     lua_static_bool_variable_assignment_before_offset_from_query(source, variable, max_start)
 }
 
+fn lua_static_bool_assignment_value_before_offset_from_query<'a>(
+    source: &'a str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<&'a str> {
+    if let Some(value) = lua_bool_literal_from_query(query) {
+        return Some(value);
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    lua_static_bool_variable_assignment_before_offset_from_query(source, variable, max_start)
+}
+
 fn lua_static_easing_assignment_value_from_query<'a>(
     source: &'a str,
     query: &'a str,
@@ -11689,7 +11706,17 @@ fn native_user_mouse_assignment_lua_table_from_query(
                 if mouse_reporting.is_some() {
                     return None;
                 }
-                let value = parse_maybe_quoted_query_text(value)?;
+                let value = if let Some(static_source) = static_source {
+                    lua_static_bool_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                    )
+                    .map(str::to_owned)
+                    .or_else(|| parse_maybe_quoted_query_text(value))?
+                } else {
+                    parse_maybe_quoted_query_text(value)?
+                };
                 mouse_reporting = Some(bool_from_query(&value)?);
             }
             "alt_screen" | "altscreen" => {
@@ -67411,6 +67438,48 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm mouse binding static mods variable config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::ALT;
+        let terminal_y = f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT) + 1.0;
+
+        app.handle_cursor_moved(PhysicalPosition::new(1.0, terminal_y))
+            .unwrap();
+        app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+            .unwrap();
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH) + 1.0,
+            terminal_y,
+        ))
+        .unwrap();
+
+        assert!(app.window_drag_requested_for_test());
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_mouse_reporting_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local report_mouse = false
+
+            config.mouse_bindings = {
+              {
+                event = { Drag = { streak = 1, button = 'Left' } },
+                mods = 'ALT',
+                mouse_reporting = report_mouse,
+                action = act.StartWindowDrag,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static mouse_reporting variable config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::ALT;
         let terminal_y = f64::from(TAB_BAR_ROWS) * f64::from(CELL_HEIGHT) + 1.0;

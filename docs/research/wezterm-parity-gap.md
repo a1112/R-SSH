@@ -184,9 +184,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right` buttons with non-zero streak
   values plus vertical `WheelUp`/`WheelDown` `streak = 1` with `mods`,
   `mouse_reporting`, `alt_screen`, and implemented native `action` payloads,
-  including top-level static `mods` string variables, top-level static
-  `table.insert(config.mouse_bindings, { ... })` appends and static item
-  variables such as
+  including top-level static `mods` string and `mouse_reporting` bool
+  variables, top-level static `table.insert(config.mouse_bindings, { ... })`
+  appends and static item variables such as
   `config.mouse_bindings = { binding }` with pre-use field mutations, with
   `event` payloads inline or through top-level static event table variables,
   event `button`/`streak` fields inline or through top-level static variables,
@@ -849,9 +849,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   covers the native `Down`/`Up`/`Drag` plus `Left`/`Middle`/`Right` non-zero
   streak subset and vertical `WheelUp`/`WheelDown` `streak = 1` subset with
   `mouse_reporting` and `alt_screen` filters for implemented action payloads,
-  including top-level static `mods` string variables, top-level static
-  `table.insert(config.mouse_bindings, { ... })` appends, static item
-  variables such as `config.mouse_bindings = { binding }`
+  including top-level static `mods` string and `mouse_reporting` bool
+  variables, top-level static `table.insert(config.mouse_bindings, { ... })`
+  appends, static item variables such as `config.mouse_bindings = { binding }`
   with pre-use field mutations, top-level static event table variables for
   event payloads, top-level static variables for event `button`/`streak`
   fields, and top-level static action variables for action payloads, and

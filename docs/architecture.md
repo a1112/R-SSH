@@ -701,7 +701,7 @@ keyboard, mouse, paste, resize
   `Left`/`Middle`/`Right` buttons with non-zero streak values plus vertical
   `WheelUp`/`WheelDown` `streak = 1` with `mods`, `mouse_reporting`,
   `alt_screen`, implemented native `action` payloads, top-level static `mods`
-  string variables, and top-level static
+  string and `mouse_reporting` bool variables, and top-level static
   `table.insert(config.mouse_bindings, { ... })` appends plus static item
   variables such as `config.mouse_bindings = { binding }` with pre-use field
   mutations. Mouse binding `event` payloads parse inline or through top-level
