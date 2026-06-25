@@ -1320,11 +1320,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style `wezterm.action.SendString { string = ... }` and
   `wezterm.action.SendString({ string = ... })` table-call queries dispatch the
   same typed payload path, including trailing comma table fields and top-level
-  static string variables for the table-call `string` field. Quoted action
-  strings decode Lua-style escapes such as `\x1b`, `\027`, `\u{1b}`, and `\z`
-  whitespace elision before dispatching the payload bytes, and accept Lua long
-  bracket strings such as `[[text]]`, including inside Lua action payload table
-  fields, bracketed string table keys, and indexed action forms such as
+  static string variables for the table-call `string` field. Parenthesized
+  `SendString(send_opts)` calls also accept top-level static options table
+  variables. Quoted action strings decode Lua-style escapes such as `\x1b`,
+  `\027`, `\u{1b}`, and `\z` whitespace elision before dispatching the payload
+  bytes, and accept Lua long bracket strings such as `[[text]]`, including
+  inside Lua action payload table fields, bracketed string table keys, and
+  indexed action forms such as
   `act["SendString"] [[text]]`.
 - Native `SendKey` action payloads now encode the specified key and modifiers
   through the active terminal input mode, write the resulting bytes directly to

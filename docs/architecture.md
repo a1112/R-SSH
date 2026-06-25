@@ -388,7 +388,9 @@ keyboard, mouse, paste, resize
   action-name `sendstring <text>` queries dispatch the same typed payload path,
   and WezTerm-style Lua `SendString { ... }` / `SendString({ ... })` table
   queries tolerate trailing comma fields, with the table-call `string` field
-  inline or through a top-level static string variable.
+  inline or through a top-level static string variable. Parenthesized
+  `SendString(send_opts)` calls also accept top-level static options table
+  variables.
 - Implemented in v1: native `WindowCommand::SendKey` encodes the specified key
   and modifiers through the active terminal input mode and writes the resulting
   bytes directly to the active PTY input path without re-matching key
