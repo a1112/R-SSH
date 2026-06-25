@@ -1476,8 +1476,8 @@ keyboard, mouse, paste, resize
   and `complete selection open link to <destination>` /
   `completeselectionoropenlinkatmousecursorto <destination>`. Static
   `config.keys` action calls resolve top-level string variables for
-  `CompleteSelection` destinations. Lua event wiring remains future parity
-  work.
+  `CompleteSelection` and `CompleteSelectionOrOpenLinkAtMouseCursor`
+  destinations. Lua event wiring remains future parity work.
 - Implemented in v1: command-palette Reset Terminal injects RIS (`ESC c`) into
   the active pane output side, matching WezTerm-style `ResetTerminal`.
   Action-name `resetterminal` queries dispatch the same command.

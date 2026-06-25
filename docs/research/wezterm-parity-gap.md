@@ -2056,7 +2056,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.CompleteSelectionOrOpenLinkAtMouseCursor '<destination>'`
   Lua action queries dispatch the same destination-specific payloads. Static
   `config.keys` action calls resolve top-level string variables for
-  `CompleteSelection` destinations. Lua event wiring remains open.
+  `CompleteSelection` and `CompleteSelectionOrOpenLinkAtMouseCursor`
+  destinations. Lua event wiring remains open.
 - Terminal core now aligns OSC 8 hyperlink reset behavior with WezTerm: SGR
   reset preserves the active hyperlink, and an empty OSC 8 URI clears it.
 - Terminal core can extract text from retained row/column regions and semantic
