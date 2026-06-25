@@ -11686,6 +11686,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::ActivatePaneDirection(direction));
     }
+    if let Some(direction) = rotate_panes_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::RotatePanes(direction));
+    }
     if let Some((direction, amount)) =
         adjust_pane_size_from_query_with_static_source(static_source, value)
     {
@@ -33690,8 +33693,25 @@ fn bool_from_query(value: &str) -> Option<bool> {
 }
 
 fn rotate_panes_from_query(query: &str) -> Option<PaneRotationDirection> {
+    rotate_panes_from_query_with_static_source(None, query)
+}
+
+fn rotate_panes_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<PaneRotationDirection> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(direction) = strip_lua_function_call_from_query(query, "rotatepanes")
-        .and_then(parse_maybe_quoted_query_text)
+        .and_then(|direction| parse_maybe_static_query_text(static_source, direction))
         .and_then(|direction| pane_rotation_direction_from_query(&direction))
     {
         return Some(direction);
@@ -33708,7 +33728,7 @@ fn rotate_panes_from_query(query: &str) -> Option<PaneRotationDirection> {
     )?;
     let direction =
         strip_query_prefix_from_any(direction, &["direction=", "direction "]).unwrap_or(direction);
-    let direction = parse_maybe_quoted_query_text(direction)?;
+    let direction = parse_maybe_static_query_text(static_source, direction)?;
     pane_rotation_direction_from_query(&direction)
 }
 
@@ -74133,6 +74153,39 @@ mod tests {
                 keys: "CTRL|SHIFT+LeftArrow".to_owned(),
                 command: WindowCommand::ActivatePaneDirection(
                     rssh_core::app_shell::PaneDirection::Left,
+                ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_rotate_panes_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local rotation_direction = 'Clockwise'
+
+            config.keys = {
+              {
+                key = 'R',
+                mods = 'CTRL|SHIFT',
+                action = act.RotatePanes(rotation_direction),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm RotatePanes static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+R".to_owned(),
+                command: WindowCommand::RotatePanes(
+                    rssh_core::app_shell::PaneRotationDirection::Clockwise,
                 ),
             }])
         );

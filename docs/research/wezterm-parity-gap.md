@@ -2548,7 +2548,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.RotatePanes("<direction>")` function-call queries and maps
   them to the native payload.
   Native `WindowCommand::RotatePanes(direction)` payloads dispatch through the
-  same clockwise/counter-clockwise path.
+  same clockwise/counter-clockwise path. Static `config.keys` action calls
+  resolve top-level string variables for `RotatePanes`.
 - Split separators can now be dragged with the mouse to update split sizes via
   the same app-shell resize path used by keyboard/palette resize actions.
 - Split panes support WezTerm-style `TogglePaneZoomState` from `Ctrl+Shift+Z`

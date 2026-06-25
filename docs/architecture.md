@@ -640,7 +640,8 @@ keyboard, mouse, paste, resize
   positions and size deltas, with command-palette entries for both directions
   and quoted or unquoted `rotate panes <direction>` /
   `rotatepanes <direction>` queries mapping to native
-  `WindowCommand::RotatePanes(direction)` payloads.
+  `WindowCommand::RotatePanes(direction)` payloads. Static `config.keys` action
+  calls resolve top-level string variables for `RotatePanes`.
 - Completed in v1: pane-select swap mode entries `Pane Select Swap With Active` and
   `Pane Select Swap With Active Keep Focus` exchange active/selected pane layout
   positions and support both selected-pane focus and keep-active-focus behavior.
