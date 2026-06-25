@@ -1113,6 +1113,8 @@ keyboard, mouse, paste, resize
   `clear scrollback <mode>` and `clearscrollback <mode>` queries accept quoted
   or unquoted modes, and WezTerm-style Lua `ClearScrollback { ... }` /
   `ClearScrollback({ ... })` table queries tolerate trailing comma fields.
+  Static `config.keys` action tables also resolve top-level string variables
+  for the `mode` field.
 - Implemented in v1: command-palette Clear Scrollback And Viewport and native
   `ClearScrollback('ScrollbackAndViewport')` action payloads clear active-pane
   history plus the viewport while preserving the prompt/cursor row as the new

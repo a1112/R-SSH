@@ -11659,6 +11659,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(command);
     }
+    if let Some(mode) = clear_scrollback_mode_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::ClearScrollback(mode));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -29737,17 +29740,35 @@ fn basic_no_arg_action_name_command(action_name: &str) -> Option<WindowCommand> 
 }
 
 fn clear_scrollback_mode_from_query(query: &str) -> Option<WindowClearScrollbackMode> {
+    clear_scrollback_mode_from_query_with_static_source(None, query)
+}
+
+fn clear_scrollback_mode_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowClearScrollbackMode> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(rest) = strip_lua_function_call_from_query(query, "clearscrollback") {
         if rest.trim_start().starts_with('{') {
-            return clear_scrollback_lua_table_from_query(rest);
+            return clear_scrollback_lua_table_from_query_with_static_source(static_source, rest);
         }
-        return clear_scrollback_mode_from_query(&format!("clearscrollback {rest}"));
+        let mode = parse_maybe_static_query_text(static_source, rest)?;
+        return clear_scrollback_mode_from_query(&format!("clearscrollback {mode}"));
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "clearscrollback=")
         && rest.trim_start().starts_with('{')
     {
-        return clear_scrollback_lua_table_from_query(rest);
+        return clear_scrollback_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     let mode = strip_query_prefix_from_any(
@@ -29760,7 +29781,7 @@ fn clear_scrollback_mode_from_query(query: &str) -> Option<WindowClearScrollback
         ],
     )?;
     let mode = strip_query_prefix_from_any(mode, &["mode=", "mode "]).unwrap_or(mode);
-    let mode = parse_maybe_quoted_query_text(mode)?;
+    let mode = parse_maybe_static_query_text(static_source, mode)?;
     let normalized = mode
         .chars()
         .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
@@ -29775,7 +29796,10 @@ fn clear_scrollback_mode_from_query(query: &str) -> Option<WindowClearScrollback
     }
 }
 
-fn clear_scrollback_lua_table_from_query(value: &str) -> Option<WindowClearScrollbackMode> {
+fn clear_scrollback_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowClearScrollbackMode> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut mode = None;
 
@@ -29786,7 +29810,7 @@ fn clear_scrollback_lua_table_from_query(value: &str) -> Option<WindowClearScrol
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "mode" => {
                 if mode.is_some() || value.is_empty() {
@@ -73358,6 +73382,39 @@ mod tests {
                     command: WindowCommand::CloseCurrentTab { confirm: true },
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_clear_scrollback_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local scroll_mode = 'ScrollbackAndViewport'
+
+            config.keys = {
+              {
+                key = 'K',
+                mods = 'CTRL|ALT',
+                action = act.ClearScrollback { mode = scroll_mode },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ClearScrollback static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+K".to_owned(),
+                command: WindowCommand::ClearScrollback(
+                    WindowClearScrollbackMode::ScrollbackAndViewport,
+                ),
+            }])
         );
     }
 
