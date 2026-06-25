@@ -910,7 +910,8 @@ keyboard, mouse, paste, resize
   `closecurrenttab confirm=true|false` action-name spelling. WezTerm-style Lua
   `CloseCurrentPane { ... }` / `CloseCurrentPane({ ... })` and
   `CloseCurrentTab { ... }` / `CloseCurrentTab({ ... })` table queries tolerate
-  trailing comma fields.
+  trailing comma fields, and static WezTerm-style `config.keys` actions resolve
+  top-level static bool variables for the `confirm` field.
 - In-progress after v1: pane focus UI, pane-local scrollbar/selection polish,
   platform focus policy for newly materialized windows, richer split drag
   affordances, custom tab formatting, external CLI/mux tab-title control, and

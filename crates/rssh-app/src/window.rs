@@ -11655,6 +11655,10 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::SplitPane(split_pane));
     }
+    if let Some(command) = close_current_command_from_query_with_static_source(static_source, value)
+    {
+        return Some(command);
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -29984,25 +29988,40 @@ fn copy_mode_selection_mode_from_query(value: &str) -> Option<WindowCopySelectio
 }
 
 fn close_current_command_from_query(query: &str) -> Option<WindowCommand> {
-    close_current_pane_confirm_from_query(query)
+    close_current_command_from_query_with_static_source(None, query)
+}
+
+fn close_current_command_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowCommand> {
+    close_current_pane_confirm_from_query_with_static_source(static_source, query)
         .map(|confirm| WindowCommand::CloseCurrentPane { confirm })
         .or_else(|| {
-            close_current_tab_confirm_from_query(query)
+            close_current_tab_confirm_from_query_with_static_source(static_source, query)
                 .map(|confirm| WindowCommand::CloseCurrentTab { confirm })
         })
 }
 
-fn close_current_pane_confirm_from_query(query: &str) -> Option<bool> {
+fn close_current_pane_confirm_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<bool> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrentpane")
         && rest.trim_start().starts_with('{')
     {
-        return close_current_confirm_lua_table_from_query(rest);
+        return close_current_confirm_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "closecurrentpane=")
         && rest.trim_start().starts_with('{')
     {
-        return close_current_confirm_lua_table_from_query(rest);
+        return close_current_confirm_lua_table_from_query_with_static_source(static_source, rest);
+    }
+
+    if static_source.is_some() {
+        return close_current_pane_confirm_from_query_with_static_source(None, query);
     }
 
     bool_query_value_from_prefixes(
@@ -30015,17 +30034,25 @@ fn close_current_pane_confirm_from_query(query: &str) -> Option<bool> {
     )
 }
 
-fn close_current_tab_confirm_from_query(query: &str) -> Option<bool> {
+fn close_current_tab_confirm_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<bool> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrenttab")
         && rest.trim_start().starts_with('{')
     {
-        return close_current_confirm_lua_table_from_query(rest);
+        return close_current_confirm_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "closecurrenttab=")
         && rest.trim_start().starts_with('{')
     {
-        return close_current_confirm_lua_table_from_query(rest);
+        return close_current_confirm_lua_table_from_query_with_static_source(static_source, rest);
+    }
+
+    if static_source.is_some() {
+        return close_current_tab_confirm_from_query_with_static_source(None, query);
     }
 
     bool_query_value_from_prefixes(
@@ -30038,7 +30065,10 @@ fn close_current_tab_confirm_from_query(query: &str) -> Option<bool> {
     )
 }
 
-fn close_current_confirm_lua_table_from_query(value: &str) -> Option<bool> {
+fn close_current_confirm_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<bool> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut confirm = None;
 
@@ -30054,7 +30084,7 @@ fn close_current_confirm_lua_table_from_query(value: &str) -> Option<bool> {
                 if confirm.is_some() {
                     return None;
                 }
-                confirm = Some(bool_from_query(value.trim())?);
+                confirm = Some(parse_maybe_static_query_bool(static_source, value.trim())?);
             }
             _ => return None,
         }
@@ -73285,6 +73315,49 @@ mod tests {
                     top_level: true,
                 }),
             }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_close_current_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pane_confirm = false
+            local tab_confirm = true
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = act.CloseCurrentPane { confirm = pane_confirm },
+              },
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.CloseCurrentTab { confirm = tab_confirm },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CloseCurrent static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+P".to_owned(),
+                    command: WindowCommand::CloseCurrentPane { confirm: false },
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+T".to_owned(),
+                    command: WindowCommand::CloseCurrentTab { confirm: true },
+                },
+            ])
         );
     }
 

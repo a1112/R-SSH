@@ -171,8 +171,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.CloseCurrentPane { confirm = ... }` and
   `wezterm.action.CloseCurrentTab { confirm = ... }` table-call queries
   dispatch the same payloads, including bracketed string table keys with
-  long-bracket values and trailing comma table fields. Action-name `closepane`
-  and `closetab` queries dispatch the no-argument immediate-close aliases.
+  long-bracket values, trailing comma table fields, and top-level static bool
+  variables for `confirm` when parsed from static WezTerm-style `config.keys`.
+  Action-name `closepane` and `closetab` queries dispatch the no-argument
+  immediate-close aliases.
 - Native window state now exposes WezTerm-style `ToggleFullScreen`: the default
   `Alt+Enter` shortcut and command-palette `Toggle Full Screen` entry toggle
   the native window fullscreen state and dispatch the typed resize hook with
