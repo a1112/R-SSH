@@ -2535,7 +2535,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   arbitrary zero-based current-tab pane indices, plus action-name
   `activatepane1` through `activatepane8`. Native
   `WindowCommand::ActivatePaneByIndex(index)` payloads dispatch through the
-  same zero-based current-tab pane index path for arbitrary indices.
+  same zero-based current-tab pane index path for arbitrary indices. Static
+  `config.keys` action calls resolve top-level unsigned integer variables for
+  `ActivatePaneByIndex`.
 - App-shell state now exposes WezTerm-style `RotatePanes`; the command palette
   includes clockwise and counter-clockwise rotate entries, and pane identity
   rotation preserves split positions and size deltas. The command-palette query

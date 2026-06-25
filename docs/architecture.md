@@ -631,7 +631,8 @@ keyboard, mouse, paste, resize
   through 8, `activate pane <index>`/`activate pane by index <index>` queries,
   `activatepanebyindex <index>` queries, action-name `activatepane1` through
   `activatepane8` entries, and native `WindowCommand::ActivatePaneByIndex(index)`
-  payloads for arbitrary zero-based pane indices.
+  payloads for arbitrary zero-based pane indices. Static `config.keys` action
+  calls resolve top-level unsigned integer variables for `ActivatePaneByIndex`.
 - Completed in v1: app-shell state exposes WezTerm-style `RotatePanes` for
   clockwise/counter-clockwise pane identity rotation while preserving split
   positions and size deltas, with command-palette entries for both directions

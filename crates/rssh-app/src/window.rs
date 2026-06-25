@@ -11677,6 +11677,10 @@ fn native_key_assignment_command_from_query(
     if let Some(offset) = move_tab_relative_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::MoveTabRelative(offset));
     }
+    if let Some(index) = activate_pane_by_index_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::ActivatePaneByIndex(index));
+    }
     if let Some((direction, amount)) =
         adjust_pane_size_from_query_with_static_source(static_source, value)
     {
@@ -33259,8 +33263,25 @@ fn move_tab_relative_from_query_with_static_source(
 }
 
 fn activate_pane_by_index_from_query(query: &str) -> Option<usize> {
+    activate_pane_by_index_from_query_with_static_source(None, query)
+}
+
+fn activate_pane_by_index_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<usize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(index) = strip_lua_function_call_from_query(query, "activatepanebyindex") {
-        return parse_single_query_value(index)?.parse().ok();
+        return parse_maybe_static_query_usize(static_source, index);
     }
 
     let index = strip_query_prefix_from_any(
@@ -33274,10 +33295,10 @@ fn activate_pane_by_index_from_query(query: &str) -> Option<usize> {
             "activatepanebyindex ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     strip_query_prefix_from_any(index, &["index=", "index "])
         .or(Some(index))
-        .and_then(|index| index.parse().ok())
+        .and_then(|index| parse_maybe_static_query_usize(static_source, index))
 }
 
 fn activate_pane_direction_from_query(query: &str) -> Option<PaneDirection> {
@@ -74027,6 +74048,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "SUPER|SHIFT+2".to_owned(),
                 command: WindowCommand::MoveTab(2),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_pane_by_index_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pane_index = 2
+
+            config.keys = {
+              {
+                key = '1',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivatePaneByIndex(pane_index),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivatePaneByIndex static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+1".to_owned(),
+                command: WindowCommand::ActivatePaneByIndex(2),
             }])
         );
     }
