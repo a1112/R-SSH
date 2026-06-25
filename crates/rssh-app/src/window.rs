@@ -11673,6 +11673,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(command);
     }
+    if let Some(assignment) =
+        copy_mode_assignment_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::CopyMode(assignment));
+    }
     if let Some(index) = activate_tab_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::ActivateTab(index));
     }
@@ -29996,12 +30001,31 @@ fn paste_source_command_from_query_with_static_source(
 }
 
 fn copy_mode_assignment_from_query(query: &str) -> Option<WindowCopyModeAssignment> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    copy_mode_assignment_from_query_with_static_source(None, query)
+}
+
+fn copy_mode_assignment_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowCopyModeAssignment> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(value) = strip_lua_function_call_from_query(query, "copymode") {
         if value.trim_start().starts_with('{') {
-            return copy_mode_assignment_lua_table_from_query(value);
+            return copy_mode_assignment_lua_table_from_query_with_static_source(
+                static_source,
+                value,
+            );
         }
-        return copy_mode_assignment_name_from_query(value);
+        return copy_mode_assignment_name_from_query_with_static_source(static_source, value);
     }
 
     let value = strip_query_prefix_from_any(
@@ -30009,15 +30033,18 @@ fn copy_mode_assignment_from_query(query: &str) -> Option<WindowCopyModeAssignme
         &["copy mode=", "copy mode ", "copymode=", "copymode "],
     )?;
     if value.trim_start().starts_with('{') {
-        return copy_mode_assignment_lua_table_from_query(value);
+        return copy_mode_assignment_lua_table_from_query_with_static_source(static_source, value);
     }
     let value = strip_query_prefix_from_any(value, &["assignment=", "assignment "])
         .or_else(|| strip_query_prefix_from_any(value, &["action=", "action "]))
         .unwrap_or(value);
-    copy_mode_assignment_name_from_query(value)
+    copy_mode_assignment_name_from_query_with_static_source(static_source, value)
 }
 
-fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
+fn copy_mode_assignment_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCopyModeAssignment> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut fields = split_lua_table_top_level_fields(table)?
         .into_iter()
@@ -30031,36 +30058,50 @@ fn copy_mode_assignment_lua_table_from_query(value: &str) -> Option<WindowCopyMo
     if let Some((name, value)) = split_lua_table_assignment_from_field(field) {
         let name = split_lua_table_key_from_query(name.trim())?;
         match normalized_action_name_query(&name).as_str() {
-            "movebypage" => scroll_by_page_amount_from_query(value.trim())
+            "movebypage" => parse_maybe_static_query_f64(static_source, value.trim())
+                .and_then(scroll_by_page_amount_from_f64)
                 .map(WindowCopyModeAssignment::MoveByPage),
-            "jumpforward" => copy_mode_jump_assignment_lua_table_from_query(value, true),
-            "jumpbackward" => copy_mode_jump_assignment_lua_table_from_query(value, false),
+            "jumpforward" => copy_mode_jump_assignment_lua_table_from_query_with_static_source(
+                static_source,
+                value,
+                true,
+            ),
+            "jumpbackward" => copy_mode_jump_assignment_lua_table_from_query_with_static_source(
+                static_source,
+                value,
+                false,
+            ),
             "moveforwardsemanticzoneoftype" => {
-                copy_mode_semantic_zone_type_from_query(value).map(|semantic_type| {
-                    WindowCopyModeAssignment::MoveSemanticZoneOfType {
-                        delta: 1,
-                        semantic_type,
-                    }
-                })
+                copy_mode_semantic_zone_type_from_query_with_static_source(static_source, value)
+                    .map(
+                        |semantic_type| WindowCopyModeAssignment::MoveSemanticZoneOfType {
+                            delta: 1,
+                            semantic_type,
+                        },
+                    )
             }
             "movebackwardsemanticzoneoftype" => {
-                copy_mode_semantic_zone_type_from_query(value).map(|semantic_type| {
-                    WindowCopyModeAssignment::MoveSemanticZoneOfType {
-                        delta: -1,
-                        semantic_type,
-                    }
-                })
+                copy_mode_semantic_zone_type_from_query_with_static_source(static_source, value)
+                    .map(
+                        |semantic_type| WindowCopyModeAssignment::MoveSemanticZoneOfType {
+                            delta: -1,
+                            semantic_type,
+                        },
+                    )
             }
-            "setselectionmode" => copy_mode_selection_mode_from_query(value)
-                .map(WindowCopyModeAssignment::SetSelectionMode),
+            "setselectionmode" => {
+                copy_mode_selection_mode_from_query_with_static_source(static_source, value)
+                    .map(WindowCopyModeAssignment::SetSelectionMode)
+            }
             _ => None,
         }
     } else {
-        copy_mode_assignment_name_from_query(field)
+        copy_mode_assignment_name_from_query_with_static_source(static_source, field)
     }
 }
 
-fn copy_mode_jump_assignment_lua_table_from_query(
+fn copy_mode_jump_assignment_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     forward: bool,
 ) -> Option<WindowCopyModeAssignment> {
@@ -30079,7 +30120,7 @@ fn copy_mode_jump_assignment_lua_table_from_query(
                 if prev_char.is_some() {
                     return None;
                 }
-                prev_char = Some(bool_from_query(value.trim())?);
+                prev_char = Some(parse_maybe_static_query_bool(static_source, value.trim())?);
             }
             _ => return None,
         }
@@ -30091,8 +30132,11 @@ fn copy_mode_jump_assignment_lua_table_from_query(
     })
 }
 
-fn copy_mode_semantic_zone_type_from_query(value: &str) -> Option<SemanticType> {
-    let value = parse_maybe_quoted_query_text(value)?;
+fn copy_mode_semantic_zone_type_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<SemanticType> {
+    let value = parse_maybe_static_query_text(static_source, value)?;
     match normalized_action_name_query(&value).as_str() {
         "input" => Some(SemanticType::Input),
         "output" => Some(SemanticType::Output),
@@ -30101,8 +30145,11 @@ fn copy_mode_semantic_zone_type_from_query(value: &str) -> Option<SemanticType> 
     }
 }
 
-fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAssignment> {
-    let value = parse_maybe_quoted_query_text(value)?;
+fn copy_mode_assignment_name_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCopyModeAssignment> {
+    let value = parse_maybe_static_query_text(static_source, value)?;
     match normalized_action_name_query(&value).as_str() {
         "acceptpattern" => Some(WindowCopyModeAssignment::AcceptPattern),
         "close" => Some(WindowCopyModeAssignment::Close),
@@ -30144,8 +30191,11 @@ fn copy_mode_assignment_name_from_query(value: &str) -> Option<WindowCopyModeAss
     }
 }
 
-fn copy_mode_selection_mode_from_query(value: &str) -> Option<WindowCopySelectionMode> {
-    let value = parse_maybe_quoted_query_text(value)?;
+fn copy_mode_selection_mode_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCopySelectionMode> {
+    let value = parse_maybe_static_query_text(static_source, value)?;
     match normalized_action_name_query(&value).as_str() {
         "cell" => Some(WindowCopySelectionMode::Cell),
         "word" => Some(WindowCopySelectionMode::Word),
@@ -33833,12 +33883,6 @@ fn scroll_to_prompt_from_query_with_static_source(
     strip_query_prefix_from_any(amount, &["amount=", "amount ", "offset=", "offset "])
         .or(Some(amount))
         .and_then(|amount| parse_maybe_static_query_isize(static_source, amount))
-}
-
-#[allow(clippy::cast_possible_truncation)]
-fn scroll_by_page_amount_from_query(amount: &str) -> Option<WindowScrollByPageAmount> {
-    let amount = amount.parse::<f64>().ok()?;
-    scroll_by_page_amount_from_f64(amount)
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -72838,6 +72882,110 @@ mod tests {
 
         assert_eq!(written.lock().unwrap().as_slice(), b"from-name-variable");
         assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_copy_mode_static_assignment_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local assignment = 'MoveToStartOfLine'
+
+            config.key_tables = {
+              copy_mode = {
+                { key = '0', action = act.CopyMode(assignment) },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyMode static assignment variable config");
+
+        assert_eq!(
+            overrides.key_tables,
+            Some(BTreeMap::from([(
+                "copy_mode".to_owned(),
+                vec![NativeUserKeyAssignment {
+                    keys: "0".to_owned(),
+                    command: WindowCommand::CopyMode(
+                        super::WindowCopyModeAssignment::MoveToStartOfLine,
+                    ),
+                }],
+            )]))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_copy_mode_static_table_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selection_mode = 'Block'
+            local semantic_type = 'Prompt'
+            local jump_before = true
+            local page_amount = -0.5
+
+            config.key_tables = {
+              copy_mode = {
+                { key = 'v', action = act.CopyMode { SetSelectionMode = selection_mode } },
+                { key = 'p', action = act.CopyMode { MoveBackwardSemanticZoneOfType = semantic_type } },
+                { key = 'f', action = act.CopyMode { JumpForward = { prev_char = jump_before } } },
+                { key = 'u', action = act.CopyMode { MoveByPage = page_amount } },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyMode static table field variable config");
+
+        assert_eq!(
+            overrides.key_tables,
+            Some(BTreeMap::from([(
+                "copy_mode".to_owned(),
+                vec![
+                    NativeUserKeyAssignment {
+                        keys: "v".to_owned(),
+                        command: WindowCommand::CopyMode(
+                            super::WindowCopyModeAssignment::SetSelectionMode(
+                                super::WindowCopySelectionMode::Block,
+                            ),
+                        ),
+                    },
+                    NativeUserKeyAssignment {
+                        keys: "p".to_owned(),
+                        command: WindowCommand::CopyMode(
+                            super::WindowCopyModeAssignment::MoveSemanticZoneOfType {
+                                delta: -1,
+                                semantic_type: rssh_terminal::SemanticType::Prompt,
+                            },
+                        ),
+                    },
+                    NativeUserKeyAssignment {
+                        keys: "f".to_owned(),
+                        command: WindowCommand::CopyMode(
+                            super::WindowCopyModeAssignment::StartJump {
+                                forward: true,
+                                prev_char: true,
+                            },
+                        ),
+                    },
+                    NativeUserKeyAssignment {
+                        keys: "u".to_owned(),
+                        command: WindowCommand::CopyMode(
+                            super::WindowCopyModeAssignment::MoveByPage(
+                                WindowScrollByPageAmount::from_per_mille(-500),
+                            )
+                        ),
+                    },
+                ],
+            )]))
+        );
     }
 
     #[test]

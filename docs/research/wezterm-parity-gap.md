@@ -2092,7 +2092,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.CopyMode { SetSelectionMode = 'Block' }` table forms now
   route the documented `Cell`, `Word`, `Line`, `Block`, and `SemanticZone`
   selection modes, including bracketed string table keys with long-bracket
-  values. Search
+  values, and static `config.key_tables` actions resolve top-level string
+  variables for single-name assignments and `SetSelectionMode` fields. Search
   `NextMatch`, `PriorMatch`, `NextMatchPage`, `PriorMatchPage`, `ClearPattern`,
   and `CycleMatchType` assignment values dispatch the same copy-mode search
   helpers as the default key table. `PageUp`, `PageDown`, and
@@ -2103,10 +2104,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `JumpBackward = { prev_char = ... }` assignment tables start the same
   target-character jump flow as `f`/`t`/`F`/`T`, including bracketed string
   table keys with long-bracket values and optional trailing commas in the
-  nested jump option table.
+  nested jump option table, plus top-level static bool variables for
+  `prev_char` when parsed from static `config.key_tables`.
   `MoveForwardSemanticZoneOfType = 'Input'` and
   `MoveBackwardSemanticZoneOfType = 'Prompt'` assignment values reuse the
-  typed OSC 133 semantic-zone movement path.
+  typed OSC 133 semantic-zone movement path and resolve top-level static string
+  variables from static `config.key_tables`. `MoveByPage` resolves top-level
+  static number variables from static `config.key_tables`.
   Single-name Lua table forms such as
   `wezterm.action.CopyMode { 'ClearSelectionMode' }` now reuse the same
   assignment parser. `AcceptPattern` and `EditPattern` now toggle whether

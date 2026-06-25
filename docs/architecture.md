@@ -314,6 +314,10 @@ keyboard, mouse, paste, resize
   Top-level `config.keys` assignment `action` fields parse inline or through
   top-level static action variables, including static action variables inside
   `act.Multiple { ... }` tables.
+  Static `config.key_tables` `CopyMode` action payloads resolve top-level
+  string variables for assignment names, `SetSelectionMode`, and semantic-zone
+  type fields, top-level bool variables for nested `prev_char`, and top-level
+  number variables for `MoveByPage`.
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` also resolve top-level static
   string variables.
@@ -1918,6 +1922,9 @@ keyboard, mouse, paste, resize
   default `Ctrl+Shift+X` key-assignment entry now exposes the WezTerm-style
   `ActivateCopyMode` payload while the older native `EnterCopyMode` alias
   remains accepted.
+- Implemented in v1: static `config.key_tables` `CopyMode` action payloads
+  resolve top-level variables for single-name assignments, `SetSelectionMode`,
+  semantic-zone type fields, nested jump `prev_char`, and `MoveByPage`.
 - Implemented in v1: copy mode stores source-row selection anchors, so `y` can
   copy selections that span the live viewport and retained scrollback.
 - Implemented in v1: mouse double-click word selection honors
