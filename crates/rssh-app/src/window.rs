@@ -11599,6 +11599,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::PromptInputLine(options));
     }
+    if let Some(options) =
+        input_selector_options_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::InputSelector(options));
+    }
     if let Some(event) = emit_event_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::EmitEvent(event));
     }
@@ -30308,17 +30313,33 @@ fn modal_display_text_from_query(value: &str) -> Option<String> {
 }
 
 fn input_selector_options_from_query(query: &str) -> Option<WindowInputSelectorOptions> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    input_selector_options_from_query_with_static_source(None, query)
+}
+
+fn input_selector_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowInputSelectorOptions> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(rest) = strip_lua_function_call_from_query(query, "inputselector")
         && rest.trim_start().starts_with('{')
     {
-        return input_selector_lua_table_from_query(rest);
+        return input_selector_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "inputselector=")
         && rest.trim_start().starts_with('{')
     {
-        return input_selector_lua_table_from_query(rest);
+        return input_selector_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     let rest = strip_query_prefix_from_any(
@@ -30330,13 +30351,22 @@ fn input_selector_options_from_query(query: &str) -> Option<WindowInputSelectorO
             "inputselector ",
         ],
     )?;
-    let (options, _) =
-        input_selector_fields_from_query(rest, WindowInputSelectorOptions::default(), false)?;
+    let (options, _) = input_selector_fields_from_query_with_static_source(
+        static_source,
+        rest,
+        WindowInputSelectorOptions::default(),
+        false,
+    )?;
     Some(options)
 }
 
-fn input_selector_choices_from_query(value: &str) -> Option<Vec<WindowInputSelectorChoice>> {
-    let choices = split_unquoted_query_semicolons(value)
+fn input_selector_choices_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<WindowInputSelectorChoice>> {
+    let value = parse_maybe_static_query_text(static_source, value)?;
+
+    let choices = split_unquoted_query_semicolons(&value)
         .into_iter()
         .map(str::trim)
         .filter(|choice| !choice.is_empty())
@@ -30357,7 +30387,8 @@ fn input_selector_choices_from_query(value: &str) -> Option<Vec<WindowInputSelec
     (!choices.is_empty()).then_some(choices)
 }
 
-fn input_selector_choices_lua_table_from_query(
+fn input_selector_choices_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Vec<WindowInputSelectorChoice>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -30368,13 +30399,18 @@ fn input_selector_choices_lua_table_from_query(
         if field.is_empty() {
             continue;
         }
-        choices.push(input_selector_choice_lua_table_from_query(field)?);
+        choices.push(
+            input_selector_choice_lua_table_from_query_with_static_source(static_source, field)?,
+        );
     }
 
     (!choices.is_empty()).then_some(choices)
 }
 
-fn input_selector_choice_lua_table_from_query(value: &str) -> Option<WindowInputSelectorChoice> {
+fn input_selector_choice_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowInputSelectorChoice> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut label = None;
     let mut id = None;
@@ -30388,14 +30424,17 @@ fn input_selector_choice_lua_table_from_query(value: &str) -> Option<WindowInput
         let name = split_lua_table_key_from_query(name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "label" => {
-                let value = input_selector_choice_label_from_query(value.trim())?;
+                let value = input_selector_choice_label_from_query_with_static_source(
+                    static_source,
+                    value.trim(),
+                )?;
                 if label.is_some() || value.is_empty() {
                     return None;
                 }
                 label = Some(value);
             }
             "id" => {
-                let value = parse_maybe_quoted_query_text(value.trim())?;
+                let value = parse_maybe_static_query_text(static_source, value.trim())?;
                 if id.is_some() {
                     return None;
                 }
@@ -30409,6 +30448,23 @@ fn input_selector_choice_lua_table_from_query(value: &str) -> Option<WindowInput
 }
 
 fn input_selector_choice_label_from_query(value: &str) -> Option<String> {
+    input_selector_choice_label_from_query_with_static_source(None, value)
+}
+
+fn input_selector_choice_label_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return input_selector_choice_label_from_query(value);
+    }
+
     native_format_items_from_wezterm_format_query(value)
         .map(|items| {
             items
@@ -30459,7 +30515,8 @@ fn split_unquoted_query_semicolons(query: &str) -> Vec<&str> {
     values
 }
 
-fn input_selector_fields_from_query(
+fn input_selector_fields_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     rest: &str,
     options: WindowInputSelectorOptions,
     fuzzy_seen: bool,
@@ -30475,12 +30532,16 @@ fn input_selector_fields_from_query(
                 if title.is_empty() || !options.title.is_empty() {
                     return None;
                 }
-                let title = parse_maybe_quoted_query_text(title)?;
+                let title = parse_maybe_static_query_text(static_source, title)?;
                 let mut options = options.clone();
                 let title_len = title.len();
                 options.title = title;
-                let (options, score) =
-                    input_selector_fields_from_query(remaining, options, fuzzy_seen)?;
+                let (options, score) = input_selector_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                    fuzzy_seen,
+                )?;
                 Some((options, score + 1, title_len))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30494,9 +30555,14 @@ fn input_selector_fields_from_query(
                     return None;
                 }
                 let mut options = options.clone();
-                options.choices = input_selector_choices_from_query(choices)?;
-                let (options, score) =
-                    input_selector_fields_from_query(remaining, options, fuzzy_seen)?;
+                options.choices =
+                    input_selector_choices_from_query_with_static_source(static_source, choices)?;
+                let (options, score) = input_selector_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                    fuzzy_seen,
+                )?;
                 Some((options, score + 1, choices.len()))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30509,11 +30575,15 @@ fn input_selector_fields_from_query(
                 if options.alphabet.is_some() {
                     return None;
                 }
-                let alphabet = parse_maybe_quoted_query_text(alphabet)?;
+                let alphabet = parse_maybe_static_query_text(static_source, alphabet)?;
                 let mut options = options.clone();
                 options.alphabet = Some(alphabet);
-                let (options, score) =
-                    input_selector_fields_from_query(remaining, options, fuzzy_seen)?;
+                let (options, score) = input_selector_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                    fuzzy_seen,
+                )?;
                 Some((options, score + 1))
             })
             .max_by_key(|(_, score)| *score);
@@ -30525,12 +30595,16 @@ fn input_selector_fields_from_query(
                 if options.description.is_some() {
                     return None;
                 }
-                let description = parse_maybe_quoted_query_text(description)?;
+                let description = parse_maybe_static_query_text(static_source, description)?;
                 let mut options = options.clone();
                 let description_len = description.len();
                 options.description = Some(description);
-                let (options, score) =
-                    input_selector_fields_from_query(remaining, options, fuzzy_seen)?;
+                let (options, score) = input_selector_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                    fuzzy_seen,
+                )?;
                 Some((options, score + 1, description_len))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30546,12 +30620,17 @@ fn input_selector_fields_from_query(
                 if options.fuzzy_description.is_some() {
                     return None;
                 }
-                let fuzzy_description = parse_maybe_quoted_query_text(fuzzy_description)?;
+                let fuzzy_description =
+                    parse_maybe_static_query_text(static_source, fuzzy_description)?;
                 let mut options = options.clone();
                 let fuzzy_description_len = fuzzy_description.len();
                 options.fuzzy_description = Some(fuzzy_description);
-                let (options, score) =
-                    input_selector_fields_from_query(remaining, options, fuzzy_seen)?;
+                let (options, score) = input_selector_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                    fuzzy_seen,
+                )?;
                 Some((options, score + 1, fuzzy_description_len))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30565,8 +30644,14 @@ fn input_selector_fields_from_query(
         return input_selector_one_word_splits(value)
             .filter_map(|(fuzzy, remaining)| {
                 let mut options = options.clone();
-                options.fuzzy = bool_from_query(fuzzy)?;
-                let (options, score) = input_selector_fields_from_query(remaining, options, true)?;
+                let fuzzy = parse_maybe_static_query_text(static_source, fuzzy)?;
+                options.fuzzy = bool_from_query(&fuzzy)?;
+                let (options, score) = input_selector_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                    true,
+                )?;
                 Some((options, score + 1))
             })
             .max_by_key(|(_, score)| *score);
@@ -30658,7 +30743,10 @@ fn input_selector_next_field_offsets(rest: &str) -> Vec<usize> {
     offsets
 }
 
-fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelectorOptions> {
+fn input_selector_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowInputSelectorOptions> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowInputSelectorOptions::default();
     let mut parsed_title = false;
@@ -30679,7 +30767,7 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
         let raw_value = value.trim();
         match name.to_ascii_lowercase().as_str() {
             "title" => {
-                let value = parse_maybe_quoted_query_text(raw_value)?;
+                let value = parse_maybe_static_query_text(static_source, raw_value)?;
                 if parsed_title || value.is_empty() {
                     return None;
                 }
@@ -30691,15 +30779,17 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                     return None;
                 }
                 options.choices = if raw_value.starts_with('{') {
-                    input_selector_choices_lua_table_from_query(raw_value)?
+                    input_selector_choices_lua_table_from_query_with_static_source(
+                        static_source,
+                        raw_value,
+                    )?
                 } else {
-                    let value = parse_maybe_quoted_query_text(raw_value)?;
-                    input_selector_choices_from_query(&value)?
+                    input_selector_choices_from_query_with_static_source(static_source, raw_value)?
                 };
                 parsed_choices = true;
             }
             "alphabet" => {
-                let value = parse_maybe_quoted_query_text(raw_value)?;
+                let value = parse_maybe_static_query_text(static_source, raw_value)?;
                 if parsed_alphabet {
                     return None;
                 }
@@ -30707,7 +30797,7 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 parsed_alphabet = true;
             }
             "description" => {
-                let value = parse_maybe_quoted_query_text(raw_value)?;
+                let value = parse_maybe_static_query_text(static_source, raw_value)?;
                 if parsed_description {
                     return None;
                 }
@@ -30715,7 +30805,7 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 parsed_description = true;
             }
             "fuzzy_description" | "fuzzy-description" => {
-                let value = parse_maybe_quoted_query_text(raw_value)?;
+                let value = parse_maybe_static_query_text(static_source, raw_value)?;
                 if parsed_fuzzy_description {
                     return None;
                 }
@@ -30723,7 +30813,7 @@ fn input_selector_lua_table_from_query(value: &str) -> Option<WindowInputSelecto
                 parsed_fuzzy_description = true;
             }
             "fuzzy" => {
-                let value = parse_maybe_quoted_query_text(raw_value)?;
+                let value = parse_maybe_static_query_text(static_source, raw_value)?;
                 if parsed_fuzzy {
                     return None;
                 }
@@ -72769,6 +72859,63 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_input_selector_static_string_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selector_title = 'Pick Reply'
+            local selector_choices = 'decline=No thanks ; lgtm=LGTM'
+            local selector_alphabet = 'ab'
+            local selector_description = 'Choose one:'
+            local selector_fuzzy_description = 'Filter replies:'
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = act.InputSelector {
+                  title = selector_title,
+                  choices = selector_choices,
+                  alphabet = selector_alphabet,
+                  description = selector_description,
+                  fuzzy_description = selector_fuzzy_description,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm InputSelector static string field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+I".to_owned(),
+                command: WindowCommand::InputSelector(WindowInputSelectorOptions {
+                    title: "Pick Reply".to_owned(),
+                    choices: vec![
+                        WindowInputSelectorChoice {
+                            label: "No thanks".to_owned(),
+                            id: Some("decline".to_owned()),
+                        },
+                        WindowInputSelectorChoice {
+                            label: "LGTM".to_owned(),
+                            id: Some("lgtm".to_owned()),
+                        },
+                    ],
+                    alphabet: Some("ab".to_owned()),
+                    description: Some("Choose one:".to_owned()),
+                    fuzzy_description: Some("Filter replies:".to_owned()),
+                    fuzzy: false,
                 }),
             }])
         );
