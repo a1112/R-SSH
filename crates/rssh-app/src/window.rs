@@ -12088,7 +12088,20 @@ fn native_mouse_assignment_button_from_lua_value(
     value: &str,
 ) -> Option<NativeMouseAssignmentButton> {
     let value = value.trim();
-    if value.starts_with('{') {
+    let resolved_value;
+    let maybe_table = if value.starts_with('{') {
+        Some(value)
+    } else if let Some(static_source) = static_source {
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        );
+        resolved_value.as_deref()
+    } else {
+        None
+    };
+    if let Some(value) = maybe_table {
         let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
         let mut parsed = None;
         for field in split_lua_table_top_level_fields(table)? {
@@ -70067,6 +70080,40 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm wheel mouse binding config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::CONTROL;
+
+        assert!((app.font_size_scale_for_test() - 1.0).abs() < f64::EPSILON);
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert!((app.font_size_scale_for_test() - 1.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_wheel_button_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local wheel_button = { WheelUp = 1 }
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = wheel_button } },
+                mods = 'CTRL',
+                action = act.IncreaseFontSize,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static wheel button config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::CONTROL;
 

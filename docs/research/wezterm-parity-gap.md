@@ -199,9 +199,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.mouse_bindings = { binding }` with pre-use field mutations, with
   `event` payloads inline or through top-level static event table variables,
   nested `Down`/`Up`/`Drag` payloads inline or through top-level static table
-  variables, event `button`/`streak` fields inline or through top-level static
-  variables, and `action` payloads inline or through top-level static action
-  variables, so custom bindings such as `ALT` + left drag can dispatch
+  variables, `WheelUp`/`WheelDown` button tables inline or through top-level
+  static table variables, event `button`/`streak` fields inline or through
+  top-level static variables, and `action` payloads inline or through
+  top-level static action variables, so custom bindings such as `ALT` + left drag can dispatch
   `StartWindowDrag`, middle-button release can dispatch `PastePrimarySelection`,
   `CTRL` + wheel-up can dispatch `IncreaseFontSize`, double-left-down can
   dispatch a custom action, and non-left button streaks are tracked for user
@@ -895,6 +896,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables such as `config.mouse_bindings = { binding }`
   with pre-use field mutations, top-level static event table variables for
   event payloads, top-level static table variables for nested event payloads,
+  top-level static table variables for `WheelUp`/`WheelDown` button payloads,
   top-level static variables for event `button`/`streak` fields, and
   top-level static action variables for action payloads, and
   matching user mouse bindings override the implemented default mouse
