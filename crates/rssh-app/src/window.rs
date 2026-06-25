@@ -11714,6 +11714,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::CopyTo(destination));
     }
+    if let Some(source) = paste_source_command_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::PasteFrom(source));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -29907,8 +29910,25 @@ fn copy_destination_command_from_query_with_static_source(
 }
 
 fn paste_source_command_from_query(query: &str) -> Option<WindowPasteSource> {
+    paste_source_command_from_query_with_static_source(None, query)
+}
+
+fn paste_source_command_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowPasteSource> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(source) = strip_lua_function_call_from_query(query, "pastefrom") {
-        return paste_source_from_query(source);
+        return paste_source_from_query_with_static_source(static_source, source);
     }
 
     let source = strip_query_prefix_from_any(
@@ -29916,7 +29936,7 @@ fn paste_source_command_from_query(query: &str) -> Option<WindowPasteSource> {
         &["paste from=", "paste from ", "pastefrom=", "pastefrom "],
     )?;
     let source = strip_query_prefix_from_any(source, &["source=", "source "]).unwrap_or(source);
-    paste_source_from_query(source)
+    paste_source_from_query_with_static_source(static_source, source)
 }
 
 fn copy_mode_assignment_from_query(query: &str) -> Option<WindowCopyModeAssignment> {
@@ -32404,7 +32424,14 @@ fn query_text_assignment_value_from_token<'a>(token: &'a str, keys: &[&str]) -> 
 }
 
 fn paste_source_from_query(source: &str) -> Option<WindowPasteSource> {
-    let source = parse_maybe_quoted_query_text(source)?;
+    paste_source_from_query_with_static_source(None, source)
+}
+
+fn paste_source_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    source: &str,
+) -> Option<WindowPasteSource> {
+    let source = parse_maybe_static_query_text(static_source, source)?;
     let normalized = source
         .chars()
         .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
@@ -74247,6 +74274,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+C".to_owned(),
                 command: WindowCommand::CopyTo(WindowCopyDestination::PrimarySelection),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_paste_from_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local source = 'PrimarySelection'
+
+            config.keys = {
+              {
+                key = 'V',
+                mods = 'CTRL|SHIFT',
+                action = act.PasteFrom(source),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PasteFrom static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+V".to_owned(),
+                command: WindowCommand::PasteFrom(WindowPasteSource::PrimarySelection),
             }])
         );
     }

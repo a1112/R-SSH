@@ -1454,7 +1454,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `PasteFrom(source)` payloads; action-name `pastefromclipboard` and
   `pastefromprimaryselection` queries dispatch the same commands, as do
   WezTerm-style `wezterm.action.PasteFrom '<source>'` and
-  `wezterm.action.PasteFrom('<source>')` Lua action queries.
+  `wezterm.action.PasteFrom('<source>')` Lua action queries. Static
+  `config.keys` action calls resolve top-level string variables for
+  `PasteFrom` sources.
 - Command palette and native action payloads now expose WezTerm-style
   `PasteFrom('PrimarySelection')` routing for the active pane, and shortcut
   classification maps `Ctrl+Insert`/`Shift+Insert` to WezTerm's

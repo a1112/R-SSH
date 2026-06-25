@@ -1169,7 +1169,8 @@ keyboard, mouse, paste, resize
   `pastefromprimaryselection` map to the same native payloads, and default
   `Ctrl+Insert`/`Shift+Insert` shortcut classification plus default unmodified
   middle-click paste now match
-  WezTerm's PrimarySelection defaults.
+  WezTerm's PrimarySelection defaults. Static `config.keys` action calls
+  resolve top-level string variables for `PasteFrom` sources.
 - Implemented in v1: deprecated native WezTerm aliases `Copy`, `Paste`, and
   `PastePrimarySelection` are accepted for older action payload compatibility
   and route to `CopyTo('Clipboard')`, `PasteFrom('Clipboard')`, and
