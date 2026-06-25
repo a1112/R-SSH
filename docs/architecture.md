@@ -782,7 +782,8 @@ keyboard, mouse, paste, resize
   window level and applying it to the platform window through winit's
   `WindowLevel` API when backend support exists. Structured command-palette
   `set window level <value>` and `setwindowlevel <value>` queries use
-  quote-aware value parsing.
+  quote-aware value parsing. Static `config.keys` action calls resolve
+  top-level string variables for `SetWindowLevel`.
 - Completed in v1: native WezTerm-style `ToggleAlwaysOnTop` and
   `ToggleAlwaysOnBottom` action payloads and command-palette entries toggle the
   remembered window level between the requested z-order and `Normal`.

@@ -11732,6 +11732,9 @@ fn native_key_assignment_command_from_query(
             destination,
         ));
     }
+    if let Some(level) = set_window_level_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::SetWindowLevel(level));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -33810,8 +33813,25 @@ fn pane_rotation_direction_from_query(direction: &str) -> Option<PaneRotationDir
 }
 
 fn set_window_level_from_query(query: &str) -> Option<NativeWindowLevel> {
+    set_window_level_from_query_with_static_source(None, query)
+}
+
+fn set_window_level_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<NativeWindowLevel> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(level) = strip_lua_function_call_from_query(query, "setwindowlevel") {
-        let level = parse_maybe_quoted_query_text(level)?;
+        let level = parse_maybe_static_query_text(static_source, level)?;
         return native_window_level_from_query(&level);
     }
 
@@ -33825,7 +33845,7 @@ fn set_window_level_from_query(query: &str) -> Option<NativeWindowLevel> {
         ],
     )?;
     let level = strip_query_prefix_from_any(level, &["level=", "level "]).unwrap_or(level);
-    let level = parse_maybe_quoted_query_text(level)?;
+    let level = parse_maybe_static_query_text(static_source, level)?;
     native_window_level_from_query(&level)
 }
 
@@ -74420,6 +74440,37 @@ mod tests {
                 command: WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(
                     WindowCopyDestination::PrimarySelection,
                 ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_set_window_level_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local level = 'AlwaysOnTop'
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|SHIFT',
+                action = act.SetWindowLevel(level),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SetWindowLevel static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+T".to_owned(),
+                command: WindowCommand::SetWindowLevel(NativeWindowLevel::AlwaysOnTop),
             }])
         );
     }

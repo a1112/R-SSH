@@ -237,7 +237,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `setwindowlevel <value>` map AlwaysOnBottom/Normal/AlwaysOnTop spellings to
   the same native payload, including WezTerm-style
   `wezterm.action.SetWindowLevel '<value>'` and
-  `wezterm.action.SetWindowLevel('<value>')` Lua action queries.
+  `wezterm.action.SetWindowLevel('<value>')` Lua action queries. Static
+  `config.keys` action calls resolve top-level string variables for
+  `SetWindowLevel`.
 - Native window state now exposes WezTerm-style `ToggleAlwaysOnTop` and
   `ToggleAlwaysOnBottom`, toggling the remembered window level between the
   requested z-order and `Normal`.
@@ -901,7 +903,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   The command-palette query `set window level <value>` covers the same value
   set with quote-aware value parsing, including WezTerm-style
   `wezterm.action.SetWindowLevel '<value>'` and
-  `wezterm.action.SetWindowLevel('<value>')` Lua action queries.
+  `wezterm.action.SetWindowLevel('<value>')` Lua action queries. Static
+  `config.keys` action calls resolve top-level string variables for
+  `SetWindowLevel`.
 - Command palette and native action payloads now expose WezTerm-style
   `ToggleAlwaysOnTop` and `ToggleAlwaysOnBottom`, sharing the remembered native
   window-level state with `SetWindowLevel`; action-name `togglealwaysontop`
