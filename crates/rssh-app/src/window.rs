@@ -6419,7 +6419,12 @@ fn lua_config_table_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let after_receiver = lua_config_receiver_prefix_rest(rest, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     if let Some(value) =
@@ -8467,6 +8472,31 @@ fn lua_config_field_access_rest_from_query<'a>(query: &'a str, field: &str) -> O
 
     let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
     rest.strip_prefix(']')
+}
+
+fn lua_config_field_access_rest_from_query_with_static_key<'a>(
+    source: &'a str,
+    query: &'a str,
+    field: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let query = lua_trim_start_comments(query)?;
+    if let Some(rest) = query.strip_prefix('.') {
+        let rest = lua_trim_start_comments(rest)?;
+        if !rest.starts_with(field) || !lua_config_assignment_field_has_boundaries(rest, 0, field) {
+            return None;
+        }
+        return rest.get(field.len()..);
+    }
+
+    let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
+    let (key, after_key) =
+        lua_config_bracket_assignment_key_from_query(source, after_open, max_start)?;
+    if key != field {
+        return None;
+    }
+
+    lua_trim_start_comments(after_key)?.strip_prefix(']')
 }
 
 fn lua_config_nested_table_insert_append_from_query<'a>(
@@ -80335,6 +80365,34 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm cell width static field-name variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cell_widths,
+            vec![NativeCellWidthOverride::new(0x2606, 0x2606, 1)]
+        );
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cell_widths_static_field_name_variable_table_insert() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local widths_field = 'cell_widths'
+
+            config.treat_east_asian_ambiguous_width_as_wide = true
+            config[widths_field] = {}
+            table.insert(config[widths_field], { first = 0x2606, last = 0x2606, width = 1 })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm cell width static field-name table.insert config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
