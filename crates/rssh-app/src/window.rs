@@ -15409,6 +15409,7 @@ impl NativeWindowApp {
         );
         replacement_runtime
             .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+        replacement_runtime.set_unicode_version(self.unicode_version);
         replacement_runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         replacement_runtime.set_scrollback_limit(self.scrollback_lines);
         replacement_runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
@@ -15438,6 +15439,7 @@ impl NativeWindowApp {
             self.treat_east_asian_ambiguous_width_as_wide,
         );
         runtime.set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+        runtime.set_unicode_version(self.unicode_version);
         runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
@@ -15472,6 +15474,7 @@ impl NativeWindowApp {
         );
         self.runtime
             .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+        self.runtime.set_unicode_version(self.unicode_version);
         self.runtime
             .set_cell_width_overrides(self.terminal_cell_width_overrides());
         self.snapshot = runtime_snapshot;
@@ -23299,6 +23302,7 @@ impl NativeWindowApp {
         self.apply_keyboard_protocol_config_to_runtimes();
         self.apply_character_width_config_to_runtimes();
         self.apply_unicode_normalization_config_to_runtimes();
+        self.apply_unicode_version_config_to_runtimes();
         self.leader = overrides.leader.filter(|leader| !leader.keys.is_empty());
         self.leader_active_since = None;
         self.adjust_window_size_when_changing_font_size = overrides
@@ -23419,6 +23423,13 @@ impl NativeWindowApp {
             runtime
                 .runtime
                 .set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+        }
+    }
+
+    fn apply_unicode_version_config_to_runtimes(&mut self) {
+        self.runtime.set_unicode_version(self.unicode_version);
+        for runtime in self.pane_runtimes.values_mut() {
+            runtime.runtime.set_unicode_version(self.unicode_version);
         }
     }
 
@@ -24701,6 +24712,7 @@ impl NativeWindowApp {
             self.treat_east_asian_ambiguous_width_as_wide,
         );
         runtime.set_normalize_output_to_unicode_nfc(self.normalize_output_to_unicode_nfc);
+        runtime.set_unicode_version(self.unicode_version);
         runtime.set_cell_width_overrides(self.terminal_cell_width_overrides());
         runtime.set_scrollback_limit(self.scrollback_lines);
         runtime.set_default_cursor_style(CursorStyle::from(self.default_cursor_style));
@@ -81387,6 +81399,7 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.native_effective_config().unicode_version, 14);
+        assert_eq!(app.runtime.terminal().unicode_version(), 14);
     }
 
     #[test]

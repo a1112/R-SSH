@@ -263,6 +263,10 @@ impl TerminalRuntime {
         self.terminal.set_normalize_output_to_unicode_nfc(enabled);
     }
 
+    pub(crate) fn set_unicode_version(&mut self, version: u32) {
+        self.terminal.set_unicode_version(version);
+    }
+
     pub(crate) fn set_cell_width_overrides(&mut self, overrides: Vec<CellWidthOverride>) {
         self.terminal.set_cell_width_overrides(overrides);
     }

@@ -438,9 +438,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   output runs to Unicode NFC before rendering, including leading combining
   marks that arrive in the next PTY chunk when they compose with the prior
   cell without changing display width. `unicode_version` is retained in
-  effective config and static numeric Lua snippets, while exact
-  version-specific Unicode width tables and OSC 1337 `UnicodeVersion`
-  push/pop handling remain open. Native winit IME commit text
+  effective config, static numeric Lua snippets apply to active and new pane
+  runtimes, and OSC 1337 `UnicodeVersion` set/push/pop sequences, including
+  labeled entries, now update terminal state; exact version-specific Unicode
+  width tables remain open. Native winit IME commit text
   now writes to the active pane when `use_ime` is enabled and is ignored when
   disabled; native winit IME preedit text now renders as a Builtin overlay at
   the active pane cursor, is suppressed for `System` or disabled IME, and is
@@ -1312,8 +1313,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   including leading combining marks that arrive in the next PTY chunk when
   they compose with the prior cell without changing display width.
   `config.unicode_version` parses static numeric assignments into effective
-  config with WezTerm's default `9`; exact Unicode-width version behavior and
-  OSC 1337 `UnicodeVersion` stack handling remain open.
+  config with WezTerm's default `9`, applies to active and new pane runtimes,
+  and OSC 1337 `UnicodeVersion` set/push/pop sequences update terminal state,
+  including labeled stack entries; exact Unicode-width version behavior
+  remains open.
   `treat_left_ctrlalt_as_altgr`
   routes Ctrl+Alt text key events as AltGr text input rather than triggering
   Ctrl+Alt key bindings. Native winit IME commit text writes to the active pane

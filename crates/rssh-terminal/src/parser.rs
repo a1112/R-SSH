@@ -16,6 +16,7 @@ use crate::{
 };
 
 pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
+const DEFAULT_UNICODE_VERSION: u32 = 9;
 const ANONYMOUS_KITTY_IMAGE_ID: u32 = 0;
 const MAX_KITTY_RELATIVE_CHAIN_DEPTH: usize = 8;
 const KITTY_UNICODE_PLACEHOLDER: char = '\u{10eeee}';
@@ -397,6 +398,8 @@ pub struct Terminal {
     treat_east_asian_ambiguous_width_as_wide: bool,
     cell_width_overrides: Vec<CellWidthOverride>,
     normalize_output_to_unicode_nfc: bool,
+    unicode_version: u32,
+    unicode_version_stack: Vec<UnicodeVersionStackEntry>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,6 +419,12 @@ impl CellWidthOverride {
         let codepoint = ch as u32;
         self.first <= codepoint && codepoint <= self.last
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UnicodeVersionStackEntry {
+    version: u32,
+    label: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -524,7 +533,14 @@ impl Terminal {
             treat_east_asian_ambiguous_width_as_wide: false,
             cell_width_overrides: Vec::new(),
             normalize_output_to_unicode_nfc: false,
+            unicode_version: DEFAULT_UNICODE_VERSION,
+            unicode_version_stack: Vec::new(),
         }
+    }
+
+    pub fn set_unicode_version(&mut self, version: u32) {
+        self.unicode_version = version;
+        self.unicode_version_stack.clear();
     }
 
     pub fn set_normalize_output_to_unicode_nfc(&mut self, enabled: bool) {
@@ -973,7 +989,52 @@ impl Terminal {
 
         if let Some(file) = content.strip_prefix("File=") {
             self.apply_osc1337_file(file);
+            return;
         }
+
+        if let Some(unicode_version) = content.strip_prefix("UnicodeVersion=") {
+            self.apply_osc1337_unicode_version(unicode_version);
+        }
+    }
+
+    fn apply_osc1337_unicode_version(&mut self, value: &str) {
+        let trimmed = value.trim();
+        if let Some(label) = trimmed.strip_prefix("push") {
+            self.unicode_version_stack.push(UnicodeVersionStackEntry {
+                version: self.unicode_version,
+                label: non_empty_unicode_version_label(label),
+            });
+            return;
+        }
+
+        if let Some(label) = trimmed.strip_prefix("pop") {
+            match non_empty_unicode_version_label(label) {
+                Some(label) => self.pop_labeled_unicode_version(&label),
+                None => {
+                    if let Some(entry) = self.unicode_version_stack.pop() {
+                        self.unicode_version = entry.version;
+                    }
+                }
+            }
+            return;
+        }
+
+        if let Ok(version) = trimmed.parse::<u32>() {
+            self.unicode_version = version;
+        }
+    }
+
+    fn pop_labeled_unicode_version(&mut self, label: &str) {
+        let Some(index) = self
+            .unicode_version_stack
+            .iter()
+            .rposition(|entry| entry.label.as_deref() == Some(label))
+        else {
+            return;
+        };
+        let entry = self.unicode_version_stack[index].clone();
+        self.unicode_version_stack.truncate(index);
+        self.unicode_version = entry.version;
     }
 
     fn apply_osc1337_set_user_var(&mut self, user_var: &str) {
@@ -2487,6 +2548,11 @@ impl Terminal {
     #[must_use]
     pub fn user_vars(&self) -> &HashMap<String, String> {
         &self.user_vars
+    }
+
+    #[must_use]
+    pub const fn unicode_version(&self) -> u32 {
+        self.unicode_version
     }
 
     #[must_use]
@@ -6043,4 +6109,9 @@ fn display_width(
         Some(width) => u16::try_from(width).unwrap_or(1),
         None => 1,
     }
+}
+
+fn non_empty_unicode_version_label(label: &str) -> Option<String> {
+    let label = label.trim();
+    (!label.is_empty()).then(|| label.to_owned())
 }

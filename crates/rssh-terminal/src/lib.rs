@@ -2462,6 +2462,45 @@ mod tests {
     }
 
     #[test]
+    fn terminal_tracks_iterm_unicode_version_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        assert_eq!(terminal.unicode_version(), 9);
+
+        terminal.feed(b"ab\x1b]1337;UnicodeVersion=14\x07cd");
+
+        assert_eq!(row_text(&terminal, 0), "abcd                    ");
+        assert_eq!(terminal.cursor(), (0, 4));
+        assert_eq!(terminal.unicode_version(), 14);
+    }
+
+    #[test]
+    fn terminal_tracks_iterm_unicode_version_stack_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b]1337;UnicodeVersion=8\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=push\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=14\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=pop\x07");
+
+        assert_eq!(terminal.unicode_version(), 8);
+    }
+
+    #[test]
+    fn terminal_tracks_iterm_unicode_version_labeled_stack_metadata() {
+        let mut terminal = Terminal::new(TerminalSize::new(24, 1));
+
+        terminal.feed(b"\x1b]1337;UnicodeVersion=8\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=push outer\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=9\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=push inner\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=14\x07");
+        terminal.feed(b"\x1b]1337;UnicodeVersion=pop outer\x07");
+
+        assert_eq!(terminal.unicode_version(), 8);
+    }
+
+    #[test]
     fn terminal_tracks_iterm_inline_image_metadata() {
         let mut terminal = Terminal::new(TerminalSize::new(24, 1));
 

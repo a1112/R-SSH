@@ -292,9 +292,11 @@ keyboard, mouse, paste, resize
   normalization to contiguous ordinary terminal output runs before rendering,
   including leading combining marks that arrive in the next PTY chunk when
   they compose with the prior cell without changing display width.
-  `unicode_version` is retained with WezTerm's default `9` in effective config
-  and static numeric Lua snippets, while exact versioned Unicode width tables
-  and OSC 1337 `UnicodeVersion` push/pop handling remain future parity work.
+  `unicode_version` is retained with WezTerm's default `9` in effective config,
+  static numeric Lua snippets configure active and new pane runtimes, and OSC
+  1337 `UnicodeVersion` set/push/pop sequences, including labeled entries,
+  update terminal state; exact versioned Unicode width tables remain future
+  parity work.
   `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
   AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
   text renders through the Builtin overlay path at the active pane cursor, and
@@ -1113,9 +1115,11 @@ keyboard, mouse, paste, resize
   terminal output runs to Unicode NFC before the cells are written, including
   leading combining marks that arrive in the next PTY chunk when they compose
   with the prior cell without changing display width. `unicode_version` is
-  retained with WezTerm's default `9` and parses static numeric Lua snippets
-  into effective config; exact versioned Unicode width behavior and OSC 1337
-  `UnicodeVersion` dynamic stack handling remain future parity work. `use_ime`
+  retained with WezTerm's default `9`, parses static numeric Lua snippets into
+  effective config, applies that setting to active and new pane runtimes, and
+  tracks OSC 1337 `UnicodeVersion` set/push/pop terminal state, including
+  labeled stack entries; exact versioned Unicode width behavior remains future
+  parity work. `use_ime`
   is stored with WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
   is retained as an optional XIM server name for X11-style IME configuration.
