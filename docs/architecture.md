@@ -844,7 +844,9 @@ keyboard, mouse, paste, resize
   their quotes. The native query subset rejects duplicate
   `copy_on_select`, `copy_to`, and `group` fields instead of silently overriding
   them. WezTerm-style Lua `CharSelect { ... }` / `CharSelect({ ... })` table
-  queries tolerate trailing comma fields. The modal handles `Esc` /
+  queries tolerate trailing comma fields and parse `copy_to`/`group` through
+  top-level static string variables plus `copy_on_select` through top-level
+  static bool variables inside static WezTerm-style `config.keys`. The modal handles `Esc` /
   `Ctrl+G` cancellation
   plus typed text input, Backspace editing, `Ctrl+U` input clearing,
   `Ctrl+R` / `Ctrl+Shift+R` group cycling, and Enter acceptance for raw, `U+`,

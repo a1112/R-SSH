@@ -1480,7 +1480,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.CharSelect({ copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" })`,
   routing the same `copy_on_select`, `copy_to`, and `group` fields as the
   existing command-palette query forms, including bracketed string table keys
-  with long-bracket values and trailing comma table fields.
+  with long-bracket values, trailing comma table fields, top-level static string
+  variables for `copy_to` and `group`, and top-level static bool variables for
+  `copy_on_select` when parsed from static WezTerm-style `config.keys`.
 - WezTerm-style quick-select table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.QuickSelectArgs({ pattern = "ticket-[0-9]+", action = "open-uri", alphabet = "12" })`,

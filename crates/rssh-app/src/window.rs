@@ -11597,6 +11597,9 @@ fn native_key_assignment_command_from_query(
     if let Some(options) = pane_select_options_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::PaneSelect(options));
     }
+    if let Some(options) = char_select_options_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::CharSelectArgs(options));
+    }
     if let Some(options) =
         prompt_input_line_options_from_query_with_static_source(static_source, value)
     {
@@ -33416,16 +33419,28 @@ fn mouse_selection_mode_from_query(mode: &str) -> Option<WindowMouseSelectionMod
 }
 
 fn char_select_options_from_query(query: &str) -> Option<WindowCharSelectOptions> {
+    char_select_options_from_query_with_static_source(None, query)
+}
+
+fn char_select_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowCharSelectOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     if let Some(rest) = strip_lua_function_call_from_query(query, "charselect")
         && rest.trim_start().starts_with('{')
     {
-        return char_select_lua_table_from_query(rest);
+        return char_select_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "charselect=")
         && rest.trim_start().starts_with('{')
     {
-        return char_select_lua_table_from_query(rest);
+        return char_select_lua_table_from_query_with_static_source(static_source, rest);
+    }
+
+    if static_source.is_some() {
+        return char_select_options_from_query_with_static_source(None, query);
     }
 
     let rest = strip_query_prefix_from_any(
@@ -33552,7 +33567,10 @@ fn char_select_options_from_query(query: &str) -> Option<WindowCharSelectOptions
     parsed.then_some(options)
 }
 
-fn char_select_lua_table_from_query(value: &str) -> Option<WindowCharSelectOptions> {
+fn char_select_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCharSelectOptions> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowCharSelectOptions::default();
     let mut parsed = false;
@@ -33567,20 +33585,21 @@ fn char_select_lua_table_from_query(value: &str) -> Option<WindowCharSelectOptio
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = value.trim();
 
         match normalized_char_select_lua_field(&name).as_str() {
             "copyonselect" => {
                 if parsed_copy_on_select {
                     return None;
                 }
-                options.copy_on_select = bool_from_query(&value)?;
+                options.copy_on_select = parse_maybe_static_query_bool(static_source, value)?;
                 parsed_copy_on_select = true;
             }
             "copyto" => {
                 if parsed_copy_to {
                     return None;
                 }
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 options.copy_to = copy_destination_from_query(&value)?;
                 parsed_copy_to = true;
             }
@@ -33588,6 +33607,7 @@ fn char_select_lua_table_from_query(value: &str) -> Option<WindowCharSelectOptio
                 if parsed_group {
                     return None;
                 }
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 options.group = Some(value);
                 parsed_group = true;
             }
@@ -73266,6 +73286,47 @@ mod tests {
                     mode: WindowPaneSelectMode::SwapWithActive,
                     show_pane_ids: true,
                     alphabet: Some("12".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_char_select_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local should_copy = false
+            local copy_target = 'PrimarySelection'
+            local select_group = 'PeopleAndBody'
+
+            config.keys = {
+              {
+                key = 'U',
+                mods = 'CTRL|ALT',
+                action = act.CharSelect {
+                  copy_on_select = should_copy,
+                  copy_to = copy_target,
+                  group = select_group,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CharSelect static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+U".to_owned(),
+                command: WindowCommand::CharSelectArgs(WindowCharSelectOptions {
+                    copy_on_select: false,
+                    copy_to: WindowCopyDestination::PrimarySelection,
+                    group: Some("PeopleAndBody".to_owned()),
                 }),
             }])
         );
