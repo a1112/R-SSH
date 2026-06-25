@@ -39526,22 +39526,23 @@ fn detach_domain_from_query_with_static_source(
     };
 
     if let Some(domain) = strip_lua_function_call_from_query(query, "detachdomain") {
-        if domain.trim_start().starts_with('{') {
-            return window_domain_selector_lua_table_from_query_with_static_source(
+        if (domain.trim_start().starts_with('{') || static_source.is_some())
+            && let Some(selector) = window_domain_selector_lua_table_from_query_with_static_source(
                 static_source,
                 domain,
-            );
+            )
+        {
+            return Some(selector);
         }
         return window_domain_selector_from_query_with_static_source(static_source, domain);
     }
 
     if let Some(domain) = strip_query_table_assignment_from_prefix(query, "detachdomain=")
-        && domain.trim_start().starts_with('{')
+        && (domain.trim_start().starts_with('{') || static_source.is_some())
+        && let Some(selector) =
+            window_domain_selector_lua_table_from_query_with_static_source(static_source, domain)
     {
-        return window_domain_selector_lua_table_from_query_with_static_source(
-            static_source,
-            domain,
-        );
+        return Some(selector);
     }
 
     let domain = strip_query_prefix_from_any(
@@ -39603,6 +39604,19 @@ fn window_domain_selector_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowDomainSelector> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut domain = None;
     for field in split_lua_table_top_level_fields(table)? {
@@ -75110,6 +75124,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm DetachDomain static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+D".to_owned(),
+                command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
+                    "devhost".to_owned(),
+                )),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_detach_domain_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain = 'devhost'
+            local detach_opts = {
+              DomainName = domain,
+            }
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act.DetachDomain(detach_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm DetachDomain static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,
