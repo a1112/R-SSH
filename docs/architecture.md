@@ -561,7 +561,8 @@ keyboard, mouse, paste, resize
   `clearkeytablestack` aliases dispatch the same stack mutation payloads as
   `pop key table` and `clear key table stack`, as do WezTerm-style bare and
   zero-argument Lua action forms such as `wezterm.action.PopKeyTable` and
-  `act.ClearKeyTableStack()`.
+  `act.ClearKeyTableStack()`, plus empty-table wrappers such as
+  `wezterm.action { PopKeyTable = {} }`.
   Native `key_tables` overrides now match table entries from the activation
   stack top downward and execute the matched native action. Lua `key_tables`
   parsing remains future parity work.

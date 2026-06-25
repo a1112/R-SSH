@@ -29467,7 +29467,7 @@ fn wezterm_action_table_wrapper_command(query: &str) -> Option<WindowCommand> {
     }
 
     if is_empty_lua_table_query(value) {
-        return basic_no_arg_action_name_command(&normalized_action_name_query(&name));
+        return command_palette_structured_query_command_inner(&name);
     }
 
     command_palette_structured_query_command_inner(&format!("{name}={value}"))
@@ -73026,6 +73026,47 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm key-table stack action config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+P".to_owned(),
+                    command: WindowCommand::PopKeyTable,
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+C".to_owned(),
+                    command: WindowCommand::ClearKeyTableStack,
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_stack_action_wrappers() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = wezterm.action { PopKeyTable = {} },
+              },
+              {
+                key = 'C',
+                mods = 'CTRL|ALT',
+                action = act({ ClearKeyTableStack = { } }),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key-table stack wrapper action config");
 
         assert_eq!(
             overrides.key_assignments,

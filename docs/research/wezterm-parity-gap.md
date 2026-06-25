@@ -1488,7 +1488,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   command-palette action table as their bare action-name forms. Generic
   `wezterm.action { ActionName = {} }` empty-table wrappers, including
   whitespace-only empty tables such as `wezterm.action({ ToggleFullScreen =
-  { } })`, also dispatch through the same no-argument action path.
+  { } })`, also dispatch through the same no-argument action path, including
+  key-table stack actions such as `wezterm.action { PopKeyTable = {} }`.
 - WezTerm-style close-current table actions now accept parenthesized Lua table
   calls such as `wezterm.action.CloseCurrentPane({ confirm = false })` and
   `wezterm.action.CloseCurrentTab({ confirm = true })`, in addition to the
