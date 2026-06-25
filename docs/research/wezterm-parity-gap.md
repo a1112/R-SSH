@@ -2145,7 +2145,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   target-character jump flow as `f`/`t`/`F`/`T`, including bracketed string
   table keys with long-bracket values and optional trailing commas in the
   nested jump option table, plus top-level static bool variables for
-  `prev_char` when parsed from static `config.key_tables`.
+  `prev_char` and top-level static nested jump option table variables when
+  parsed from static `config.key_tables`.
   `MoveForwardSemanticZoneOfType = 'Input'` and
   `MoveBackwardSemanticZoneOfType = 'Prompt'` assignment values reuse the
   typed OSC 133 semantic-zone movement path and resolve top-level static string

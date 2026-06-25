@@ -30156,6 +30156,19 @@ fn copy_mode_jump_assignment_lua_table_from_query_with_static_source(
     value: &str,
     forward: bool,
 ) -> Option<WindowCopyModeAssignment> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut prev_char = None;
 
@@ -73372,6 +73385,44 @@ mod tests {
                         ),
                     },
                 ],
+            )]))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_copy_mode_static_nested_jump_table_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local jump_before = true
+            local jump_opts = {
+              prev_char = jump_before,
+            }
+
+            config.key_tables = {
+              copy_mode = {
+                { key = 'f', action = act.CopyMode { JumpForward = jump_opts } },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyMode static nested jump table variable config");
+
+        assert_eq!(
+            overrides.key_tables,
+            Some(BTreeMap::from([(
+                "copy_mode".to_owned(),
+                vec![NativeUserKeyAssignment {
+                    keys: "f".to_owned(),
+                    command: WindowCommand::CopyMode(super::WindowCopyModeAssignment::StartJump {
+                        forward: true,
+                        prev_char: true,
+                    },),
+                }],
             )]))
         );
     }
