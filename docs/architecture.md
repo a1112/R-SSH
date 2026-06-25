@@ -2050,10 +2050,11 @@ keyboard, mouse, paste, resize
   key-assignment entry exposes `QuickSelect` with default native args, while
   `EnterQuickSelect` remains an internal command-palette query alias and
   action-name `enterquickselect` queries dispatch that default entry. Lua
-  option-table wiring accepts `pattern`, non-table `patterns`, `alphabet`,
-  `label`, `skip_action_on_paste`, and `scope_lines` inline or through
-  top-level static string/bool/number variables from static WezTerm-style
-  `config.keys`; it also accepts static
+  option-table wiring accepts `pattern`, `patterns` (including top-level
+  static table variables whose entries can resolve through static string
+  variables), `alphabet`, `label`, `skip_action_on_paste`, and `scope_lines`
+  inline or through top-level static string/bool/number variables from static
+  WezTerm-style `config.keys`; it also accepts static
   `QuickSelectArgs.action = wezterm.action_callback(...)` values as
   native-handler placeholders, skips trailing-comma table fields, and resolves
   top-level static action variables for `QuickSelectArgs.action` inside static

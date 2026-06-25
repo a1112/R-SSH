@@ -38097,7 +38097,11 @@ fn quick_select_lua_table_from_query_with_static_source(
                     return None;
                 }
                 let patterns = if value.starts_with('{') {
-                    split_lua_table_string_array(value)?
+                    split_lua_table_string_array_with_static_source(static_source, value)?
+                } else if let Some(patterns) =
+                    split_lua_table_string_array_with_static_source(static_source, value)
+                {
+                    patterns
                 } else {
                     let value = parse_maybe_static_query_text(static_source, value)?;
                     split_unquoted_query_semicolons(&value)
@@ -75695,6 +75699,45 @@ mod tests {
                     label: Some("Open ticket".to_owned()),
                     alphabet: Some("12".to_owned()),
                     action: Some(WindowQuickSelectAction::OpenUri),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_patterns_table_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local ticket_pattern = 'ticket-[0-9]+'
+            local patterns = { ticket_pattern, 'bug-[A-Z]+' }
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|ALT',
+                action = act.QuickSelectArgs {
+                  patterns = patterns,
+                  alphabet = '12',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm QuickSelectArgs static patterns table variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+Q".to_owned(),
+                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned(), "bug-[A-Z]+".to_owned()]),
+                    alphabet: Some("12".to_owned()),
                     ..WindowQuickSelectOptions::default()
                 }),
             }])
