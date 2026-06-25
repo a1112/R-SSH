@@ -1149,7 +1149,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   same implemented activation payload fields, including bracketed string table
   keys with long-bracket values and trailing comma table fields, with
   table-call `name` string, `timeout_milliseconds` number, and boolean option
-  fields inline or through top-level static variables. Action-name
+  fields inline or through top-level static variables. Parenthesized
+  `ActivateKeyTable(key_table_opts)` calls also accept top-level static options
+  table variables. Action-name
   `activatekeytable ...`, `popkeytable`, and `clearkeytablestack` aliases
   dispatch the same activation and stack mutation payloads as their spaced query
   forms, and static key assignments accept WezTerm-style bare and zero-argument
@@ -1227,7 +1229,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   indexed field mutations such as `user_key_tables.resize_pane[1].key = 'h'`.
   Static
   `config.keys` and `config.key_tables` action fields include
-  `ActivateKeyTable` table-call field variables and also accept
+  `ActivateKeyTable` table-call field variables, parenthesized calls with
+  top-level static options table variables, and also accept
   `wezterm.action_callback(...)` values as no-op native placeholders so
   official callback-shaped bindings can load; full Lua callback execution, full
   Lua config evaluation, default key-table merging, and config-file reload

@@ -32273,10 +32273,16 @@ fn activate_key_table_from_query_with_static_source(
         query
     };
 
-    if let Some(rest) = strip_lua_function_call_from_query(query, "activatekeytable")
-        && rest.trim_start().starts_with('{')
-    {
-        return activate_key_table_lua_table_from_query(static_source, rest);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "activatekeytable") {
+        let rest = rest.trim();
+        if rest.starts_with('{') {
+            return activate_key_table_lua_table_from_query(static_source, rest);
+        }
+        if static_source.is_some()
+            && let Some(key_table) = activate_key_table_lua_table_from_query(static_source, rest)
+        {
+            return Some(key_table);
+        }
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "activatekeytable=")
@@ -32540,6 +32546,19 @@ fn activate_key_table_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowActivateKeyTable> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut key_table = WindowActivateKeyTable {
         name: String::new(),
@@ -76583,6 +76602,51 @@ mod tests {
                     one_shot: false,
                     replace_current: false,
                     until_unknown: false,
+                    prevent_fallback: true,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_key_table_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_table_opts = {
+              name = 'resize_pane',
+              timeout_milliseconds = 1000,
+              one_shot = false,
+              replace_current = true,
+              until_unknown = true,
+              prevent_fallback = true,
+            }
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable(key_table_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateKeyTable static table variable call config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Space".to_owned(),
+                command: WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
+                    name: "resize_pane".to_owned(),
+                    timeout_milliseconds: Some(1000),
+                    one_shot: false,
+                    replace_current: true,
+                    until_unknown: true,
                     prevent_fallback: true,
                 }),
             }])
