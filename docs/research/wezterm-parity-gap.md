@@ -1568,7 +1568,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ScrollByLine(<amount>)` function-call queries dispatching
   the same signed page-scroll and line-scroll payloads, and
   `wezterm.action.ScrollToPrompt(<amount>)` function-call queries dispatching
-  signed prompt-relative payloads.
+  signed prompt-relative payloads. Static `config.keys` action calls resolve
+  top-level signed integer variables for `ScrollByLine`.
   Native `KEY_ASSIGNMENTS` launcher results now also list WezTerm's default
   `Shift+PageUp`/`Shift+PageDown` page-scroll bindings as
   `ScrollByPage(-1)` and `ScrollByPage(1)`.

@@ -1480,7 +1480,9 @@ keyboard, mouse, paste, resize
   structured command-palette queries accept both spaced and action-name forms
   (`scroll by page <amount>`/`scrollbypage <amount>`,
   `scroll by line <amount>`/`scrollbyline <amount>`, and
-  `scroll to prompt <amount>`/`scrolltoprompt <amount>`).
+  `scroll to prompt <amount>`/`scrolltoprompt <amount>`). Static
+  `config.keys` action calls resolve top-level signed integer variables for
+  `ScrollByLine`.
 - Implemented in v1: WezTerm-style `Shift+PageUp` and `Shift+PageDown`
   shortcuts expose `ScrollByPage(-1)` and `ScrollByPage(1)` in native
   `KEY_ASSIGNMENTS` and route normal keyboard input to page-wise scrollback

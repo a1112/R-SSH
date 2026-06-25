@@ -11664,6 +11664,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::AdjustPaneSize { direction, amount });
     }
+    if let Some(amount) = scroll_by_line_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::ScrollByLine(amount));
+    }
     if let Some(zoomed) = set_pane_zoom_state_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SetPaneZoomState(zoomed));
     }
@@ -33373,8 +33376,25 @@ fn scroll_by_page_from_query(query: &str) -> Option<WindowScrollByPageAmount> {
 }
 
 fn scroll_by_line_from_query(query: &str) -> Option<isize> {
+    scroll_by_line_from_query_with_static_source(None, query)
+}
+
+fn scroll_by_line_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<isize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(amount) = strip_lua_function_call_from_query(query, "scrollbyline") {
-        return parse_single_query_value(amount)?.parse().ok();
+        return parse_maybe_static_query_isize(static_source, amount);
     }
 
     let amount = strip_query_prefix_from_any(
@@ -33386,10 +33406,10 @@ fn scroll_by_line_from_query(query: &str) -> Option<isize> {
             "scrollbyline ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     strip_query_prefix_from_any(amount, &["amount=", "amount ", "offset=", "offset "])
         .or(Some(amount))
-        .and_then(|amount| amount.parse().ok())
+        .and_then(|amount| parse_maybe_static_query_isize(static_source, amount))
 }
 
 fn scroll_to_prompt_from_query(query: &str) -> Option<isize> {
@@ -34037,6 +34057,25 @@ fn parse_maybe_static_query_u16(
             value,
             static_source.max_start,
             lua_unsigned_integer_literal_from_query,
+        )
+        .map(str::to_owned)
+        .or_else(|| parse_maybe_quoted_query_text(value))?
+    } else {
+        parse_maybe_quoted_query_text(value)?
+    };
+    parse_single_query_value(&value)?.parse().ok()
+}
+
+fn parse_maybe_static_query_isize(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<isize> {
+    let value = if let Some(static_source) = static_source {
+        lua_static_number_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+            lua_signed_number_literal_from_query,
         )
         .map(str::to_owned)
         .or_else(|| parse_maybe_quoted_query_text(value))?
@@ -73551,6 +73590,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+Z".to_owned(),
                 command: WindowCommand::SetPaneZoomState(true),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_scroll_by_line_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local scroll_lines = -2
+
+            config.keys = {
+              {
+                key = 'UpArrow',
+                mods = 'SHIFT',
+                action = act.ScrollByLine(scroll_lines),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ScrollByLine static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "SHIFT+UpArrow".to_owned(),
+                command: WindowCommand::ScrollByLine(-2),
             }])
         );
     }
