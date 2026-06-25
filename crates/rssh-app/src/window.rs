@@ -11630,6 +11630,26 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::ActivateKeyTable(key_table));
     }
+    if let Some(spawn_command) =
+        spawn_command_in_new_tab_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SpawnCommandInNewTab(spawn_command));
+    }
+    if let Some(spawn_options) =
+        spawn_command_options_in_new_tab_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SpawnCommandOptionsInNewTab(spawn_options));
+    }
+    if let Some(spawn_command) =
+        spawn_command_in_new_window_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SpawnCommandInNewWindow(spawn_command));
+    }
+    if let Some(spawn_options) =
+        spawn_command_options_in_new_window_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -34098,56 +34118,102 @@ impl WindowSpawnCommandQuery {
 }
 
 fn spawn_command_in_new_tab_from_query(query: &str) -> Option<WindowSpawnCommandQuery> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_query_from_lua_function(query, "spawncommandinnewtab", false)
-        .or_else(|| spawn_command_table_query_from_prefix(query, "new tab="))
-        .or_else(|| spawn_command_table_query_from_prefix(query, "spawncommandinnewtab="))
-        .or_else(|| spawn_command_query_from_prefix(query, "new tab="))
-        .or_else(|| spawn_command_query_from_prefix(query, "new tab "))
-        .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewtab="))
-        .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewtab "))
+    spawn_command_in_new_tab_from_query_with_static_source(None, query)
 }
 
-fn spawn_command_table_query_from_prefix(
+fn spawn_command_in_new_tab_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     query: &str,
-    prefix: &str,
 ) -> Option<WindowSpawnCommandQuery> {
-    spawn_command_table_query_from_prefix_with_position(query, prefix, false)
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    spawn_command_table_query_from_lua_function_with_static_source(
+        static_source,
+        query,
+        "spawncommandinnewtab",
+        false,
+    )
+    .or_else(|| {
+        spawn_command_table_query_from_prefix_with_static_source(
+            static_source,
+            query,
+            "new tab=",
+            false,
+        )
+    })
+    .or_else(|| {
+        spawn_command_table_query_from_prefix_with_static_source(
+            static_source,
+            query,
+            "spawncommandinnewtab=",
+            false,
+        )
+    })
+    .or_else(|| spawn_command_query_from_prefix(query, "new tab="))
+    .or_else(|| spawn_command_query_from_prefix(query, "new tab "))
+    .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewtab="))
+    .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewtab "))
 }
 
-fn spawn_command_table_query_from_lua_function(
+fn spawn_command_table_query_from_lua_function_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     name: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQuery> {
     let command = strip_lua_function_call_from_query(query, name)?;
-    command
-        .trim_start()
-        .starts_with('{')
-        .then(|| spawn_command_table_from_query(command, allow_position))?
+    command.trim_start().starts_with('{').then(|| {
+        spawn_command_table_from_query_with_static_source(static_source, command, allow_position)
+    })?
 }
 
-fn spawn_command_table_query_from_prefix_with_position(
+fn spawn_command_table_query_from_prefix_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     prefix: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQuery> {
     let command = strip_query_table_assignment_from_prefix(query, prefix)?;
-    spawn_command_table_from_query(command, allow_position)
+    spawn_command_table_from_query_with_static_source(static_source, command, allow_position)
 }
 
 fn spawn_command_options_in_new_tab_from_query(
     query: &str,
 ) -> Option<WindowSpawnCommandQueryOptions> {
+    spawn_command_options_in_new_tab_from_query_with_static_source(None, query)
+}
+
+fn spawn_command_options_in_new_tab_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSpawnCommandQueryOptions> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_options_from_lua_function(query, "spawncommandinnewtab", false)
-        .or_else(|| spawn_command_table_options_from_prefix(query, "new tab=", false))
-        .or_else(|| spawn_command_table_options_from_prefix(query, "spawncommandinnewtab=", false))
-        .or_else(|| spawn_command_options_from_prefix(query, "new tab="))
-        .or_else(|| spawn_command_options_from_prefix(query, "new tab "))
-        .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewtab="))
-        .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewtab "))
-        .filter(|options| options.window_position.is_none())
+    spawn_command_table_options_from_lua_function_with_static_source(
+        static_source,
+        query,
+        "spawncommandinnewtab",
+        false,
+    )
+    .or_else(|| {
+        spawn_command_table_options_from_prefix_with_static_source(
+            static_source,
+            query,
+            "new tab=",
+            false,
+        )
+    })
+    .or_else(|| {
+        spawn_command_table_options_from_prefix_with_static_source(
+            static_source,
+            query,
+            "spawncommandinnewtab=",
+            false,
+        )
+    })
+    .or_else(|| spawn_command_options_from_prefix(query, "new tab="))
+    .or_else(|| spawn_command_options_from_prefix(query, "new tab "))
+    .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewtab="))
+    .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewtab "))
+    .filter(|options| options.window_position.is_none())
 }
 
 fn spawn_tab_domain_from_query(query: &str) -> Option<WindowSpawnTabDomain> {
@@ -34236,64 +34302,129 @@ fn spawn_tab_domain_value_from_query(domain: &str) -> Option<WindowSpawnTabDomai
 }
 
 fn spawn_command_in_new_window_from_query(query: &str) -> Option<WindowSpawnCommandQuery> {
+    spawn_command_in_new_window_from_query_with_static_source(None, query)
+}
+
+fn spawn_command_in_new_window_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSpawnCommandQuery> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_query_from_lua_function(query, "spawncommandinnewwindow", true)
-        .or_else(|| {
-            spawn_command_table_query_from_prefix_with_position(query, "spawn window=", true)
-        })
-        .or_else(|| spawn_command_table_query_from_prefix_with_position(query, "new window=", true))
-        .or_else(|| {
-            spawn_command_table_query_from_prefix_with_position(
-                query,
-                "spawncommandinnewwindow=",
-                true,
-            )
-        })
-        .or_else(|| spawn_command_query_from_prefix(query, "spawn window="))
-        .or_else(|| spawn_command_query_from_prefix(query, "spawn window "))
-        .or_else(|| spawn_command_query_from_prefix(query, "new window="))
-        .or_else(|| spawn_command_query_from_prefix(query, "new window "))
-        .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewwindow="))
-        .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewwindow "))
+    spawn_command_table_query_from_lua_function_with_static_source(
+        static_source,
+        query,
+        "spawncommandinnewwindow",
+        true,
+    )
+    .or_else(|| {
+        spawn_command_table_query_from_prefix_with_static_source(
+            static_source,
+            query,
+            "spawn window=",
+            true,
+        )
+    })
+    .or_else(|| {
+        spawn_command_table_query_from_prefix_with_static_source(
+            static_source,
+            query,
+            "new window=",
+            true,
+        )
+    })
+    .or_else(|| {
+        spawn_command_table_query_from_prefix_with_static_source(
+            static_source,
+            query,
+            "spawncommandinnewwindow=",
+            true,
+        )
+    })
+    .or_else(|| spawn_command_query_from_prefix(query, "spawn window="))
+    .or_else(|| spawn_command_query_from_prefix(query, "spawn window "))
+    .or_else(|| spawn_command_query_from_prefix(query, "new window="))
+    .or_else(|| spawn_command_query_from_prefix(query, "new window "))
+    .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewwindow="))
+    .or_else(|| spawn_command_query_from_prefix(query, "spawncommandinnewwindow "))
 }
 
 fn spawn_command_options_in_new_window_from_query(
     query: &str,
 ) -> Option<WindowSpawnCommandQueryOptions> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    spawn_command_table_options_from_lua_function(query, "spawncommandinnewwindow", true)
-        .or_else(|| spawn_command_table_options_from_prefix(query, "spawn window=", true))
-        .or_else(|| spawn_command_table_options_from_prefix(query, "new window=", true))
-        .or_else(|| {
-            spawn_command_table_options_from_prefix(query, "spawncommandinnewwindow=", true)
-        })
-        .or_else(|| spawn_command_options_from_prefix(query, "spawn window="))
-        .or_else(|| spawn_command_options_from_prefix(query, "spawn window "))
-        .or_else(|| spawn_command_options_from_prefix(query, "new window="))
-        .or_else(|| spawn_command_options_from_prefix(query, "new window "))
-        .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewwindow="))
-        .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewwindow "))
+    spawn_command_options_in_new_window_from_query_with_static_source(None, query)
 }
 
-fn spawn_command_table_options_from_prefix(
+fn spawn_command_options_in_new_window_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSpawnCommandQueryOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    spawn_command_table_options_from_lua_function_with_static_source(
+        static_source,
+        query,
+        "spawncommandinnewwindow",
+        true,
+    )
+    .or_else(|| {
+        spawn_command_table_options_from_prefix_with_static_source(
+            static_source,
+            query,
+            "spawn window=",
+            true,
+        )
+    })
+    .or_else(|| {
+        spawn_command_table_options_from_prefix_with_static_source(
+            static_source,
+            query,
+            "new window=",
+            true,
+        )
+    })
+    .or_else(|| {
+        spawn_command_table_options_from_prefix_with_static_source(
+            static_source,
+            query,
+            "spawncommandinnewwindow=",
+            true,
+        )
+    })
+    .or_else(|| spawn_command_options_from_prefix(query, "spawn window="))
+    .or_else(|| spawn_command_options_from_prefix(query, "spawn window "))
+    .or_else(|| spawn_command_options_from_prefix(query, "new window="))
+    .or_else(|| spawn_command_options_from_prefix(query, "new window "))
+    .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewwindow="))
+    .or_else(|| spawn_command_options_from_prefix(query, "spawncommandinnewwindow "))
+}
+
+fn spawn_command_table_options_from_prefix_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     prefix: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQueryOptions> {
     let command = strip_query_table_assignment_from_prefix(query, prefix)?;
-    spawn_command_table_options_from_query(command, allow_position)
+    spawn_command_table_options_from_query_with_static_source(
+        static_source,
+        command,
+        allow_position,
+    )
 }
 
-fn spawn_command_table_options_from_lua_function(
+fn spawn_command_table_options_from_lua_function_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     name: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQueryOptions> {
     let command = strip_lua_function_call_from_query(query, name)?;
-    command
-        .trim_start()
-        .starts_with('{')
-        .then(|| spawn_command_table_options_from_query(command, allow_position))?
+    command.trim_start().starts_with('{').then(|| {
+        spawn_command_table_options_from_query_with_static_source(
+            static_source,
+            command,
+            allow_position,
+        )
+    })?
 }
 
 fn strip_query_table_assignment_from_prefix<'a>(query: &'a str, prefix: &str) -> Option<&'a str> {
@@ -34672,7 +34803,13 @@ fn spawn_command_table_from_query_with_static_source(
             if !allow_position || window_position.is_some() {
                 return None;
             }
-            window_position = Some(spawn_command_window_position_value_from_query(value).ok()?);
+            window_position = Some(
+                spawn_command_window_position_value_from_query_with_static_source(
+                    static_source,
+                    value,
+                )
+                .ok()?,
+            );
         } else {
             return None;
         }
@@ -34690,13 +34827,6 @@ fn spawn_command_table_from_query_with_static_source(
         domain,
         window_position,
     })
-}
-
-fn spawn_command_table_options_from_query(
-    value: &str,
-    allow_position: bool,
-) -> Option<WindowSpawnCommandQueryOptions> {
-    spawn_command_table_options_from_query_with_static_source(None, value, allow_position)
 }
 
 fn spawn_command_table_options_from_query_with_static_source(
@@ -34747,8 +34877,13 @@ fn spawn_command_table_options_from_query_with_static_source(
             if !allow_position || options.window_position.is_some() {
                 return None;
             }
-            options.window_position =
-                Some(spawn_command_window_position_value_from_query(value).ok()?);
+            options.window_position = Some(
+                spawn_command_window_position_value_from_query_with_static_source(
+                    static_source,
+                    value,
+                )
+                .ok()?,
+            );
         } else {
             return None;
         }
@@ -38216,12 +38351,15 @@ fn spawn_command_window_position_from_query(position: &str) -> Result<WindowPosi
     Ok(WindowPosition { origin, x, y })
 }
 
-fn spawn_command_window_position_value_from_query(position: &str) -> Result<WindowPosition, ()> {
+fn spawn_command_window_position_value_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    position: &str,
+) -> Result<WindowPosition, ()> {
     let position = position.trim();
     if position.starts_with('{') {
         return spawn_command_window_position_table_from_query(position);
     }
-    let position = parse_maybe_quoted_query_text(position).ok_or(())?;
+    let position = parse_maybe_static_query_text(static_source, position).ok_or(())?;
     spawn_command_window_position_from_query(&position)
 }
 
@@ -72971,6 +73109,79 @@ mod tests {
                 keys: "CTRL|SHIFT+A".to_owned(),
                 command: WindowCommand::SendString("from-action-variable".to_owned()),
             }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_command_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local spawn_args = { 'top', '-d', '1' }
+            local spawn_cwd = 'C:/Project Dir'
+            local spawn_domain = 'local'
+            local spawn_mode = 'dev'
+            local spawn_position = 'main:42,84'
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewTab {
+                  args = spawn_args,
+                  cwd = spawn_cwd,
+                  domain = spawn_domain,
+                  set_environment_variables = { MODE = spawn_mode },
+                },
+              },
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewWindow {
+                  args = spawn_args,
+                  cwd = spawn_cwd,
+                  domain = spawn_domain,
+                  position = spawn_position,
+                  set_environment_variables = { MODE = spawn_mode },
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnCommand static field variable config");
+
+        let command = WindowSpawnCommandQuery {
+            program: "top".to_owned(),
+            args: vec!["-d".to_owned(), "1".to_owned()],
+            cwd: Some("C:/Project Dir".to_owned()),
+            environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
+            domain: Some(WindowSpawnTabDomain::DomainName("local".to_owned())),
+            window_position: None,
+        };
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+T".to_owned(),
+                    command: WindowCommand::SpawnCommandInNewTab(command.clone()),
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+W".to_owned(),
+                    command: WindowCommand::SpawnCommandInNewWindow(WindowSpawnCommandQuery {
+                        window_position: Some(crate::cli::WindowPosition {
+                            origin: crate::cli::WindowPositionOrigin::Main,
+                            x: 42,
+                            y: 84,
+                        }),
+                        ..command
+                    }),
+                },
+            ])
         );
     }
 

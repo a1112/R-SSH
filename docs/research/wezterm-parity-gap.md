@@ -769,6 +769,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SpawnCommandInNewTab`/`SpawnCommandInNewWindow` accept both
   `wezterm.action.SpawnCommandInNewTab { ... }` and
   `wezterm.action.SpawnCommandInNewTab({ ... })`-style Lua table action forms.
+  Static WezTerm-style `config.keys` actions resolve top-level static variables
+  for `args`, `cwd`, `domain`, `set_environment_variables` values, and
+  `SpawnCommandInNewWindow` `position` fields in those payload tables.
   `SpawnCommandInNewWindow` carries the WezTerm-style `position` payload into
   the detached native window's initial position, including Lua table
   `{ x = ..., y = ..., origin = ... }` values for screen, main-screen,
