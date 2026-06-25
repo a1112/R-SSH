@@ -465,7 +465,8 @@ keyboard, mouse, paste, resize
   `table.insert(menu, item)` supported.
   Static WezTerm-style `config.keys` actions can also carry table payloads for
   `SwitchToWorkspace`, with `name` plus nested spawn `args` and `cwd` fields
-  supplied inline or through top-level static variables, and
+  supplied inline, through top-level static variables, or through
+  parenthesized top-level static options table variables, and
   `ShowLauncherArgs`, with `flags`, `title`, `alphabet`, `help_text`, and
   `fuzzy_help_text` supplied inline or through top-level static string
   variables plus parenthesized calls that pass a top-level static args table
