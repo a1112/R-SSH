@@ -11783,6 +11783,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::SwitchToWorkspaceArgs(options));
     }
+    if let Some(command) = key_table_stack_command_from_query(value) {
+        return Some(command);
+    }
     if lua_action_callback_from_query(value) {
         return Some(WindowCommand::Nop);
     }
@@ -32081,10 +32084,20 @@ fn send_key_character_from_query(token: &str) -> Option<Key> {
 }
 
 fn key_table_stack_command_from_query(query: &str) -> Option<WindowCommand> {
-    let action_name = query.trim().to_ascii_lowercase();
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+    let query = strip_zero_arg_lua_function_call_from_query(query).unwrap_or(query);
+    let action_name = normalized_action_name_query(query);
     match action_name.as_str() {
-        "pop key table" | "popkeytable" => Some(WindowCommand::PopKeyTable),
-        "clear key table stack" | "clearkeytablestack" => Some(WindowCommand::ClearKeyTableStack),
+        "popkeytable" => Some(WindowCommand::PopKeyTable),
+        "clearkeytablestack" => Some(WindowCommand::ClearKeyTableStack),
         _ => None,
     }
 }
@@ -72985,6 +72998,47 @@ mod tests {
                     },
                 ],
             )]))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_stack_actions() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = act.PopKeyTable,
+              },
+              {
+                key = 'C',
+                mods = 'CTRL|ALT',
+                action = act.ClearKeyTableStack(),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key-table stack action config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+P".to_owned(),
+                    command: WindowCommand::PopKeyTable,
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+C".to_owned(),
+                    command: WindowCommand::ClearKeyTableStack,
+                },
+            ])
         );
     }
 

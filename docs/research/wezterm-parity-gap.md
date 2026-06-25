@@ -1140,8 +1140,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   fields inline or through top-level static variables. Action-name
   `activatekeytable ...`, `popkeytable`, and `clearkeytablestack` aliases
   dispatch the same activation and stack mutation payloads as their spaced query
-  forms. Native `key_tables` overrides now match table entries from the
-  activation stack top downward and execute the matched native action,
+  forms, and static key assignments accept WezTerm-style bare and zero-argument
+  Lua action forms such as `wezterm.action.PopKeyTable` and
+  `act.ClearKeyTableStack()`. Native `key_tables` overrides now match table
+  entries from the activation stack top downward and execute the matched native action,
   including implemented `CopyMode` assignment payloads. WezTerm-style static
   Lua snippets for `config.keys`, `config.key_tables`, and `config.leader`
   now parse native key assignment tables and leader configuration into the same
