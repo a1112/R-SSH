@@ -964,7 +964,8 @@ keyboard, mouse, paste, resize
   `CloseCurrentPane { ... }` / `CloseCurrentPane({ ... })` and
   `CloseCurrentTab { ... }` / `CloseCurrentTab({ ... })` table queries tolerate
   trailing comma fields, and static WezTerm-style `config.keys` actions resolve
-  top-level static bool variables for the `confirm` field.
+  top-level static bool variables for the `confirm` field and parenthesized
+  static options table variables.
 - In-progress after v1: pane focus UI, pane-local scrollbar/selection polish,
   platform focus policy for newly materialized windows, richer split drag
   affordances, custom tab formatting, external CLI/mux tab-title control, and

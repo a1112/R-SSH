@@ -178,7 +178,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.CloseCurrentTab { confirm = ... }` table-call queries
   dispatch the same payloads, including bracketed string table keys with
   long-bracket values, trailing comma table fields, and top-level static bool
-  variables for `confirm` when parsed from static WezTerm-style `config.keys`.
+  variables for `confirm` plus parenthesized static options table variables
+  when parsed from static WezTerm-style `config.keys`.
   Action-name `closepane` and `closetab` queries dispatch the no-argument
   immediate-close aliases.
 - Native window state now exposes WezTerm-style `ToggleFullScreen`: the default
@@ -1514,7 +1515,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   calls such as `wezterm.action.CloseCurrentPane({ confirm = false })` and
   `wezterm.action.CloseCurrentTab({ confirm = true })`, in addition to the
   existing `Action { confirm = ... }` form, including bracketed string table
-  keys with long-bracket values and trailing comma table fields.
+  keys with long-bracket values, trailing comma table fields, and top-level
+  static options table variables when parsed from static WezTerm-style
+  `config.keys`.
 - WezTerm-style clear-scrollback table actions now accept parenthesized Lua
   table calls such as
   `wezterm.action.ClearScrollback({ mode = "ScrollbackOnly" })`, in addition

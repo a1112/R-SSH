@@ -30258,10 +30258,20 @@ fn close_current_pane_confirm_from_query_with_static_source(
     query: &str,
 ) -> Option<bool> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrentpane")
-        && rest.trim_start().starts_with('{')
-    {
-        return close_current_confirm_lua_table_from_query_with_static_source(static_source, rest);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrentpane") {
+        let rest = rest.trim();
+        if rest.starts_with('{') {
+            return close_current_confirm_lua_table_from_query_with_static_source(
+                static_source,
+                rest,
+            );
+        }
+        if static_source.is_some()
+            && let Some(confirm) =
+                close_current_confirm_lua_table_from_query_with_static_source(static_source, rest)
+        {
+            return Some(confirm);
+        }
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "closecurrentpane=")
@@ -30289,10 +30299,20 @@ fn close_current_tab_confirm_from_query_with_static_source(
     query: &str,
 ) -> Option<bool> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrenttab")
-        && rest.trim_start().starts_with('{')
-    {
-        return close_current_confirm_lua_table_from_query_with_static_source(static_source, rest);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "closecurrenttab") {
+        let rest = rest.trim();
+        if rest.starts_with('{') {
+            return close_current_confirm_lua_table_from_query_with_static_source(
+                static_source,
+                rest,
+            );
+        }
+        if static_source.is_some()
+            && let Some(confirm) =
+                close_current_confirm_lua_table_from_query_with_static_source(static_source, rest)
+        {
+            return Some(confirm);
+        }
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "closecurrenttab=")
@@ -30319,6 +30339,19 @@ fn close_current_confirm_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<bool> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut confirm = None;
 
@@ -74940,6 +74973,55 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm CloseCurrent static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+P".to_owned(),
+                    command: WindowCommand::CloseCurrentPane { confirm: false },
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+T".to_owned(),
+                    command: WindowCommand::CloseCurrentTab { confirm: true },
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_close_current_static_table_variable_calls() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pane_confirm = false
+            local tab_confirm = true
+            local pane_opts = {
+              confirm = pane_confirm,
+            }
+            local tab_opts = {
+              confirm = tab_confirm,
+            }
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = act.CloseCurrentPane(pane_opts),
+              },
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.CloseCurrentTab(tab_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CloseCurrent static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,
