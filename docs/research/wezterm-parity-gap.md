@@ -2132,7 +2132,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   route the documented `Cell`, `Word`, `Line`, `Block`, and `SemanticZone`
   selection modes, including bracketed string table keys with long-bracket
   values, and static `config.key_tables` actions resolve top-level string
-  variables for single-name assignments and `SetSelectionMode` fields. Search
+  variables for single-name assignments and `SetSelectionMode` fields plus
+  parenthesized static assignment table variables. Search
   `NextMatch`, `PriorMatch`, `NextMatchPage`, `PriorMatchPage`, `ClearPattern`,
   and `CycleMatchType` assignment values dispatch the same copy-mode search
   helpers as the default key table. `PageUp`, `PageDown`, and

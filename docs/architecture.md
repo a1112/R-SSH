@@ -317,7 +317,8 @@ keyboard, mouse, paste, resize
   Static `config.key_tables` `CopyMode` action payloads resolve top-level
   string variables for assignment names, `SetSelectionMode`, and semantic-zone
   type fields, top-level bool variables for nested `prev_char`, and top-level
-  number variables for `MoveByPage`.
+  number variables for `MoveByPage`, plus parenthesized static assignment table
+  variables.
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` also resolve top-level static
   string variables.
@@ -1947,7 +1948,8 @@ keyboard, mouse, paste, resize
   remains accepted.
 - Implemented in v1: static `config.key_tables` `CopyMode` action payloads
   resolve top-level variables for single-name assignments, `SetSelectionMode`,
-  semantic-zone type fields, nested jump `prev_char`, and `MoveByPage`.
+  semantic-zone type fields, nested jump `prev_char`, `MoveByPage`, and
+  parenthesized static assignment table variables.
 - Implemented in v1: copy mode stores source-row selection anchors, so `y` can
   copy selections that span the live viewport and retained scrollback.
 - Implemented in v1: mouse double-click word selection honors

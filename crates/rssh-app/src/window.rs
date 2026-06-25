@@ -30050,11 +30050,18 @@ fn copy_mode_assignment_from_query_with_static_source(
     };
 
     if let Some(value) = strip_lua_function_call_from_query(query, "copymode") {
-        if value.trim_start().starts_with('{') {
+        let value = value.trim();
+        if value.starts_with('{') {
             return copy_mode_assignment_lua_table_from_query_with_static_source(
                 static_source,
                 value,
             );
+        }
+        if static_source.is_some()
+            && let Some(assignment) =
+                copy_mode_assignment_lua_table_from_query_with_static_source(static_source, value)
+        {
+            return Some(assignment);
         }
         return copy_mode_assignment_name_from_query_with_static_source(static_source, value);
     }
@@ -30076,6 +30083,19 @@ fn copy_mode_assignment_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowCopyModeAssignment> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut fields = split_lua_table_top_level_fields(table)?
         .into_iter()
@@ -73352,6 +73372,45 @@ mod tests {
                         ),
                     },
                 ],
+            )]))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_copy_mode_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selection_mode = 'Block'
+            local copy_opts = {
+              SetSelectionMode = selection_mode,
+            }
+
+            config.key_tables = {
+              copy_mode = {
+                { key = 'v', action = act.CopyMode(copy_opts) },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyMode static table variable call config");
+
+        assert_eq!(
+            overrides.key_tables,
+            Some(BTreeMap::from([(
+                "copy_mode".to_owned(),
+                vec![NativeUserKeyAssignment {
+                    keys: "v".to_owned(),
+                    command: WindowCommand::CopyMode(
+                        super::WindowCopyModeAssignment::SetSelectionMode(
+                            super::WindowCopySelectionMode::Block,
+                        ),
+                    ),
+                }],
             )]))
         );
     }
