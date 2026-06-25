@@ -740,7 +740,8 @@ keyboard, mouse, paste, resize
   options to the default-program/inherited launch path.
   `SplitPane`/`SplitHorizontal`/`SplitVertical` table payloads carry
   `direction`, `domain`, nested `command` spawn fields, Percent/Cells `size`,
-  and `top_level` supplied inline or through top-level static variables.
+  `top_level`, and parenthesized static options table variables supplied inline
+  or through top-level static variables.
   Broader dynamic Lua table evaluation remains future config parity work.
 - Completed in v1: app-shell keyboard routing includes WezTerm-style `Super`
   aliases for native tab actions: `Super+T` `SpawnTab(CurrentPaneDomain)`

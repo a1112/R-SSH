@@ -35725,6 +35725,19 @@ fn split_pane_table_action_from_query_with_static_source(
             strip_query_table_assignment_from_prefix(query, "splitvertical=")
                 .map(|rest| (rest, Some(SplitDirection::Down)))
         })?;
+    let rest = rest.trim();
+    let resolved_rest;
+    let rest = if rest.starts_with('{') {
+        rest
+    } else {
+        let static_source = static_source?;
+        resolved_rest = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            rest,
+            static_source.max_start,
+        )?;
+        resolved_rest.as_str()
+    };
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let options = split_pane_table_options_from_query_with_static_source(static_source, table)?;
     let split_direction = direction.or(options.direction)?;
@@ -35748,10 +35761,7 @@ fn split_pane_table_from_lua_function<'a>(
     direction: Option<SplitDirection>,
 ) -> Option<(&'a str, Option<SplitDirection>)> {
     let table = strip_lua_function_call_from_query(query, name)?;
-    table
-        .trim_start()
-        .starts_with('{')
-        .then_some((table, direction))
+    Some((table, direction))
 }
 
 #[derive(Debug, Default)]
@@ -75222,6 +75232,92 @@ mod tests {
                     top_level: true,
                 }),
             }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_split_pane_static_table_variable_calls() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local split_direction = 'Left'
+            local split_domain = 'CurrentPaneDomain'
+            local split_cells = 20
+            local split_top_level = true
+            local launch_args = { 'top', '-d', '1' }
+            local launch_cwd = 'C:/Project Dir'
+            local launch_domain = 'local'
+            local launch_mode = 'dev'
+            local vertical_percent = 35
+            local split_opts = {
+              direction = split_direction,
+              domain = split_domain,
+              size = { Cells = split_cells },
+              top_level = split_top_level,
+              command = {
+                args = launch_args,
+                cwd = launch_cwd,
+                domain = launch_domain,
+                set_environment_variables = { MODE = launch_mode },
+              },
+            }
+            local vertical_opts = {
+              size = { Percent = vertical_percent },
+            }
+
+            config.keys = {
+              {
+                key = 'S',
+                mods = 'CTRL|ALT',
+                action = act.SplitPane(split_opts),
+              },
+              {
+                key = 'V',
+                mods = 'CTRL|ALT',
+                action = act.SplitVertical(vertical_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SplitPane static table variable call config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+S".to_owned(),
+                    command: WindowCommand::SplitPane(WindowSplitPaneOptions {
+                        direction: rssh_core::app_shell::SplitDirection::Left,
+                        domain: Some(WindowSpawnTabDomain::CurrentPaneDomain),
+                        command: Some(WindowSpawnCommandQuery {
+                            program: "top".to_owned(),
+                            args: vec!["-d".to_owned(), "1".to_owned()],
+                            cwd: Some("C:/Project Dir".to_owned()),
+                            environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
+                            domain: Some(WindowSpawnTabDomain::DomainName("local".to_owned())),
+                            window_position: None,
+                        }),
+                        command_options: None,
+                        size: Some(WindowSplitPaneSize::Cells(20)),
+                        top_level: true,
+                    }),
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+V".to_owned(),
+                    command: WindowCommand::SplitPane(WindowSplitPaneOptions {
+                        direction: rssh_core::app_shell::SplitDirection::Down,
+                        domain: None,
+                        command: None,
+                        command_options: None,
+                        size: Some(WindowSplitPaneSize::Percent(35)),
+                        top_level: false,
+                    }),
+                },
+            ])
         );
     }
 
