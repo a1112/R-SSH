@@ -1550,7 +1550,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   routing the same `mode`, `show_pane_ids`, and `alphabet` fields as the
   existing command-palette query forms, including trailing-comma table fields,
   top-level static string variables for `mode` and `alphabet`, and top-level
-  static bool variables for `show_pane_ids` when parsed from static
+  static bool variables for `show_pane_ids`, plus parenthesized calls that pass
+  a top-level static options table variable when parsed from static
   WezTerm-style `config.keys`.
 - WezTerm-style prompt-input table actions now accept parenthesized Lua table
   calls such as

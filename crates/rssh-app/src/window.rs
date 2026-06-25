@@ -38428,6 +38428,19 @@ fn pane_select_lua_table_from_query_with_static_source(
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     let value = strip_lua_function_call_from_query(query, "paneselect")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "paneselect="))?;
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowPaneSelectOptions {
         mode: WindowPaneSelectMode::Activate,
@@ -76098,6 +76111,45 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm PaneSelect static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+P".to_owned(),
+                command: WindowCommand::PaneSelect(WindowPaneSelectOptions {
+                    mode: WindowPaneSelectMode::SwapWithActive,
+                    show_pane_ids: true,
+                    alphabet: Some("12".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_pane_select_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pane_opts = {
+              mode = 'SwapWithActive',
+              show_pane_ids = true,
+              alphabet = '12',
+            }
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = act.PaneSelect(pane_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PaneSelect static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,

@@ -632,7 +632,8 @@ keyboard, mouse, paste, resize
   and parenthesized table-call queries dispatch the same native field subset,
   including long-bracket table keys and trailing-comma table fields, and parse
   `mode`/`alphabet` through top-level static string variables plus
-  `show_pane_ids` through top-level static bool variables inside static
+  `show_pane_ids` through top-level static bool variables, with parenthesized
+  calls also accepting top-level static options table variables inside static
   WezTerm-style `config.keys`; broader dynamic config-file wiring remains
   future parity work.
 - Completed in v1: WezTerm-style `ActivatePaneDirection` routes
