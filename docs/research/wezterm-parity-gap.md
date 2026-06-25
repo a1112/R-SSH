@@ -107,7 +107,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.MoveTab(<index>)` function-call queries, native
   `MoveTab(index)` action payloads for arbitrary indices, action-name
   `movetabto1` through `movetabto8` fixed entries, and typed
-  out-of-range errors.
+  out-of-range errors. Static `config.keys` action calls resolve top-level
+  unsigned integer variables for `MoveTab`.
 - Native window title includes shell state for easy smoke verification.
 - Native window frame now defaults to a one-row tab bar with workspace/tab state,
   explicit tab title priority, active-pane terminal title fallback, mouse

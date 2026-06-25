@@ -237,7 +237,8 @@ keyboard, mouse, paste, resize
   entries for Move Tab To 1 through 8, `move tab <index>`/`move tab to <index>`
   / `movetab <index>` queries, action-name `movetabto1` through `movetabto8`
   fixed entries, and native `WindowCommand::MoveTab(index)` payloads for
-  arbitrary zero-based indices.
+  arbitrary zero-based indices. Static `config.keys` action calls resolve
+  top-level unsigned integer variables for `MoveTab`.
 - Implemented in v1: app-shell `Nop` is a true no-effect action and preserves
   active IDs, workspace/tab/pane collections, and active-pane unseen-output
   state. Native `WindowCommand::Nop` maps to the same no-effect action for

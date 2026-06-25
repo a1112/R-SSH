@@ -11671,6 +11671,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::ActivateTabRelative(offset));
     }
+    if let Some(index) = move_tab_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::MoveTab(index));
+    }
     if let Some(offset) = move_tab_relative_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::MoveTabRelative(offset));
     }
@@ -33180,8 +33183,25 @@ fn activate_tab_relative_no_wrap_from_query_with_static_source(
 }
 
 fn move_tab_from_query(query: &str) -> Option<usize> {
+    move_tab_from_query_with_static_source(None, query)
+}
+
+fn move_tab_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<usize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(index) = strip_lua_function_call_from_query(query, "movetab") {
-        return parse_single_query_value(index)?.parse().ok();
+        return parse_maybe_static_query_usize(static_source, index);
     }
 
     let index = strip_query_prefix_from_any(
@@ -33195,10 +33215,10 @@ fn move_tab_from_query(query: &str) -> Option<usize> {
             "movetab ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     strip_query_prefix_from_any(index, &["index=", "index "])
         .or(Some(index))
-        .and_then(|index| index.parse().ok())
+        .and_then(|index| parse_maybe_static_query_usize(static_source, index))
 }
 
 fn move_tab_relative_from_query(query: &str) -> Option<isize> {
@@ -34180,6 +34200,25 @@ fn parse_maybe_static_query_u16(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<u16> {
+    let value = if let Some(static_source) = static_source {
+        lua_static_number_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+            lua_unsigned_integer_literal_from_query,
+        )
+        .map(str::to_owned)
+        .or_else(|| parse_maybe_quoted_query_text(value))?
+    } else {
+        parse_maybe_quoted_query_text(value)?
+    };
+    parse_single_query_value(&value)?.parse().ok()
+}
+
+fn parse_maybe_static_query_usize(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<usize> {
     let value = if let Some(static_source) = static_source {
         lua_static_number_assignment_value_before_offset_from_query(
             static_source.source,
@@ -73957,6 +73996,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "SUPER|SHIFT+LeftArrow".to_owned(),
                 command: WindowCommand::MoveTabRelative(-1),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_move_tab_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local tab_index = 2
+
+            config.keys = {
+              {
+                key = '2',
+                mods = 'SUPER|SHIFT',
+                action = act.MoveTab(tab_index),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm MoveTab static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "SUPER|SHIFT+2".to_owned(),
+                command: WindowCommand::MoveTab(2),
             }])
         );
     }
