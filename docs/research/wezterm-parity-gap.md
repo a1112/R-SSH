@@ -71,7 +71,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   arbitrary positive or negative tab indices through the same app-shell path. The default
   `Ctrl+Shift+1..9` and `Super+1..9` key-assignment entries expose
   `ActivateTab(0..7/-1)` payloads while retaining numbered `Activate Tab 1..9`
-  launcher labels.
+  launcher labels. Static `config.keys` action calls resolve top-level signed
+  integer variables for `ActivateTab`.
 - App-shell state now exposes WezTerm-style `ActivateTabRelative` wrapping and
   `ActivateTabRelativeNoWrap` clamping; the command palette includes both
   wrapping and no-wrap Next/Previous Tab entries plus

@@ -202,7 +202,8 @@ keyboard, mouse, paste, resize
   app-shell path. The default
   `Ctrl+Shift+1..9` and `Super+1..9` key-assignment entries expose
   `ActivateTab(0..7/-1)` payloads while retaining numbered `Activate Tab 1..9`
-  launcher labels.
+  launcher labels. Static `config.keys` action calls resolve top-level signed
+  integer variables for `ActivateTab`.
 - Implemented in v1: native `ShowTabNavigator` opens a tab-list overlay with
   the active tab initially selected and activates the selected tab on Enter;
   action-name `showtabnavigator` queries dispatch the same command.
