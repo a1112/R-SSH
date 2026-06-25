@@ -485,7 +485,8 @@ keyboard, mouse, paste, resize
   table calls also skip trailing-comma fields and parse `description`, `prompt`,
   and `initial_value` fields inline or through top-level static string
   variables, with `description`/`prompt` also accepting top-level static
-  `wezterm.format` text variables. Static
+  `wezterm.format` text variables and parenthesized calls accepting top-level
+  static options table variables. Static
   `action = wezterm.action_callback(...)` fields and top-level static callback
   variables are accepted as native-handler placeholders; styled prompt-line rendering and actual Lua
   callback wiring remain future parity work.

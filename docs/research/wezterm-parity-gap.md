@@ -1560,7 +1560,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   routing the same `description`, `prompt`, and `initial_value` fields as the
   existing `Action { ... }` and command-palette query forms, including
   top-level static `wezterm.format` text variables, top-level static callback
-  variables for `action`, and trailing-comma table fields.
+  variables for `action`, parenthesized calls that pass a top-level static
+  options table variable, and trailing-comma table fields.
 - WezTerm-style input-selector table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.InputSelector({ title = "Pick Reply", choices = "decline=No thanks ; lgtm=LGTM", alphabet = "ab" })`,

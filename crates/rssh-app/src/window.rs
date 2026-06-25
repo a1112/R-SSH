@@ -30353,10 +30353,17 @@ fn prompt_input_line_options_from_query_with_static_source(
         query
     };
 
-    if let Some(rest) = strip_lua_function_call_from_query(query, "promptinputline")
-        && rest.trim_start().starts_with('{')
-    {
-        return prompt_input_line_lua_table_from_query_with_static_source(static_source, rest);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "promptinputline") {
+        let rest = rest.trim();
+        if rest.starts_with('{') {
+            return prompt_input_line_lua_table_from_query_with_static_source(static_source, rest);
+        }
+        if static_source.is_some()
+            && let Some(options) =
+                prompt_input_line_lua_table_from_query_with_static_source(static_source, rest)
+        {
+            return Some(options);
+        }
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "promptinputline=")
@@ -30522,6 +30529,19 @@ fn prompt_input_line_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowPromptInputLineOptions> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowPromptInputLineOptions::default();
     let mut parsed_description = false;
@@ -75585,6 +75605,45 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm PromptInputLine static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Rename tab".to_owned(),
+                    prompt: Some("name: ".to_owned()),
+                    initial_value: Some("old name".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_prompt_input_line_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local prompt_opts = {
+              description = 'Rename tab',
+              prompt = 'name: ',
+              initial_value = 'old name',
+            }
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine(prompt_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,
