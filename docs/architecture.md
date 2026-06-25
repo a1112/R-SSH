@@ -726,7 +726,9 @@ keyboard, mouse, paste, resize
   pane domain`, `spawn tab default domain`, and `spawn tab domain <name>`
   queries plus action-name `spawntab ...` aliases dispatch the same native
   payload subset with quote-aware domain-name parsing; no-argument
-  `spawntab` dispatches the current-pane-domain default. Remote/mux named
+  `spawntab` dispatches the current-pane-domain default. Static `config.keys`
+  `SpawnTab` action calls resolve top-level string variables for string
+  arguments and `DomainName` table fields. Remote/mux named
   domain spawning remains future mux/domain parity work.
 - Completed in v1: WezTerm-style `ToggleFullScreen` routes the default
   `Alt+Enter` shortcut and command-palette `Toggle Full Screen` entry through

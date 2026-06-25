@@ -11650,6 +11650,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options));
     }
+    if let Some(domain) = spawn_tab_domain_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::SpawnTab(domain));
+    }
     if let Some(split_pane) =
         split_pane_table_action_from_query_with_static_source(static_source, value)
     {
@@ -34929,11 +34932,30 @@ fn spawn_command_options_in_new_tab_from_query_with_static_source(
 }
 
 fn spawn_tab_domain_from_query(query: &str) -> Option<WindowSpawnTabDomain> {
-    if let Some(domain) = spawn_tab_domain_from_lua_table(query) {
+    spawn_tab_domain_from_query_with_static_source(None, query)
+}
+
+fn spawn_tab_domain_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSpawnTabDomain> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
+    if let Some(domain) = spawn_tab_domain_from_lua_table_with_static_source(static_source, query) {
         return Some(domain);
     }
 
-    if let Some(domain) = spawn_tab_domain_from_lua_function(query) {
+    if let Some(domain) =
+        spawn_tab_domain_from_lua_function_with_static_source(static_source, query)
+    {
         return Some(domain);
     }
 
@@ -34941,26 +34963,37 @@ fn spawn_tab_domain_from_query(query: &str) -> Option<WindowSpawnTabDomain> {
         query,
         &["spawn tab=", "spawn tab ", "spawntab=", "spawntab "],
     )?;
-    spawn_tab_domain_value_from_query(domain)
+    let domain = parse_maybe_static_query_text(static_source, domain)?;
+    spawn_tab_domain_value_from_query(&domain)
 }
 
-fn spawn_tab_domain_from_lua_table(query: &str) -> Option<WindowSpawnTabDomain> {
+fn spawn_tab_domain_from_lua_table_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSpawnTabDomain> {
     if let Some(domain) = strip_lua_function_call_from_query(query, "spawntab")
         && domain.trim_start().starts_with('{')
     {
-        return spawn_tab_domain_lua_table_from_query(domain);
+        return spawn_tab_domain_lua_table_from_query_with_static_source(static_source, domain);
     }
 
     if let Some(domain) = strip_query_table_assignment_from_prefix(query, "spawntab=")
         && domain.trim_start().starts_with('{')
     {
-        return spawn_tab_domain_lua_table_from_query(domain);
+        return spawn_tab_domain_lua_table_from_query_with_static_source(static_source, domain);
     }
 
     None
 }
 
 fn spawn_tab_domain_lua_table_from_query(value: &str) -> Option<WindowSpawnTabDomain> {
+    spawn_tab_domain_lua_table_from_query_with_static_source(None, value)
+}
+
+fn spawn_tab_domain_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowSpawnTabDomain> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut domain = None;
     for field in split_lua_table_top_level_fields(table)? {
@@ -34973,15 +35006,18 @@ fn spawn_tab_domain_lua_table_from_query(value: &str) -> Option<WindowSpawnTabDo
         if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         domain = Some(WindowSpawnTabDomain::DomainName(value));
     }
     domain
 }
 
-fn spawn_tab_domain_from_lua_function(query: &str) -> Option<WindowSpawnTabDomain> {
+fn spawn_tab_domain_from_lua_function_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSpawnTabDomain> {
     let domain = strip_lua_function_call_from_query(query, "spawntab")?;
-    let domain = parse_maybe_quoted_query_text(domain)?;
+    let domain = parse_maybe_static_query_text(static_source, domain)?;
     spawn_tab_domain_value_from_query(&domain)
 }
 
@@ -73929,6 +73965,70 @@ mod tests {
                     }),
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_tab_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain = 'CurrentPaneDomain'
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.SpawnTab(domain),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnTab static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+T".to_owned(),
+                command: WindowCommand::SpawnTab(WindowSpawnTabDomain::CurrentPaneDomain),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_tab_domain_name_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain_name = 'local'
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act.SpawnTab { DomainName = domain_name },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnTab DomainName static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+D".to_owned(),
+                command: WindowCommand::SpawnTab(WindowSpawnTabDomain::DomainName(
+                    "local".to_owned(),
+                )),
+            }])
         );
     }
 

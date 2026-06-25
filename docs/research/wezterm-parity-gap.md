@@ -810,7 +810,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SpawnTab { DomainName = 'local' }`, and
   `wezterm.action.SpawnTab({ DomainName = 'local' })` queries dispatch the same
   implemented local-domain subset, including bracketed string table keys with
-  long-bracket values. Remote/mux named domain spawning remains open.
+  long-bracket values. Static `config.keys` `SpawnTab` action calls resolve
+  top-level string variables for string arguments and `DomainName` table
+  fields. Remote/mux named domain spawning remains open.
 - Native `AttachDomain`/`DetachDomain` action parsing now recognizes official
   WezTerm-style domain action forms including `AttachDomain 'devhost'`,
   `AttachDomain('devhost')`, `DetachDomain 'CurrentPaneDomain'`, and
