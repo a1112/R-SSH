@@ -196,6 +196,7 @@ const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
 const DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR: bool = false;
 const DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE: bool = false;
 const DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC: bool = false;
+const DEFAULT_UNICODE_VERSION: u32 = 9;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
 const DEFAULT_UI_KEY_CAP_RENDERING: NativeUiKeyCapRendering = if cfg!(target_os = "macos") {
@@ -2078,6 +2079,7 @@ struct NativeEffectiveConfig {
     treat_left_ctrlalt_as_altgr: bool,
     treat_east_asian_ambiguous_width_as_wide: bool,
     normalize_output_to_unicode_nfc: bool,
+    unicode_version: u32,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     xim_im_name: Option<String>,
@@ -2250,6 +2252,7 @@ struct NativeConfigOverrides {
     treat_left_ctrlalt_as_altgr: Option<bool>,
     treat_east_asian_ambiguous_width_as_wide: Option<bool>,
     normalize_output_to_unicode_nfc: Option<bool>,
+    unicode_version: Option<u32>,
     use_ime: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
     xim_im_name: Option<String>,
@@ -2976,6 +2979,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "normalize_output_to_unicode_nfc")
     {
         overrides.normalize_output_to_unicode_nfc = Some(normalize_output_to_unicode_nfc);
+        parsed = true;
+    }
+    if let Some(unicode_version) = lua_config_usize_assignment_from_query(config, "unicode_version")
+    {
+        let Ok(unicode_version) = u32::try_from(unicode_version) else {
+            return None;
+        };
+        overrides.unicode_version = Some(unicode_version);
         parsed = true;
     }
     if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
@@ -12533,6 +12544,7 @@ struct NativeWindowApp {
     treat_left_ctrlalt_as_altgr: bool,
     treat_east_asian_ambiguous_width_as_wide: bool,
     normalize_output_to_unicode_nfc: bool,
+    unicode_version: u32,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     ime_preedit: Option<String>,
@@ -13987,6 +13999,7 @@ impl NativeWindowApp {
             treat_east_asian_ambiguous_width_as_wide:
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
+            unicode_version: DEFAULT_UNICODE_VERSION,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             ime_preedit: None,
@@ -15000,6 +15013,7 @@ impl NativeWindowApp {
         detached_app.treat_east_asian_ambiguous_width_as_wide =
             self.treat_east_asian_ambiguous_width_as_wide;
         detached_app.normalize_output_to_unicode_nfc = self.normalize_output_to_unicode_nfc;
+        detached_app.unicode_version = self.unicode_version;
         detached_app.cell_widths.clone_from(&self.cell_widths);
         detached_app.leader.clone_from(&self.leader);
         detached_app
@@ -15220,6 +15234,7 @@ impl NativeWindowApp {
         self.treat_east_asian_ambiguous_width_as_wide =
             source.treat_east_asian_ambiguous_width_as_wide;
         self.normalize_output_to_unicode_nfc = source.normalize_output_to_unicode_nfc;
+        self.unicode_version = source.unicode_version;
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.ime_preedit = source.ime_preedit.clone();
@@ -22931,6 +22946,7 @@ impl NativeWindowApp {
             treat_left_ctrlalt_as_altgr: self.treat_left_ctrlalt_as_altgr,
             treat_east_asian_ambiguous_width_as_wide: self.treat_east_asian_ambiguous_width_as_wide,
             normalize_output_to_unicode_nfc: self.normalize_output_to_unicode_nfc,
+            unicode_version: self.unicode_version,
             use_ime: self.use_ime,
             ime_preedit_rendering: self.ime_preedit_rendering,
             xim_im_name: self.xim_im_name.clone(),
@@ -23266,6 +23282,7 @@ impl NativeWindowApp {
         self.normalize_output_to_unicode_nfc = overrides
             .normalize_output_to_unicode_nfc
             .unwrap_or(DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC);
+        self.unicode_version = overrides.unicode_version.unwrap_or(DEFAULT_UNICODE_VERSION);
         self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
@@ -48117,7 +48134,7 @@ mod tests {
         DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
-        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
+        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
         DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
@@ -59758,6 +59775,7 @@ mod tests {
                 treat_east_asian_ambiguous_width_as_wide:
                     DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
                 normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
+                unicode_version: DEFAULT_UNICODE_VERSION,
                 use_ime: DEFAULT_USE_IME,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 xim_im_name: None,
@@ -81343,6 +81361,35 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_unicode_version_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = format!("{:?}", app.native_effective_config());
+
+        assert!(
+            effective.contains("unicode_version: 9"),
+            "effective config should expose WezTerm's unicode_version default: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_unicode_version() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.unicode_version = 14
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm unicode_version config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.native_effective_config().unicode_version, 14);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_dpi_override() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -88351,6 +88398,7 @@ mod tests {
             treat_left_ctrlalt_as_altgr: Some(true),
             treat_east_asian_ambiguous_width_as_wide: Some(true),
             normalize_output_to_unicode_nfc: Some(true),
+            unicode_version: Some(14),
             use_ime: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             xim_im_name: Some("fcitx".to_owned()),
@@ -88615,6 +88663,7 @@ mod tests {
             treat_left_ctrlalt_as_altgr: true,
             treat_east_asian_ambiguous_width_as_wide: true,
             normalize_output_to_unicode_nfc: true,
+            unicode_version: 14,
             use_ime: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
             xim_im_name: Some("fcitx".to_owned()),
@@ -88788,6 +88837,7 @@ mod tests {
             treat_east_asian_ambiguous_width_as_wide:
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
+            unicode_version: DEFAULT_UNICODE_VERSION,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             xim_im_name: None,

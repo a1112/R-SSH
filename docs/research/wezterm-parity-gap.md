@@ -424,6 +424,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   enabled so Ctrl+Alt key bindings do not fire for those events,
   `treat_east_asian_ambiguous_width_as_wide` with WezTerm's default `false`,
   `normalize_output_to_unicode_nfc` with WezTerm's default `false`,
+  `unicode_version` with WezTerm's default `9`,
   `use_ime` with WezTerm's current default `true`,
   `ime_preedit_rendering` with the `Builtin` default, plus optional
   `xim_im_name`; `treat_east_asian_ambiguous_width_as_wide` updates terminal
@@ -436,7 +437,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `normalize_output_to_unicode_nfc` normalizes contiguous ordinary terminal
   output runs to Unicode NFC before rendering, including leading combining
   marks that arrive in the next PTY chunk when they compose with the prior
-  cell without changing display width. Native winit IME commit text
+  cell without changing display width. `unicode_version` is retained in
+  effective config and static numeric Lua snippets, while exact
+  version-specific Unicode width tables and OSC 1337 `UnicodeVersion`
+  push/pop handling remain open. Native winit IME commit text
   now writes to the active pane when `use_ime` is enabled and is ignored when
   disabled; native winit IME preedit text now renders as a Builtin overlay at
   the active pane cursor, is suppressed for `System` or disabled IME, and is
@@ -1293,7 +1297,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.enable_kitty_keyboard`, `config.allow_win32_input_mode`,
   `config.treat_left_ctrlalt_as_altgr`,
   `config.treat_east_asian_ambiguous_width_as_wide`,
-  `config.normalize_output_to_unicode_nfc`, `config.use_ime`,
+  `config.normalize_output_to_unicode_nfc`, `config.unicode_version`,
+  `config.use_ime`,
   `config.ime_preedit_rendering`, and `config.xim_im_name` now parse into the
   same native override path. `config.ui_key_cap_rendering` now changes native
   command-palette key-assignment display labels across the documented UnixLong,
@@ -1306,6 +1311,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   contiguous ordinary terminal output runs to Unicode NFC before cells are written,
   including leading combining marks that arrive in the next PTY chunk when
   they compose with the prior cell without changing display width.
+  `config.unicode_version` parses static numeric assignments into effective
+  config with WezTerm's default `9`; exact Unicode-width version behavior and
+  OSC 1337 `UnicodeVersion` stack handling remain open.
   `treat_left_ctrlalt_as_altgr`
   routes Ctrl+Alt text key events as AltGr text input rather than triggering
   Ctrl+Alt key bindings. Native winit IME commit text writes to the active pane
@@ -1969,7 +1977,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`,
   `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
   `key_map_preference`, `ui_key_cap_rendering`, `swap_backspace_and_delete`,
-  `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`,
+  `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`, `quote_dropped_files`,
   `disable_default_key_bindings`,
@@ -2016,7 +2024,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, and
   `selection_word_boundary`, plus the implemented font/window/cursor subset:
   `font_size`, `cell_width`, `cell_widths`, `line_height`,
-  `use_cap_height_to_scale_fallback_fonts`, `initial_cols`, `initial_rows`,
+  `use_cap_height_to_scale_fallback_fonts`, `unicode_version`, `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `cursor_blink_rate`,
   `cursor_blink_ease_in`, `cursor_blink_ease_out`, `default_cursor_style`, and
   `force_reverse_video_cursor`, `window_decorations`, plus the implemented bell/notification subset:
@@ -2075,7 +2083,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`,
-  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
+  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
   `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`,

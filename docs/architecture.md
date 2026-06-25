@@ -276,7 +276,7 @@ keyboard, mouse, paste, resize
   `ui_key_cap_rendering`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`,
   `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`,
-  `normalize_output_to_unicode_nfc`, `use_ime`,
+  `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, and `xim_im_name` parse into the native override
   path. `ui_key_cap_rendering` controls native command-palette key-assignment
   display labels with UnixLong, Emacs, AppleSymbols, WindowsLong, and
@@ -292,6 +292,9 @@ keyboard, mouse, paste, resize
   normalization to contiguous ordinary terminal output runs before rendering,
   including leading combining marks that arrive in the next PTY chunk when
   they compose with the prior cell without changing display width.
+  `unicode_version` is retained with WezTerm's default `9` in effective config
+  and static numeric Lua snippets, while exact versioned Unicode width tables
+  and OSC 1337 `UnicodeVersion` push/pop handling remain future parity work.
   `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
   AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
   text renders through the Builtin overlay path at the active pane cursor, and
@@ -1040,7 +1043,7 @@ keyboard, mouse, paste, resize
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`,
-  `normalize_output_to_unicode_nfc`, `use_ime`,
+  `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
@@ -1109,8 +1112,11 @@ keyboard, mouse, paste, resize
   WezTerm's default `false` and, when enabled, normalizes contiguous ordinary
   terminal output runs to Unicode NFC before the cells are written, including
   leading combining marks that arrive in the next PTY chunk when they compose
-  with the prior cell without changing display width. `use_ime` is stored with
-  WezTerm's current default `true`,
+  with the prior cell without changing display width. `unicode_version` is
+  retained with WezTerm's default `9` and parses static numeric Lua snippets
+  into effective config; exact versioned Unicode width behavior and OSC 1337
+  `UnicodeVersion` dynamic stack handling remain future parity work. `use_ime`
+  is stored with WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
   is retained as an optional XIM server name for X11-style IME configuration.
   Native winit IME commit text is written to the active pane when `use_ime` is
@@ -1387,7 +1393,7 @@ keyboard, mouse, paste, resize
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`,
-  `normalize_output_to_unicode_nfc`, `use_ime`,
+  `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
