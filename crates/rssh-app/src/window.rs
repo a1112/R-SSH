@@ -11600,6 +11600,9 @@ fn native_key_assignment_command_from_query(
     if let Some(value) = send_string_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SendString(value));
     }
+    if let Some(send_key) = send_key_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::SendKey(send_key));
+    }
     if let Some(key_table) = activate_key_table_from_query_with_static_source(static_source, value)
     {
         return Some(WindowCommand::ActivateKeyTable(key_table));
@@ -31253,24 +31256,41 @@ fn strip_lua_function_call_from_query<'a>(query: &'a str, name: &str) -> Option<
 }
 
 fn send_key_from_query(query: &str) -> Option<WindowSendKey> {
+    send_key_from_query_with_static_source(None, query)
+}
+
+fn send_key_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSendKey> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(value) = strip_lua_function_call_from_query(query, "sendkey")
         && value.trim_start().starts_with('{')
     {
-        return send_key_lua_table_from_query(value);
+        return send_key_lua_table_from_query_with_static_source(static_source, value);
     }
 
     if let Some(value) = strip_query_table_assignment_from_prefix(query, "sendkey=")
         && value.trim_start().starts_with('{')
     {
-        return send_key_lua_table_from_query(value);
+        return send_key_lua_table_from_query_with_static_source(static_source, value);
     }
 
     let value =
         strip_query_prefix_from_any(query, &["send key=", "send key ", "sendkey=", "sendkey "])?;
-    if let Some(send_key) = send_key_fields_from_query(value) {
+    if let Some(send_key) = send_key_fields_from_query_with_static_source(static_source, value) {
         return Some(send_key);
     }
-    let value = parse_single_query_value(value)?;
+    let value = parse_maybe_static_query_text(static_source, value)?;
     let mut modifiers = ModifiersState::empty();
     let mut leader_required = false;
     let mut key = None;
@@ -31313,7 +31333,10 @@ fn send_key_from_query(query: &str) -> Option<WindowSendKey> {
     })
 }
 
-fn send_key_fields_from_query(value: &str) -> Option<WindowSendKey> {
+fn send_key_fields_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowSendKey> {
     let tokens = command_palette_query_words(value)?;
     let mut modifiers = ModifiersState::empty();
     let mut leader_required = false;
@@ -31326,7 +31349,8 @@ fn send_key_fields_from_query(value: &str) -> Option<WindowSendKey> {
             if parsed_key {
                 return None;
             }
-            key = Some(send_key_key_from_query(value)?);
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            key = Some(send_key_key_from_query(&value)?);
             parsed_key = true;
             continue;
         }
@@ -31335,6 +31359,7 @@ fn send_key_fields_from_query(value: &str) -> Option<WindowSendKey> {
             if parsed_mods {
                 return None;
             }
+            let value = parse_maybe_static_query_text(static_source, value)?;
             for modifier in value.split(['+', '|']).map(str::trim) {
                 if !window_key_assignment_modifier_matches(
                     modifier,
@@ -31358,7 +31383,10 @@ fn send_key_fields_from_query(value: &str) -> Option<WindowSendKey> {
     })
 }
 
-fn send_key_lua_table_from_query(value: &str) -> Option<WindowSendKey> {
+fn send_key_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowSendKey> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut modifiers = ModifiersState::empty();
     let mut leader_required = false;
@@ -31373,7 +31401,7 @@ fn send_key_lua_table_from_query(value: &str) -> Option<WindowSendKey> {
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "key" => {
                 if parsed_key {
@@ -72605,6 +72633,41 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+S".to_owned(),
                 command: WindowCommand::SendString("from-send-string-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_send_key_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_name = 'LeftArrow'
+            local key_mods = 'ALT'
+
+            config.keys = {
+              {
+                key = 'K',
+                mods = 'CTRL|SHIFT',
+                action = act.SendKey { key = key_name, mods = key_mods },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SendKey static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendKey(WindowSendKey {
+                    key: Key::Named(NamedKey::ArrowLeft),
+                    modifiers: ModifiersState::ALT,
+                }),
             }])
         );
     }

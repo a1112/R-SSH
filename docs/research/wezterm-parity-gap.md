@@ -1282,7 +1282,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SendKey { key = ..., mods = ... }` and
   `wezterm.action.SendKey({ key = ..., mods = ... })` table-call queries route
   to the same implemented key/modifier payload parser, including bracketed
-  string table keys with long-bracket values and trailing comma table fields.
+  string table keys with long-bracket values, trailing comma table fields, and
+  top-level static string variables for `key`/`mods` fields.
 - Structured action queries now also accept WezTerm's older
   `wezterm.action { ActionName = value }` / `wezterm.action({ ActionName =
   value })` wrapper-table syntax for the implemented native action subset,

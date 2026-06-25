@@ -383,7 +383,8 @@ keyboard, mouse, paste, resize
   assignments. Structured command-palette `send key <mods+key>` and action-name
   `sendkey <mods+key>` queries dispatch the same typed payload path, and
   WezTerm-style Lua `SendKey { ... }` / `SendKey({ ... })` table queries
-  tolerate trailing comma fields.
+  tolerate trailing comma fields, with `key` and `mods` fields inline or
+  through top-level static string variables.
 - Implemented in v1: app-shell `Multiple` sequences already implemented
   `AppAction` values in order.
 - Implemented in v1: app-shell exposes a named WezTerm-style
