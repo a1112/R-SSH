@@ -34022,6 +34022,19 @@ fn adjust_pane_size_table_from_query_with_static_source(
     };
     let rest = strip_lua_function_call_from_query(query, "adjustpanesize")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "adjustpanesize="))?;
+    let rest = rest.trim();
+    let resolved_rest;
+    let rest = if rest.starts_with('{') {
+        rest
+    } else {
+        let static_source = static_source?;
+        resolved_rest = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            rest,
+            static_source.max_start,
+        )?;
+        resolved_rest.as_str()
+    };
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let fields = split_lua_table_top_level_fields(table)?
         .into_iter()
@@ -75608,6 +75621,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm AdjustPaneSize static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT|ALT+LeftArrow".to_owned(),
+                command: WindowCommand::AdjustPaneSize {
+                    direction: ResizeDirection::Left,
+                    amount: 4,
+                },
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_adjust_pane_size_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local resize_direction = 'Left'
+            local resize_amount = 4
+            local resize_opts = { resize_direction, resize_amount }
+
+            config.keys = {
+              {
+                key = 'LeftArrow',
+                mods = 'CTRL|SHIFT|ALT',
+                action = act.AdjustPaneSize(resize_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm AdjustPaneSize static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,

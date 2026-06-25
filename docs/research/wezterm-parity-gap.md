@@ -2587,7 +2587,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   queries plus `wezterm.action { AdjustPaneSize = { '<direction>', <cells> } }`
   table-wrapper queries dispatch the same payload, including trailing comma
   fields. Static `config.keys` action tables resolve top-level string variables
-  for direction and top-level integer variables for amount. Native
+  for direction and top-level integer variables for amount, plus parenthesized
+  top-level static resize table variables. Native
   `WindowCommand::AdjustPaneSize { direction, amount }` payloads dispatch the
   same active-pane resize path with arbitrary cell amounts.
 - Split panes support WezTerm-style `ActivatePaneDirection` from

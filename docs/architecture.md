@@ -600,7 +600,8 @@ keyboard, mouse, paste, resize
   `wezterm.action { AdjustPaneSize = { '<direction>', <cells> } }` wrappers
   dispatch the same payload, including trailing comma fields. Static
   `config.keys` action tables resolve top-level string variables for direction
-  and top-level integer variables for amount.
+  and top-level integer variables for amount, plus parenthesized top-level
+  static resize table variables.
 - Completed in v1: pane zoom state is represented in app-shell state and
   rendered by the native window as a full-tab pane until toggled off through
   WezTerm-style `TogglePaneZoomState`, explicitly zoomed/unzoomed through
