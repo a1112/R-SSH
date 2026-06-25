@@ -636,9 +636,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   mode.
 - Command palette now exposes Rename Tab, including `rename tab <title>` and
   action-name `renametab <title>` query input with quote-aware text parsing,
-  and writes an explicit title for the active tab. Rename Workspace also
+  and writes an explicit title for the active tab. Static `config.keys`
+  `RenameTab` action calls resolve top-level string variables for the title.
+  Rename Workspace also
   accepts quote-aware `rename workspace <name>` and action-name
-  `renameworkspace <name>` query input for naming the active workspace.
+  `renameworkspace <name>` query input for naming the active workspace, and
+  static `config.keys` `RenameWorkspace` action calls resolve top-level string
+  variables for the name.
 - App-shell state now exposes a named WezTerm-style `SwitchToWorkspace` subset
   plus native `SwitchToWorkspaceArgs` and `SwitchWorkspaceRelative` payload
   dispatch:

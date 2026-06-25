@@ -183,11 +183,13 @@ keyboard, mouse, paste, resize
   terminal title when OSC 0/1/2 or Sun OSC L/l title state is available.
 - Completed in v1: the command palette includes Rename Tab with
   quote-aware `rename tab <title>` and action-name `renametab <title>` query
-  input, writing explicit titles for the active tab.
+  input, writing explicit titles for the active tab. Static `config.keys`
+  `RenameTab` action calls resolve top-level string variables for the title.
 - Completed in v1: the command palette includes Rename Workspace with
   quote-aware `rename workspace <name>` and action-name
   `renameworkspace <name>` query input, naming the active workspace from
-  user-entered text.
+  user-entered text. Static `config.keys` `RenameWorkspace` action calls
+  resolve top-level string variables for the name.
 - Completed in v1: app-shell state tracks the last active tab and command
   palette dispatch exposes Activate Last Tab, no-oping when no previous active
   tab exists.

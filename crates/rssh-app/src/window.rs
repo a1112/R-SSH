@@ -11755,6 +11755,12 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::SwitchWorkspaceRelative(offset));
     }
+    if let Some(title) = rename_tab_title_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::RenameTabTo(title));
+    }
+    if let Some(name) = rename_workspace_name_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::RenameWorkspaceTo(name));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -32812,15 +32818,57 @@ fn show_launcher_next_field_offsets(rest: &str) -> Vec<usize> {
 }
 
 fn rename_tab_title_from_query(query: &str) -> Option<String> {
+    rename_tab_title_from_query_with_static_source(None, query)
+}
+
+fn rename_tab_title_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<String> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
+    if let Some(title) = strip_lua_function_call_from_query(query, "renametab") {
+        return parse_maybe_static_query_text(static_source, title);
+    }
+
     let title = strip_query_prefix_from_any(
         query,
         &["rename tab=", "rename tab ", "renametab=", "renametab "],
     )?;
     let title = strip_query_prefix_from_any(title, &["title=", "title "]).unwrap_or(title);
-    parse_maybe_quoted_query_text(title)
+    parse_maybe_static_query_text(static_source, title)
 }
 
 fn rename_workspace_name_from_query(query: &str) -> Option<String> {
+    rename_workspace_name_from_query_with_static_source(None, query)
+}
+
+fn rename_workspace_name_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<String> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
+    if let Some(name) = strip_lua_function_call_from_query(query, "renameworkspace") {
+        return parse_maybe_static_query_text(static_source, name);
+    }
+
     let name = strip_query_prefix_from_any(
         query,
         &[
@@ -32831,7 +32879,7 @@ fn rename_workspace_name_from_query(query: &str) -> Option<String> {
         ],
     )?;
     let name = strip_query_prefix_from_any(name, &["name=", "name "]).unwrap_or(name);
-    parse_maybe_quoted_query_text(name)
+    parse_maybe_static_query_text(static_source, name)
 }
 
 fn switch_workspace_name_from_query(query: &str) -> Option<String> {
@@ -75487,6 +75535,68 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+W".to_owned(),
                 command: WindowCommand::SwitchWorkspaceRelative(-1),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_rename_tab_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local title = 'build prod'
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.RenameTab(title),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm RenameTab static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+T".to_owned(),
+                command: WindowCommand::RenameTabTo("build prod".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_rename_workspace_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local name = 'deploy west'
+
+            config.keys = {
+              {
+                key = 'R',
+                mods = 'CTRL|ALT',
+                action = act.RenameWorkspace(name),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm RenameWorkspace static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+R".to_owned(),
+                command: WindowCommand::RenameWorkspaceTo("deploy west".to_owned()),
             }])
         );
     }
