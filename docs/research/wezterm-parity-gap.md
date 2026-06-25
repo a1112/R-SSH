@@ -1105,7 +1105,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   including bracketed string table keys with long-bracket values, and accept
   `message` inline or through top-level static string variables or top-level
   static `wezterm.format` text variables, `action`/`cancel` inline or through
-  top-level static action variables, and static
+  top-level static action variables, parenthesized calls with top-level static
+  options table variables, and static
   `action`/`cancel = wezterm.action_callback(...)` fields as
   native-handler placeholders. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
@@ -1580,7 +1581,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   routing the same `message`, `action`, and optional `cancel` fields as the
   existing `Action { ... }` and command-palette query forms, including
   top-level static `wezterm.format` message variables and trailing-comma table
-  fields.
+  fields, plus top-level static options table variables in parenthesized calls.
 - WezTerm-style destination actions now accept single-argument function-call
   forms including `wezterm.action.CopyTo('PrimarySelection')`,
   `wezterm.action.CompleteSelection('PrimarySelection')`, and

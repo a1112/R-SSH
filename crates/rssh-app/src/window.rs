@@ -31250,10 +31250,17 @@ fn confirmation_options_from_query_with_static_source(
 ) -> Option<WindowConfirmationOptions> {
     let query = query.trim();
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    if let Some(rest) = strip_lua_function_call_from_query(query, "confirmation")
-        && rest.trim_start().starts_with('{')
-    {
-        return confirmation_lua_table_from_query_with_static_source(static_source, rest);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "confirmation") {
+        let rest = rest.trim();
+        if rest.starts_with('{') {
+            return confirmation_lua_table_from_query_with_static_source(static_source, rest);
+        }
+        if static_source.is_some()
+            && let Some(options) =
+                confirmation_lua_table_from_query_with_static_source(static_source, rest)
+        {
+            return Some(options);
+        }
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "confirmation=")
@@ -31319,6 +31326,19 @@ fn confirmation_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowConfirmationOptions> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut fields = ConfirmationQueryFields::default();
     let mut parsed_message = false;
@@ -76098,6 +76118,45 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm Confirmation static format message variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::Confirmation(WindowConfirmationOptions {
+                    message: "Send command?".to_owned(),
+                    action: Box::new(WindowCommand::SendString("yes".to_owned())),
+                    cancel: Some(Box::new(WindowCommand::SendString("no".to_owned()))),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_confirmation_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local confirm_opts = {
+              message = 'Send command?',
+              action = act.SendString 'yes',
+              cancel = act.SendString 'no',
+            }
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.Confirmation(confirm_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Confirmation static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,

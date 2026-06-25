@@ -535,9 +535,10 @@ keyboard, mouse, paste, resize
   placeholders. WezTerm-style Lua table calls skip trailing-comma fields and
   parse `message` inline or through top-level static string variables or
   top-level static `wezterm.format` text variables, plus `action`/`cancel`
-  inline or through top-level static action variables;
-  styled confirmation rendering and actual Lua callback wiring remain future
-  parity work.
+  inline or through top-level static action variables. Parenthesized
+  `Confirmation(confirm_opts)` calls also accept top-level static options table
+  variables. Styled confirmation rendering and actual Lua callback wiring
+  remain future parity work.
 - Completed in v1: a native WezTerm-style `EmitEvent` action payload carries a
   custom event name and dispatches it through a typed native handler with the
   active window id and pane id. Structured command-palette `emit event <name>`
