@@ -840,8 +840,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SplitHorizontal`/`SplitVertical` also accepting top-level SpawnCommand
   fields such as `args`, `cwd`, and `set_environment_variables`, including
   bracketed string table keys with long-bracket values for the implemented
-  split, size, and spawn-command fields. Native `SplitPane` payloads also
-  support `top_level = true` by splitting the full active-tab root region and
+  split, size, and spawn-command fields. Static WezTerm-style `config.keys`
+  actions resolve top-level static variables for `direction`, `domain`,
+  nested `command` spawn fields, Percent/Cells `size`, and `top_level` in
+  those payload tables. Native `SplitPane` payloads also support
+  `top_level = true` by splitting the full active-tab root region and
   compressing the existing layout into the source side. Full Lua table parsing
   remains open.
 - Command palette now exposes WezTerm-style `ToggleFullScreen` as

@@ -690,8 +690,11 @@ keyboard, mouse, paste, resize
   default split directions. Static WezTerm-style `config.keys` actions can
   carry `SpawnCommandInNewTab`/`SpawnCommandInNewWindow` table payloads with
   `args`, `cwd`, `domain`, `set_environment_variables`, and window `position`
-  fields supplied inline or through top-level static variables. Broader Lua
-  `SplitPane` table parsing remains future config parity work.
+  fields supplied inline or through top-level static variables, plus
+  `SplitPane`/`SplitHorizontal`/`SplitVertical` table payloads with
+  `direction`, `domain`, nested `command` spawn fields, Percent/Cells `size`,
+  and `top_level` supplied inline or through top-level static variables.
+  Broader dynamic Lua table evaluation remains future config parity work.
 - Completed in v1: app-shell keyboard routing includes WezTerm-style `Super`
   aliases for native tab actions: `Super+T` `SpawnTab(CurrentPaneDomain)`
   new tab, `Super+Shift+T` `SpawnTab(DefaultDomain)` with configured

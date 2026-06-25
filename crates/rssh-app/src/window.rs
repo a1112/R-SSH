@@ -11650,6 +11650,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::SpawnCommandOptionsInNewWindow(spawn_options));
     }
+    if let Some(split_pane) =
+        split_pane_table_action_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SplitPane(split_pane));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -34547,6 +34552,14 @@ fn split_pane_action_name_options_from_query(query: &str) -> Option<WindowSplitP
 }
 
 fn split_pane_table_action_from_query(query: &str) -> Option<WindowSplitPaneOptions> {
+    split_pane_table_action_from_query_with_static_source(None, query)
+}
+
+fn split_pane_table_action_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSplitPaneOptions> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     let (rest, direction) = split_pane_table_from_lua_function(query, "splitpane", None)
         .or_else(|| {
             split_pane_table_from_lua_function(
@@ -34570,7 +34583,7 @@ fn split_pane_table_action_from_query(query: &str) -> Option<WindowSplitPaneOpti
                 .map(|rest| (rest, Some(SplitDirection::Down)))
         })?;
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-    let options = split_pane_table_options_from_query(table)?;
+    let options = split_pane_table_options_from_query_with_static_source(static_source, table)?;
     let split_direction = direction.or(options.direction)?;
     let split_domain = options.domain.clone();
     let split_size = options.size;
@@ -34651,16 +34664,20 @@ impl WindowSplitPaneTableOptions {
     }
 }
 
-fn split_pane_table_options_from_query(table: &str) -> Option<WindowSplitPaneTableOptions> {
+fn split_pane_table_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    table: &str,
+) -> Option<WindowSplitPaneTableOptions> {
     let table = table.trim().trim_end_matches(',').trim();
     let mut options = WindowSplitPaneTableOptions::default();
     for field in split_lua_table_top_level_fields(table)? {
-        split_pane_table_apply_field(field, &mut options)?;
+        split_pane_table_apply_field(static_source, field, &mut options)?;
     }
     Some(options)
 }
 
 fn split_pane_table_apply_field(
+    static_source: Option<LuaStaticSource<'_>>,
     field: &str,
     options: &mut WindowSplitPaneTableOptions,
 ) -> Option<()> {
@@ -34675,13 +34692,13 @@ fn split_pane_table_apply_field(
         if options.direction.is_some() {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         options.direction = Some(split_pane_direction_from_query(&value)?);
     } else if key.eq_ignore_ascii_case("domain") {
         if options.domain.is_some() {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         options.domain = Some(spawn_command_domain_from_query(&value)?);
     } else if key.eq_ignore_ascii_case("command") {
         if options.command.is_some()
@@ -34692,23 +34709,29 @@ fn split_pane_table_apply_field(
         {
             return None;
         }
-        options.command = Some(split_pane_table_command_from_query(value)?);
+        options.command = Some(split_pane_table_command_from_query_with_static_source(
+            static_source,
+            value,
+        )?);
     } else if key.eq_ignore_ascii_case("args") {
         if options.command.is_some() || options.spawn_args.is_some() {
             return None;
         }
-        options.spawn_args = Some(split_lua_table_string_array(value)?);
+        options.spawn_args = Some(split_lua_table_string_array_with_static_source(
+            static_source,
+            value,
+        )?);
     } else if key.eq_ignore_ascii_case("cwd") {
         if options.command.is_some() || options.spawn_options.cwd.is_some() {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         options.spawn_options.cwd = Some(non_empty_spawn_command_option_value(&value).ok()?);
     } else if key.eq_ignore_ascii_case("label") {
         if options.command.is_some() || options.spawn_label_seen {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         let _ = non_empty_spawn_command_option_value(&value).ok()?;
         options.spawn_label_seen = true;
     } else if key.eq_ignore_ascii_case("set_environment_variables")
@@ -34717,32 +34740,32 @@ fn split_pane_table_apply_field(
         if options.command.is_some() || !options.spawn_options.environment.is_empty() {
             return None;
         }
-        options.spawn_options.environment = split_lua_table_environment_from_query(value)?;
+        options.spawn_options.environment =
+            split_lua_table_environment_from_query_with_static_source(static_source, value)?;
     } else if key.eq_ignore_ascii_case("size") {
         if options.size.is_some() {
             return None;
         }
-        options.size = Some(split_pane_table_size_from_query(value)?);
+        options.size = Some(split_pane_table_size_from_query_with_static_source(
+            static_source,
+            value,
+        )?);
     } else if key.eq_ignore_ascii_case("top_level") || key.eq_ignore_ascii_case("top-level") {
         if options.top_level.is_some() {
             return None;
         }
-        options.top_level = Some(bool_from_query(value)?);
+        options.top_level = Some(parse_maybe_static_query_bool(static_source, value)?);
     } else {
         return None;
     }
     Some(())
 }
 
-fn split_pane_table_command_from_query(value: &str) -> Option<WindowSpawnCommandQuery> {
-    spawn_command_table_from_query(value, false)
-}
-
-fn spawn_command_table_from_query(
+fn split_pane_table_command_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
-    allow_position: bool,
 ) -> Option<WindowSpawnCommandQuery> {
-    spawn_command_table_from_query_with_static_source(None, value, allow_position)
+    spawn_command_table_from_query_with_static_source(static_source, value, false)
 }
 
 fn spawn_command_table_from_query_with_static_source(
@@ -36254,11 +36277,28 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     ))
 }
 
-fn split_pane_table_size_from_query(value: &str) -> Option<WindowSplitPaneSize> {
+fn split_pane_table_size_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowSplitPaneSize> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let (key, value) = split_lua_table_assignment_from_field(table)?;
     let key = split_lua_table_key_from_query(key.trim())?;
-    let amount = value.trim().trim_end_matches(',').trim().parse().ok()?;
+    let value = value.trim().trim_end_matches(',').trim();
+    let amount = if let Some(static_source) = static_source {
+        lua_static_number_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+            lua_unsigned_integer_literal_from_query,
+        )
+        .map(str::to_owned)
+        .or_else(|| parse_maybe_quoted_query_text(value))?
+    } else {
+        parse_maybe_quoted_query_text(value)?
+    }
+    .parse()
+    .ok()?;
     match key.to_ascii_lowercase().as_str() {
         "percent" => Some(WindowSplitPaneSize::Percent(amount)),
         "cells" => Some(WindowSplitPaneSize::Cells(amount)),
@@ -73182,6 +73222,69 @@ mod tests {
                     }),
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_split_pane_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local split_direction = 'Left'
+            local split_domain = 'CurrentPaneDomain'
+            local split_cells = 20
+            local split_top_level = true
+            local launch_args = { 'top', '-d', '1' }
+            local launch_cwd = 'C:/Project Dir'
+            local launch_domain = 'local'
+            local launch_mode = 'dev'
+
+            config.keys = {
+              {
+                key = 'S',
+                mods = 'CTRL|ALT',
+                action = act.SplitPane {
+                  direction = split_direction,
+                  domain = split_domain,
+                  size = { Cells = split_cells },
+                  top_level = split_top_level,
+                  command = {
+                    args = launch_args,
+                    cwd = launch_cwd,
+                    domain = launch_domain,
+                    set_environment_variables = { MODE = launch_mode },
+                  },
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SplitPane static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+S".to_owned(),
+                command: WindowCommand::SplitPane(WindowSplitPaneOptions {
+                    direction: rssh_core::app_shell::SplitDirection::Left,
+                    domain: Some(WindowSpawnTabDomain::CurrentPaneDomain),
+                    command: Some(WindowSpawnCommandQuery {
+                        program: "top".to_owned(),
+                        args: vec!["-d".to_owned(), "1".to_owned()],
+                        cwd: Some("C:/Project Dir".to_owned()),
+                        environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
+                        domain: Some(WindowSpawnTabDomain::DomainName("local".to_owned())),
+                        window_position: None,
+                    }),
+                    command_options: None,
+                    size: Some(WindowSplitPaneSize::Cells(20)),
+                    top_level: true,
+                }),
+            }])
         );
     }
 
