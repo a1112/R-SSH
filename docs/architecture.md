@@ -463,11 +463,12 @@ keyboard, mouse, paste, resize
   `initial value`, and `initial-value` field keys are accepted in both
   `field <text>` and `field=<text>` forms. Static Lua
   `wezterm.format { { Text = ... } }` values for `description` and `prompt`
-  are reduced to their visible text for the native overlay, and static
-  `action = wezterm.action_callback(...)` fields are accepted as native-handler
-  placeholders. WezTerm-style Lua table calls also skip trailing-comma fields;
-  styled prompt-line rendering and actual Lua callback wiring remain future
-  parity work.
+  are reduced to their visible text for the native overlay. WezTerm-style Lua
+  table calls also skip trailing-comma fields and parse `description`, `prompt`,
+  and `initial_value` fields inline or through top-level static string
+  variables. Static `action = wezterm.action_callback(...)` fields are accepted
+  as native-handler placeholders; styled prompt-line rendering and actual Lua
+  callback wiring remain future parity work.
 - Completed in v1: a native WezTerm-style `InputSelector` action payload carries
   `title`, `choices`, optional `alphabet`, optional `description`, optional
   `fuzzy_description`, and `fuzzy`; it opens a modal selector with default-mode

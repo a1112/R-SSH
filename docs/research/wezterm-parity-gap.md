@@ -1001,7 +1001,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   values when a later valid field boundary exists. WezTerm-style
   `wezterm.action.PromptInputLine { description = ..., prompt = ...,
   initial_value = ... }` table-call queries also dispatch that native field
-  subset, including bracketed string table keys with long-bracket values.
+  subset, including bracketed string table keys with long-bracket values and
+  top-level static string variables for `description`/`prompt`/`initial_value`
+  fields.
   Static Lua `wezterm.format { { Text = ... } }` values for `description` and
   `prompt` are reduced to their visible text for the native overlay, and static
   `action = wezterm.action_callback(...)` fields are accepted as native-handler

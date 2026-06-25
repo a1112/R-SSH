@@ -11594,6 +11594,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::QuickSelect(options));
     }
+    if let Some(options) =
+        prompt_input_line_options_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::PromptInputLine(options));
+    }
     if let Some(event) = emit_event_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::EmitEvent(event));
     }
@@ -30023,17 +30028,33 @@ fn bool_query_value_from_prefixes(query: &str, prefixes: &[&str]) -> Option<bool
 }
 
 fn prompt_input_line_options_from_query(query: &str) -> Option<WindowPromptInputLineOptions> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    prompt_input_line_options_from_query_with_static_source(None, query)
+}
+
+fn prompt_input_line_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowPromptInputLineOptions> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(rest) = strip_lua_function_call_from_query(query, "promptinputline")
         && rest.trim_start().starts_with('{')
     {
-        return prompt_input_line_lua_table_from_query(rest);
+        return prompt_input_line_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "promptinputline=")
         && rest.trim_start().starts_with('{')
     {
-        return prompt_input_line_lua_table_from_query(rest);
+        return prompt_input_line_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     let rest = strip_query_prefix_from_any(
@@ -30045,12 +30066,16 @@ fn prompt_input_line_options_from_query(query: &str) -> Option<WindowPromptInput
             "promptinputline ",
         ],
     )?;
-    let (options, _) =
-        prompt_input_line_fields_from_query(rest, WindowPromptInputLineOptions::default())?;
+    let (options, _) = prompt_input_line_fields_from_query_with_static_source(
+        static_source,
+        rest,
+        WindowPromptInputLineOptions::default(),
+    )?;
     Some(options)
 }
 
-fn prompt_input_line_fields_from_query(
+fn prompt_input_line_fields_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     rest: &str,
     options: WindowPromptInputLineOptions,
 ) -> Option<(WindowPromptInputLineOptions, usize)> {
@@ -30065,11 +30090,16 @@ fn prompt_input_line_fields_from_query(
                 if description.is_empty() || !options.description.is_empty() {
                     return None;
                 }
-                let description = parse_maybe_quoted_query_text(description)?;
+                let description =
+                    modal_display_text_from_query_with_static_source(static_source, description)?;
                 let mut options = options.clone();
                 let description_len = description.len();
                 options.description = description;
-                let (options, score) = prompt_input_line_fields_from_query(remaining, options)?;
+                let (options, score) = prompt_input_line_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                )?;
                 Some((options, score + 1, description_len))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30082,11 +30112,16 @@ fn prompt_input_line_fields_from_query(
                 if options.prompt.is_some() {
                     return None;
                 }
-                let prompt = parse_maybe_quoted_query_text(prompt)?;
+                let prompt =
+                    modal_display_text_from_query_with_static_source(static_source, prompt)?;
                 let mut options = options.clone();
                 let prompt_len = prompt.len();
                 options.prompt = Some(prompt);
-                let (options, score) = prompt_input_line_fields_from_query(remaining, options)?;
+                let (options, score) = prompt_input_line_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                )?;
                 Some((options, score + 1, prompt_len))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30102,11 +30137,15 @@ fn prompt_input_line_fields_from_query(
                 if options.initial_value.is_some() {
                     return None;
                 }
-                let initial_value = parse_maybe_quoted_query_text(initial_value)?;
+                let initial_value = parse_maybe_static_query_text(static_source, initial_value)?;
                 let mut options = options.clone();
                 let initial_value_len = initial_value.len();
                 options.initial_value = Some(initial_value);
-                let (options, score) = prompt_input_line_fields_from_query(remaining, options)?;
+                let (options, score) = prompt_input_line_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    options,
+                )?;
                 Some((options, score + 1, initial_value_len))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30171,7 +30210,10 @@ fn prompt_input_line_next_field_offsets(rest: &str) -> Vec<usize> {
     offsets
 }
 
-fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInputLineOptions> {
+fn prompt_input_line_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowPromptInputLineOptions> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowPromptInputLineOptions::default();
     let mut parsed_description = false;
@@ -30188,7 +30230,8 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
         let name = split_lua_table_key_from_query(name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "description" => {
-                let value = modal_display_text_from_query(value.trim())?;
+                let value =
+                    modal_display_text_from_query_with_static_source(static_source, value.trim())?;
                 if parsed_description || value.is_empty() {
                     return None;
                 }
@@ -30196,7 +30239,8 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
                 parsed_description = true;
             }
             "prompt" => {
-                let value = modal_display_text_from_query(value.trim())?;
+                let value =
+                    modal_display_text_from_query_with_static_source(static_source, value.trim())?;
                 if parsed_prompt {
                     return None;
                 }
@@ -30204,7 +30248,7 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
                 parsed_prompt = true;
             }
             "initial_value" | "initial-value" => {
-                let value = parse_maybe_quoted_query_text(value)?;
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 if parsed_initial_value {
                     return None;
                 }
@@ -30227,6 +30271,23 @@ fn prompt_input_line_lua_table_from_query(value: &str) -> Option<WindowPromptInp
 fn lua_action_callback_from_query(value: &str) -> bool {
     strip_lua_function_call_from_query(value, "wezterm.action_callback").is_some()
         || strip_lua_function_call_from_query(value, "action_callback").is_some()
+}
+
+fn modal_display_text_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return modal_display_text_from_query(value);
+    }
+
+    modal_display_text_from_query(value)
 }
 
 fn modal_display_text_from_query(value: &str) -> Option<String> {
@@ -72667,6 +72728,47 @@ mod tests {
                 command: WindowCommand::SendKey(WindowSendKey {
                     key: Key::Named(NamedKey::ArrowLeft),
                     modifiers: ModifiersState::ALT,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_prompt_input_line_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local prompt_description = 'Rename tab'
+            local prompt_label = 'name: '
+            local prompt_initial = 'old name'
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine {
+                  description = prompt_description,
+                  prompt = prompt_label,
+                  initial_value = prompt_initial,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Rename tab".to_owned(),
+                    prompt: Some("name: ".to_owned()),
+                    initial_value: Some("old name".to_owned()),
                 }),
             }])
         );
