@@ -200,9 +200,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `event` payloads inline or through top-level static event table variables,
   nested `Down`/`Up`/`Drag` payloads inline or through top-level static table
   variables, `WheelUp`/`WheelDown` button tables inline or through top-level
-  static table variables, event `button`/`streak` fields inline or through
-  top-level static variables, and `action` payloads inline or through
-  top-level static action variables, so custom bindings such as `ALT` + left drag can dispatch
+  static table variables with amount fields inline or through top-level static
+  number variables, event `button`/`streak` fields inline or through top-level
+  static variables, and `action` payloads inline or through top-level static
+  action variables, so custom bindings such as `ALT` + left drag can dispatch
   `StartWindowDrag`, middle-button release can dispatch `PastePrimarySelection`,
   `CTRL` + wheel-up can dispatch `IncreaseFontSize`, double-left-down can
   dispatch a custom action, and non-left button streaks are tracked for user
@@ -897,8 +898,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   with pre-use field mutations, top-level static event table variables for
   event payloads, top-level static table variables for nested event payloads,
   top-level static table variables for `WheelUp`/`WheelDown` button payloads,
-  top-level static variables for event `button`/`streak` fields, and
-  top-level static action variables for action payloads, and
+  top-level static number variables for wheel button amounts, top-level static
+  variables for event `button`/`streak` fields, and top-level static action
+  variables for action payloads, and
   matching user mouse bindings override the implemented default mouse
   assignment for the same button/streak/modifiers/reporting/alternate-screen
   state; `DisableDefaultAssignment` mouse bindings suppress that matching

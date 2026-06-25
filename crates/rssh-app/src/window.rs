@@ -12114,7 +12114,19 @@ fn native_mouse_assignment_button_from_lua_value(
             }
             let (name, value) = split_lua_table_assignment_from_field(field)?;
             let name = split_lua_table_key_from_query(name.trim())?;
-            let amount = parse_maybe_quoted_query_text(value.trim())?;
+            let value = value.trim();
+            let amount = if let Some(static_source) = static_source {
+                lua_static_number_assignment_value_before_offset_from_query(
+                    static_source.source,
+                    value,
+                    static_source.max_start,
+                    lua_unsigned_integer_literal_from_query,
+                )
+                .map(str::to_owned)
+                .or_else(|| parse_maybe_quoted_query_text(value))?
+            } else {
+                parse_maybe_quoted_query_text(value)?
+            };
             if amount.parse::<i32>().ok()? != 1 {
                 return None;
             }
@@ -70114,6 +70126,40 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm mouse binding static wheel button config");
+        app.set_config_overrides(overrides);
+        app.modifiers = ModifiersState::CONTROL;
+
+        assert!((app.font_size_scale_for_test() - 1.0).abs() < f64::EPSILON);
+        assert!(
+            app.handle_window_mouse_wheel(MouseScrollDelta::LineDelta(0.0, 1.0))
+                .unwrap()
+        );
+
+        assert!((app.font_size_scale_for_test() - 1.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_wheel_button_amount_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local wheel_amount = 1
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = { WheelUp = wheel_amount } } },
+                mods = 'CTRL',
+                action = act.IncreaseFontSize,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static wheel button amount config");
         app.set_config_overrides(overrides);
         app.modifiers = ModifiersState::CONTROL;
 
