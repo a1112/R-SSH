@@ -38317,6 +38317,19 @@ fn quick_select_lua_table_from_query_with_static_source(
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     let value = strip_lua_function_call_from_query(query, "quickselectargs")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "quickselectargs="))?;
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowQuickSelectOptions::default();
     let mut parsed = false;
@@ -76439,6 +76452,51 @@ mod tests {
                     patterns: Some(vec!["ticket-[0-9]+".to_owned(), "bug-[A-Z]+".to_owned()]),
                     alphabet: Some("12".to_owned()),
                     ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local quick_opts = {
+              pattern = 'ticket-[0-9]+',
+              alphabet = '12',
+              label = 'Open ticket',
+              action = 'open-uri',
+              skip_action_on_paste = true,
+              scope_lines = 2,
+            }
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|ALT',
+                action = act.QuickSelectArgs(quick_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm QuickSelectArgs static table variable call config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+Q".to_owned(),
+                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    alphabet: Some("12".to_owned()),
+                    label: Some("Open ticket".to_owned()),
+                    action: Some(WindowQuickSelectAction::OpenUri),
+                    skip_action_on_paste: true,
+                    scope_lines: Some(2),
                 }),
             }])
         );

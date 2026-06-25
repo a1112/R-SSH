@@ -2073,7 +2073,8 @@ keyboard, mouse, paste, resize
   static table variables whose entries can resolve through static string
   variables), `alphabet`, `label`, `skip_action_on_paste`, and `scope_lines`
   inline or through top-level static string/bool/number variables from static
-  WezTerm-style `config.keys`; it also accepts static
+  WezTerm-style `config.keys`; parenthesized `QuickSelectArgs(quick_opts)` calls
+  also accept top-level static options table variables. It also accepts static
   `QuickSelectArgs.action = wezterm.action_callback(...)` values as
   native-handler placeholders, skips trailing-comma table fields, and resolves
   top-level static action variables for `QuickSelectArgs.action` inside static

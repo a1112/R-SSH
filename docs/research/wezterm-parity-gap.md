@@ -1555,7 +1555,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   can resolve through static string variables, top-level static bool/number
   variables for `skip_action_on_paste` and `scope_lines`, and top-level static
   action variables for `QuickSelectArgs.action` when parsed from static
-  WezTerm-style `config.keys`.
+  WezTerm-style `config.keys`, plus parenthesized calls that pass a top-level
+  static options table variable.
 - WezTerm-style pane-selection table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.PaneSelect({ mode = "SwapWithActive", show_pane_ids = true, alphabet = "12" })`,
