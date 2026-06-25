@@ -11659,6 +11659,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(command);
     }
+    if let Some((direction, amount)) =
+        adjust_pane_size_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::AdjustPaneSize { direction, amount });
+    }
     if let Some(mode) = clear_scrollback_mode_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::ClearScrollback(mode));
     }
@@ -33204,7 +33209,16 @@ fn pane_direction_from_query(direction: &str) -> Option<PaneDirection> {
 }
 
 fn adjust_pane_size_from_query(query: &str) -> Option<(ResizeDirection, u16)> {
-    if let Some(adjustment) = adjust_pane_size_table_from_query(query) {
+    adjust_pane_size_from_query_with_static_source(None, query)
+}
+
+fn adjust_pane_size_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<(ResizeDirection, u16)> {
+    if let Some(adjustment) =
+        adjust_pane_size_table_from_query_with_static_source(static_source, query)
+    {
         return Some(adjustment);
     }
 
@@ -33217,16 +33231,31 @@ fn adjust_pane_size_from_query(query: &str) -> Option<(ResizeDirection, u16)> {
             "adjustpanesize ",
         ],
     )?;
-    if let Some(adjustment) = adjust_pane_size_fields_from_query(rest) {
+    if let Some(adjustment) =
+        adjust_pane_size_fields_from_query_with_static_source(static_source, rest)
+    {
         return Some(adjustment);
     }
     let (direction, amount) = rest.split_once(char::is_whitespace)?;
-    let direction = resize_direction_from_query(direction)?;
-    let amount = parse_single_query_value(amount)?.parse().ok()?;
+    let direction = parse_maybe_static_query_text(static_source, direction)?;
+    let direction = resize_direction_from_query(&direction)?;
+    let amount = parse_maybe_static_query_u16(static_source, amount)?;
     Some((direction, amount))
 }
 
-fn adjust_pane_size_table_from_query(query: &str) -> Option<(ResizeDirection, u16)> {
+fn adjust_pane_size_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<(ResizeDirection, u16)> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
     let rest = strip_lua_function_call_from_query(query, "adjustpanesize")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "adjustpanesize="))?;
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -33238,12 +33267,15 @@ fn adjust_pane_size_table_from_query(query: &str) -> Option<(ResizeDirection, u1
     if fields.len() != 2 {
         return None;
     }
-    let direction = parse_maybe_quoted_query_text(fields[0])?;
-    let amount = parse_single_query_value(fields[1])?.parse().ok()?;
+    let direction = parse_maybe_static_query_text(static_source, fields[0])?;
+    let amount = parse_maybe_static_query_u16(static_source, fields[1])?;
     Some((resize_direction_from_query(&direction)?, amount))
 }
 
-fn adjust_pane_size_fields_from_query(rest: &str) -> Option<(ResizeDirection, u16)> {
+fn adjust_pane_size_fields_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    rest: &str,
+) -> Option<(ResizeDirection, u16)> {
     let tokens = command_palette_query_words(rest)?;
     let mut direction = None;
     let mut amount = None;
@@ -33256,7 +33288,8 @@ fn adjust_pane_size_fields_from_query(rest: &str) -> Option<(ResizeDirection, u1
             if direction.is_some() {
                 return None;
             }
-            direction = Some(resize_direction_from_query(value)?);
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            direction = Some(resize_direction_from_query(&value)?);
             parsed_structured_field = true;
             index += 1;
             continue;
@@ -33266,7 +33299,7 @@ fn adjust_pane_size_fields_from_query(rest: &str) -> Option<(ResizeDirection, u1
             if amount.is_some() {
                 return None;
             }
-            amount = Some(value.parse().ok()?);
+            amount = Some(parse_maybe_static_query_u16(static_source, value)?);
             parsed_structured_field = true;
             index += 1;
             continue;
@@ -33278,9 +33311,9 @@ fn adjust_pane_size_fields_from_query(rest: &str) -> Option<(ResizeDirection, u1
                 if direction.is_some() {
                     return None;
                 }
-                direction = Some(resize_direction_from_query(
-                    tokens.get(index + 1)?.as_str(),
-                )?);
+                let value =
+                    parse_maybe_static_query_text(static_source, tokens.get(index + 1)?.as_str())?;
+                direction = Some(resize_direction_from_query(&value)?);
                 parsed_structured_field = true;
                 index += 2;
             }
@@ -33288,11 +33321,10 @@ fn adjust_pane_size_fields_from_query(rest: &str) -> Option<(ResizeDirection, u1
                 if amount.is_some() {
                     return None;
                 }
-                amount = Some(
-                    parse_single_query_value(tokens.get(index + 1)?.as_str())?
-                        .parse()
-                        .ok()?,
-                );
+                amount = Some(parse_maybe_static_query_u16(
+                    static_source,
+                    tokens.get(index + 1)?.as_str(),
+                )?);
                 parsed_structured_field = true;
                 index += 2;
             }
@@ -33973,6 +34005,25 @@ fn parse_maybe_static_query_bool(
 
     let value = parse_maybe_static_query_text(static_source, value)?;
     bool_from_query(&value)
+}
+
+fn parse_maybe_static_query_u16(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<u16> {
+    let value = if let Some(static_source) = static_source {
+        lua_static_number_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+            lua_unsigned_integer_literal_from_query,
+        )
+        .map(str::to_owned)
+        .or_else(|| parse_maybe_quoted_query_text(value))?
+    } else {
+        parse_maybe_quoted_query_text(value)?
+    };
+    parse_single_query_value(&value)?.parse().ok()
 }
 
 fn lua_static_string_assignment_value_before_offset_from_query<'a>(
@@ -73414,6 +73465,41 @@ mod tests {
                 command: WindowCommand::ClearScrollback(
                     WindowClearScrollbackMode::ScrollbackAndViewport,
                 ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_adjust_pane_size_static_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local resize_direction = 'Left'
+            local resize_amount = 4
+
+            config.keys = {
+              {
+                key = 'LeftArrow',
+                mods = 'CTRL|SHIFT|ALT',
+                action = act.AdjustPaneSize { resize_direction, resize_amount },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm AdjustPaneSize static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT|ALT+LeftArrow".to_owned(),
+                command: WindowCommand::AdjustPaneSize {
+                    direction: ResizeDirection::Left,
+                    amount: 4,
+                },
             }])
         );
     }

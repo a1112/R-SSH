@@ -562,7 +562,9 @@ keyboard, mouse, paste, resize
   `adjustpanesize direction=<direction> amount=<cells>`. WezTerm-style
   `AdjustPaneSize { '<direction>', <cells> }` Lua table actions and
   `wezterm.action { AdjustPaneSize = { '<direction>', <cells> } }` wrappers
-  dispatch the same payload, including trailing comma fields.
+  dispatch the same payload, including trailing comma fields. Static
+  `config.keys` action tables resolve top-level string variables for direction
+  and top-level integer variables for amount.
 - Completed in v1: pane zoom state is represented in app-shell state and
   rendered by the native window as a full-tab pane until toggled off through
   WezTerm-style `TogglePaneZoomState`, explicitly zoomed/unzoomed through
