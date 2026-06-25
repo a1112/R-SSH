@@ -2006,6 +2006,31 @@ mod tests {
     }
 
     #[test]
+    fn terminal_unicode14_emoji_variation_selector_expands_previous_text_cell() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.set_unicode_version(14);
+
+        terminal.feed("☁\u{fe0f}x".as_bytes());
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '☁');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.grid().get(0, 2).unwrap().ch, 'x');
+        assert_eq!(terminal.cursor(), (0, 3));
+    }
+
+    #[test]
+    fn terminal_unicode14_text_variation_selector_shrinks_previous_emoji_cell() {
+        let mut terminal = Terminal::new(TerminalSize::new(4, 1));
+        terminal.set_unicode_version(14);
+
+        terminal.feed("⌚\u{fe0e}x".as_bytes());
+
+        assert_eq!(terminal.grid().get(0, 0).unwrap().ch, '⌚');
+        assert_eq!(terminal.grid().get(0, 1).unwrap().ch, 'x');
+        assert_eq!(terminal.cursor(), (0, 2));
+    }
+
+    #[test]
     fn terminal_handles_split_utf8_across_feed_calls() {
         let mut terminal = Terminal::new(TerminalSize::new(4, 1));
         let bytes = "中".as_bytes();

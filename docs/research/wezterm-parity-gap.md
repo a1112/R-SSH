@@ -440,12 +440,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   cell without changing display width. `unicode_version` is retained in
   effective config, static numeric Lua snippets apply to active and new pane
   runtimes, and OSC 1337 `UnicodeVersion` set/push/pop sequences, including
-  labeled entries, now update terminal state; exact version-specific Unicode
-  width tables remain open. Native winit IME commit text
-  now writes to the active pane when `use_ime` is enabled and is ignored when
-  disabled; native winit IME preedit text now renders as a Builtin overlay at
-  the active pane cursor, is suppressed for `System` or disabled IME, and is
-  cleared by commit or empty preedit. Static Lua `colors.compose_cursor`
+  labeled entries, now update terminal state. Unicode 14+ emoji/text
+  presentation selectors now adjust prior-cell width for FE0F/FE0E sequences;
+  full Unicode 8-vs-9 width-table differences remain open. Native winit IME
+  commit text now writes to the active pane when `use_ime` is enabled and is
+  ignored when disabled; native winit IME preedit text now renders as a Builtin
+  overlay at the active pane cursor, is suppressed for `System` or disabled
+  IME, and is cleared by commit or empty preedit. Static Lua `colors.compose_cursor`
   overrides the cursor color while Builtin preedit text, the leader modifier,
   or a dead key is active. Exact platform left/right modifier source tracking,
   deeper platform IME/XIM setup, and broader dynamic `cell_widths` Lua parity
@@ -1315,8 +1316,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.unicode_version` parses static numeric assignments into effective
   config with WezTerm's default `9`, applies to active and new pane runtimes,
   and OSC 1337 `UnicodeVersion` set/push/pop sequences update terminal state,
-  including labeled stack entries; exact Unicode-width version behavior
-  remains open.
+  including labeled stack entries. Unicode 14+ emoji/text presentation
+  selectors adjust prior-cell width for FE0F/FE0E sequences; full Unicode
+  8-vs-9 width-table differences remain open.
   `treat_left_ctrlalt_as_altgr`
   routes Ctrl+Alt text key events as AltGr text input rather than triggering
   Ctrl+Alt key bindings. Native winit IME commit text writes to the active pane

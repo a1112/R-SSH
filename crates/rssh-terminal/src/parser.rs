@@ -8,7 +8,7 @@ use flate2::read::ZlibDecoder;
 use rssh_core::{DamageRegion, TerminalSize};
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::canonical_combining_class;
-use unicode_width::UnicodeWidthChar;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     Cell, Color, CursorShape, CursorStyle, InlineImageFormat, ItermInlineImage, ScrollbackLine,
@@ -17,6 +17,9 @@ use crate::{
 
 pub const DEFAULT_SCROLLBACK_LIMIT: usize = 3_500;
 const DEFAULT_UNICODE_VERSION: u32 = 9;
+const UNICODE_PRESENTATION_SELECTOR_VERSION: u32 = 14;
+const TEXT_PRESENTATION_SELECTOR: char = '\u{fe0e}';
+const EMOJI_PRESENTATION_SELECTOR: char = '\u{fe0f}';
 const ANONYMOUS_KITTY_IMAGE_ID: u32 = 0;
 const MAX_KITTY_RELATIVE_CHAIN_DEPTH: usize = 8;
 const KITTY_UNICODE_PLACEHOLDER: char = '\u{10eeee}';
@@ -3068,6 +3071,9 @@ impl Terminal {
 
     fn write_char(&mut self, ch: char) {
         let ch = self.map_graphic_character(ch);
+        if self.apply_unicode_presentation_selector(ch) {
+            return;
+        }
         if self.apply_kitty_placeholder_diacritic(ch) {
             return;
         }
@@ -3144,6 +3150,74 @@ impl Terminal {
                 self.last_kitty_placeholder = None;
             }
         }
+    }
+
+    fn apply_unicode_presentation_selector(&mut self, selector: char) -> bool {
+        if !is_unicode_presentation_selector(selector) {
+            return false;
+        }
+
+        if self.unicode_version < UNICODE_PRESENTATION_SELECTOR_VERSION {
+            return true;
+        }
+
+        let Some((row, column)) = self.nfc_last_printable_cell else {
+            return true;
+        };
+        let Some(previous_cell) = self.grid.get(row, column).cloned() else {
+            return true;
+        };
+        if previous_cell.ch == KITTY_UNICODE_PLACEHOLDER {
+            return true;
+        }
+
+        let previous_width = display_width(
+            previous_cell.ch,
+            self.treat_east_asian_ambiguous_width_as_wide,
+            &self.cell_width_overrides,
+        );
+        let sequence_width = presentation_sequence_width(
+            previous_cell.ch,
+            selector,
+            self.treat_east_asian_ambiguous_width_as_wide,
+            &self.cell_width_overrides,
+        );
+        if previous_width == 0 || previous_width == sequence_width {
+            return true;
+        }
+
+        let expected_cursor = column.saturating_add(previous_width);
+        if self.cursor_row != row || self.cursor_column != expected_cursor || self.pending_wrap {
+            return true;
+        }
+
+        let available_width = self.grid.size().columns.saturating_sub(column);
+        if sequence_width == 0 || sequence_width > available_width {
+            return true;
+        }
+
+        if sequence_width > previous_width {
+            let mut continuation = previous_cell;
+            continuation.ch = ' ';
+            for offset in previous_width..sequence_width {
+                self.grid.set(row, column + offset, continuation.clone());
+            }
+        } else {
+            for offset in sequence_width..previous_width {
+                self.grid.set(row, column + offset, self.blank_cell());
+            }
+        }
+
+        self.record_damage(DamageRegion::new(
+            column,
+            row,
+            previous_width.max(sequence_width),
+            1,
+        ));
+        self.cursor_column = column;
+        self.pending_wrap = false;
+        self.advance_cursor(sequence_width);
+        true
     }
 
     fn clear_kitty_placeholder_cells(&mut self, row: usize, column: u16, width: u16) {
@@ -6105,10 +6179,46 @@ fn display_width(
     };
     match width {
         Some(0) => 0,
-        Some(width) if width > usize::from(u16::MAX) => u16::MAX,
-        Some(width) => u16::try_from(width).unwrap_or(1),
+        Some(width) => u16_display_width(width),
         None => 1,
     }
+}
+
+fn presentation_sequence_width(
+    ch: char,
+    selector: char,
+    treat_east_asian_ambiguous_width_as_wide: bool,
+    cell_width_overrides: &[CellWidthOverride],
+) -> u16 {
+    if let Some(override_width) = cell_width_overrides
+        .iter()
+        .find(|override_width| override_width.contains(ch))
+        .map(|override_width| override_width.width)
+    {
+        return override_width;
+    }
+
+    let mut sequence = String::with_capacity(ch.len_utf8() + selector.len_utf8());
+    sequence.push(ch);
+    sequence.push(selector);
+    let width = if treat_east_asian_ambiguous_width_as_wide {
+        sequence.as_str().width_cjk()
+    } else {
+        sequence.as_str().width()
+    };
+    u16_display_width(width)
+}
+
+fn u16_display_width(width: usize) -> u16 {
+    if width > usize::from(u16::MAX) {
+        u16::MAX
+    } else {
+        u16::try_from(width).unwrap_or(1)
+    }
+}
+
+fn is_unicode_presentation_selector(ch: char) -> bool {
+    matches!(ch, TEXT_PRESENTATION_SELECTOR | EMOJI_PRESENTATION_SELECTOR)
 }
 
 fn non_empty_unicode_version_label(label: &str) -> Option<String> {
