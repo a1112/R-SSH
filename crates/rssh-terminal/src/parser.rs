@@ -20,6 +20,75 @@ const DEFAULT_UNICODE_VERSION: u32 = 9;
 const UNICODE_PRESENTATION_SELECTOR_VERSION: u32 = 14;
 const TEXT_PRESENTATION_SELECTOR: char = '\u{fe0e}';
 const EMOJI_PRESENTATION_SELECTOR: char = '\u{fe0f}';
+// WezTerm's WidenedIn9 set: width 1 for Unicode <= 8, width 2 for Unicode >= 9.
+const WIDENED_IN_UNICODE9: &[(u32, u32)] = &[
+    (0x0231A, 0x0231B),
+    (0x023E9, 0x023EC),
+    (0x023F0, 0x023F0),
+    (0x023F3, 0x023F3),
+    (0x025FD, 0x025FE),
+    (0x02614, 0x02615),
+    (0x02648, 0x02653),
+    (0x0267F, 0x0267F),
+    (0x02693, 0x02693),
+    (0x026A1, 0x026A1),
+    (0x026AA, 0x026AB),
+    (0x026BD, 0x026BE),
+    (0x026C4, 0x026C5),
+    (0x026CE, 0x026CE),
+    (0x026D4, 0x026D4),
+    (0x026EA, 0x026EA),
+    (0x026F2, 0x026F3),
+    (0x026F5, 0x026F5),
+    (0x026FA, 0x026FA),
+    (0x026FD, 0x026FD),
+    (0x02705, 0x02705),
+    (0x0270A, 0x0270B),
+    (0x02728, 0x02728),
+    (0x0274C, 0x0274C),
+    (0x0274E, 0x0274E),
+    (0x02753, 0x02755),
+    (0x02757, 0x02757),
+    (0x02795, 0x02797),
+    (0x027B0, 0x027B0),
+    (0x027BF, 0x027BF),
+    (0x02B1B, 0x02B1C),
+    (0x02B50, 0x02B50),
+    (0x02B55, 0x02B55),
+    (0x1F004, 0x1F004),
+    (0x1F0CF, 0x1F0CF),
+    (0x1F18E, 0x1F18E),
+    (0x1F191, 0x1F19A),
+    (0x1F201, 0x1F201),
+    (0x1F21A, 0x1F21A),
+    (0x1F22F, 0x1F22F),
+    (0x1F232, 0x1F236),
+    (0x1F238, 0x1F23A),
+    (0x1F250, 0x1F251),
+    (0x1F300, 0x1F320),
+    (0x1F32D, 0x1F335),
+    (0x1F337, 0x1F37C),
+    (0x1F37E, 0x1F393),
+    (0x1F3A0, 0x1F3CA),
+    (0x1F3CF, 0x1F3D3),
+    (0x1F3E0, 0x1F3F0),
+    (0x1F3F4, 0x1F3F4),
+    (0x1F3F8, 0x1F43E),
+    (0x1F440, 0x1F440),
+    (0x1F442, 0x1F4FC),
+    (0x1F4FF, 0x1F53D),
+    (0x1F54B, 0x1F54E),
+    (0x1F550, 0x1F567),
+    (0x1F595, 0x1F596),
+    (0x1F5FB, 0x1F64F),
+    (0x1F680, 0x1F6C5),
+    (0x1F6CC, 0x1F6CC),
+    (0x1F6D0, 0x1F6D0),
+    (0x1F6EB, 0x1F6EC),
+    (0x1F910, 0x1F918),
+    (0x1F980, 0x1F984),
+    (0x1F9C0, 0x1F9C0),
+];
 const ANONYMOUS_KITTY_IMAGE_ID: u32 = 0;
 const MAX_KITTY_RELATIVE_CHAIN_DEPTH: usize = 8;
 const KITTY_UNICODE_PLACEHOLDER: char = '\u{10eeee}';
@@ -792,11 +861,13 @@ impl Terminal {
 
         let previous_width = display_width(
             previous_cell.ch,
+            self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
         );
         let normalized_width = display_width(
             normalized_ch,
+            self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
         );
@@ -3080,6 +3151,7 @@ impl Terminal {
         self.finish_pending_kitty_placeholder();
         let width = display_width(
             ch,
+            self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
         );
@@ -3173,6 +3245,7 @@ impl Terminal {
 
         let previous_width = display_width(
             previous_cell.ch,
+            self.unicode_version,
             self.treat_east_asian_ambiguous_width_as_wide,
             &self.cell_width_overrides,
         );
@@ -6161,6 +6234,7 @@ fn saturating_u8(value: u16) -> u8 {
 
 fn display_width(
     ch: char,
+    unicode_version: u32,
     treat_east_asian_ambiguous_width_as_wide: bool,
     cell_width_overrides: &[CellWidthOverride],
 ) -> u16 {
@@ -6170,6 +6244,10 @@ fn display_width(
         .map(|override_width| override_width.width)
     {
         return override_width;
+    }
+
+    if unicode_version <= 8 && is_widened_in_unicode9(ch) {
+        return 1;
     }
 
     let width = if treat_east_asian_ambiguous_width_as_wide {
@@ -6219,6 +6297,19 @@ fn u16_display_width(width: usize) -> u16 {
 
 fn is_unicode_presentation_selector(ch: char) -> bool {
     matches!(ch, TEXT_PRESENTATION_SELECTOR | EMOJI_PRESENTATION_SELECTOR)
+}
+
+fn is_widened_in_unicode9(ch: char) -> bool {
+    let codepoint = u32::from(ch);
+    WIDENED_IN_UNICODE9
+        .binary_search_by(|(start, end)| {
+            if codepoint >= *start && codepoint <= *end {
+                core::cmp::Ordering::Equal
+            } else {
+                start.cmp(&codepoint)
+            }
+        })
+        .is_ok()
 }
 
 fn non_empty_unicode_version_label(label: &str) -> Option<String> {

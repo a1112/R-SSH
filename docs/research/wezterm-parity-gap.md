@@ -441,8 +441,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   effective config, static numeric Lua snippets apply to active and new pane
   runtimes, and OSC 1337 `UnicodeVersion` set/push/pop sequences, including
   labeled entries, now update terminal state. Unicode 14+ emoji/text
-  presentation selectors now adjust prior-cell width for FE0F/FE0E sequences;
-  full Unicode 8-vs-9 width-table differences remain open. Native winit IME
+  presentation selectors now adjust prior-cell width for FE0F/FE0E sequences,
+  and Unicode 8-or-earlier runtimes keep WezTerm's `WidenedIn9` characters
+  narrow while Unicode 9+ widens them. Native winit IME
   commit text now writes to the active pane when `use_ime` is enabled and is
   ignored when disabled; native winit IME preedit text now renders as a Builtin
   overlay at the active pane cursor, is suppressed for `System` or disabled
@@ -1317,8 +1318,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   config with WezTerm's default `9`, applies to active and new pane runtimes,
   and OSC 1337 `UnicodeVersion` set/push/pop sequences update terminal state,
   including labeled stack entries. Unicode 14+ emoji/text presentation
-  selectors adjust prior-cell width for FE0F/FE0E sequences; full Unicode
-  8-vs-9 width-table differences remain open.
+  selectors adjust prior-cell width for FE0F/FE0E sequences, and Unicode
+  8-or-earlier runtimes keep WezTerm's `WidenedIn9` characters narrow while
+  Unicode 9+ widens them.
   `treat_left_ctrlalt_as_altgr`
   routes Ctrl+Alt text key events as AltGr text input rather than triggering
   Ctrl+Alt key bindings. Native winit IME commit text writes to the active pane
