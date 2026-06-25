@@ -1530,7 +1530,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   existing command-palette query forms, including bracketed string table keys
   with long-bracket values, trailing comma table fields, top-level static string
   variables for `copy_to` and `group`, and top-level static bool variables for
-  `copy_on_select` when parsed from static WezTerm-style `config.keys`.
+  `copy_on_select`, plus parenthesized calls that pass a top-level static
+  options table variable when parsed from static WezTerm-style `config.keys`.
 - WezTerm-style quick-select table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.QuickSelectArgs({ pattern = "ticket-[0-9]+", action = "open-uri", alphabet = "12" })`,
