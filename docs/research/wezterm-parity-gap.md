@@ -1557,7 +1557,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   function-call forms including
   `wezterm.action.SelectTextAtMouseCursor('SemanticZone')` and
   `wezterm.action.ExtendSelectionToMouseCursor('Block')`, matching the existing
-  bare-string routing to implemented selection modes.
+  bare-string routing to implemented selection modes. Static `config.keys`
+  action calls also resolve top-level string variables for
+  `SelectTextAtMouseCursor` and `ExtendSelectionToMouseCursor` modes.
 - Default `Super+R`, `Super+K`/`Ctrl+Shift+K`, and `Super+F` shortcuts now
   route to the same reload-configuration, clear-scrollback, and search paths as
   the existing WezTerm-style actions.

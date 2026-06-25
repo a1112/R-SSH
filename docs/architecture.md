@@ -1121,7 +1121,9 @@ keyboard, mouse, paste, resize
   double/triple-click release completes the selected word or line to
   ClipboardAndPrimarySelection.
   Command-palette and native `SelectTextAtMouseCursor` also cover SemanticZone
-  selection for the OSC 133 semantic zone under the mouse.
+  selection for the OSC 133 semantic zone under the mouse. Static `config.keys`
+  action calls resolve top-level string variables for
+  `SelectTextAtMouseCursor` and `ExtendSelectionToMouseCursor` modes.
 - Implemented in v1: command-palette Clear Scrollback and native
   `ClearScrollback('ScrollbackOnly')` action payloads clear active-pane history
   on the output side while preserving the viewport; structured

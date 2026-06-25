@@ -11732,6 +11732,16 @@ fn native_key_assignment_command_from_query(
             destination,
         ));
     }
+    if let Some(mode) =
+        select_text_at_mouse_cursor_mode_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SelectTextAtMouseCursor(mode));
+    }
+    if let Some(mode) =
+        extend_selection_to_mouse_cursor_mode_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::ExtendSelectionToMouseCursor(mode));
+    }
     if let Some(level) = set_window_level_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SetWindowLevel(level));
     }
@@ -33859,8 +33869,25 @@ fn mouse_selection_command_from_query(query: &str) -> Option<WindowCommand> {
 }
 
 fn select_text_at_mouse_cursor_mode_from_query(query: &str) -> Option<WindowMouseSelectionMode> {
+    select_text_at_mouse_cursor_mode_from_query_with_static_source(None, query)
+}
+
+fn select_text_at_mouse_cursor_mode_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowMouseSelectionMode> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(mode) = strip_lua_function_call_from_query(query, "selecttextatmousecursor") {
-        let mode = parse_maybe_quoted_query_text(mode)?;
+        let mode = parse_maybe_static_query_text(static_source, mode)?;
         return mouse_selection_mode_from_query(&mode);
     }
 
@@ -33874,15 +33901,32 @@ fn select_text_at_mouse_cursor_mode_from_query(query: &str) -> Option<WindowMous
         ],
     )?;
     let mode = strip_query_prefix_from_any(mode, &["mode=", "mode "]).unwrap_or(mode);
-    let mode = parse_maybe_quoted_query_text(mode)?;
+    let mode = parse_maybe_static_query_text(static_source, mode)?;
     mouse_selection_mode_from_query(&mode)
 }
 
 fn extend_selection_to_mouse_cursor_mode_from_query(
     query: &str,
 ) -> Option<WindowMouseSelectionMode> {
+    extend_selection_to_mouse_cursor_mode_from_query_with_static_source(None, query)
+}
+
+fn extend_selection_to_mouse_cursor_mode_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowMouseSelectionMode> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(mode) = strip_lua_function_call_from_query(query, "extendselectiontomousecursor") {
-        let mode = parse_maybe_quoted_query_text(mode)?;
+        let mode = parse_maybe_static_query_text(static_source, mode)?;
         return mouse_selection_mode_from_query(&mode);
     }
 
@@ -33896,7 +33940,7 @@ fn extend_selection_to_mouse_cursor_mode_from_query(
         ],
     )?;
     let mode = strip_query_prefix_from_any(mode, &["mode=", "mode "]).unwrap_or(mode);
-    let mode = parse_maybe_quoted_query_text(mode)?;
+    let mode = parse_maybe_static_query_text(static_source, mode)?;
     mouse_selection_mode_from_query(&mode)
 }
 
@@ -74471,6 +74515,72 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+T".to_owned(),
                 command: WindowCommand::SetWindowLevel(NativeWindowLevel::AlwaysOnTop),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_select_text_at_mouse_cursor_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local mode = 'SemanticZone'
+
+            config.keys = {
+              {
+                key = 'S',
+                mods = 'CTRL|SHIFT',
+                action = act.SelectTextAtMouseCursor(mode),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SelectTextAtMouseCursor static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+S".to_owned(),
+                command: WindowCommand::SelectTextAtMouseCursor(
+                    WindowMouseSelectionMode::SemanticZone,
+                ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_extend_selection_to_mouse_cursor_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local mode = 'Block'
+
+            config.keys = {
+              {
+                key = 'B',
+                mods = 'CTRL|SHIFT',
+                action = act.ExtendSelectionToMouseCursor(mode),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ExtendSelectionToMouseCursor static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+B".to_owned(),
+                command: WindowCommand::ExtendSelectionToMouseCursor(
+                    WindowMouseSelectionMode::Block,
+                ),
             }])
         );
     }
