@@ -2526,7 +2526,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `activatepanedown`, `nextpane`, and `previouspane` queries dispatch the
   corresponding no-argument entries. Native
   `WindowCommand::ActivatePaneDirection(direction)` payloads dispatch through
-  the same Up/Down/Left/Right/Next/Previous path.
+  the same Up/Down/Left/Right/Next/Previous path. Static `config.keys` action
+  calls resolve top-level string variables for `ActivatePaneDirection`.
 - App-shell state now exposes WezTerm-style `ActivatePaneByIndex`, and the
   command palette includes Activate Pane By Index 1..8 entries plus
   `activate pane <index>`, `activate pane by index <index>`, and

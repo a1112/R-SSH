@@ -625,7 +625,9 @@ keyboard, mouse, paste, resize
   `activate pane direction <direction>` and
   `activatepanedirection <direction>`; action-name `activatepaneleft`,
   `activatepaneright`, `activatepaneup`, `activatepanedown`, `nextpane`, and
-  `previouspane` queries dispatch the corresponding no-argument entries.
+  `previouspane` queries dispatch the corresponding no-argument entries. Static
+  `config.keys` action calls resolve top-level string variables for
+  `ActivatePaneDirection`.
 - Completed in v1: app-shell state exposes WezTerm-style `ActivatePaneByIndex`,
   with command-palette Activate Pane By Index entries for pane indices 1
   through 8, `activate pane <index>`/`activate pane by index <index>` queries,

@@ -11681,6 +11681,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::ActivatePaneByIndex(index));
     }
+    if let Some(direction) =
+        activate_pane_direction_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::ActivatePaneDirection(direction));
+    }
     if let Some((direction, amount)) =
         adjust_pane_size_from_query_with_static_source(static_source, value)
     {
@@ -33302,15 +33307,32 @@ fn activate_pane_by_index_from_query_with_static_source(
 }
 
 fn activate_pane_direction_from_query(query: &str) -> Option<PaneDirection> {
+    activate_pane_direction_from_query_with_static_source(None, query)
+}
+
+fn activate_pane_direction_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<PaneDirection> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(direction) = strip_lua_function_call_from_query(query, "activatepanedirection")
-        .and_then(parse_maybe_quoted_query_text)
+        .and_then(|direction| parse_maybe_static_query_text(static_source, direction))
         .and_then(|direction| pane_direction_from_query(&direction))
     {
         return Some(direction);
     }
 
     if let Some(direction) = strip_query_prefix_from_any(query, &["activatepanedirection "])
-        .and_then(parse_maybe_quoted_query_text)
+        .and_then(|direction| parse_maybe_static_query_text(static_source, direction))
         .and_then(|direction| pane_direction_from_query(&direction))
     {
         return Some(direction);
@@ -33325,10 +33347,10 @@ fn activate_pane_direction_from_query(query: &str) -> Option<PaneDirection> {
             "activatepanedirection ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     let direction =
         strip_query_prefix_from_any(direction, &["direction=", "direction "]).unwrap_or(direction);
-    let direction = parse_maybe_quoted_query_text(direction)?;
+    let direction = parse_maybe_static_query_text(static_source, direction)?;
     pane_direction_from_query(&direction)
 }
 
@@ -74079,6 +74101,39 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+1".to_owned(),
                 command: WindowCommand::ActivatePaneByIndex(2),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_pane_direction_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pane_direction = 'Left'
+
+            config.keys = {
+              {
+                key = 'LeftArrow',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivatePaneDirection(pane_direction),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivatePaneDirection static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+LeftArrow".to_owned(),
+                command: WindowCommand::ActivatePaneDirection(
+                    rssh_core::app_shell::PaneDirection::Left,
+                ),
             }])
         );
     }
