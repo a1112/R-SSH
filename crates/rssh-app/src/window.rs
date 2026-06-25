@@ -11653,6 +11653,12 @@ fn native_key_assignment_command_from_query(
     if let Some(domain) = spawn_tab_domain_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SpawnTab(domain));
     }
+    if let Some(domain) = attach_domain_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::AttachDomain(domain));
+    }
+    if let Some(domain) = detach_domain_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::DetachDomain(domain));
+    }
     if let Some(split_pane) =
         split_pane_table_action_from_query_with_static_source(static_source, value)
     {
@@ -38990,8 +38996,25 @@ fn spawn_command_domain_from_query(domain: &str) -> Option<WindowSpawnTabDomain>
 }
 
 fn attach_domain_from_query(query: &str) -> Option<String> {
+    attach_domain_from_query_with_static_source(None, query)
+}
+
+fn attach_domain_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<String> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(domain) = strip_lua_function_call_from_query(query, "attachdomain") {
-        return named_domain_from_query(domain);
+        return named_domain_from_query_with_static_source(static_source, domain);
     }
 
     let domain = strip_query_prefix_from_any(
@@ -39003,21 +39026,44 @@ fn attach_domain_from_query(query: &str) -> Option<String> {
             "attachdomain ",
         ],
     )?;
-    named_domain_from_query(domain)
+    named_domain_from_query_with_static_source(static_source, domain)
 }
 
 fn detach_domain_from_query(query: &str) -> Option<WindowDomainSelector> {
+    detach_domain_from_query_with_static_source(None, query)
+}
+
+fn detach_domain_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowDomainSelector> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(domain) = strip_lua_function_call_from_query(query, "detachdomain") {
         if domain.trim_start().starts_with('{') {
-            return window_domain_selector_lua_table_from_query(domain);
+            return window_domain_selector_lua_table_from_query_with_static_source(
+                static_source,
+                domain,
+            );
         }
-        return window_domain_selector_from_query(domain);
+        return window_domain_selector_from_query_with_static_source(static_source, domain);
     }
 
     if let Some(domain) = strip_query_table_assignment_from_prefix(query, "detachdomain=")
         && domain.trim_start().starts_with('{')
     {
-        return window_domain_selector_lua_table_from_query(domain);
+        return window_domain_selector_lua_table_from_query_with_static_source(
+            static_source,
+            domain,
+        );
     }
 
     let domain = strip_query_prefix_from_any(
@@ -39030,12 +39076,18 @@ fn detach_domain_from_query(query: &str) -> Option<WindowDomainSelector> {
         ],
     )?;
     if domain.trim_start().starts_with('{') {
-        return window_domain_selector_lua_table_from_query(domain);
+        return window_domain_selector_lua_table_from_query_with_static_source(
+            static_source,
+            domain,
+        );
     }
-    window_domain_selector_from_query(domain)
+    window_domain_selector_from_query_with_static_source(static_source, domain)
 }
 
-fn named_domain_from_query(domain: &str) -> Option<String> {
+fn named_domain_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    domain: &str,
+) -> Option<String> {
     let domain = strip_query_prefix_from_any(
         domain,
         &[
@@ -39048,11 +39100,14 @@ fn named_domain_from_query(domain: &str) -> Option<String> {
         ],
     )
     .unwrap_or(domain);
-    parse_maybe_quoted_query_text(domain).filter(|domain| !domain.is_empty())
+    parse_maybe_static_query_text(static_source, domain).filter(|domain| !domain.is_empty())
 }
 
-fn window_domain_selector_from_query(domain: &str) -> Option<WindowDomainSelector> {
-    let domain = named_domain_from_query(domain)?;
+fn window_domain_selector_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    domain: &str,
+) -> Option<WindowDomainSelector> {
+    let domain = named_domain_from_query_with_static_source(static_source, domain)?;
     let normalized = domain
         .chars()
         .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
@@ -39066,7 +39121,10 @@ fn window_domain_selector_from_query(domain: &str) -> Option<WindowDomainSelecto
     }
 }
 
-fn window_domain_selector_lua_table_from_query(value: &str) -> Option<WindowDomainSelector> {
+fn window_domain_selector_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowDomainSelector> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut domain = None;
     for field in split_lua_table_top_level_fields(table)? {
@@ -39079,7 +39137,7 @@ fn window_domain_selector_lua_table_from_query(value: &str) -> Option<WindowDoma
         if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         if value.is_empty() {
             return None;
         }
@@ -74027,6 +74085,70 @@ mod tests {
                 keys: "CTRL|ALT+D".to_owned(),
                 command: WindowCommand::SpawnTab(WindowSpawnTabDomain::DomainName(
                     "local".to_owned(),
+                )),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_attach_domain_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain = 'devhost'
+
+            config.keys = {
+              {
+                key = 'A',
+                mods = 'CTRL|ALT',
+                action = act.AttachDomain(domain),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm AttachDomain static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+A".to_owned(),
+                command: WindowCommand::AttachDomain("devhost".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_detach_domain_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain = 'devhost'
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act.DetachDomain { DomainName = domain },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm DetachDomain static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+D".to_owned(),
+                command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
+                    "devhost".to_owned(),
                 )),
             }])
         );

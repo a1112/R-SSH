@@ -730,6 +730,10 @@ keyboard, mouse, paste, resize
   `SpawnTab` action calls resolve top-level string variables for string
   arguments and `DomainName` table fields. Remote/mux named
   domain spawning remains future mux/domain parity work.
+- Completed in v1: WezTerm-style `AttachDomain` and `DetachDomain` action
+  parsing recognizes string, function-call, and `DomainName` table forms,
+  including static `config.keys` top-level string variables. The current local
+  domain model still returns unsupported-action when those commands execute.
 - Completed in v1: WezTerm-style `ToggleFullScreen` routes the default
   `Alt+Enter` shortcut and command-palette `Toggle Full Screen` entry through
   the native window fullscreen state, then dispatches the typed resize hook
