@@ -37018,7 +37018,7 @@ fn quick_select_lua_table_from_query_with_static_source(
                 if parsed_patterns {
                     return None;
                 }
-                options.patterns = Some(vec![parse_maybe_quoted_query_text(value)?]);
+                options.patterns = Some(vec![parse_maybe_static_query_text(static_source, value)?]);
                 parsed_patterns = true;
             }
             "patterns" => {
@@ -37028,7 +37028,8 @@ fn quick_select_lua_table_from_query_with_static_source(
                 let patterns = if value.starts_with('{') {
                     split_lua_table_string_array(value)?
                 } else {
-                    split_unquoted_query_semicolons(value)
+                    let value = parse_maybe_static_query_text(static_source, value)?;
+                    split_unquoted_query_semicolons(&value)
                         .into_iter()
                         .map(str::trim)
                         .filter(|pattern| !pattern.is_empty())
@@ -37045,14 +37046,14 @@ fn quick_select_lua_table_from_query_with_static_source(
                 if parsed_alphabet {
                     return None;
                 }
-                options.alphabet = Some(parse_maybe_quoted_query_text(value)?);
+                options.alphabet = Some(parse_maybe_static_query_text(static_source, value)?);
                 parsed_alphabet = true;
             }
             "label" => {
                 if parsed_label {
                     return None;
                 }
-                options.label = Some(parse_maybe_quoted_query_text(value)?);
+                options.label = Some(parse_maybe_static_query_text(static_source, value)?);
                 parsed_label = true;
             }
             "action" => {
@@ -37069,16 +37070,26 @@ fn quick_select_lua_table_from_query_with_static_source(
                 if parsed_skip_action_on_paste {
                     return None;
                 }
-                let value = parse_maybe_quoted_query_text(value)?;
-                options.skip_action_on_paste = bool_from_query(&value)?;
+                options.skip_action_on_paste = parse_maybe_static_query_bool(static_source, value)?;
                 parsed_skip_action_on_paste = true;
             }
             "scopelines" => {
                 if parsed_scope_lines {
                     return None;
                 }
-                let value = parse_maybe_quoted_query_text(value)?;
-                options.scope_lines = Some(value.parse().ok()?);
+                let scope_lines = if let Some(static_source) = static_source {
+                    let value = lua_static_number_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                        lua_unsigned_integer_literal_from_query,
+                    )?;
+                    value.parse().ok()?
+                } else {
+                    let value = parse_maybe_quoted_query_text(value)?;
+                    value.parse().ok()?
+                };
+                options.scope_lines = Some(scope_lines);
                 parsed_scope_lines = true;
             }
             _ => return None,
@@ -73108,6 +73119,92 @@ mod tests {
                     message: "Send command?".to_owned(),
                     action: Box::new(WindowCommand::SendString("yes".to_owned())),
                     cancel: Some(Box::new(WindowCommand::SendString("no".to_owned()))),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_non_string_fields() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local skip_paste = true
+            local line_count = 2
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  action = 'open-uri',
+                  skip_action_on_paste = skip_paste,
+                  scope_lines = line_count,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm QuickSelectArgs static non-string field config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                    action: Some(WindowQuickSelectAction::OpenUri),
+                    skip_action_on_paste: true,
+                    scope_lines: Some(2),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_string_fields() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local ticket_pattern = 'ticket-[0-9]+'
+            local label_text = 'Open ticket'
+            local selector_alphabet = '12'
+            local selected_action = 'open-uri'
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|ALT',
+                action = act.QuickSelectArgs {
+                  pattern = ticket_pattern,
+                  label = label_text,
+                  alphabet = selector_alphabet,
+                  action = selected_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm QuickSelectArgs static string field config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+Q".to_owned(),
+                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    label: Some("Open ticket".to_owned()),
+                    alphabet: Some("12".to_owned()),
+                    action: Some(WindowQuickSelectAction::OpenUri),
+                    ..WindowQuickSelectOptions::default()
                 }),
             }])
         );
