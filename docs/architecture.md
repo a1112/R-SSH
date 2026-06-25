@@ -220,7 +220,8 @@ keyboard, mouse, paste, resize
   `Ctrl+PageUp`, `Ctrl+PageDown`, and `Super+Shift+[/]` key-assignment entries
   expose `ActivateTabRelative` payloads while the command palette keeps
   Next/Previous Tab aliases. Static `config.keys` action calls resolve
-  top-level signed integer variables for `ActivateTabRelative`.
+  top-level signed integer variables for `ActivateTabRelative` and
+  `ActivateTabRelativeNoWrap`.
 - Completed in v1: app-shell `MoveTabRelative` reorders the active tab within
   the current workspace while keeping that tab active, with command-palette
   Move Tab Relative Left/Right entries for one-step movement and native

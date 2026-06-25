@@ -11659,6 +11659,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(command);
     }
+    if let Some(offset) =
+        activate_tab_relative_no_wrap_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::ActivateTabRelativeNoWrap(offset));
+    }
     if let Some(offset) = activate_tab_relative_from_query_with_static_source(static_source, value)
     {
         return Some(WindowCommand::ActivateTabRelative(offset));
@@ -33107,8 +33112,25 @@ fn activate_tab_relative_from_query_with_static_source(
 }
 
 fn activate_tab_relative_no_wrap_from_query(query: &str) -> Option<isize> {
+    activate_tab_relative_no_wrap_from_query_with_static_source(None, query)
+}
+
+fn activate_tab_relative_no_wrap_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<isize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(offset) = strip_lua_function_call_from_query(query, "activatetabrelativenowrap") {
-        return parse_single_query_value(offset)?.parse().ok();
+        return parse_maybe_static_query_isize(static_source, offset);
     }
 
     let offset = strip_query_prefix_from_any(
@@ -33128,10 +33150,10 @@ fn activate_tab_relative_no_wrap_from_query(query: &str) -> Option<isize> {
             "activatetabrelativeno wrap ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     strip_query_prefix_from_any(offset, &["offset=", "offset ", "amount=", "amount "])
         .or(Some(offset))
-        .and_then(|offset| offset.parse().ok())
+        .and_then(|offset| parse_maybe_static_query_isize(static_source, offset))
 }
 
 fn move_tab_from_query(query: &str) -> Option<usize> {
@@ -73802,6 +73824,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "SUPER|SHIFT+[".to_owned(),
                 command: WindowCommand::ActivateTabRelative(-1),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_tab_relative_no_wrap_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local tab_offset = 1
+
+            config.keys = {
+              {
+                key = ']',
+                mods = 'SUPER|SHIFT',
+                action = act.ActivateTabRelativeNoWrap(tab_offset),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateTabRelativeNoWrap static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "SUPER|SHIFT+]".to_owned(),
+                command: WindowCommand::ActivateTabRelativeNoWrap(1),
             }])
         );
     }
