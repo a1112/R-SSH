@@ -508,7 +508,8 @@ keyboard, mouse, paste, resize
   active window id and pane id. Structured command-palette `emit event <name>`
   and action-name `emitevent <name>` queries use the same quote-aware event-name
   parsing. WezTerm-style Lua `EmitEvent { ... }` / `EmitEvent({ ... })` table
-  queries tolerate trailing comma fields. Lua `wezterm.on`/`wezterm.emit`
+  queries tolerate trailing comma fields, with the table-call `name` field
+  inline or through a top-level static string variable. Lua `wezterm.on`/`wezterm.emit`
   wiring remains future parity work.
 - Completed in v1: native WezTerm-style `ActivateKeyTable`, `PopKeyTable`, and
   `ClearKeyTableStack` action payloads maintain a per-window key-table

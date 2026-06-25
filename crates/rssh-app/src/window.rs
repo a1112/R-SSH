@@ -11594,6 +11594,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::QuickSelect(options));
     }
+    if let Some(event) = emit_event_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::EmitEvent(event));
+    }
     if let Some(key_table) = activate_key_table_from_query_with_static_source(static_source, value)
     {
         return Some(WindowCommand::ActivateKeyTable(key_table));
@@ -31100,16 +31103,34 @@ fn confirmation_next_field_offsets(rest: &str) -> Vec<usize> {
 }
 
 fn emit_event_from_query(query: &str) -> Option<WindowEmitEvent> {
+    emit_event_from_query_with_static_source(None, query)
+}
+
+fn emit_event_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowEmitEvent> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(name) = strip_lua_function_call_from_query(query, "emitevent") {
         if name.trim_start().starts_with('{') {
-            return emit_event_lua_table_from_query(name);
+            return emit_event_lua_table_from_query(static_source, name);
         }
-        return parse_maybe_quoted_query_text(name).map(|name| WindowEmitEvent { name });
+        return parse_maybe_static_query_text(static_source, name)
+            .map(|name| WindowEmitEvent { name });
     }
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "emitevent=")
         && rest.trim_start().starts_with('{')
     {
-        return emit_event_lua_table_from_query(rest);
+        return emit_event_lua_table_from_query(static_source, rest);
     }
 
     let name = strip_query_prefix_from_any(
@@ -31117,10 +31138,13 @@ fn emit_event_from_query(query: &str) -> Option<WindowEmitEvent> {
         &["emit event=", "emit event ", "emitevent=", "emitevent "],
     )?;
     let name = strip_query_prefix_from_any(name, &["name=", "name "]).unwrap_or(name);
-    parse_maybe_quoted_query_text(name).map(|name| WindowEmitEvent { name })
+    parse_maybe_static_query_text(static_source, name).map(|name| WindowEmitEvent { name })
 }
 
-fn emit_event_lua_table_from_query(value: &str) -> Option<WindowEmitEvent> {
+fn emit_event_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowEmitEvent> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut event = None;
 
@@ -31131,7 +31155,7 @@ fn emit_event_lua_table_from_query(value: &str) -> Option<WindowEmitEvent> {
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "name" => {
                 if event.is_some() || value.is_empty() {
@@ -72530,6 +72554,39 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+A".to_owned(),
                 command: WindowCommand::SendString("from-action-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_emit_event_static_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local event_name = 'session-ready'
+
+            config.keys = {
+              {
+                key = 'E',
+                mods = 'CTRL|SHIFT',
+                action = act.EmitEvent { name = event_name },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm EmitEvent static name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+E".to_owned(),
+                command: WindowCommand::EmitEvent(WindowEmitEvent {
+                    name: "session-ready".to_owned(),
+                }),
             }])
         );
     }
