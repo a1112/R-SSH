@@ -287,10 +287,11 @@ keyboard, mouse, paste, resize
   `table.insert(config.cell_widths, { ... })` appends from WezTerm-style Lua,
   including `config[static_name]` assignments and
   `table.insert(config[static_name], { ... })` appends where `static_name`
-  resolves to `cell_widths`. Entries parse inline or through top-level static
-  table variables. Entry `first`/`last`/`width` fields parse inline or through
-  top-level static number variables, and take priority over the ambiguous-width
-  setting in active and new panes.
+  resolves to `cell_widths`, plus table-constructor `[static_name] = { ... }`
+  fields for returned config tables. Entries parse inline or through top-level
+  static table variables. Entry `first`/`last`/`width` fields parse inline or
+  through top-level static number variables, and take priority over the
+  ambiguous-width setting in active and new panes.
   `normalize_output_to_unicode_nfc` applies NFC
   normalization to contiguous ordinary terminal output runs before rendering,
   including leading combining marks that arrive in the next PTY chunk when

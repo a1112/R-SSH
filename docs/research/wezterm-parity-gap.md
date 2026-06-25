@@ -434,9 +434,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.cell_widths, { ... })` appends from WezTerm-style Lua,
   including `config[static_name]` assignments and
   `table.insert(config[static_name], { ... })` appends where `static_name`
-  resolves to `cell_widths`. Entries parse inline or through top-level static
-  table variables. Entry `first`/`last`/`width` fields parse inline or through
-  top-level static number variables, and take priority over that
+  resolves to `cell_widths`, plus table-constructor `[static_name] = { ... }`
+  fields for returned config tables. Entries parse inline or through top-level
+  static table variables. Entry `first`/`last`/`width` fields parse inline or
+  through top-level static number variables, and take priority over that
   ambiguous-width setting. When enabled,
   `normalize_output_to_unicode_nfc` normalizes contiguous ordinary terminal
   output runs to Unicode NFC before rendering, including leading combining

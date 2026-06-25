@@ -10105,12 +10105,15 @@ fn lua_config_table_value_field_assignment_from_table_query(
     max_start: usize,
 ) -> Option<LuaTableValueAssignment> {
     let mut selected = None;
+    let static_source = Some(LuaStaticSource { source, max_start });
 
     for table_field in split_lua_table_top_level_fields(table)? {
         let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
             continue;
         };
-        let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+        let Some(key) =
+            split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+        else {
             continue;
         };
         if key == field {
@@ -80396,6 +80399,36 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cell_widths,
+            vec![NativeCellWidthOverride::new(0x2606, 0x2606, 1)]
+        );
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cell_widths_static_field_name_in_table_constructor() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local widths_field = 'cell_widths'
+            local config = {
+                treat_east_asian_ambiguous_width_as_wide = true,
+                [widths_field] = {
+                    { first = 0x2606, last = 0x2606, width = 1 },
+                },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm cell width static field-name constructor config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(effective.treat_east_asian_ambiguous_width_as_wide);
         assert_eq!(
             effective.cell_widths,
             vec![NativeCellWidthOverride::new(0x2606, 0x2606, 1)]
