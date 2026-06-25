@@ -11770,6 +11770,9 @@ fn native_key_assignment_command_from_query(
     if let Some(name) = rename_workspace_name_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::RenameWorkspaceTo(name));
     }
+    if let Some(search_query) = search_query_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::Search(search_query));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -39305,8 +39308,26 @@ enum WindowSearchCommandQuery {
 }
 
 fn search_query_from_query(query: &str) -> Option<WindowSearchCommandQuery> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    if let Some(search_query) = search_query_lua_action_from_query(query) {
+    search_query_from_query_with_static_source(None, query)
+}
+
+fn search_query_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSearchCommandQuery> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
+    if let Some(search_query) =
+        search_query_lua_action_from_query_with_static_source(static_source, query)
+    {
         return Some(search_query);
     }
 
@@ -39349,27 +39370,30 @@ fn search_query_from_query(query: &str) -> Option<WindowSearchCommandQuery> {
             (pattern, WindowSearchMatchType::CaseSensitive)
         };
 
-    let pattern = parse_maybe_quoted_query_text(pattern)?;
+    let pattern = parse_maybe_static_query_text(static_source, pattern)?;
     Some(WindowSearchCommandQuery::Pattern {
         pattern,
         match_type,
     })
 }
 
-fn search_query_lua_action_from_query(query: &str) -> Option<WindowSearchCommandQuery> {
+fn search_query_lua_action_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSearchCommandQuery> {
     if let Some(value) = strip_lua_function_call_from_query(query, "search") {
         if value.trim_start().starts_with('{') {
-            return search_query_lua_table_from_query(value);
+            return search_query_lua_table_from_query_with_static_source(static_source, value);
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         return search_query_lua_string_from_value(&value);
     }
 
     if let Some(value) = strip_query_prefix_from_any(query, &["search "]) {
         if value.trim_start().starts_with('{') {
-            return search_query_lua_table_from_query(value);
+            return search_query_lua_table_from_query_with_static_source(static_source, value);
         }
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         if let Some(search_query) = search_query_lua_string_from_value(&value) {
             return Some(search_query);
         }
@@ -39378,7 +39402,7 @@ fn search_query_lua_action_from_query(query: &str) -> Option<WindowSearchCommand
     if let Some(value) = strip_query_table_assignment_from_prefix(query, "search=")
         && value.trim_start().starts_with('{')
     {
-        return search_query_lua_table_from_query(value);
+        return search_query_lua_table_from_query_with_static_source(static_source, value);
     }
 
     None
@@ -39389,7 +39413,10 @@ fn search_query_lua_string_from_value(value: &str) -> Option<WindowSearchCommand
         .then_some(WindowSearchCommandQuery::CurrentSelectionOrEmptyString)
 }
 
-fn search_query_lua_table_from_query(value: &str) -> Option<WindowSearchCommandQuery> {
+fn search_query_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowSearchCommandQuery> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut search_query = None;
 
@@ -39400,7 +39427,7 @@ fn search_query_lua_table_from_query(value: &str) -> Option<WindowSearchCommandQ
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = parse_maybe_static_query_text(static_source, value.trim())?;
         if search_query.is_some() {
             return None;
         }
@@ -74150,6 +74177,73 @@ mod tests {
                 command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
                     "devhost".to_owned(),
                 )),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_search_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pattern = 'ticket-[0-9]+'
+
+            config.keys = {
+              {
+                key = 'F',
+                mods = 'CTRL|ALT',
+                action = act.Search { Regex = pattern },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Search static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+F".to_owned(),
+                command: WindowCommand::Search(WindowSearchCommandQuery::Pattern {
+                    pattern: "ticket-[0-9]+".to_owned(),
+                    match_type: WindowSearchMatchType::Regex,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_search_current_selection_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selection_mode = 'CurrentSelectionOrEmptyString'
+
+            config.keys = {
+              {
+                key = 'G',
+                mods = 'CTRL|ALT',
+                action = act.Search(selection_mode),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Search current selection static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+G".to_owned(),
+                command: WindowCommand::Search(
+                    WindowSearchCommandQuery::CurrentSelectionOrEmptyString,
+                ),
             }])
         );
     }
