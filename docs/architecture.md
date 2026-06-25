@@ -285,7 +285,8 @@ keyboard, mouse, paste, resize
   in active and new panes. Static numeric `cell_widths` override tables parse
   inline, through top-level static table variables, or through
   `table.insert(config.cell_widths, { ... })` appends from WezTerm-style Lua,
-  with `first`/`last`/`width` fields inline or through top-level static number
+  with entries inline or through top-level static table variables. Entry
+  `first`/`last`/`width` fields parse inline or through top-level static number
   variables, and take priority over the ambiguous-width setting in active and
   new panes.
   `normalize_output_to_unicode_nfc` applies NFC

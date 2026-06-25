@@ -10771,7 +10771,15 @@ fn native_cell_width_override_lua_table_from_query<'a>(
     value: &'a str,
     max_start: usize,
 ) -> Option<NativeCellWidthOverride> {
-    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        resolved_value = lua_table_insert_value_table_string_from_query(source, value, max_start)?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut first = None;
     let mut last = None;
     let mut width = None;
@@ -80249,6 +80257,33 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm cell width static field variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.cell_widths,
+            vec![NativeCellWidthOverride::new(0x2606, 0x2606, 1)]
+        );
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cell_widths_static_entry_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local star = { first = 0x2606, last = 0x2606, width = 1 }
+
+            config.treat_east_asian_ambiguous_width_as_wide = true
+            config.cell_widths = { star }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm cell width static entry variable config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
