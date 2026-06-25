@@ -11594,6 +11594,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::QuickSelect(options));
     }
+    if let Some(options) = pane_select_options_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::PaneSelect(options));
+    }
     if let Some(options) =
         prompt_input_line_options_from_query_with_static_source(static_source, value)
     {
@@ -37130,8 +37133,20 @@ fn normalized_quick_select_lua_field(field: &str) -> String {
 }
 
 fn pane_select_options_from_query(query: &str) -> Option<WindowPaneSelectOptions> {
-    if let Some(options) = pane_select_lua_table_from_query(query) {
+    pane_select_options_from_query_with_static_source(None, query)
+}
+
+fn pane_select_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowPaneSelectOptions> {
+    if let Some(options) = pane_select_lua_table_from_query_with_static_source(static_source, query)
+    {
         return Some(options);
+    }
+
+    if static_source.is_some() {
+        return pane_select_options_from_query_with_static_source(None, query);
     }
 
     let rest = strip_query_prefix_from_any(
@@ -37240,7 +37255,10 @@ fn pane_select_options_from_query(query: &str) -> Option<WindowPaneSelectOptions
     parsed_mode.then_some(options)
 }
 
-fn pane_select_lua_table_from_query(query: &str) -> Option<WindowPaneSelectOptions> {
+fn pane_select_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowPaneSelectOptions> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     let value = strip_lua_function_call_from_query(query, "paneselect")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "paneselect="))?;
@@ -37262,13 +37280,14 @@ fn pane_select_lua_table_from_query(query: &str) -> Option<WindowPaneSelectOptio
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = value.trim();
 
         match normalized_pane_select_lua_field(&name).as_str() {
             "mode" => {
                 if parsed_mode {
                     return None;
                 }
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 options.mode = pane_select_mode_option_from_query(&value)?;
                 parsed_mode = true;
             }
@@ -37276,13 +37295,14 @@ fn pane_select_lua_table_from_query(query: &str) -> Option<WindowPaneSelectOptio
                 if parsed_show_pane_ids {
                     return None;
                 }
-                options.show_pane_ids = bool_from_query(&value)?;
+                options.show_pane_ids = parse_maybe_static_query_bool(static_source, value)?;
                 parsed_show_pane_ids = true;
             }
             "alphabet" => {
                 if parsed_alphabet {
                     return None;
                 }
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 if value.is_empty() {
                     return None;
                 }
@@ -73205,6 +73225,47 @@ mod tests {
                     alphabet: Some("12".to_owned()),
                     action: Some(WindowQuickSelectAction::OpenUri),
                     ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_pane_select_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pane_mode = 'SwapWithActive'
+            local show_ids = true
+            local pane_alphabet = '12'
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = act.PaneSelect {
+                  mode = pane_mode,
+                  show_pane_ids = show_ids,
+                  alphabet = pane_alphabet,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PaneSelect static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+P".to_owned(),
+                command: WindowCommand::PaneSelect(WindowPaneSelectOptions {
+                    mode: WindowPaneSelectMode::SwapWithActive,
+                    show_pane_ids: true,
+                    alphabet: Some("12".to_owned()),
                 }),
             }])
         );

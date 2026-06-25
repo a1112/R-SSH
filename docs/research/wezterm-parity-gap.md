@@ -1496,7 +1496,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   calls such as
   `wezterm.action.PaneSelect({ mode = "SwapWithActive", show_pane_ids = true, alphabet = "12" })`,
   routing the same `mode`, `show_pane_ids`, and `alphabet` fields as the
-  existing command-palette query forms, including trailing-comma table fields.
+  existing command-palette query forms, including trailing-comma table fields,
+  top-level static string variables for `mode` and `alphabet`, and top-level
+  static bool variables for `show_pane_ids` when parsed from static
+  WezTerm-style `config.keys`.
 - WezTerm-style prompt-input table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.PromptInputLine({ description = "Rename tab", prompt = "name: ", initial_value = "old name" })`,
