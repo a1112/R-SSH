@@ -506,7 +506,9 @@ keyboard, mouse, paste, resize
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
   their visible text for the native overlay, and static `action`/`cancel =
   wezterm.action_callback(...)` fields are accepted as native-handler
-  placeholders. WezTerm-style Lua table calls skip trailing-comma fields;
+  placeholders. WezTerm-style Lua table calls skip trailing-comma fields and
+  parse `message` inline or through top-level static string variables, plus
+  `action`/`cancel` inline or through top-level static action variables;
   styled confirmation rendering and actual Lua callback wiring remain future
   parity work.
 - Completed in v1: a native WezTerm-style `EmitEvent` action payload carries a

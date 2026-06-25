@@ -11604,6 +11604,10 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::InputSelector(options));
     }
+    if let Some(options) = confirmation_options_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::Confirmation(options));
+    }
     if let Some(event) = emit_event_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::EmitEvent(event));
     }
@@ -30832,48 +30836,72 @@ fn input_selector_lua_table_from_query_with_static_source(
 }
 
 fn confirmation_options_from_query(query: &str) -> Option<WindowConfirmationOptions> {
+    confirmation_options_from_query_with_static_source(None, query)
+}
+
+fn confirmation_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowConfirmationOptions> {
     let query = query.trim();
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     if let Some(rest) = strip_lua_function_call_from_query(query, "confirmation")
         && rest.trim_start().starts_with('{')
     {
-        return confirmation_lua_table_from_query(rest);
+        return confirmation_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "confirmation=")
         && rest.trim_start().starts_with('{')
     {
-        return confirmation_lua_table_from_query(rest);
+        return confirmation_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     if let Some(rest) =
         strip_query_prefix_from_any(query, &["confirmationmessage=", "confirmationmessage "])
     {
-        return confirmation_action_name_options_from_query(rest.trim());
+        return confirmation_action_name_options_from_query_with_static_source(
+            static_source,
+            rest.trim(),
+        );
     }
     let rest = strip_query_prefix_from_any(query, &["confirmation=", "confirmation "])?;
-    let (fields, _) = confirmation_fields_from_query(rest, ConfirmationQueryFields::default())?;
+    let (fields, _) = confirmation_fields_from_query_with_static_source(
+        static_source,
+        rest,
+        ConfirmationQueryFields::default(),
+    )?;
 
     fields.into_options()
 }
 
-fn confirmation_action_name_options_from_query(query: &str) -> Option<WindowConfirmationOptions> {
+fn confirmation_action_name_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowConfirmationOptions> {
     if confirmation_strip_field_key(query, "message").is_some()
         || confirmation_strip_field_key(query, "action").is_some()
         || confirmation_strip_field_key(query, "cancel").is_some()
     {
-        let (fields, _) =
-            confirmation_fields_from_query(query, ConfirmationQueryFields::default())?;
+        let (fields, _) = confirmation_fields_from_query_with_static_source(
+            static_source,
+            query,
+            ConfirmationQueryFields::default(),
+        )?;
         return fields.into_options();
     }
 
     let fields = confirmation_field_splits(query)
         .filter_map(|(message, remaining)| {
             let fields = ConfirmationQueryFields {
-                message: Some(parse_maybe_quoted_query_text(message)?),
+                message: Some(parse_maybe_static_query_text(static_source, message)?),
                 ..ConfirmationQueryFields::default()
             };
-            let (fields, score) = confirmation_fields_from_query(remaining, fields)?;
+            let (fields, score) = confirmation_fields_from_query_with_static_source(
+                static_source,
+                remaining,
+                fields,
+            )?;
             Some((fields, score + 1, message.len()))
         })
         .max_by_key(|(_, score, value_len)| (*score, *value_len))?
@@ -30882,7 +30910,10 @@ fn confirmation_action_name_options_from_query(query: &str) -> Option<WindowConf
     fields.into_options()
 }
 
-fn confirmation_lua_table_from_query(value: &str) -> Option<WindowConfirmationOptions> {
+fn confirmation_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowConfirmationOptions> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut fields = ConfirmationQueryFields::default();
     let mut parsed_message = false;
@@ -30898,7 +30929,8 @@ fn confirmation_lua_table_from_query(value: &str) -> Option<WindowConfirmationOp
         let name = split_lua_table_key_from_query(name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "message" => {
-                let value = modal_display_text_from_query(value.trim())?;
+                let value =
+                    modal_display_text_from_query_with_static_source(static_source, value.trim())?;
                 if parsed_message || value.is_empty() {
                     return None;
                 }
@@ -30909,14 +30941,24 @@ fn confirmation_lua_table_from_query(value: &str) -> Option<WindowConfirmationOp
                 if parsed_action {
                     return None;
                 }
-                fields.action = Some(confirmation_callback_or_nested_command_from_query(value)?);
+                fields.action = Some(
+                    confirmation_callback_or_nested_command_from_query_with_static_source(
+                        static_source,
+                        value,
+                    )?,
+                );
                 parsed_action = true;
             }
             "cancel" => {
                 if parsed_cancel {
                     return None;
                 }
-                fields.cancel = Some(confirmation_callback_or_nested_command_from_query(value)?);
+                fields.cancel = Some(
+                    confirmation_callback_or_nested_command_from_query_with_static_source(
+                        static_source,
+                        value,
+                    )?,
+                );
                 parsed_cancel = true;
             }
             _ => return None,
@@ -30927,11 +30969,32 @@ fn confirmation_lua_table_from_query(value: &str) -> Option<WindowConfirmationOp
 }
 
 fn confirmation_callback_or_nested_command_from_query(value: &str) -> Option<WindowCommand> {
+    confirmation_callback_or_nested_command_from_query_with_static_source(None, value)
+}
+
+fn confirmation_callback_or_nested_command_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCommand> {
     let value = value.trim();
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_action_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return confirmation_callback_or_nested_command_from_query(value);
+    }
     if lua_action_callback_from_query(value) {
         return Some(WindowCommand::Nop);
     }
-    let value = parse_maybe_quoted_query_text(value)?;
+    if let Some(static_source) = static_source
+        && let Some(command) = native_key_assignment_command_from_query(Some(static_source), value)
+    {
+        return Some(command);
+    }
+    let value = parse_maybe_static_query_text(static_source, value)?;
     confirmation_nested_command_from_query(&value)
 }
 
@@ -30954,7 +31017,8 @@ impl ConfirmationQueryFields {
     }
 }
 
-fn confirmation_fields_from_query(
+fn confirmation_fields_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     rest: &str,
     fields: ConfirmationQueryFields,
 ) -> Option<(ConfirmationQueryFields, usize)> {
@@ -30969,10 +31033,14 @@ fn confirmation_fields_from_query(
                 if message.is_empty() || fields.message.is_some() {
                     return None;
                 }
-                let message_value = parse_maybe_quoted_query_text(message)?;
+                let message_value = parse_maybe_static_query_text(static_source, message)?;
                 let mut fields = fields.clone();
                 fields.message = Some(message_value);
-                let (fields, score) = confirmation_fields_from_query(remaining, fields)?;
+                let (fields, score) = confirmation_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    fields,
+                )?;
                 Some((fields, score + 1, message.len()))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -30986,8 +31054,17 @@ fn confirmation_fields_from_query(
                     return None;
                 }
                 let mut fields = fields.clone();
-                fields.action = Some(confirmation_nested_command_from_query(action)?);
-                let (fields, score) = confirmation_fields_from_query(remaining, fields)?;
+                fields.action = Some(
+                    confirmation_callback_or_nested_command_from_query_with_static_source(
+                        static_source,
+                        action,
+                    )?,
+                );
+                let (fields, score) = confirmation_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    fields,
+                )?;
                 Some((fields, score + 1, action.len()))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -31001,8 +31078,17 @@ fn confirmation_fields_from_query(
                     return None;
                 }
                 let mut fields = fields.clone();
-                fields.cancel = Some(confirmation_nested_command_from_query(cancel)?);
-                let (fields, score) = confirmation_fields_from_query(remaining, fields)?;
+                fields.cancel = Some(
+                    confirmation_callback_or_nested_command_from_query_with_static_source(
+                        static_source,
+                        cancel,
+                    )?,
+                );
+                let (fields, score) = confirmation_fields_from_query_with_static_source(
+                    static_source,
+                    remaining,
+                    fields,
+                )?;
                 Some((fields, score + 1, cancel.len()))
             })
             .max_by_key(|(_, score, value_len)| (*score, *value_len))
@@ -72981,6 +73067,47 @@ mod tests {
                     ],
                     fuzzy: true,
                     ..WindowInputSelectorOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_confirmation_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local confirm_message = 'Send command?'
+            local accept_action = act.SendString 'yes'
+            local cancel_action = act.SendString 'no'
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.Confirmation {
+                  message = confirm_message,
+                  action = accept_action,
+                  cancel = cancel_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Confirmation static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::Confirmation(WindowConfirmationOptions {
+                    message: "Send command?".to_owned(),
+                    action: Box::new(WindowCommand::SendString("yes".to_owned())),
+                    cancel: Some(Box::new(WindowCommand::SendString("no".to_owned()))),
                 }),
             }])
         );

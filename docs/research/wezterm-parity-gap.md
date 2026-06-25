@@ -1064,6 +1064,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.Confirmation { message = ..., action = ..., cancel = ... }`
   table-call queries also dispatch the same native nested-command subset,
   including bracketed string table keys with long-bracket values, and accept
+  `message` inline or through top-level static string variables,
+  `action`/`cancel` inline or through top-level static action variables, and
   static `action`/`cancel = wezterm.action_callback(...)` fields as
   native-handler placeholders. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
