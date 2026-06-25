@@ -11667,6 +11667,9 @@ fn native_key_assignment_command_from_query(
     if let Some(amount) = scroll_by_line_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::ScrollByLine(amount));
     }
+    if let Some(amount) = scroll_to_prompt_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::ScrollToPrompt(amount));
+    }
     if let Some(zoomed) = set_pane_zoom_state_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SetPaneZoomState(zoomed));
     }
@@ -33413,8 +33416,25 @@ fn scroll_by_line_from_query_with_static_source(
 }
 
 fn scroll_to_prompt_from_query(query: &str) -> Option<isize> {
+    scroll_to_prompt_from_query_with_static_source(None, query)
+}
+
+fn scroll_to_prompt_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<isize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(amount) = strip_lua_function_call_from_query(query, "scrolltoprompt") {
-        return parse_single_query_value(amount)?.parse().ok();
+        return parse_maybe_static_query_isize(static_source, amount);
     }
 
     let amount = strip_query_prefix_from_any(
@@ -33426,10 +33446,10 @@ fn scroll_to_prompt_from_query(query: &str) -> Option<isize> {
             "scrolltoprompt ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     strip_query_prefix_from_any(amount, &["amount=", "amount ", "offset=", "offset "])
         .or(Some(amount))
-        .and_then(|amount| amount.parse().ok())
+        .and_then(|amount| parse_maybe_static_query_isize(static_source, amount))
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -73621,6 +73641,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "SHIFT+UpArrow".to_owned(),
                 command: WindowCommand::ScrollByLine(-2),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_scroll_to_prompt_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local prompt_delta = -1
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'SHIFT',
+                action = act.ScrollToPrompt(prompt_delta),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ScrollToPrompt static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "SHIFT+P".to_owned(),
+                command: WindowCommand::ScrollToPrompt(-1),
             }])
         );
     }
