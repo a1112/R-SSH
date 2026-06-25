@@ -229,7 +229,9 @@ keyboard, mouse, paste, resize
   `WindowCommand::MoveTabRelative(offset)` payloads for arbitrary relative
   offsets, plus `move tab relative <offset>` /
   `movetabrelative <offset>` structured queries and action-name
-  `movetabrelativeleft` / `movetabrelativeright` fixed entries.
+  `movetabrelativeleft` / `movetabrelativeright` fixed entries. Static
+  `config.keys` action calls resolve top-level signed integer variables for
+  `MoveTabRelative`.
 - Completed in v1: app-shell `MoveTab` reorders the active tab to a zero-based
   absolute tab index and returns a typed out-of-range error, with command-palette
   entries for Move Tab To 1 through 8, `move tab <index>`/`move tab to <index>`

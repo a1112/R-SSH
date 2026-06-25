@@ -98,7 +98,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style `wezterm.action.MoveTabRelative(<offset>)` function-call
   queries. Native `MoveTabRelative(offset)` action payloads dispatch the same
   path for arbitrary relative offsets; action-name `movetabrelativeleft` and
-  `movetabrelativeright` queries dispatch the fixed one-step entries.
+  `movetabrelativeright` queries dispatch the fixed one-step entries. Static
+  `config.keys` action calls resolve top-level signed integer variables for
+  `MoveTabRelative`.
 - `MoveTab` now reorders the active tab to an absolute zero-based index, with
   command-palette Move Tab To 1..8 entries, `move tab <index>` and
   `move tab to <index>` plus `movetab <index>` queries, WezTerm-style
