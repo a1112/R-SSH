@@ -11717,6 +11717,11 @@ fn native_key_assignment_command_from_query(
     if let Some(source) = paste_source_command_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::PasteFrom(source));
     }
+    if let Some(destination) =
+        complete_selection_destination_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::CompleteSelectionTo(destination));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -34190,8 +34195,25 @@ fn complete_selection_command_from_query(query: &str) -> Option<WindowCommand> {
 }
 
 fn complete_selection_destination_from_query(query: &str) -> Option<WindowCopyDestination> {
+    complete_selection_destination_from_query_with_static_source(None, query)
+}
+
+fn complete_selection_destination_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowCopyDestination> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(destination) = strip_lua_function_call_from_query(query, "completeselection") {
-        return copy_destination_from_query(destination);
+        return copy_destination_from_query_with_static_source(static_source, destination);
     }
 
     let destination = strip_query_prefix_from_any(
@@ -34207,7 +34229,7 @@ fn complete_selection_destination_from_query(query: &str) -> Option<WindowCopyDe
     )?;
     let destination = strip_query_prefix_from_any(destination, &["destination=", "destination "])
         .unwrap_or(destination);
-    copy_destination_from_query(destination)
+    copy_destination_from_query_with_static_source(static_source, destination)
 }
 
 fn complete_selection_or_open_link_destination_from_query(
@@ -74305,6 +74327,39 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+V".to_owned(),
                 command: WindowCommand::PasteFrom(WindowPasteSource::PrimarySelection),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_complete_selection_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local destination = 'PrimarySelection'
+
+            config.keys = {
+              {
+                key = 'Y',
+                mods = 'CTRL|SHIFT',
+                action = act.CompleteSelection(destination),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CompleteSelection static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Y".to_owned(),
+                command: WindowCommand::CompleteSelectionTo(
+                    WindowCopyDestination::PrimarySelection,
+                ),
             }])
         );
     }
