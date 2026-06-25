@@ -775,7 +775,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `--domain DefaultDomain`/`--domain default-domain`, `--cwd`, `--env`,
   `--set-environment-variables`/`--set_environment_variables`, and for
   `spawn window`, `--position`, are applied to the existing
-  default-prog/inherited launch path.
+  default-prog/inherited launch path. Static WezTerm-style action calls also
+  accept parenthesized static option-only table variables for this omitted-args
+  path.
   Native
   `SpawnCommandInNewTab` and
   `SpawnCommandInNewWindow` action payloads now carry a WezTerm-style
@@ -791,7 +793,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   for `args`, `cwd`, `domain`, `set_environment_variables` values, and
   `SpawnCommandInNewWindow` `position` fields in those payload tables, plus
   parenthesized static options table variables for
-  `SpawnCommandInNewTab`/`SpawnCommandInNewWindow`.
+  `SpawnCommandInNewTab`/`SpawnCommandInNewWindow`, including option-only
+  payloads that omit `args`.
   `SpawnCommandInNewWindow` carries the WezTerm-style `position` payload into
   the detached native window's initial position, including Lua table
   `{ x = ..., y = ..., origin = ... }` values for screen, main-screen,

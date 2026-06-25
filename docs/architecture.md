@@ -736,7 +736,9 @@ keyboard, mouse, paste, resize
   `args`, `cwd`, `domain`, `set_environment_variables`, and window `position`
   fields supplied inline or through top-level static variables, plus
   parenthesized static options table variables for those spawn-command
-  payloads. `SplitPane`/`SplitHorizontal`/`SplitVertical` table payloads carry
+  payloads, including option-only tables that omit `args` and apply supported
+  options to the default-program/inherited launch path.
+  `SplitPane`/`SplitHorizontal`/`SplitVertical` table payloads carry
   `direction`, `domain`, nested `command` spawn fields, Percent/Cells `size`,
   and `top_level` supplied inline or through top-level static variables.
   Broader dynamic Lua table evaluation remains future config parity work.

@@ -35568,13 +35568,11 @@ fn spawn_command_table_options_from_lua_function_with_static_source(
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQueryOptions> {
     let command = strip_lua_function_call_from_query(query, name)?;
-    command.trim_start().starts_with('{').then(|| {
-        spawn_command_table_options_from_query_with_static_source(
-            static_source,
-            command,
-            allow_position,
-        )
-    })?
+    spawn_command_table_options_from_query_with_static_source(
+        static_source,
+        command,
+        allow_position,
+    )
 }
 
 fn strip_query_table_assignment_from_prefix<'a>(query: &'a str, prefix: &str) -> Option<&'a str> {
@@ -36015,6 +36013,19 @@ fn spawn_command_table_options_from_query_with_static_source(
     value: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQueryOptions> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut options = WindowSpawnCommandQueryOptions::default();
     let mut label = None;
@@ -74842,6 +74853,78 @@ mod tests {
                         }),
                         ..command
                     }),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_command_static_option_table_variable_calls() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local spawn_cwd = 'C:/Project Dir'
+            local spawn_domain = 'local'
+            local spawn_mode = 'dev'
+            local spawn_position = 'main:42,84'
+            local spawn_opts = {
+              cwd = spawn_cwd,
+              domain = spawn_domain,
+              set_environment_variables = { MODE = spawn_mode },
+            }
+            local window_opts = {
+              cwd = spawn_cwd,
+              domain = spawn_domain,
+              position = spawn_position,
+              set_environment_variables = { MODE = spawn_mode },
+            }
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewTab(spawn_opts),
+              },
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewWindow(window_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnCommand static option table variable call config");
+
+        let options = super::WindowSpawnCommandQueryOptions {
+            cwd: Some("C:/Project Dir".to_owned()),
+            environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
+            domain: Some(WindowSpawnTabDomain::DomainName("local".to_owned())),
+            window_position: None,
+        };
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+T".to_owned(),
+                    command: WindowCommand::SpawnCommandOptionsInNewTab(options.clone()),
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+W".to_owned(),
+                    command: WindowCommand::SpawnCommandOptionsInNewWindow(
+                        super::WindowSpawnCommandQueryOptions {
+                            window_position: Some(crate::cli::WindowPosition {
+                                origin: crate::cli::WindowPositionOrigin::Main,
+                                x: 42,
+                                y: 84,
+                            }),
+                            ..options
+                        },
+                    ),
                 },
             ])
         );
