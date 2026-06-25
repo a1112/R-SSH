@@ -574,7 +574,9 @@ keyboard, mouse, paste, resize
   `Ctrl+Shift+Z` key-assignment entry exposes `TogglePaneZoomState`, while
   `TogglePaneZoom` remains a native compatibility alias. Action-name
   `togglepanezoomstate`, `togglepanezoom`, `zoompane`, and `unzoompane`
-  queries dispatch the corresponding no-argument zoom commands.
+  queries dispatch the corresponding no-argument zoom commands. Static
+  `config.keys` action calls resolve top-level bool variables for
+  `SetPaneZoomState`.
 - Completed in v1: WezTerm-style `PaneSelect` default Activate mode renders
   labels over pane regions from the command palette entry `Pane Select`, accepts
   action-name `enterpaneselect` queries, accepts label input to focus a pane,

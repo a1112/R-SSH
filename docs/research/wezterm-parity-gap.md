@@ -2548,7 +2548,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   action-name spelling `setpanezoomstate true|false` /
   `setpanezoomstate=true|false` dispatches explicit native zoom-state payloads,
   and WezTerm-style `wezterm.action.SetPaneZoomState(true|false)`
-  function-call queries dispatch the same path,
+  function-call queries dispatch the same path, with static `config.keys`
+  action calls resolving top-level bool variables for `SetPaneZoomState`,
   rendering the zoomed pane across the full tab region. Action-name
   `togglepanezoomstate`, `togglepanezoom`, `zoompane`, and `unzoompane`
   queries dispatch the corresponding no-argument zoom commands. The default

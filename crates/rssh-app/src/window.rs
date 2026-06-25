@@ -11664,6 +11664,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::AdjustPaneSize { direction, amount });
     }
+    if let Some(zoomed) = set_pane_zoom_state_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::SetPaneZoomState(zoomed));
+    }
     if let Some(mode) = clear_scrollback_mode_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::ClearScrollback(mode));
     }
@@ -33420,8 +33423,25 @@ fn scroll_by_page_amount_from_query(amount: &str) -> Option<WindowScrollByPageAm
 }
 
 fn set_pane_zoom_state_from_query(query: &str) -> Option<bool> {
+    set_pane_zoom_state_from_query_with_static_source(None, query)
+}
+
+fn set_pane_zoom_state_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<bool> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(value) = strip_lua_function_call_from_query(query, "setpanezoomstate") {
-        return bool_from_query(value.trim());
+        return parse_maybe_static_query_bool(static_source, value.trim());
     }
 
     let value = strip_query_prefix_from_any(query, &["set pane zoom state ", "setpanezoomstate "])
@@ -33435,7 +33455,7 @@ fn set_pane_zoom_state_from_query(query: &str) -> Option<bool> {
         })?;
     let value = strip_query_prefix_from_any(value, &["zoomed=", "zoomed ", "value=", "value "])
         .unwrap_or(value);
-    parse_single_query_value(value).and_then(bool_from_query)
+    parse_maybe_static_query_bool(static_source, value)
 }
 
 fn strip_query_prefix_from_any<'a>(query: &'a str, prefixes: &[&str]) -> Option<&'a str> {
@@ -73500,6 +73520,37 @@ mod tests {
                     direction: ResizeDirection::Left,
                     amount: 4,
                 },
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_set_pane_zoom_state_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pane_zoomed = true
+
+            config.keys = {
+              {
+                key = 'Z',
+                mods = 'CTRL|SHIFT',
+                action = act.SetPaneZoomState(pane_zoomed),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SetPaneZoomState static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Z".to_owned(),
+                command: WindowCommand::SetPaneZoomState(true),
             }])
         );
     }
