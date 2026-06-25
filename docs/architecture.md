@@ -446,7 +446,9 @@ keyboard, mouse, paste, resize
   `table.insert(menu, item)` supported.
   Static WezTerm-style `config.keys` actions can also carry
   `ShowLauncherArgs` table payloads through the implemented native action
-  subset. Remote/mux domains, richer default-mode UI styling, broader Lua key
+  subset, with `flags`, `title`, `alphabet`, `help_text`, and
+  `fuzzy_help_text` supplied inline or through top-level static string
+  variables. Remote/mux domains, richer default-mode UI styling, broader Lua key
   assignment/config parsing, broader dynamic Lua `launch_menu` construction, Lua
   `PromptInputLine` callback wiring, and Lua event/config wiring remain future
   parity work.

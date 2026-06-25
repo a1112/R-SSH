@@ -11600,6 +11600,9 @@ fn native_key_assignment_command_from_query(
     if let Some(options) = char_select_options_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::CharSelectArgs(options));
     }
+    if let Some(args) = show_launcher_args_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::ShowLauncherArgs(args));
+    }
     if let Some(options) =
         prompt_input_line_options_from_query_with_static_source(static_source, value)
     {
@@ -32262,10 +32265,18 @@ fn paste_source_from_query(source: &str) -> Option<WindowPasteSource> {
 }
 
 fn show_launcher_args_from_query(query: &str) -> Option<WindowShowLauncherArgs> {
+    show_launcher_args_from_query_with_static_source(None, query)
+}
+
+fn show_launcher_args_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowShowLauncherArgs> {
+    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
     if let Some(rest) = strip_lua_function_call_from_query(query, "showlauncherargs")
         && rest.trim_start().starts_with('{')
     {
-        return show_launcher_args_lua_table_from_query(rest);
+        return show_launcher_args_lua_table_from_query_with_static_source(static_source, rest);
     }
 
     let args = strip_query_prefix_from_any(
@@ -32283,7 +32294,10 @@ fn show_launcher_args_from_query(query: &str) -> Option<WindowShowLauncherArgs> 
     )?;
     let args = args.trim();
     if args.starts_with('{') {
-        return show_launcher_args_lua_table_from_query(args);
+        return show_launcher_args_lua_table_from_query_with_static_source(static_source, args);
+    }
+    if static_source.is_some() {
+        return show_launcher_args_from_query_with_static_source(None, query);
     }
     let (flags, fields) = show_launcher_args_from_query_flags_first(args).or_else(|| {
         let fields = show_launcher_fields_from_query_rest(args)?;
@@ -32300,7 +32314,10 @@ fn show_launcher_args_from_query(query: &str) -> Option<WindowShowLauncherArgs> 
     })
 }
 
-fn show_launcher_args_lua_table_from_query(value: &str) -> Option<WindowShowLauncherArgs> {
+fn show_launcher_args_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowShowLauncherArgs> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut fields = WindowShowLauncherQueryFields::default();
 
@@ -32311,7 +32328,7 @@ fn show_launcher_args_lua_table_from_query(value: &str) -> Option<WindowShowLaun
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = parse_maybe_static_query_text(static_source, value.trim())?;
 
         match normalized_show_launcher_lua_field(&name).as_str() {
             "flags" => {
@@ -73550,6 +73567,57 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+L".to_owned(),
+                command: WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
+                    flags: WindowShowLauncherFlags {
+                        tabs: true,
+                        workspaces: true,
+                        ..WindowShowLauncherFlags::default()
+                    },
+                    title: Some("Jump".to_owned()),
+                    alphabet: Some("ab".to_owned()),
+                    help_text: Some("Pick".to_owned()),
+                    fuzzy_help_text: Some("Filter".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_show_launcher_args_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local launcher_flags = 'TABS|WORKSPACES'
+            local launcher_title = 'Jump'
+            local launcher_alphabet = 'ab'
+            local launcher_help = 'Pick'
+            local launcher_fuzzy_help = 'Filter'
+
+            config.keys = {
+              {
+                key = 'L',
+                mods = 'CTRL|ALT',
+                action = act.ShowLauncherArgs {
+                  flags = launcher_flags,
+                  title = launcher_title,
+                  alphabet = launcher_alphabet,
+                  help_text = launcher_help,
+                  fuzzy_help_text = launcher_fuzzy_help,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ShowLauncherArgs static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+L".to_owned(),
                 command: WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
                     flags: WindowShowLauncherFlags {
                         tabs: true,

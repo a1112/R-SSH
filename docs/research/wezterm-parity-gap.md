@@ -1472,7 +1472,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ShowLauncherArgs({ flags = "TABS|WORKSPACES", title = "Jump" })`,
   routing the same `flags`, `title`, `alphabet`, `help_text`, and
   `fuzzy_help_text` fields as the existing command-palette query forms,
-  including bracketed string table keys with long-bracket values.
+  including bracketed string table keys with long-bracket values and top-level
+  static string variables for every field when parsed from static
+  WezTerm-style `config.keys`.
 - WezTerm-style character-selection table actions now accept Lua table calls
   such as
   `wezterm.action.CharSelect { copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" }`
