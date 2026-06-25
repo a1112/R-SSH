@@ -506,9 +506,10 @@ keyboard, mouse, paste, resize
   table calls skip trailing-comma fields and parse `title`, string `choices`,
   `alphabet`, `description`, and `fuzzy_description` fields inline or through
   top-level static string variables, table `choices` inline or through
-  top-level static table variables whose entries can resolve static
-  string/format labels, plus `fuzzy` inline or through a top-level
-  static bool variable. Static `action = wezterm.action_callback(...)` fields
+  top-level static table variables whose entries can resolve static string
+  labels and top-level static `wezterm.format` label variables, plus `fuzzy`
+  inline or through a top-level static bool variable. Static
+  `action = wezterm.action_callback(...)` fields
   are accepted as native-handler placeholders.
   Duplicate `fuzzy` fields are rejected instead of silently overriding them;
   actual Lua `wezterm.action_callback` wiring remains future parity work.

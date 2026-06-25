@@ -1071,9 +1071,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   nested choice tables. The table-call string fields `title`, string `choices`,
   `alphabet`, `description`, and `fuzzy_description` also parse through
   top-level static string variables; table `choices` parse inline or through
-  top-level static table variables whose entries can resolve static
-  string/format labels; and `fuzzy` parses inline or through a top-level
-  static bool variable. Static `wezterm.format { { Text = ... } }`
+  top-level static table variables whose entries can resolve static string
+  labels and top-level static `wezterm.format` label variables; and `fuzzy`
+  parses inline or through a top-level static bool variable. Static
+  `wezterm.format { { Text = ... } }`
   label values are reduced to their text for native selector labels, while style
   items are ignored until styled selector rows are implemented. Static
   `action = wezterm.action_callback(...)` fields are accepted as native-handler
@@ -1557,8 +1558,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   routing the same `title`, `choices`, `alphabet`, `description`,
   `fuzzy_description`, and `fuzzy` fields as the existing `Action { ... }` and
   command-palette query forms, including table-of-table choices and text-only
-  `wezterm.format` labels, top-level static choices table variables, and
-  trailing-comma table fields.
+  `wezterm.format` labels, top-level static choices table variables, top-level
+  static `wezterm.format` label variables, and trailing-comma table fields.
 - WezTerm-style confirmation table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,

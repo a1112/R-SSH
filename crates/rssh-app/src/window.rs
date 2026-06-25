@@ -7855,6 +7855,14 @@ fn lua_static_action_assignment_value_before_offset_from_query<'a>(
     query: &str,
     max_start: usize,
 ) -> Option<&'a str> {
+    lua_static_expression_assignment_value_before_offset_from_query(source, query, max_start)
+}
+
+fn lua_static_expression_assignment_value_before_offset_from_query<'a>(
+    source: &'a str,
+    query: &str,
+    max_start: usize,
+) -> Option<&'a str> {
     let variable = lua_identifier_literal_from_query(query)?;
     let rest = query.get(variable.len()..)?;
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
@@ -30765,6 +30773,15 @@ fn input_selector_choice_label_from_query_with_static_source(
 ) -> Option<String> {
     if let Some(static_source) = static_source
         && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return input_selector_choice_label_from_query(value);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
             static_source.source,
             value,
             static_source.max_start,
@@ -75579,6 +75596,58 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm InputSelector static choices table variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+I".to_owned(),
+                command: WindowCommand::InputSelector(WindowInputSelectorOptions {
+                    title: "Pick Reply".to_owned(),
+                    choices: vec![
+                        WindowInputSelectorChoice {
+                            label: "No thanks".to_owned(),
+                            id: Some("decline".to_owned()),
+                        },
+                        WindowInputSelectorChoice {
+                            label: "LGTM".to_owned(),
+                            id: Some("lgtm".to_owned()),
+                        },
+                    ],
+                    alphabet: Some("ab".to_owned()),
+                    ..WindowInputSelectorOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_input_selector_static_format_choice_label_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local lgtm_label = wezterm.format { { Text = 'LGTM' } }
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = act.InputSelector {
+                  title = 'Pick Reply',
+                  choices = {
+                    { id = 'decline', label = 'No thanks' },
+                    { id = 'lgtm', label = lgtm_label },
+                  },
+                  alphabet = 'ab',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm InputSelector static format choice label variable config");
 
         assert_eq!(
             overrides.key_assignments,
