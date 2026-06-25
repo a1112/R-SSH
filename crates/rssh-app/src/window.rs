@@ -30594,25 +30594,36 @@ fn modal_display_text_from_query_with_static_source(
     {
         return modal_display_text_from_query(value);
     }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return wezterm_format_visible_text_from_query(value);
+    }
 
     modal_display_text_from_query(value)
 }
 
 fn modal_display_text_from_query(value: &str) -> Option<String> {
-    native_format_items_from_wezterm_format_query(value)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| match item {
-                    NativeFormatItem::Text(text) => Some(tab_bar_ansi_plain_text(text)),
-                    NativeFormatItem::Foreground(_)
-                    | NativeFormatItem::Background(_)
-                    | NativeFormatItem::Attribute(_)
-                    | NativeFormatItem::ResetAttributes => None,
-                })
-                .collect::<String>()
-        })
-        .or_else(|| parse_maybe_quoted_query_text(value))
+    wezterm_format_visible_text_from_query(value).or_else(|| parse_maybe_quoted_query_text(value))
+}
+
+fn wezterm_format_visible_text_from_query(value: &str) -> Option<String> {
+    native_format_items_from_wezterm_format_query(value).map(|items| {
+        items
+            .iter()
+            .filter_map(|item| match item {
+                NativeFormatItem::Text(text) => Some(tab_bar_ansi_plain_text(text)),
+                NativeFormatItem::Foreground(_)
+                | NativeFormatItem::Background(_)
+                | NativeFormatItem::Attribute(_)
+                | NativeFormatItem::ResetAttributes => None,
+            })
+            .collect::<String>()
+    })
 }
 
 fn input_selector_options_from_query(query: &str) -> Option<WindowInputSelectorOptions> {
@@ -75748,6 +75759,45 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm Confirmation static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::Confirmation(WindowConfirmationOptions {
+                    message: "Send command?".to_owned(),
+                    action: Box::new(WindowCommand::SendString("yes".to_owned())),
+                    cancel: Some(Box::new(WindowCommand::SendString("no".to_owned()))),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_confirmation_static_format_message_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local confirm_message = wezterm.format { { Text = 'Send' }, { Text = ' command?' } }
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.Confirmation {
+                  message = confirm_message,
+                  action = act.SendString 'yes',
+                  cancel = act.SendString 'no',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Confirmation static format message variable config");
 
         assert_eq!(
             overrides.key_assignments,

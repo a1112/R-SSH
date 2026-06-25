@@ -483,7 +483,8 @@ keyboard, mouse, paste, resize
   are reduced to their visible text for the native overlay. WezTerm-style Lua
   table calls also skip trailing-comma fields and parse `description`, `prompt`,
   and `initial_value` fields inline or through top-level static string
-  variables. Static `action = wezterm.action_callback(...)` fields are accepted
+  variables, with `description`/`prompt` also accepting top-level static
+  `wezterm.format` text variables. Static `action = wezterm.action_callback(...)` fields are accepted
   as native-handler placeholders; styled prompt-line rendering and actual Lua
   callback wiring remain future parity work.
 - Completed in v1: a native WezTerm-style `InputSelector` action payload carries
@@ -527,8 +528,9 @@ keyboard, mouse, paste, resize
   their visible text for the native overlay, and static `action`/`cancel =
   wezterm.action_callback(...)` fields are accepted as native-handler
   placeholders. WezTerm-style Lua table calls skip trailing-comma fields and
-  parse `message` inline or through top-level static string variables, plus
-  `action`/`cancel` inline or through top-level static action variables;
+  parse `message` inline or through top-level static string variables or
+  top-level static `wezterm.format` text variables, plus `action`/`cancel`
+  inline or through top-level static action variables;
   styled confirmation rendering and actual Lua callback wiring remain future
   parity work.
 - Completed in v1: a native WezTerm-style `EmitEvent` action payload carries a

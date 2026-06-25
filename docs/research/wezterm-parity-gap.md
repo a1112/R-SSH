@@ -1033,7 +1033,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   initial_value = ... }` table-call queries also dispatch that native field
   subset, including bracketed string table keys with long-bracket values and
   top-level static string variables for `description`/`prompt`/`initial_value`
-  fields.
+  fields, plus top-level static `wezterm.format` text variables for
+  `description`/`prompt`.
   Static Lua `wezterm.format { { Text = ... } }` values for `description` and
   `prompt` are reduced to their visible text for the native overlay, and static
   `action = wezterm.action_callback(...)` fields are accepted as native-handler
@@ -1097,9 +1098,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.Confirmation { message = ..., action = ..., cancel = ... }`
   table-call queries also dispatch the same native nested-command subset,
   including bracketed string table keys with long-bracket values, and accept
-  `message` inline or through top-level static string variables,
-  `action`/`cancel` inline or through top-level static action variables, and
-  static `action`/`cancel = wezterm.action_callback(...)` fields as
+  `message` inline or through top-level static string variables or top-level
+  static `wezterm.format` text variables, `action`/`cancel` inline or through
+  top-level static action variables, and static
+  `action`/`cancel = wezterm.action_callback(...)` fields as
   native-handler placeholders. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
   their visible text for the native overlay, while styled confirmation
@@ -1551,7 +1553,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.PromptInputLine({ description = "Rename tab", prompt = "name: ", initial_value = "old name" })`,
   routing the same `description`, `prompt`, and `initial_value` fields as the
   existing `Action { ... }` and command-palette query forms, including
-  trailing-comma table fields.
+  top-level static `wezterm.format` text variables and trailing-comma table
+  fields.
 - WezTerm-style input-selector table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.InputSelector({ title = "Pick Reply", choices = "decline=No thanks ; lgtm=LGTM", alphabet = "ab" })`,
@@ -1565,7 +1568,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,
   routing the same `message`, `action`, and optional `cancel` fields as the
   existing `Action { ... }` and command-palette query forms, including
-  trailing-comma table fields.
+  top-level static `wezterm.format` message variables and trailing-comma table
+  fields.
 - WezTerm-style destination actions now accept single-argument function-call
   forms including `wezterm.action.CopyTo('PrimarySelection')`,
   `wezterm.action.CompleteSelection('PrimarySelection')`, and
