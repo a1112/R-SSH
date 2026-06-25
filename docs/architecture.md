@@ -789,9 +789,10 @@ keyboard, mouse, paste, resize
   top-level static `table.insert(config.mouse_bindings, { ... })` appends plus static item
   variables such as `config.mouse_bindings = { binding }` with pre-use field
   mutations. Mouse binding `event` payloads parse inline or through top-level
-  static event table variables, with `button`/`streak` fields inline or through
-  top-level static variables, and `action` payloads parse inline or through
-  top-level static action variables, so bindings such as
+  static event table variables, with nested `Down`/`Up`/`Drag` payloads inline
+  or through top-level static table variables and `button`/`streak` fields
+  inline or through top-level static variables, and `action` payloads parse
+  inline or through top-level static action variables, so bindings such as
   `ALT` + left drag can route to `StartWindowDrag`, middle-button release can
   route to `PastePrimarySelection`, `CTRL` + wheel-up can route to
   `IncreaseFontSize`, double-left-down can route to a custom action, and
