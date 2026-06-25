@@ -35280,9 +35280,7 @@ fn spawn_command_table_query_from_lua_function_with_static_source(
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQuery> {
     let command = strip_lua_function_call_from_query(query, name)?;
-    command.trim_start().starts_with('{').then(|| {
-        spawn_command_table_from_query_with_static_source(static_source, command, allow_position)
-    })?
+    spawn_command_table_from_query_with_static_source(static_source, command, allow_position)
 }
 
 fn spawn_command_table_query_from_prefix_with_static_source(
@@ -35920,6 +35918,19 @@ fn spawn_command_table_from_query_with_static_source(
     value: &str,
     allow_position: bool,
 ) -> Option<WindowSpawnCommandQuery> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut args = None;
     let mut cwd = None;
@@ -74729,6 +74740,81 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm SpawnCommand static field variable config");
+
+        let command = WindowSpawnCommandQuery {
+            program: "top".to_owned(),
+            args: vec!["-d".to_owned(), "1".to_owned()],
+            cwd: Some("C:/Project Dir".to_owned()),
+            environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
+            domain: Some(WindowSpawnTabDomain::DomainName("local".to_owned())),
+            window_position: None,
+        };
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+T".to_owned(),
+                    command: WindowCommand::SpawnCommandInNewTab(command.clone()),
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+W".to_owned(),
+                    command: WindowCommand::SpawnCommandInNewWindow(WindowSpawnCommandQuery {
+                        window_position: Some(crate::cli::WindowPosition {
+                            origin: crate::cli::WindowPositionOrigin::Main,
+                            x: 42,
+                            y: 84,
+                        }),
+                        ..command
+                    }),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_command_static_table_variable_calls() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local spawn_args = { 'top', '-d', '1' }
+            local spawn_cwd = 'C:/Project Dir'
+            local spawn_domain = 'local'
+            local spawn_mode = 'dev'
+            local spawn_position = 'main:42,84'
+            local spawn_opts = {
+              args = spawn_args,
+              cwd = spawn_cwd,
+              domain = spawn_domain,
+              set_environment_variables = { MODE = spawn_mode },
+            }
+            local window_opts = {
+              args = spawn_args,
+              cwd = spawn_cwd,
+              domain = spawn_domain,
+              position = spawn_position,
+              set_environment_variables = { MODE = spawn_mode },
+            }
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewTab(spawn_opts),
+              },
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewWindow(window_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnCommand static table variable call config");
 
         let command = WindowSpawnCommandQuery {
             program: "top".to_owned(),
