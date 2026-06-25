@@ -31753,25 +31753,43 @@ fn multiple_commands_from_query(query: &str) -> Option<Vec<WindowCommand>> {
 }
 
 fn multiple_table_commands_from_query(query: &str) -> Option<Vec<WindowCommand>> {
-    multiple_table_commands_from_query_with_parser(query, confirmation_nested_command_from_query)
+    multiple_table_commands_from_query_with_parser(
+        None,
+        query,
+        confirmation_nested_command_from_query,
+    )
 }
 
 fn multiple_table_commands_from_query_with_static_source(
     static_source: LuaStaticSource<'_>,
     query: &str,
 ) -> Option<Vec<WindowCommand>> {
-    multiple_table_commands_from_query_with_parser(query, |command| {
+    multiple_table_commands_from_query_with_parser(Some(static_source), query, |command| {
         native_key_assignment_command_from_query(Some(static_source), command)
     })
 }
 
 fn multiple_table_commands_from_query_with_parser(
+    static_source: Option<LuaStaticSource<'_>>,
     query: &str,
     mut command_from_query: impl FnMut(&str) -> Option<WindowCommand>,
 ) -> Option<Vec<WindowCommand>> {
     let query = strip_wezterm_action_prefix(query.trim()).unwrap_or(query.trim());
     let rest = strip_lua_function_call_from_query(query, "multiple")
         .or_else(|| strip_query_table_assignment_from_prefix(query, "multiple="))?;
+    let rest = rest.trim();
+    let resolved_rest;
+    let rest = if rest.starts_with('{') {
+        rest
+    } else {
+        let static_source = static_source?;
+        resolved_rest = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            rest,
+            static_source.max_start,
+        )?;
+        resolved_rest.as_str()
+    };
     let table = rest.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut commands = Vec::new();
     let mut indexed_commands = BTreeMap::new();
@@ -77568,6 +77586,44 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm key multiple static action variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+M".to_owned(),
+                command: WindowCommand::Multiple(vec![
+                    WindowCommand::SendString("alpha".to_owned()),
+                    WindowCommand::SendString("beta".to_owned()),
+                ]),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_multiple_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local send_alpha = act.SendString 'alpha'
+            local actions = {
+              send_alpha,
+              act.SendString 'beta',
+            }
+
+            config.keys = {
+              {
+                key = 'M',
+                mods = 'CTRL|SHIFT',
+                action = act.Multiple(actions),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key multiple static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,

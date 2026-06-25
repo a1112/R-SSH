@@ -1149,7 +1149,9 @@ keyboard, mouse, paste, resize
   sequence implemented `WindowCommand` values, applying each command in order
   and stopping on the first failure. Structured `multiple <command> ; <command>`
   command-palette queries split only on unquoted separators, so quoted
-  `send string` payloads can contain ` ; ` text.
+  `send string` payloads can contain ` ; ` text. Static `config.keys`
+  `Multiple` action calls also accept parenthesized top-level static action
+  table variables.
 - Implemented in v1: command-palette `ClearSelection` plus structured
   `clearselection` action-name queries clear active-window selection state and
   refresh rendered selection highlights.

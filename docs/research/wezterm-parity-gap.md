@@ -1375,7 +1375,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style Lua table calls now accept both
   `wezterm.action.Multiple { ... }` and
   `wezterm.action.Multiple({ ... })` forms for the same implemented nested
-  action subset, including nested `wezterm.action.QuickSelectArgs({ ... })`,
+  action subset, plus parenthesized top-level static action table variables in
+  static `config.keys`, including nested `wezterm.action.QuickSelectArgs({ ... })`,
   `wezterm.action.Search({ ... })`, and
   `wezterm.action.SwitchToWorkspace({ ... })` payload tables without dropping
   their typed options, plus structured nested split command queries such as
