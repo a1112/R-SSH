@@ -488,8 +488,9 @@ keyboard, mouse, paste, resize
   values are reduced to their text for native selector labels. WezTerm-style Lua
   table calls skip trailing-comma fields and parse `title`, string `choices`,
   `alphabet`, `description`, and `fuzzy_description` fields inline or through
-  top-level static string variables. Static `action = wezterm.action_callback(...)`
-  fields are accepted as native-handler placeholders.
+  top-level static string variables, plus `fuzzy` inline or through a top-level
+  static bool variable. Static `action = wezterm.action_callback(...)` fields
+  are accepted as native-handler placeholders.
   Duplicate `fuzzy` fields are rejected instead of silently overriding them;
   actual Lua `wezterm.action_callback` wiring remains future parity work.
 - Completed in v1: a native WezTerm-style `Confirmation` action payload carries

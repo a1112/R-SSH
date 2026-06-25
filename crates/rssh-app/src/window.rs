@@ -30644,8 +30644,7 @@ fn input_selector_fields_from_query_with_static_source(
         return input_selector_one_word_splits(value)
             .filter_map(|(fuzzy, remaining)| {
                 let mut options = options.clone();
-                let fuzzy = parse_maybe_static_query_text(static_source, fuzzy)?;
-                options.fuzzy = bool_from_query(&fuzzy)?;
+                options.fuzzy = parse_maybe_static_query_bool(static_source, fuzzy)?;
                 let (options, score) = input_selector_fields_from_query_with_static_source(
                     static_source,
                     remaining,
@@ -30813,11 +30812,10 @@ fn input_selector_lua_table_from_query_with_static_source(
                 parsed_fuzzy_description = true;
             }
             "fuzzy" => {
-                let value = parse_maybe_static_query_text(static_source, raw_value)?;
                 if parsed_fuzzy {
                     return None;
                 }
-                options.fuzzy = bool_from_query(&value)?;
+                options.fuzzy = parse_maybe_static_query_bool(static_source, raw_value)?;
                 parsed_fuzzy = true;
             }
             "action" => {
@@ -33718,6 +33716,24 @@ fn parse_maybe_static_query_text(
     }
 
     parse_maybe_quoted_query_text(value)
+}
+
+fn parse_maybe_static_query_bool(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<bool> {
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_bool_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return bool_from_query(value);
+    }
+
+    let value = parse_maybe_static_query_text(static_source, value)?;
+    bool_from_query(&value)
 }
 
 fn lua_static_string_assignment_value_before_offset_from_query<'a>(
@@ -72916,6 +72932,55 @@ mod tests {
                     description: Some("Choose one:".to_owned()),
                     fuzzy_description: Some("Filter replies:".to_owned()),
                     fuzzy: false,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_input_selector_static_fuzzy_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selector_fuzzy = true
+
+            config.keys = {
+              {
+                key = 'F',
+                mods = 'CTRL|SHIFT',
+                action = act.InputSelector {
+                  title = 'Pick Reply',
+                  choices = 'decline=No thanks ; lgtm=LGTM',
+                  fuzzy = selector_fuzzy,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm InputSelector static fuzzy variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+F".to_owned(),
+                command: WindowCommand::InputSelector(WindowInputSelectorOptions {
+                    title: "Pick Reply".to_owned(),
+                    choices: vec![
+                        WindowInputSelectorChoice {
+                            label: "No thanks".to_owned(),
+                            id: Some("decline".to_owned()),
+                        },
+                        WindowInputSelectorChoice {
+                            label: "LGTM".to_owned(),
+                            id: Some("lgtm".to_owned()),
+                        },
+                    ],
+                    fuzzy: true,
+                    ..WindowInputSelectorOptions::default()
                 }),
             }])
         );

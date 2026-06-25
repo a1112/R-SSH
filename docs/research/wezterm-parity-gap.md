@@ -1040,7 +1040,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `{ label = ..., id = ... }` entries, including bracketed string keys on those
   nested choice tables. The table-call string fields `title`, string `choices`,
   `alphabet`, `description`, and `fuzzy_description` also parse through
-  top-level static string variables. Static `wezterm.format { { Text = ... } }`
+  top-level static string variables, and `fuzzy` parses inline or through a
+  top-level static bool variable. Static `wezterm.format { { Text = ... } }`
   label values are reduced to their text for native selector labels, while style
   items are ignored until styled selector rows are implemented. Static
   `action = wezterm.action_callback(...)` fields are accepted as native-handler
