@@ -432,9 +432,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   static numeric `cell_widths` override tables parse inline, through
   top-level static table variables, or through
   `table.insert(config.cell_widths, { ... })` appends from WezTerm-style Lua,
-  with entries inline or through top-level static table variables. Entry
-  `first`/`last`/`width` fields parse inline or through top-level static number
-  variables, and take priority over that ambiguous-width setting. When enabled,
+  including `config[static_name]` assignments where `static_name` resolves to
+  `cell_widths`. Entries parse inline or through top-level static table
+  variables. Entry `first`/`last`/`width` fields parse inline or through
+  top-level static number variables, and take priority over that
+  ambiguous-width setting. When enabled,
   `normalize_output_to_unicode_nfc` normalizes contiguous ordinary terminal
   output runs to Unicode NFC before rendering, including leading combining
   marks that arrive in the next PTY chunk when they compose with the prior
