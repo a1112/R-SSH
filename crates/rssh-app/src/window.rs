@@ -100,6 +100,7 @@ const DEFAULT_FONT_HINTING: NativeFontHinting = NativeFontHinting::Full;
 const DEFAULT_FONT_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::FreeType;
 const DEFAULT_FONT_SHAPER: NativeFontShaper = NativeFontShaper::Harfbuzz;
 const DEFAULT_FONT_LOCATOR: Option<NativeFontLocator> = None;
+const DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS: bool = false;
 const DEFAULT_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH: NativeSquareGlyphOverflow =
@@ -1976,6 +1977,7 @@ struct NativeEffectiveConfig {
     font_shaper: NativeFontShaper,
     font_dirs: Vec<String>,
     font_locator: Option<NativeFontLocator>,
+    use_cap_height_to_scale_fallback_fonts: bool,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -2146,6 +2148,7 @@ struct NativeConfigOverrides {
     font_shaper: Option<NativeFontShaper>,
     font_dirs: Option<Vec<String>>,
     font_locator: Option<NativeFontLocator>,
+    use_cap_height_to_scale_fallback_fonts: Option<bool>,
     custom_block_glyphs: Option<bool>,
     anti_alias_custom_block_glyphs: Option<bool>,
     allow_square_glyphs_to_overflow_width: Option<NativeSquareGlyphOverflow>,
@@ -2838,6 +2841,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.char_select_font_size =
             Some(native_font_size_from_points(char_select_font_size)?);
+        parsed = true;
+    }
+    if let Some(use_cap_height_to_scale_fallback_fonts) =
+        lua_config_bool_assignment_from_query(config, "use_cap_height_to_scale_fallback_fonts")
+    {
+        overrides.use_cap_height_to_scale_fallback_fonts =
+            Some(use_cap_height_to_scale_fallback_fonts);
         parsed = true;
     }
     if let Some(launcher_alphabet) =
@@ -12359,6 +12369,7 @@ struct NativeWindowApp {
     font_shaper: NativeFontShaper,
     font_dirs: Vec<String>,
     font_locator: Option<NativeFontLocator>,
+    use_cap_height_to_scale_fallback_fonts: bool,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -13805,6 +13816,7 @@ impl NativeWindowApp {
             font_shaper: DEFAULT_FONT_SHAPER,
             font_dirs: Vec::new(),
             font_locator: DEFAULT_FONT_LOCATOR,
+            use_cap_height_to_scale_fallback_fonts: DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
@@ -14891,6 +14903,8 @@ impl NativeWindowApp {
         detached_app.window_background_opacity = self.window_background_opacity;
         detached_app.window_decorations = self.window_decorations;
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
+        detached_app.use_cap_height_to_scale_fallback_fonts =
+            self.use_cap_height_to_scale_fallback_fonts;
         detached_app.command_palette_rows = self.command_palette_rows;
         detached_app.command_palette_font_size = self.command_palette_font_size;
         detached_app.char_select_font_size = self.char_select_font_size;
@@ -15100,6 +15114,7 @@ impl NativeWindowApp {
         self.prefer_egl = source.prefer_egl;
         self.enable_wayland = source.enable_wayland;
         self.last_status_update_at = None;
+        self.use_cap_height_to_scale_fallback_fonts = source.use_cap_height_to_scale_fallback_fonts;
         self.command_palette_rows = source.command_palette_rows;
         self.command_palette_font_size = source.command_palette_font_size;
         self.command_palette_bg_color = source.command_palette_bg_color;
@@ -22815,6 +22830,7 @@ impl NativeWindowApp {
             font_shaper: self.font_shaper,
             font_dirs: self.font_dirs.clone(),
             font_locator: self.font_locator,
+            use_cap_height_to_scale_fallback_fonts: self.use_cap_height_to_scale_fallback_fonts,
             custom_block_glyphs: self.custom_block_glyphs,
             anti_alias_custom_block_glyphs: self.anti_alias_custom_block_glyphs,
             allow_square_glyphs_to_overflow_width: self.allow_square_glyphs_to_overflow_width,
@@ -23018,6 +23034,9 @@ impl NativeWindowApp {
         self.font_shaper = overrides.font_shaper.unwrap_or(DEFAULT_FONT_SHAPER);
         self.font_dirs = overrides.font_dirs.clone().unwrap_or_default();
         self.font_locator = overrides.font_locator.or(DEFAULT_FONT_LOCATOR);
+        self.use_cap_height_to_scale_fallback_fonts = overrides
+            .use_cap_height_to_scale_fallback_fonts
+            .unwrap_or(DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS);
         self.custom_block_glyphs = overrides
             .custom_block_glyphs
             .unwrap_or(DEFAULT_CUSTOM_BLOCK_GLYPHS);
@@ -48098,7 +48117,8 @@ mod tests {
         DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
-        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_USE_IME,
+        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS,
+        DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
         DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
@@ -59634,6 +59654,8 @@ mod tests {
                 font_shaper: DEFAULT_FONT_SHAPER,
                 font_dirs: Vec::new(),
                 font_locator: DEFAULT_FONT_LOCATOR,
+                use_cap_height_to_scale_fallback_fonts:
+                    DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
                 custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
                 anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
                 allow_square_glyphs_to_overflow_width:
@@ -81289,6 +81311,38 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_fallback_font_scaling_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = format!("{:?}", app.native_effective_config());
+
+        assert!(
+            effective.contains("use_cap_height_to_scale_fallback_fonts: false"),
+            "effective config should expose WezTerm's use_cap_height_to_scale_fallback_fonts default: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_fallback_font_scaling() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.use_cap_height_to_scale_fallback_fonts = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm fallback font scaling config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.native_effective_config()
+                .use_cap_height_to_scale_fallback_fonts
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_dpi_override() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -88142,6 +88196,7 @@ mod tests {
             font_shaper: Some(NativeFontShaper::Harfbuzz),
             font_dirs: Some(vec!["fonts".to_owned(), "vendor/fonts".to_owned()]),
             font_locator: Some(NativeFontLocator::ConfigDirsOnly),
+            use_cap_height_to_scale_fallback_fonts: Some(true),
             custom_block_glyphs: Some(false),
             anti_alias_custom_block_glyphs: Some(false),
             allow_square_glyphs_to_overflow_width: Some(NativeSquareGlyphOverflow::Always),
@@ -88406,6 +88461,7 @@ mod tests {
             font_shaper: NativeFontShaper::Harfbuzz,
             font_dirs: vec!["fonts".to_owned(), "vendor/fonts".to_owned()],
             font_locator: Some(NativeFontLocator::ConfigDirsOnly),
+            use_cap_height_to_scale_fallback_fonts: true,
             custom_block_glyphs: false,
             anti_alias_custom_block_glyphs: false,
             allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow::Always,
@@ -88630,6 +88686,7 @@ mod tests {
             font_shaper: DEFAULT_FONT_SHAPER,
             font_dirs: Vec::new(),
             font_locator: DEFAULT_FONT_LOCATOR,
+            use_cap_height_to_scale_fallback_fonts: DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,

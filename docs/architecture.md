@@ -880,6 +880,7 @@ keyboard, mouse, paste, resize
   `cell_widths`,
   `line_height`, deprecated WezTerm-compatible `font_antialias`/`font_hinting`,
   `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`,
+  `use_cap_height_to_scale_fallback_fonts`,
   `custom_block_glyphs`,
   `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`,
   `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`,
@@ -894,11 +895,13 @@ keyboard, mouse, paste, resize
   `table.insert(config.font_dirs, ...)` appends. Custom block glyph,
   square-glyph overflow,
   FreeType interpreter-version, PCF long-family-name, display pixel-geometry,
-  font-directory, font-locator, and font shaper options are retained in
+  font-directory, font-locator, font shaper, and fallback-font cap-height
+  scaling options are retained in
   effective config with WezTerm defaults, but actual renderer glyph strategy,
   configured font-directory scanning, font-locator application, shaping-engine
-  application, FreeType interpreter application, subpixel geometry application,
-  and PCF font-resolution changes remain future parity work.
+  application, fallback-font cap-height scaling, FreeType interpreter
+  application, subpixel geometry application, and PCF font-resolution changes
+  remain future parity work.
 - Completed in v1: WezTerm-style `ShowDebugOverlay` routes the default
   `Ctrl+Shift+L` shortcut, command-palette `Show Debug Overlay` entry, and
   action-name `showdebugoverlay` query into native-window debug-overlay state
@@ -1018,7 +1021,8 @@ keyboard, mouse, paste, resize
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`,
   `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`,
-  `font_dirs`, `font_locator`, `custom_block_glyphs`,
+  `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`,
+  `custom_block_glyphs`,
   `anti_alias_custom_block_glyphs`,
   `allow_square_glyphs_to_overflow_width`, `freetype_load_target`,
   `freetype_render_target`, `freetype_load_flags`,
@@ -1370,7 +1374,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`,
   `command_palette_bg_color`, `command_palette_fg_color`,
@@ -1461,7 +1465,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`,
   `command_palette_rows`, `command_palette_font_size`,
