@@ -1145,6 +1145,8 @@ keyboard, mouse, paste, resize
   `CopyTo('ClipboardAndPrimarySelection')` routing, with quoted or unquoted
   `copy to <destination>` and `copyto <destination>` queries plus action-name
   `copytoprimaryselection` and `copytoclipboardandprimaryselection` queries.
+  Static `config.keys` action calls resolve top-level string variables for
+  `CopyTo` destinations.
   The native platform PrimarySelection backend remains a later
   platform-adapter task.
 - Implemented in v1: command-palette Paste From Clipboard and native

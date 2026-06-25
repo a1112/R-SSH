@@ -1440,7 +1440,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   ClipboardAndPrimarySelection spellings, quoted or unquoted, to native
   `CopyTo(destination)` payloads; action-name `copytoclipboard`,
   `copytoprimaryselection`, and `copytoclipboardandprimaryselection` queries
-  dispatch the same commands.
+  dispatch the same commands. Static `config.keys` action calls resolve
+  top-level string variables for `CopyTo` destinations.
 - Command palette and native action payloads now expose WezTerm-style
   `CopyTo('PrimarySelection')` and `CopyTo('ClipboardAndPrimarySelection')`
   routing for the active selection.

@@ -11709,6 +11709,11 @@ fn native_key_assignment_command_from_query(
     if let Some(mode) = clear_scrollback_mode_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::ClearScrollback(mode));
     }
+    if let Some(destination) =
+        copy_destination_command_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::CopyTo(destination));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -29873,15 +29878,32 @@ fn clear_scrollback_lua_table_from_query_with_static_source(
 }
 
 fn copy_destination_command_from_query(query: &str) -> Option<WindowCopyDestination> {
+    copy_destination_command_from_query_with_static_source(None, query)
+}
+
+fn copy_destination_command_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowCopyDestination> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(destination) = strip_lua_function_call_from_query(query, "copyto") {
-        return copy_destination_from_query(destination);
+        return copy_destination_from_query_with_static_source(static_source, destination);
     }
 
     let destination =
         strip_query_prefix_from_any(query, &["copy to=", "copy to ", "copyto=", "copyto "])?;
     let destination = strip_query_prefix_from_any(destination, &["destination=", "destination "])
         .unwrap_or(destination);
-    copy_destination_from_query(destination)
+    copy_destination_from_query_with_static_source(static_source, destination)
 }
 
 fn paste_source_command_from_query(query: &str) -> Option<WindowPasteSource> {
@@ -34189,9 +34211,16 @@ fn complete_selection_or_open_link_destination_from_query(
 }
 
 fn copy_destination_from_query(destination: &str) -> Option<WindowCopyDestination> {
+    copy_destination_from_query_with_static_source(None, destination)
+}
+
+fn copy_destination_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    destination: &str,
+) -> Option<WindowCopyDestination> {
     let destination = strip_query_prefix_from_any(destination, &["destination=", "destination "])
         .unwrap_or(destination);
-    let destination = parse_maybe_quoted_query_text(destination)?;
+    let destination = parse_maybe_static_query_text(static_source, destination)?;
     let normalized = destination
         .chars()
         .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
@@ -74187,6 +74216,37 @@ mod tests {
                 command: WindowCommand::RotatePanes(
                     rssh_core::app_shell::PaneRotationDirection::Clockwise,
                 ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_copy_to_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local destination = 'PrimarySelection'
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.CopyTo(destination),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyTo static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::CopyTo(WindowCopyDestination::PrimarySelection),
             }])
         );
     }
