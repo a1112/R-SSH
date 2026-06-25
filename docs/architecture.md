@@ -511,7 +511,7 @@ keyboard, mouse, paste, resize
   top-level static table variables whose entries can resolve static string
   labels and top-level static `wezterm.format` label variables, plus `fuzzy`
   inline or through a top-level static bool variable. Static
-  `action = wezterm.action_callback(...)` fields
+  `action = wezterm.action_callback(...)` fields and top-level static callback variables
   are accepted as native-handler placeholders.
   Duplicate `fuzzy` fields are rejected instead of silently overriding them;
   actual Lua `wezterm.action_callback` wiring remains future parity work.

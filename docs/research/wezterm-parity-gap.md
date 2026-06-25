@@ -1078,8 +1078,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.format { { Text = ... } }`
   label values are reduced to their text for native selector labels, while style
   items are ignored until styled selector rows are implemented. Static
-  `action = wezterm.action_callback(...)` fields are accepted as native-handler
-  placeholders, while actual Lua `wezterm.action_callback` wiring remains open.
+  `action = wezterm.action_callback(...)` fields and top-level static callback
+  variables are accepted as native-handler placeholders, while actual Lua
+  `wezterm.action_callback` wiring remains open.
 - Native `Confirmation` action payloads now carry a message string, required Yes
   action, and optional No/cancel action. They open a modal confirmation overlay,
   dispatch typed native `accepted = true` events on Enter/`Y`/Space before
@@ -1562,7 +1563,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `fuzzy_description`, and `fuzzy` fields as the existing `Action { ... }` and
   command-palette query forms, including table-of-table choices and text-only
   `wezterm.format` labels, top-level static choices table variables, top-level
-  static `wezterm.format` label variables, and trailing-comma table fields.
+  static `wezterm.format` label variables, top-level static callback variables
+  for `action`, and trailing-comma table fields.
 - WezTerm-style confirmation table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.Confirmation({ message = "Send command?", action = "sendstring yes", cancel = "sendstring no" })`,

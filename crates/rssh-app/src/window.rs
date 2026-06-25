@@ -31186,7 +31186,9 @@ fn input_selector_lua_table_from_query_with_static_source(
                 parsed_fuzzy = true;
             }
             "action" => {
-                if parsed_action || !lua_action_callback_from_query(raw_value) {
+                if parsed_action
+                    || !lua_action_callback_from_query_with_static_source(static_source, raw_value)
+                {
                     return None;
                 }
                 parsed_action = true;
@@ -75636,6 +75638,54 @@ mod tests {
                     description: Some("Choose one:".to_owned()),
                     fuzzy_description: Some("Filter replies:".to_owned()),
                     fuzzy: false,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_input_selector_static_action_callback_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selector_action = wezterm.action_callback(function(window, pane, id, label) end)
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = act.InputSelector {
+                  title = 'Pick Reply',
+                  choices = 'decline=No thanks ; lgtm=LGTM',
+                  action = selector_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm InputSelector static action callback variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+I".to_owned(),
+                command: WindowCommand::InputSelector(WindowInputSelectorOptions {
+                    title: "Pick Reply".to_owned(),
+                    choices: vec![
+                        WindowInputSelectorChoice {
+                            label: "No thanks".to_owned(),
+                            id: Some("decline".to_owned()),
+                        },
+                        WindowInputSelectorChoice {
+                            label: "LGTM".to_owned(),
+                            id: Some("lgtm".to_owned()),
+                        },
+                    ],
+                    ..WindowInputSelectorOptions::default()
                 }),
             }])
         );
