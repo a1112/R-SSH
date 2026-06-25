@@ -11659,6 +11659,10 @@ fn native_key_assignment_command_from_query(
     {
         return Some(command);
     }
+    if let Some(offset) = activate_tab_relative_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::ActivateTabRelative(offset));
+    }
     if let Some((direction, amount)) =
         adjust_pane_size_from_query_with_static_source(static_source, value)
     {
@@ -33066,8 +33070,25 @@ fn activate_tab_from_query(query: &str) -> Option<isize> {
 }
 
 fn activate_tab_relative_from_query(query: &str) -> Option<isize> {
+    activate_tab_relative_from_query_with_static_source(None, query)
+}
+
+fn activate_tab_relative_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<isize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(offset) = strip_lua_function_call_from_query(query, "activatetabrelative") {
-        return parse_single_query_value(offset)?.parse().ok();
+        return parse_maybe_static_query_isize(static_source, offset);
     }
 
     let offset = strip_query_prefix_from_any(
@@ -33079,10 +33100,10 @@ fn activate_tab_relative_from_query(query: &str) -> Option<isize> {
             "activatetabrelative ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     strip_query_prefix_from_any(offset, &["offset=", "offset ", "amount=", "amount "])
         .or(Some(offset))
-        .and_then(|offset| offset.parse().ok())
+        .and_then(|offset| parse_maybe_static_query_isize(static_source, offset))
 }
 
 fn activate_tab_relative_no_wrap_from_query(query: &str) -> Option<isize> {
@@ -73750,6 +73771,37 @@ mod tests {
                 command: WindowCommand::ScrollByPage(WindowScrollByPageAmount::from_per_mille(
                     -500,
                 )),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_tab_relative_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local tab_offset = -1
+
+            config.keys = {
+              {
+                key = '[',
+                mods = 'SUPER|SHIFT',
+                action = act.ActivateTabRelative(tab_offset),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateTabRelative static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "SUPER|SHIFT+[".to_owned(),
+                command: WindowCommand::ActivateTabRelative(-1),
             }])
         );
     }

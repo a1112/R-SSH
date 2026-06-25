@@ -87,7 +87,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   relative offsets through the same app-shell paths. The default `Ctrl+Tab`,
   `Ctrl+Shift+Tab`, `Ctrl+PageUp`, `Ctrl+PageDown`, and `Super+Shift+[/]`
   key-assignment entries expose `ActivateTabRelative` payloads while the
-  command palette keeps Next/Previous Tab aliases.
+  command palette keeps Next/Previous Tab aliases. Static `config.keys` action
+  calls resolve top-level signed integer variables for `ActivateTabRelative`.
 - `MoveTabRelative` now reorders the active tab within the current workspace
   while preserving it as the active tab, and the command palette exposes
   Move Tab Relative Left/Right entries for one-step relative movement plus
