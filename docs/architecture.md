@@ -581,7 +581,10 @@ keyboard, mouse, paste, resize
   mutation payloads as `pop key table` and `clear key table stack`, as do
   WezTerm-style bare and zero-argument Lua action forms such as
   `wezterm.action.PopKeyTable` and `act.ClearKeyTableStack()`, plus empty-table
-  wrappers such as `wezterm.action { PopKeyTable = {} }`.
+  wrappers such as `wezterm.action { PopKeyTable = {} }`. Static
+  `config.keys` action wrappers also resolve parenthesized top-level static
+  wrapper table variables such as `local wrapper = { SendString = "text" }`
+  followed by `action = act(wrapper)`.
   Native `key_tables` overrides now match table entries from the activation
   stack top downward and execute the matched native action. Lua `key_tables`
   parsing remains future parity work.

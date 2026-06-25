@@ -1357,6 +1357,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   value })` wrapper-table syntax for the implemented native action subset,
   including scalar action parameters such as `ActivateTabRelative = -1` and
   table payloads such as `SplitHorizontal = { domain = "CurrentPaneDomain" }`.
+  Static `config.keys` parsing also accepts parenthesized wrapper calls whose
+  wrapper payload is a top-level static table variable, such as
+  `action = act(wrapper)` after `local wrapper = { SendString = "text" }`.
 - Structured action queries now accept the common documented
   `local act = wezterm.action` alias form for implemented action constructors
   and wrapper tables, including `act.PromptInputLine { ... }` and

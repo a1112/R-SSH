@@ -11791,6 +11791,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::SwitchToWorkspaceArgs(options));
     }
+    if let Some(command) =
+        wezterm_action_table_wrapper_command_with_static_source(static_source, value)
+    {
+        return Some(command);
+    }
     if let Some(command) = key_table_stack_command_from_query(value) {
         return Some(command);
     }
@@ -29457,7 +29462,30 @@ fn strip_wezterm_action_index_prefix(query: &str) -> Option<String> {
 }
 
 fn wezterm_action_table_wrapper_command(query: &str) -> Option<WindowCommand> {
-    let table = strip_wezterm_action_table_wrapper_from_query(query)?;
+    wezterm_action_table_wrapper_command_with_static_source(None, query)
+}
+
+fn wezterm_action_table_wrapper_command_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowCommand> {
+    let resolved_table;
+    let table = if let Some(table) = strip_wezterm_action_table_wrapper_from_query(query) {
+        table
+    } else {
+        let static_source = static_source?;
+        let argument = strip_wezterm_action_table_wrapper_argument_from_query(query)?;
+        resolved_table = lua_table_map_value_table_string_from_query(
+            static_source.source,
+            argument,
+            static_source.max_start,
+        )?;
+        resolved_table
+            .trim()
+            .strip_prefix('{')?
+            .strip_suffix('}')?
+            .trim()
+    };
     let mut fields = split_lua_table_top_level_fields(table)?
         .into_iter()
         .map(str::trim)
@@ -29510,6 +29538,23 @@ fn strip_wezterm_action_table_wrapper_from_query(query: &str) -> Option<&str> {
             .trim()
             .strip_prefix('{')?
             .strip_suffix('}')
+            .map(str::trim)
+    })
+}
+
+fn strip_wezterm_action_table_wrapper_argument_from_query(query: &str) -> Option<&str> {
+    let query = query.trim();
+    ["wezterm.action", "act"].into_iter().find_map(|prefix| {
+        let candidate = query.get(..prefix.len())?;
+        if !candidate.eq_ignore_ascii_case(prefix) {
+            return None;
+        }
+
+        query
+            .get(prefix.len()..)?
+            .trim_start()
+            .strip_prefix('(')?
+            .strip_suffix(')')
             .map(str::trim)
     })
 }
@@ -73640,6 +73685,39 @@ mod tests {
                     command: WindowCommand::ClearKeyTableStack,
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_action_wrapper_table_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local wrapper = {
+              SendString = 'from-wrapper-variable',
+            }
+
+            config.keys = {
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = act(wrapper),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static wrapper-table action config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+W".to_owned(),
+                command: WindowCommand::SendString("from-wrapper-variable".to_owned()),
+            }])
         );
     }
 
