@@ -30564,7 +30564,12 @@ fn prompt_input_line_lua_table_from_query_with_static_source(
                 parsed_initial_value = true;
             }
             "action" => {
-                if parsed_action || !lua_action_callback_from_query(value.trim()) {
+                if parsed_action
+                    || !lua_action_callback_from_query_with_static_source(
+                        static_source,
+                        value.trim(),
+                    )
+                {
                     return None;
                 }
                 parsed_action = true;
@@ -30579,6 +30584,25 @@ fn prompt_input_line_lua_table_from_query_with_static_source(
 fn lua_action_callback_from_query(value: &str) -> bool {
     strip_lua_function_call_from_query(value, "wezterm.action_callback").is_some()
         || strip_lua_function_call_from_query(value, "action_callback").is_some()
+}
+
+fn lua_action_callback_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> bool {
+    if lua_action_callback_from_query(value) {
+        return true;
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return lua_action_callback_from_query(value);
+    }
+    false
 }
 
 fn modal_display_text_from_query_with_static_source(
@@ -75506,6 +75530,46 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm PromptInputLine static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Rename tab".to_owned(),
+                    prompt: Some("name: ".to_owned()),
+                    initial_value: Some("old name".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_prompt_input_line_static_action_callback_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local prompt_action = wezterm.action_callback(function(window, pane, line) end)
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine {
+                  description = 'Rename tab',
+                  prompt = 'name: ',
+                  initial_value = 'old name',
+                  action = prompt_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine static action callback variable config");
 
         assert_eq!(
             overrides.key_assignments,

@@ -1037,8 +1037,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `description`/`prompt`.
   Static Lua `wezterm.format { { Text = ... } }` values for `description` and
   `prompt` are reduced to their visible text for the native overlay, and static
-  `action = wezterm.action_callback(...)` fields are accepted as native-handler
-  placeholders, while styled prompt-line rendering and actual Lua
+  `action = wezterm.action_callback(...)` fields plus top-level static callback
+  variables are accepted as native-handler placeholders, while styled prompt-line rendering and actual Lua
   `wezterm.action_callback` wiring remain open.
 - Native `InputSelector` action payloads now carry `title`, `choices`, optional
   `alphabet`, optional `description`, optional `fuzzy_description`, and `fuzzy`,
@@ -1553,8 +1553,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.PromptInputLine({ description = "Rename tab", prompt = "name: ", initial_value = "old name" })`,
   routing the same `description`, `prompt`, and `initial_value` fields as the
   existing `Action { ... }` and command-palette query forms, including
-  top-level static `wezterm.format` text variables and trailing-comma table
-  fields.
+  top-level static `wezterm.format` text variables, top-level static callback
+  variables for `action`, and trailing-comma table fields.
 - WezTerm-style input-selector table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.InputSelector({ title = "Pick Reply", choices = "decline=No thanks ; lgtm=LGTM", alphabet = "ab" })`,
