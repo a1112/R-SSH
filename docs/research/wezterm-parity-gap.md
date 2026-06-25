@@ -896,7 +896,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ActivateWindow(<index>)`,
   `wezterm.action.ActivateWindowRelative(<offset>)`, and
   `wezterm.action.ActivateWindowRelativeNoWrap(<offset>)` function-call
-  queries.
+  queries. Static `config.keys` action calls also resolve top-level numeric
+  variables for the absolute index and relative offsets.
 - Native `SetWindowLevel` action payloads cover `AlwaysOnBottom`, `Normal`,
   and `AlwaysOnTop` values in the native action layer and apply them to the
   platform window through winit's `WindowLevel` when backend support exists.

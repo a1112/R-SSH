@@ -11659,6 +11659,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(command);
     }
+    if let Some(command) =
+        activate_window_command_from_query_with_static_source(static_source, value)
+    {
+        return Some(command);
+    }
     if let Some(index) = activate_tab_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::ActivateTab(index));
     }
@@ -33071,17 +33076,41 @@ fn starts_with_ascii_case_insensitive(value: &str, prefix: &str) -> bool {
 }
 
 fn activate_window_command_from_query(query: &str) -> Option<WindowCommand> {
-    activate_window_relative_no_wrap_from_query(query)
-        .map(WindowCommand::ActivateWindowRelativeNoWrap)
-        .or_else(|| {
-            activate_window_relative_from_query(query).map(WindowCommand::ActivateWindowRelative)
-        })
-        .or_else(|| activate_window_from_query(query).map(WindowCommand::ActivateWindow))
+    activate_window_command_from_query_with_static_source(None, query)
 }
 
-fn activate_window_from_query(query: &str) -> Option<usize> {
+fn activate_window_command_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowCommand> {
+    activate_window_relative_no_wrap_from_query_with_static_source(static_source, query)
+        .map(WindowCommand::ActivateWindowRelativeNoWrap)
+        .or_else(|| {
+            activate_window_relative_from_query_with_static_source(static_source, query)
+                .map(WindowCommand::ActivateWindowRelative)
+        })
+        .or_else(|| {
+            activate_window_from_query_with_static_source(static_source, query)
+                .map(WindowCommand::ActivateWindow)
+        })
+}
+
+fn activate_window_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<usize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(index) = strip_lua_function_call_from_query(query, "activatewindow") {
-        return parse_single_query_value(index)?.parse().ok();
+        return parse_maybe_static_query_usize(static_source, index);
     }
 
     let index = strip_query_prefix_from_any(
@@ -33098,12 +33127,25 @@ fn activate_window_from_query(query: &str) -> Option<usize> {
     .and_then(parse_single_query_value)?;
     strip_query_prefix_from_any(index, &["index=", "index "])
         .or(Some(index))
-        .and_then(|index| index.parse().ok())
+        .and_then(|index| parse_maybe_static_query_usize(static_source, index))
 }
 
-fn activate_window_relative_from_query(query: &str) -> Option<isize> {
+fn activate_window_relative_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<isize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(offset) = strip_lua_function_call_from_query(query, "activatewindowrelative") {
-        return parse_single_query_value(offset)?.parse().ok();
+        return parse_maybe_static_query_isize(static_source, offset);
     }
 
     let offset = strip_query_prefix_from_any(
@@ -33118,13 +33160,26 @@ fn activate_window_relative_from_query(query: &str) -> Option<isize> {
     .and_then(parse_single_query_value)?;
     strip_query_prefix_from_any(offset, &["offset=", "offset ", "amount=", "amount "])
         .or(Some(offset))
-        .and_then(|offset| offset.parse().ok())
+        .and_then(|offset| parse_maybe_static_query_isize(static_source, offset))
 }
 
-fn activate_window_relative_no_wrap_from_query(query: &str) -> Option<isize> {
+fn activate_window_relative_no_wrap_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<isize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(offset) = strip_lua_function_call_from_query(query, "activatewindowrelativenowrap")
     {
-        return parse_single_query_value(offset)?.parse().ok();
+        return parse_maybe_static_query_isize(static_source, offset);
     }
 
     let offset = strip_query_prefix_from_any(
@@ -33147,7 +33202,7 @@ fn activate_window_relative_no_wrap_from_query(query: &str) -> Option<isize> {
     .and_then(parse_single_query_value)?;
     strip_query_prefix_from_any(offset, &["offset=", "offset ", "amount=", "amount "])
         .or(Some(offset))
-        .and_then(|offset| offset.parse().ok())
+        .and_then(|offset| parse_maybe_static_query_isize(static_source, offset))
 }
 
 fn activate_tab_from_query(query: &str) -> Option<isize> {
@@ -74484,6 +74539,99 @@ mod tests {
                 command: WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(
                     WindowCopyDestination::PrimarySelection,
                 ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_window_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local index = 2
+
+            config.keys = {
+              {
+                key = 'W',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateWindow(index),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateWindow static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+W".to_owned(),
+                command: WindowCommand::ActivateWindow(2),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_window_relative_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local offset = -1
+
+            config.keys = {
+              {
+                key = 'N',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateWindowRelative(offset),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateWindowRelative static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+N".to_owned(),
+                command: WindowCommand::ActivateWindowRelative(-1),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_window_relative_no_wrap_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local offset = -2
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateWindowRelativeNoWrap(offset),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateWindowRelativeNoWrap static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::ActivateWindowRelativeNoWrap(-2),
             }])
         );
     }

@@ -776,7 +776,9 @@ keyboard, mouse, paste, resize
   `activatewindow <index>`, `activate window relative <offset>`,
   `activatewindowrelative <offset>`,
   `activate window relative no wrap <offset>`, and
-  `activatewindowrelativenowrap <offset>` for those same payloads.
+  `activatewindowrelativenowrap <offset>` for those same payloads. Static
+  `config.keys` action calls resolve top-level numeric variables for the
+  absolute index and relative offsets.
 - Completed in v1: native WezTerm-style `SetWindowLevel` action payloads accept
   `AlwaysOnBottom`, `Normal`, and `AlwaysOnTop`, updating the app's remembered
   window level and applying it to the platform window through winit's
