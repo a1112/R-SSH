@@ -11597,6 +11597,9 @@ fn native_key_assignment_command_from_query(
     if let Some(event) = emit_event_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::EmitEvent(event));
     }
+    if let Some(value) = send_string_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::SendString(value));
+    }
     if let Some(key_table) = activate_key_table_from_query_with_static_source(static_source, value)
     {
         return Some(WindowCommand::ActivateKeyTable(key_table));
@@ -31171,16 +31174,33 @@ fn emit_event_lua_table_from_query(
 }
 
 fn send_string_from_query(query: &str) -> Option<String> {
+    send_string_from_query_with_static_source(None, query)
+}
+
+fn send_string_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<String> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(value) = strip_lua_function_call_from_query(query, "sendstring") {
         if value.trim_start().starts_with('{') {
-            return send_string_lua_table_from_query(value);
+            return send_string_lua_table_from_query_with_static_source(static_source, value);
         }
-        return parse_maybe_quoted_query_text(value);
+        return parse_maybe_static_query_text(static_source, value);
     }
     if let Some(value) = strip_query_table_assignment_from_prefix(query, "sendstring=")
         && value.trim_start().starts_with('{')
     {
-        return send_string_lua_table_from_query(value);
+        return send_string_lua_table_from_query_with_static_source(static_source, value);
     }
 
     let value = strip_query_prefix_from_any(
@@ -31188,13 +31208,13 @@ fn send_string_from_query(query: &str) -> Option<String> {
         &["send string=", "send string ", "sendstring=", "sendstring "],
     )?;
     let value = strip_query_prefix_from_any(value, &["string=", "string "]).unwrap_or(value);
-    if value.starts_with('"') || value.starts_with('\'') || value.starts_with('[') {
-        return parse_lua_quoted_query_text(value).filter(|value| !value.is_empty());
-    }
-    (!value.is_empty()).then(|| value.to_owned())
+    parse_maybe_static_query_text(static_source, value)
 }
 
-fn send_string_lua_table_from_query(value: &str) -> Option<String> {
+fn send_string_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut string = None;
 
@@ -31205,7 +31225,7 @@ fn send_string_lua_table_from_query(value: &str) -> Option<String> {
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "string" => {
                 if string.is_some() || value.is_empty() {
@@ -72554,6 +72574,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+A".to_owned(),
                 command: WindowCommand::SendString("from-action-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_send_string_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local payload = 'from-send-string-variable'
+
+            config.keys = {
+              {
+                key = 'S',
+                mods = 'CTRL|SHIFT',
+                action = act.SendString { string = payload },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SendString static string field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+S".to_owned(),
+                command: WindowCommand::SendString("from-send-string-variable".to_owned()),
             }])
         );
     }

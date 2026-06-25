@@ -1265,7 +1265,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `sendstring <text>` queries dispatch the same typed payload path.
   WezTerm-style `wezterm.action.SendString { string = ... }` and
   `wezterm.action.SendString({ string = ... })` table-call queries dispatch the
-  same typed payload path, including trailing comma table fields. Quoted action
+  same typed payload path, including trailing comma table fields and top-level
+  static string variables for the table-call `string` field. Quoted action
   strings decode Lua-style escapes such as `\x1b`, `\027`, `\u{1b}`, and `\z`
   whitespace elision before dispatching the payload bytes, and accept Lua long
   bracket strings such as `[[text]]`, including inside Lua action payload table
