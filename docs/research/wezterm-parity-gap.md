@@ -349,10 +349,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   for name/codepoint matches, RecentlyUsed entries, and initial built-in
   category candidates including NerdFonts private-use glyphs, with normal
   candidate rows honoring WezTerm-style `char_select_bg_color` and
-  `char_select_fg_color`; typed fuzzy queries and hex codepoint input also
+  `char_select_fg_color`; `char_select_font_size` is retained in the native
+  effective config; typed fuzzy queries and hex codepoint input also
   match the built-in NerdFonts names. Static WezTerm-style Lua
-  `config.char_select_bg_color` and `config.char_select_fg_color` snippets now
-  parse into the same native override path.
+  `config.char_select_bg_color`, `config.char_select_fg_color`, and
+  `config.char_select_font_size` snippets now parse into the same native
+  override path.
   ArrowUp/ArrowDown moves the selected candidate before Enter acceptance while
   scrolling the overlay past the first visible rows. RecentlyUsed candidates use
   persisted JSON selection counts plus a last-used sequence across app
@@ -944,11 +946,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Command palette now renders a visible native candidate overlay and honors the
   WezTerm-style `command_palette_rows` effective-config value; when unset, the
   visible row count is derived from terminal height. Normal candidate rows honor
-  WezTerm-style `command_palette_bg_color` and `command_palette_fg_color`.
+  WezTerm-style `command_palette_bg_color` and `command_palette_fg_color`,
+  while `command_palette_font_size` is retained in effective config.
   Static WezTerm-style Lua `config.command_palette_rows`,
-  `config.command_palette_bg_color`, `config.command_palette_fg_color`, and
-  `config.launcher_alphabet` snippets now parse into the same native override
-  path.
+  `config.command_palette_font_size`, `config.command_palette_bg_color`,
+  `config.command_palette_fg_color`, and `config.launcher_alphabet` snippets
+  now parse into the same native override path.
 - Quick-select labels now honor the WezTerm-style `quick_select_alphabet`
   effective-config value, while retaining the documented default alphabet when
   unset. Native per-window config now supports `quick_select_patterns`, adding
@@ -1957,7 +1960,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `text_blink_rapid_ease_out`,
   `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
-  `command_palette_rows`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
+  `command_palette_rows`, `command_palette_font_size`,
+  `command_palette_bg_color`, `command_palette_fg_color`,
+  `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`,
+  `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`,
   `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
   `key_map_preference`, `ui_key_cap_rendering`, `swap_backspace_and_delete`,
@@ -1999,8 +2005,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`,
   `log_unknown_escape_sequences`, and `warn_about_missing_glyphs`, plus
   the palette/quick-select/status/selection subset:
-  `status_update_interval`, `command_palette_rows`, `command_palette_bg_color`,
-  `command_palette_fg_color`, `char_select_bg_color`, `char_select_fg_color`,
+  `status_update_interval`, `command_palette_rows`,
+  `command_palette_font_size`, `command_palette_bg_color`,
+  `command_palette_fg_color`, `char_select_font_size`,
+  `char_select_bg_color`, `char_select_fg_color`,
   `launcher_alphabet`,
   `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, and
@@ -2064,7 +2072,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`,
-  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
+  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
   `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`,
@@ -2502,10 +2510,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   active/inactive/inactive-hover/new-tab/new-tab-hover left/right edge
   entries parse static `wezterm.format` item arrays inline or through
   top-level static table variables and apply to retro tab/new-tab labels;
-  top-level `command_palette_bg_color`/`command_palette_fg_color` parse into
-  native/effective config and apply to normal command-palette candidate rows;
-  top-level `char_select_bg_color`/`char_select_fg_color` parse into
-  native/effective config and apply to normal Char Select candidate rows;
+  top-level `command_palette_font_size` parses into native/effective config,
+  while `command_palette_bg_color`/`command_palette_fg_color` parse and apply
+  to normal command-palette candidate rows; top-level
+  `char_select_font_size` parses into native/effective config, while
+  `char_select_bg_color`/`char_select_fg_color` parse and apply to normal Char
+  Select candidate rows;
   copy-mode/quick-select/input-selector/launcher label `Color`/`AnsiColor`
   tables also parse into native/effective config, and copy-mode
   active/inactive highlight plus quick-select label/match colors apply to

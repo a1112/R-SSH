@@ -91,6 +91,8 @@ const DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER: bool = false;
 const DEFAULT_PREFER_EGL: bool = true;
 const DEFAULT_ENABLE_WAYLAND: bool = true;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
+const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
+const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
@@ -2002,8 +2004,10 @@ struct NativeEffectiveConfig {
     initial_rows: u16,
     inactive_pane_hsb: NativeInactivePaneHsb,
     command_palette_rows: Option<usize>,
+    command_palette_font_size: NativeFontSize,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_font_size: NativeFontSize,
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
     launcher_alphabet: String,
@@ -2170,8 +2174,10 @@ struct NativeConfigOverrides {
     initial_rows: Option<u16>,
     inactive_pane_hsb: Option<NativeInactivePaneHsb>,
     command_palette_rows: Option<usize>,
+    command_palette_font_size: Option<NativeFontSize>,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_font_size: Option<NativeFontSize>,
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
     launcher_alphabet: Option<String>,
@@ -2794,6 +2800,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.command_palette_rows = Some(command_palette_rows);
         parsed = true;
     }
+    if let Some(command_palette_font_size) =
+        lua_config_f32_assignment_from_query(config, "command_palette_font_size")
+    {
+        overrides.command_palette_font_size =
+            Some(native_font_size_from_points(command_palette_font_size)?);
+        parsed = true;
+    }
     if let Some(command_palette_bg_color) =
         lua_config_string_assignment_from_query(config, "command_palette_bg_color")
     {
@@ -2818,6 +2831,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "char_select_fg_color")
     {
         overrides.char_select_fg_color = Some(lua_opaque_color_from_query(&char_select_fg_color)?);
+        parsed = true;
+    }
+    if let Some(char_select_font_size) =
+        lua_config_f32_assignment_from_query(config, "char_select_font_size")
+    {
+        overrides.char_select_font_size =
+            Some(native_font_size_from_points(char_select_font_size)?);
         parsed = true;
     }
     if let Some(launcher_alphabet) =
@@ -12429,8 +12449,10 @@ struct NativeWindowApp {
     inactive_pane_hsb: NativeInactivePaneHsb,
     tab_max_width: usize,
     command_palette_rows: Option<usize>,
+    command_palette_font_size: NativeFontSize,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_font_size: NativeFontSize,
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
     launcher_alphabet: String,
@@ -13879,8 +13901,10 @@ impl NativeWindowApp {
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             tab_max_width: DEFAULT_TAB_MAX_WIDTH,
             command_palette_rows: None,
+            command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
             command_palette_bg_color: None,
             command_palette_fg_color: None,
+            char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
             char_select_bg_color: None,
             char_select_fg_color: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
@@ -14868,6 +14892,8 @@ impl NativeWindowApp {
         detached_app.window_decorations = self.window_decorations;
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
         detached_app.command_palette_rows = self.command_palette_rows;
+        detached_app.command_palette_font_size = self.command_palette_font_size;
+        detached_app.char_select_font_size = self.char_select_font_size;
         detached_app
             .launcher_alphabet
             .clone_from(&self.launcher_alphabet);
@@ -15075,8 +15101,10 @@ impl NativeWindowApp {
         self.enable_wayland = source.enable_wayland;
         self.last_status_update_at = None;
         self.command_palette_rows = source.command_palette_rows;
+        self.command_palette_font_size = source.command_palette_font_size;
         self.command_palette_bg_color = source.command_palette_bg_color;
         self.command_palette_fg_color = source.command_palette_fg_color;
+        self.char_select_font_size = source.char_select_font_size;
         self.char_select_bg_color = source.char_select_bg_color;
         self.char_select_fg_color = source.char_select_fg_color;
         self.launcher_alphabet.clone_from(&source.launcher_alphabet);
@@ -22815,8 +22843,10 @@ impl NativeWindowApp {
             initial_rows: self.initial_rows,
             inactive_pane_hsb: self.inactive_pane_hsb,
             command_palette_rows: self.command_palette_rows,
+            command_palette_font_size: self.command_palette_font_size,
             command_palette_bg_color: self.command_palette_bg_color,
             command_palette_fg_color: self.command_palette_fg_color,
+            char_select_font_size: self.char_select_font_size,
             char_select_bg_color: self.char_select_bg_color,
             char_select_fg_color: self.char_select_fg_color,
             launcher_alphabet: self.launcher_alphabet.clone(),
@@ -23055,8 +23085,14 @@ impl NativeWindowApp {
             .inactive_pane_hsb
             .unwrap_or(DEFAULT_INACTIVE_PANE_HSB);
         self.command_palette_rows = overrides.command_palette_rows.filter(|rows| *rows > 0);
+        self.command_palette_font_size = overrides
+            .command_palette_font_size
+            .unwrap_or(DEFAULT_COMMAND_PALETTE_FONT_SIZE);
         self.command_palette_bg_color = overrides.command_palette_bg_color;
         self.command_palette_fg_color = overrides.command_palette_fg_color;
+        self.char_select_font_size = overrides
+            .char_select_font_size
+            .unwrap_or(DEFAULT_CHAR_SELECT_FONT_SIZE);
         self.char_select_bg_color = overrides.char_select_bg_color;
         self.char_select_fg_color = overrides.char_select_fg_color;
         self.launcher_alphabet = overrides
@@ -48044,7 +48080,8 @@ mod tests {
         DEFAULT_ANSI_PALETTE_COLORS, DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
         DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR,
         DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS, DEFAULT_CANONICALIZE_PASTED_NEWLINES,
-        DEFAULT_CELL_WIDTH, DEFAULT_CHECK_FOR_UPDATES, DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
+        DEFAULT_CELL_WIDTH, DEFAULT_CHAR_SELECT_FONT_SIZE, DEFAULT_CHECK_FOR_UPDATES,
+        DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS, DEFAULT_COMMAND_PALETTE_FONT_SIZE,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
         DEFAULT_DETECT_PASSWORD_INPUT, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
@@ -59626,8 +59663,10 @@ mod tests {
                 initial_rows: TERMINAL_ROWS,
                 inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
                 command_palette_rows: None,
+                command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
                 command_palette_bg_color: None,
                 command_palette_fg_color: None,
+                char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
                 char_select_bg_color: None,
                 char_select_fg_color: None,
                 launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
@@ -80997,6 +81036,48 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_overlay_font_sizes() {
+        let app = NativeWindowApp::new(None);
+        let effective = format!("{:?}", app.native_effective_config());
+
+        assert!(
+            effective.contains("command_palette_font_size: NativeFontSize { millipoints: 14000 }"),
+            "effective config should expose WezTerm's command_palette_font_size default: {effective:?}"
+        );
+        assert!(
+            effective.contains("char_select_font_size: NativeFontSize { millipoints: 14000 }"),
+            "effective config should expose WezTerm's char_select_font_size default: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_overlay_font_sizes() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.command_palette_font_size = 15.5
+            config.char_select_font_size = 16.25
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm overlay font-size config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.command_palette_font_size,
+            NativeFontSize::from_millipoints(15_500)
+        );
+        assert_eq!(
+            effective.char_select_font_size,
+            NativeFontSize::from_millipoints(16_250)
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_palette_and_quick_select_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -88115,8 +88196,10 @@ mod tests {
                 brightness: NativeHsbMultiplier::from_f32(0.6),
             }),
             command_palette_rows: Some(12),
+            command_palette_font_size: Some(NativeFontSize::from_millipoints(15_500)),
             command_palette_bg_color: Some(Color::Rgb(15, 16, 17)),
             command_palette_fg_color: Some(Color::Rgb(18, 19, 20)),
+            char_select_font_size: Some(NativeFontSize::from_millipoints(16_250)),
             char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
             char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
             launcher_alphabet: Some("12".to_owned()),
@@ -88376,8 +88459,10 @@ mod tests {
                 brightness: NativeHsbMultiplier::from_f32(0.6),
             },
             command_palette_rows: Some(12),
+            command_palette_font_size: NativeFontSize::from_millipoints(15_500),
             command_palette_bg_color: Some(Color::Rgb(15, 16, 17)),
             command_palette_fg_color: Some(Color::Rgb(18, 19, 20)),
+            char_select_font_size: NativeFontSize::from_millipoints(16_250),
             char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
             char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
             launcher_alphabet: "12".to_owned(),
@@ -88573,8 +88658,10 @@ mod tests {
             initial_rows: TERMINAL_ROWS,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             command_palette_rows: None,
+            command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
             command_palette_bg_color: None,
             command_palette_fg_color: None,
+            char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
             char_select_bg_color: None,
             char_select_fg_color: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
