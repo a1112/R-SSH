@@ -35382,15 +35382,11 @@ fn spawn_tab_domain_from_lua_table_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
 ) -> Option<WindowSpawnTabDomain> {
-    if let Some(domain) = strip_lua_function_call_from_query(query, "spawntab")
-        && domain.trim_start().starts_with('{')
-    {
+    if let Some(domain) = strip_lua_function_call_from_query(query, "spawntab") {
         return spawn_tab_domain_lua_table_from_query_with_static_source(static_source, domain);
     }
 
-    if let Some(domain) = strip_query_table_assignment_from_prefix(query, "spawntab=")
-        && domain.trim_start().starts_with('{')
-    {
+    if let Some(domain) = strip_query_table_assignment_from_prefix(query, "spawntab=") {
         return spawn_tab_domain_lua_table_from_query_with_static_source(static_source, domain);
     }
 
@@ -35405,6 +35401,19 @@ fn spawn_tab_domain_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowSpawnTabDomain> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut domain = None;
     for field in split_lua_table_top_level_fields(table)? {
@@ -75001,6 +75010,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm SpawnTab DomainName static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+D".to_owned(),
+                command: WindowCommand::SpawnTab(WindowSpawnTabDomain::DomainName(
+                    "local".to_owned(),
+                )),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_tab_domain_name_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain_name = 'local'
+            local tab_domain = {
+              DomainName = domain_name,
+            }
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act.SpawnTab(tab_domain),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnTab DomainName static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,

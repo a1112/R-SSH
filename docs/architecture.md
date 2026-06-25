@@ -759,7 +759,8 @@ keyboard, mouse, paste, resize
   payload subset with quote-aware domain-name parsing; no-argument
   `spawntab` dispatches the current-pane-domain default. Static `config.keys`
   `SpawnTab` action calls resolve top-level string variables for string
-  arguments and `DomainName` table fields. Remote/mux named
+  arguments, `DomainName` table fields, and parenthesized top-level static
+  domain table variables. Remote/mux named
   domain spawning remains future mux/domain parity work.
 - Completed in v1: WezTerm-style `AttachDomain` and `DetachDomain` action
   parsing recognizes string, function-call, and `DomainName` table forms,
