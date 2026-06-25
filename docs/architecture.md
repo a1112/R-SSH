@@ -545,8 +545,9 @@ keyboard, mouse, paste, resize
   and action-name `emitevent <name>` queries use the same quote-aware event-name
   parsing. WezTerm-style Lua `EmitEvent { ... }` / `EmitEvent({ ... })` table
   queries tolerate trailing comma fields, with the table-call `name` field
-  inline or through a top-level static string variable. Lua `wezterm.on`/`wezterm.emit`
-  wiring remains future parity work.
+  inline or through a top-level static string variable. Parenthesized
+  `EmitEvent(event_opts)` calls also accept top-level static options table
+  variables. Lua `wezterm.on`/`wezterm.emit` wiring remains future parity work.
 - Completed in v1: native WezTerm-style `ActivateKeyTable`, `PopKeyTable`, and
   `ClearKeyTableStack` action payloads maintain a per-window key-table
   activation stack, expose the active table in native window status and the

@@ -31787,8 +31787,14 @@ fn emit_event_from_query_with_static_source(
     };
 
     if let Some(name) = strip_lua_function_call_from_query(query, "emitevent") {
-        if name.trim_start().starts_with('{') {
+        let name = name.trim();
+        if name.starts_with('{') {
             return emit_event_lua_table_from_query(static_source, name);
+        }
+        if static_source.is_some()
+            && let Some(event) = emit_event_lua_table_from_query(static_source, name)
+        {
+            return Some(event);
         }
         return parse_maybe_static_query_text(static_source, name)
             .map(|name| WindowEmitEvent { name });
@@ -31811,6 +31817,19 @@ fn emit_event_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowEmitEvent> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut event = None;
 
@@ -76477,6 +76496,41 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm EmitEvent static name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+E".to_owned(),
+                command: WindowCommand::EmitEvent(WindowEmitEvent {
+                    name: "session-ready".to_owned(),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_emit_event_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local event_opts = {
+              name = 'session-ready',
+            }
+
+            config.keys = {
+              {
+                key = 'E',
+                mods = 'CTRL|SHIFT',
+                action = act.EmitEvent(event_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm EmitEvent static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,
