@@ -727,7 +727,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.launch_menu, index, item)`, or post-assignment
   `table.insert(menu, item)` supported. Static
   WezTerm-style `config.keys` actions can also carry `ShowLauncherArgs` table
-  payloads through the implemented native action subset. Remote/mux domains,
+  payloads through the implemented native action subset, including
+  parenthesized calls that pass a top-level static args table variable.
+  Remote/mux domains,
   richer default-mode UI styling, broader Lua key assignment/config parsing,
   broader dynamic Lua `launch_menu` construction, Lua `PromptInputLine`
   callback wiring, and Lua event/config wiring remain open.
@@ -1516,8 +1518,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   routing the same `flags`, `title`, `alphabet`, `help_text`, and
   `fuzzy_help_text` fields as the existing command-palette query forms,
   including bracketed string table keys with long-bracket values and top-level
-  static string variables for every field when parsed from static
-  WezTerm-style `config.keys`.
+  static string variables for every field plus parenthesized calls that pass a
+  top-level static args table variable when parsed from static WezTerm-style
+  `config.keys`.
 - WezTerm-style character-selection table actions now accept Lua table calls
   such as
   `wezterm.action.CharSelect { copy_on_select = false, copy_to = "PrimarySelection", group = "PeopleAndBody" }`

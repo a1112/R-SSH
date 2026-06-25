@@ -463,7 +463,8 @@ keyboard, mouse, paste, resize
   supplied inline or through top-level static variables, and
   `ShowLauncherArgs`, with `flags`, `title`, `alphabet`, `help_text`, and
   `fuzzy_help_text` supplied inline or through top-level static string
-  variables. Remote/mux domains, richer default-mode UI styling, broader Lua key
+  variables plus parenthesized calls that pass a top-level static args table
+  variable. Remote/mux domains, richer default-mode UI styling, broader Lua key
   assignment/config parsing, broader dynamic Lua `launch_menu` construction, Lua
   `PromptInputLine` callback wiring, and Lua event/config wiring remain future
   parity work.

@@ -32646,10 +32646,17 @@ fn show_launcher_args_from_query_with_static_source(
     query: &str,
 ) -> Option<WindowShowLauncherArgs> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
-    if let Some(rest) = strip_lua_function_call_from_query(query, "showlauncherargs")
-        && rest.trim_start().starts_with('{')
-    {
-        return show_launcher_args_lua_table_from_query_with_static_source(static_source, rest);
+    if let Some(rest) = strip_lua_function_call_from_query(query, "showlauncherargs") {
+        let rest = rest.trim();
+        if rest.starts_with('{') {
+            return show_launcher_args_lua_table_from_query_with_static_source(static_source, rest);
+        }
+        if static_source.is_some()
+            && let Some(args) =
+                show_launcher_args_lua_table_from_query_with_static_source(static_source, rest)
+        {
+            return Some(args);
+        }
     }
 
     let args = strip_query_prefix_from_any(
@@ -32691,6 +32698,19 @@ fn show_launcher_args_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowShowLauncherArgs> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut fields = WindowShowLauncherQueryFields::default();
 
@@ -76397,6 +76417,53 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm ShowLauncherArgs static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+L".to_owned(),
+                command: WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
+                    flags: WindowShowLauncherFlags {
+                        tabs: true,
+                        workspaces: true,
+                        ..WindowShowLauncherFlags::default()
+                    },
+                    title: Some("Jump".to_owned()),
+                    alphabet: Some("ab".to_owned()),
+                    help_text: Some("Pick".to_owned()),
+                    fuzzy_help_text: Some("Filter".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_show_launcher_args_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local launcher_args = {
+              flags = 'TABS|WORKSPACES',
+              title = 'Jump',
+              alphabet = 'ab',
+              help_text = 'Pick',
+              fuzzy_help_text = 'Filter',
+            }
+
+            config.keys = {
+              {
+                key = 'L',
+                mods = 'CTRL|ALT',
+                action = act.ShowLauncherArgs(launcher_args),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ShowLauncherArgs static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,
