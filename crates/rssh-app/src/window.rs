@@ -11594,6 +11594,10 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::QuickSelect(options));
     }
+    if let Some(key_table) = activate_key_table_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::ActivateKeyTable(key_table));
+    }
     if lua_action_callback_from_query(value) {
         return Some(WindowCommand::Nop);
     }
@@ -31491,16 +31495,33 @@ fn key_table_stack_command_from_query(query: &str) -> Option<WindowCommand> {
 }
 
 fn activate_key_table_from_query(query: &str) -> Option<WindowActivateKeyTable> {
+    activate_key_table_from_query_with_static_source(None, query)
+}
+
+fn activate_key_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowActivateKeyTable> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(rest) = strip_lua_function_call_from_query(query, "activatekeytable")
         && rest.trim_start().starts_with('{')
     {
-        return activate_key_table_lua_table_from_query(rest);
+        return activate_key_table_lua_table_from_query(static_source, rest);
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "activatekeytable=")
         && rest.trim_start().starts_with('{')
     {
-        return activate_key_table_lua_table_from_query(rest);
+        return activate_key_table_lua_table_from_query(static_source, rest);
     }
 
     let rest = strip_query_prefix_from_any(
@@ -31754,7 +31775,10 @@ fn activate_key_table_from_query(query: &str) -> Option<WindowActivateKeyTable> 
     Some(key_table)
 }
 
-fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivateKeyTable> {
+fn activate_key_table_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowActivateKeyTable> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut key_table = WindowActivateKeyTable {
         name: String::new(),
@@ -31778,12 +31802,13 @@ fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivate
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
         let name = split_lua_table_key_from_query(name.trim())?;
-        let value = parse_maybe_quoted_query_text(value)?;
+        let value = value.trim();
         match name.to_ascii_lowercase().as_str() {
             "name" => {
                 if parsed_name || value.is_empty() {
                     return None;
                 }
+                let value = parse_maybe_static_query_text(static_source, value)?;
                 key_table.name = value;
                 parsed_name = true;
             }
@@ -31791,6 +31816,18 @@ fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivate
                 if parsed_timeout {
                     return None;
                 }
+                let value = if let Some(static_source) = static_source {
+                    lua_static_number_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                        lua_unsigned_integer_literal_from_query,
+                    )
+                    .map(str::to_owned)
+                    .or_else(|| parse_maybe_quoted_query_text(value))?
+                } else {
+                    parse_maybe_quoted_query_text(value)?
+                };
                 key_table.timeout_milliseconds = Some(value.parse().ok()?);
                 parsed_timeout = true;
             }
@@ -31798,6 +31835,17 @@ fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivate
                 if parsed_one_shot {
                     return None;
                 }
+                let value = if let Some(static_source) = static_source {
+                    lua_static_bool_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                    )
+                    .map(str::to_owned)
+                    .or_else(|| parse_maybe_quoted_query_text(value))?
+                } else {
+                    parse_maybe_quoted_query_text(value)?
+                };
                 key_table.one_shot = bool_from_query(&value)?;
                 parsed_one_shot = true;
             }
@@ -31805,6 +31853,17 @@ fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivate
                 if parsed_replace_current {
                     return None;
                 }
+                let value = if let Some(static_source) = static_source {
+                    lua_static_bool_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                    )
+                    .map(str::to_owned)
+                    .or_else(|| parse_maybe_quoted_query_text(value))?
+                } else {
+                    parse_maybe_quoted_query_text(value)?
+                };
                 key_table.replace_current = bool_from_query(&value)?;
                 parsed_replace_current = true;
             }
@@ -31812,6 +31871,17 @@ fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivate
                 if parsed_until_unknown {
                     return None;
                 }
+                let value = if let Some(static_source) = static_source {
+                    lua_static_bool_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                    )
+                    .map(str::to_owned)
+                    .or_else(|| parse_maybe_quoted_query_text(value))?
+                } else {
+                    parse_maybe_quoted_query_text(value)?
+                };
                 key_table.until_unknown = bool_from_query(&value)?;
                 parsed_until_unknown = true;
             }
@@ -31819,6 +31889,17 @@ fn activate_key_table_lua_table_from_query(value: &str) -> Option<WindowActivate
                 if parsed_prevent_fallback {
                     return None;
                 }
+                let value = if let Some(static_source) = static_source {
+                    lua_static_bool_assignment_value_before_offset_from_query(
+                        static_source.source,
+                        value,
+                        static_source.max_start,
+                    )
+                    .map(str::to_owned)
+                    .or_else(|| parse_maybe_quoted_query_text(value))?
+                } else {
+                    parse_maybe_quoted_query_text(value)?
+                };
                 key_table.prevent_fallback = bool_from_query(&value)?;
                 parsed_prevent_fallback = true;
             }
@@ -72449,6 +72530,52 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+A".to_owned(),
                 command: WindowCommand::SendString("from-action-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_key_table_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local table_name = 'resize_pane'
+            local table_timeout = 1000
+            local keep_active = false
+            local block_fallback = true
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable {
+                  name = table_name,
+                  timeout_milliseconds = table_timeout,
+                  one_shot = keep_active,
+                  prevent_fallback = block_fallback,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateKeyTable static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Space".to_owned(),
+                command: WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
+                    name: "resize_pane".to_owned(),
+                    timeout_milliseconds: Some(1000),
+                    one_shot: false,
+                    replace_current: false,
+                    until_unknown: false,
+                    prevent_fallback: true,
+                }),
             }])
         );
     }
