@@ -11664,6 +11664,9 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::AdjustPaneSize { direction, amount });
     }
+    if let Some(amount) = scroll_by_page_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::ScrollByPage(amount));
+    }
     if let Some(amount) = scroll_by_line_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::ScrollByLine(amount));
     }
@@ -33359,8 +33362,26 @@ fn resize_direction_from_query(direction: &str) -> Option<ResizeDirection> {
 }
 
 fn scroll_by_page_from_query(query: &str) -> Option<WindowScrollByPageAmount> {
+    scroll_by_page_from_query_with_static_source(None, query)
+}
+
+fn scroll_by_page_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowScrollByPageAmount> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(amount) = strip_lua_function_call_from_query(query, "scrollbypage") {
-        return scroll_by_page_amount_from_query(parse_single_query_value(amount)?);
+        return parse_maybe_static_query_f64(static_source, amount)
+            .and_then(scroll_by_page_amount_from_f64);
     }
 
     let amount = strip_query_prefix_from_any(
@@ -33372,10 +33393,10 @@ fn scroll_by_page_from_query(query: &str) -> Option<WindowScrollByPageAmount> {
             "scrollbypage ",
         ],
     )
-    .and_then(parse_single_query_value)?;
+    .and_then(parse_non_empty_query_text)?;
     let amount = strip_query_prefix_from_any(amount, &["amount=", "amount ", "offset=", "offset "])
         .unwrap_or(amount);
-    scroll_by_page_amount_from_query(amount)
+    parse_maybe_static_query_f64(static_source, amount).and_then(scroll_by_page_amount_from_f64)
 }
 
 fn scroll_by_line_from_query(query: &str) -> Option<isize> {
@@ -33455,6 +33476,11 @@ fn scroll_to_prompt_from_query_with_static_source(
 #[allow(clippy::cast_possible_truncation)]
 fn scroll_by_page_amount_from_query(amount: &str) -> Option<WindowScrollByPageAmount> {
     let amount = amount.parse::<f64>().ok()?;
+    scroll_by_page_amount_from_f64(amount)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn scroll_by_page_amount_from_f64(amount: f64) -> Option<WindowScrollByPageAmount> {
     amount
         .is_finite()
         .then_some(WindowScrollByPageAmount::from_per_mille(
@@ -34090,6 +34116,25 @@ fn parse_maybe_static_query_isize(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<isize> {
+    let value = if let Some(static_source) = static_source {
+        lua_static_number_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+            lua_signed_number_literal_from_query,
+        )
+        .map(str::to_owned)
+        .or_else(|| parse_maybe_quoted_query_text(value))?
+    } else {
+        parse_maybe_quoted_query_text(value)?
+    };
+    parse_single_query_value(&value)?.parse().ok()
+}
+
+fn parse_maybe_static_query_f64(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<f64> {
     let value = if let Some(static_source) = static_source {
         lua_static_number_assignment_value_before_offset_from_query(
             static_source.source,
@@ -73672,6 +73717,39 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "SHIFT+P".to_owned(),
                 command: WindowCommand::ScrollToPrompt(-1),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_scroll_by_page_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local page_delta = -0.5
+
+            config.keys = {
+              {
+                key = 'PageUp',
+                mods = 'SHIFT',
+                action = act.ScrollByPage(page_delta),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ScrollByPage static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "SHIFT+PageUp".to_owned(),
+                command: WindowCommand::ScrollByPage(WindowScrollByPageAmount::from_per_mille(
+                    -500,
+                )),
             }])
         );
     }
