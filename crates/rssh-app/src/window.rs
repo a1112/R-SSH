@@ -11750,6 +11750,11 @@ fn native_key_assignment_command_from_query(
     if let Some(level) = set_window_level_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SetWindowLevel(level));
     }
+    if let Some(offset) =
+        switch_workspace_relative_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SwitchWorkspaceRelative(offset));
+    }
     if let Some(options) =
         switch_workspace_options_from_query_with_static_source(static_source, value)
     {
@@ -32847,9 +32852,25 @@ fn switch_workspace_name_from_query(query: &str) -> Option<String> {
 }
 
 fn switch_workspace_relative_from_query(query: &str) -> Option<isize> {
+    switch_workspace_relative_from_query_with_static_source(None, query)
+}
+
+fn switch_workspace_relative_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<isize> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
     if let Some(offset) = strip_lua_function_call_from_query(query, "switchworkspacerelative")
-        .and_then(parse_single_query_value)
-        .and_then(|offset| offset.parse().ok())
+        .and_then(|offset| parse_maybe_static_query_isize(static_source, offset))
     {
         return Some(offset);
     }
@@ -32868,7 +32889,7 @@ fn switch_workspace_relative_from_query(query: &str) -> Option<isize> {
     .and_then(parse_single_query_value)?;
     strip_query_prefix_from_any(offset, &["offset=", "offset ", "amount=", "amount "])
         .or(Some(offset))
-        .and_then(|offset| offset.parse().ok())
+        .and_then(|offset| parse_maybe_static_query_isize(static_source, offset))
 }
 
 fn switch_workspace_options_from_query(query: &str) -> Option<WindowSwitchToWorkspaceOptions> {
@@ -75435,6 +75456,37 @@ mod tests {
                     help_text: Some("Pick".to_owned()),
                     fuzzy_help_text: Some("Filter".to_owned()),
                 }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_switch_workspace_relative_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local offset = -1
+
+            config.keys = {
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = act.SwitchWorkspaceRelative(offset),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SwitchWorkspaceRelative static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+W".to_owned(),
+                command: WindowCommand::SwitchWorkspaceRelative(-1),
             }])
         );
     }

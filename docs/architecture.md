@@ -405,7 +405,9 @@ keyboard, mouse, paste, resize
   Omitted-name actions create randomly named workspaces. Native
   `SwitchWorkspaceRelative` payloads switch by arbitrary
   signed offsets using the same sorted workspace order as Next/Previous
-  Workspace. The native command palette exposes the same path through
+  Workspace, with static `config.keys` action calls resolving top-level
+  numeric offset variables. The native command palette exposes the same path
+  through
   `Switch To Workspace`, `switch workspace <name>`, and action-name
   `switchtoworkspace <name>` queries. Native
   `ShowLauncher`

@@ -657,7 +657,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   command-palette `switch workspace relative <offset>`, action-name
   `switchworkspacerelative <offset>`, and WezTerm-style
   `wezterm.action.SwitchWorkspaceRelative(<offset>)` queries dispatch those
-  native payloads.
+  native payloads. Static `config.keys` action calls also resolve top-level
+  numeric variables for the relative offset.
   The command palette exposes named switching through `Switch To Workspace`,
   `switch workspace <name>`, and action-name `switchtoworkspace <name>`
   queries; `switch workspace <name> spawn [--domain ...] [--cwd ...]
