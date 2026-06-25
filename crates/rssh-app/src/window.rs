@@ -39721,8 +39721,15 @@ fn search_query_lua_action_from_query_with_static_source(
     query: &str,
 ) -> Option<WindowSearchCommandQuery> {
     if let Some(value) = strip_lua_function_call_from_query(query, "search") {
-        if value.trim_start().starts_with('{') {
+        let value = value.trim();
+        if value.starts_with('{') {
             return search_query_lua_table_from_query_with_static_source(static_source, value);
+        }
+        if static_source.is_some()
+            && let Some(search_query) =
+                search_query_lua_table_from_query_with_static_source(static_source, value)
+        {
+            return Some(search_query);
         }
         let value = parse_maybe_static_query_text(static_source, value)?;
         return search_query_lua_string_from_value(&value);
@@ -39756,6 +39763,19 @@ fn search_query_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowSearchCommandQuery> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut search_query = None;
 
@@ -74727,6 +74747,43 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm Search static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+F".to_owned(),
+                command: WindowCommand::Search(WindowSearchCommandQuery::Pattern {
+                    pattern: "ticket-[0-9]+".to_owned(),
+                    match_type: WindowSearchMatchType::Regex,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_search_static_table_variable_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pattern = 'ticket-[0-9]+'
+            local search_opts = {
+              Regex = pattern,
+            }
+
+            config.keys = {
+              {
+                key = 'F',
+                mods = 'CTRL|ALT',
+                action = act.Search(search_opts),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Search static table variable call config");
 
         assert_eq!(
             overrides.key_assignments,

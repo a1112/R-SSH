@@ -2013,8 +2013,8 @@ keyboard, mouse, paste, resize
   `CurrentSelectionOrEmptyString` single-line selection-prefill behavior, and
   WezTerm-style Lua `Search { ... }` / `Search({ ... })` table queries tolerate
   trailing comma fields. Static `config.keys` `Search` action calls resolve
-  top-level string variables for table pattern fields and
-  `CurrentSelectionOrEmptyString` string arguments.
+  top-level string variables for table pattern fields, parenthesized static
+  options table variables, and `CurrentSelectionOrEmptyString` string arguments.
 - Implemented in v1: quick-select mode (`Ctrl+Shift+Space`) and
   command-palette Quick Select expose WezTerm-style `QuickSelect` for common
   patterns (URLs including `git@`, `git://`, `ssh://`, and `ftp://`, markdown
