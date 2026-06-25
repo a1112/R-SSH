@@ -664,7 +664,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SwitchToWorkspace({ name = ..., spawn = { ... } })` table
   queries dispatch the same implemented `name` plus native `SpawnCommand`
   subset, including bracketed string table keys with long-bracket values for
-  nested commandless spawn options and `set_environment_variables` entries.
+  nested commandless spawn options and `set_environment_variables` entries;
+  static WezTerm-style `config.keys` actions also resolve top-level static
+  variables for `name` and nested spawn `args`/`cwd` fields.
   Native `ShowLauncher` opens the default Launcher Menu for
   local-domain spawning plus native
   launch-menu items. Native `ShowLauncherArgs` accepts WezTerm-style

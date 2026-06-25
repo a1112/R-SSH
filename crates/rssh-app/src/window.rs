@@ -11630,6 +11630,11 @@ fn native_key_assignment_command_from_query(
     {
         return Some(WindowCommand::ActivateKeyTable(key_table));
     }
+    if let Some(options) =
+        switch_workspace_options_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::SwitchToWorkspaceArgs(options));
+    }
     if lua_action_callback_from_query(value) {
         return Some(WindowCommand::Nop);
     }
@@ -32659,9 +32664,18 @@ fn switch_workspace_relative_from_query(query: &str) -> Option<isize> {
 }
 
 fn switch_workspace_options_from_query(query: &str) -> Option<WindowSwitchToWorkspaceOptions> {
+    switch_workspace_options_from_query_with_static_source(None, query)
+}
+
+fn switch_workspace_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<WindowSwitchToWorkspaceOptions> {
     let query = strip_wezterm_action_prefix(query).unwrap_or(query);
 
-    if let Some(options) = switch_workspace_lua_table_options_from_query(query) {
+    if let Some(options) =
+        switch_workspace_lua_table_options_from_query_with_static_source(static_source, query)
+    {
         return Some(options);
     }
 
@@ -32676,8 +32690,15 @@ fn switch_workspace_options_from_query(query: &str) -> Option<WindowSwitchToWork
             "switchtoworkspace ",
         ],
     )?;
+    let rest = rest.trim();
     if rest.is_empty() {
         return None;
+    }
+    if rest.starts_with('{') {
+        return switch_workspace_options_lua_table_from_query_with_static_source(
+            static_source,
+            rest,
+        );
     }
 
     let (name, command, command_options) = match split_unquoted_query_marker(rest, " spawn ") {
@@ -32708,25 +32729,33 @@ fn switch_workspace_options_from_query(query: &str) -> Option<WindowSwitchToWork
     })
 }
 
-fn switch_workspace_lua_table_options_from_query(
+fn switch_workspace_lua_table_options_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     query: &str,
 ) -> Option<WindowSwitchToWorkspaceOptions> {
     if let Some(rest) = strip_lua_function_call_from_query(query, "switchtoworkspace")
         && rest.trim_start().starts_with('{')
     {
-        return switch_workspace_options_lua_table_from_query(rest);
+        return switch_workspace_options_lua_table_from_query_with_static_source(
+            static_source,
+            rest,
+        );
     }
 
     if let Some(rest) = strip_query_table_assignment_from_prefix(query, "switchtoworkspace=")
         && rest.trim_start().starts_with('{')
     {
-        return switch_workspace_options_lua_table_from_query(rest);
+        return switch_workspace_options_lua_table_from_query_with_static_source(
+            static_source,
+            rest,
+        );
     }
 
     None
 }
 
-fn switch_workspace_options_lua_table_from_query(
+fn switch_workspace_options_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowSwitchToWorkspaceOptions> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -32745,14 +32774,19 @@ fn switch_workspace_options_lua_table_from_query(
             if name.is_some() {
                 return None;
             }
-            name = Some(parse_maybe_quoted_query_text(value)?);
+            name = Some(parse_maybe_static_query_text(static_source, value)?);
         } else if key.eq_ignore_ascii_case("spawn") {
             if command.is_some() || command_options.is_some() {
                 return None;
             }
-            command = spawn_command_table_from_query(value, false);
+            command =
+                spawn_command_table_from_query_with_static_source(static_source, value, false);
             if command.is_none() {
-                command_options = spawn_command_table_options_from_query(value, false);
+                command_options = spawn_command_table_options_from_query_with_static_source(
+                    static_source,
+                    value,
+                    false,
+                );
             }
             if command.is_none() && command_options.is_none() {
                 return None;
@@ -35772,6 +35806,19 @@ fn split_lua_table_string_array_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Vec<String>> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut values = Vec::new();
     let mut indexed_values = BTreeMap::new();
@@ -73628,6 +73675,56 @@ mod tests {
                     alphabet: Some("ab".to_owned()),
                     help_text: Some("Pick".to_owned()),
                     fuzzy_help_text: Some("Filter".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_switch_to_workspace_static_field_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local workspace_name = 'monitoring'
+            local spawn_args = { 'top', '-d', '1' }
+            local spawn_cwd = 'C:/Mon'
+
+            config.keys = {
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = act.SwitchToWorkspace {
+                  name = workspace_name,
+                  spawn = {
+                    args = spawn_args,
+                    cwd = spawn_cwd,
+                  },
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SwitchToWorkspace static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+W".to_owned(),
+                command: WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
+                    name: Some("monitoring".to_owned()),
+                    command: Some(WindowSpawnCommandQuery {
+                        program: "top".to_owned(),
+                        args: vec!["-d".to_owned(), "1".to_owned()],
+                        cwd: Some("C:/Mon".to_owned()),
+                        environment: BTreeMap::new(),
+                        domain: None,
+                        window_position: None,
+                    }),
+                    command_options: None,
                 }),
             }])
         );
