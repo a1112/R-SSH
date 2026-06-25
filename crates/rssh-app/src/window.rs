@@ -30686,6 +30686,19 @@ fn input_selector_choices_lua_table_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Vec<WindowInputSelectorChoice>> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut choices = Vec::new();
 
@@ -31077,6 +31090,13 @@ fn input_selector_lua_table_from_query_with_static_source(
                         static_source,
                         raw_value,
                     )?
+                } else if let Some(choices) =
+                    input_selector_choices_lua_table_from_query_with_static_source(
+                        static_source,
+                        raw_value,
+                    )
+                {
+                    choices
                 } else {
                     input_selector_choices_from_query_with_static_source(static_source, raw_value)?
                 };
@@ -75524,6 +75544,60 @@ mod tests {
                     description: Some("Choose one:".to_owned()),
                     fuzzy_description: Some("Filter replies:".to_owned()),
                     fuzzy: false,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_input_selector_static_choices_table_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local decline_id = 'decline'
+            local decline_label = 'No thanks'
+            local choices = {
+              { id = decline_id, label = decline_label },
+              { id = 'lgtm', label = wezterm.format { { Text = 'LGTM' } } },
+            }
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = act.InputSelector {
+                  title = 'Pick Reply',
+                  choices = choices,
+                  alphabet = 'ab',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm InputSelector static choices table variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+I".to_owned(),
+                command: WindowCommand::InputSelector(WindowInputSelectorOptions {
+                    title: "Pick Reply".to_owned(),
+                    choices: vec![
+                        WindowInputSelectorChoice {
+                            label: "No thanks".to_owned(),
+                            id: Some("decline".to_owned()),
+                        },
+                        WindowInputSelectorChoice {
+                            label: "LGTM".to_owned(),
+                            id: Some("lgtm".to_owned()),
+                        },
+                    ],
+                    alphabet: Some("ab".to_owned()),
+                    ..WindowInputSelectorOptions::default()
                 }),
             }])
         );
