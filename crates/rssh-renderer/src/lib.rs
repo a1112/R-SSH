@@ -257,6 +257,7 @@ pub struct PixelRenderer {
     reverse_video_cursor_min_contrast: Option<u16>,
     default_foreground: [u8; 4],
     default_background: [u8; 4],
+    default_background_gradient: Option<RenderBackgroundGradient>,
     default_cursor_color: [u8; 4],
     default_cursor_border: Option<[u8; 4]>,
     default_cursor_foreground: Option<[u8; 4]>,
@@ -305,6 +306,18 @@ pub enum RenderStrikethroughPosition {
     CellFractionPerMille(u32),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundGradientOrientation {
+    Horizontal,
+    Vertical,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderBackgroundGradient {
+    pub orientation: RenderBackgroundGradientOrientation,
+    pub colors: Vec<[u8; 4]>,
+}
+
 impl PixelRenderer {
     #[must_use]
     pub const fn new() -> Self {
@@ -324,6 +337,7 @@ impl PixelRenderer {
             reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_background_gradient: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -351,6 +365,7 @@ impl PixelRenderer {
             reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_background_gradient: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -576,6 +591,10 @@ impl PixelRenderer {
         self.default_background = background;
     }
 
+    pub fn set_default_background_gradient(&mut self, gradient: Option<RenderBackgroundGradient>) {
+        self.default_background_gradient = gradient.filter(|gradient| !gradient.colors.is_empty());
+    }
+
     pub fn set_default_foreground(&mut self, foreground: [u8; 4]) {
         self.default_foreground = foreground;
     }
@@ -610,6 +629,7 @@ impl PixelRenderer {
             reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_background_gradient: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -651,6 +671,7 @@ impl PixelRenderer {
             reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_background_gradient: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -678,6 +699,7 @@ impl PixelRenderer {
             reverse_video_cursor_min_contrast: None,
             default_foreground: default_foreground(),
             default_background: default_background(),
+            default_background_gradient: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -710,7 +732,11 @@ impl PixelRenderer {
             height: target_height,
         };
 
-        surface.fill(self.default_background);
+        fill_default_background(
+            &mut surface,
+            self.default_background,
+            self.default_background_gradient.as_ref(),
+        );
 
         render_inline_images_in_z_order(
             &mut surface,
@@ -878,9 +904,11 @@ impl PixelRenderer {
         };
 
         for region in damage.iter().copied().filter(|region| !region.is_empty()) {
-            surface.fill_rect(
+            fill_default_background_rect(
+                &mut surface,
                 damage_rect(region, geometry.cell_width, geometry.cell_height),
                 self.default_background,
+                self.default_background_gradient.as_ref(),
             );
         }
 
@@ -1044,6 +1072,121 @@ struct CursorRenderStyle {
     color: [u8; 4],
     foreground: Option<[u8; 4]>,
     border: Option<[u8; 4]>,
+}
+
+fn fill_default_background(
+    surface: &mut Surface<'_>,
+    color: [u8; 4],
+    gradient: Option<&RenderBackgroundGradient>,
+) {
+    if let Some(gradient) = gradient {
+        fill_default_background_gradient(
+            surface,
+            Rect {
+                x: 0,
+                y: 0,
+                width: surface.width,
+                height: surface.height,
+            },
+            gradient,
+        );
+    } else {
+        surface.fill(color);
+    }
+}
+
+fn fill_default_background_rect(
+    surface: &mut Surface<'_>,
+    rect: Rect,
+    color: [u8; 4],
+    gradient: Option<&RenderBackgroundGradient>,
+) {
+    if let Some(gradient) = gradient {
+        fill_default_background_gradient(surface, rect, gradient);
+    } else {
+        surface.fill_rect(rect, color);
+    }
+}
+
+fn fill_default_background_gradient(
+    surface: &mut Surface<'_>,
+    rect: Rect,
+    gradient: &RenderBackgroundGradient,
+) {
+    let max_y = rect.y.saturating_add(rect.height).min(surface.height);
+    let max_x = rect.x.saturating_add(rect.width).min(surface.width);
+    if max_y <= rect.y || max_x <= rect.x {
+        return;
+    }
+
+    for row in rect.y..max_y {
+        for column in rect.x..max_x {
+            let color =
+                background_gradient_color_at(gradient, column, row, surface.width, surface.height);
+            let index = ((row * surface.width + column) * 4) as usize;
+            if let Some(pixel) = surface.target.get_mut(index..index + 4) {
+                pixel.copy_from_slice(&color);
+            }
+        }
+    }
+}
+
+fn background_gradient_color_at(
+    gradient: &RenderBackgroundGradient,
+    column: u32,
+    row: u32,
+    width: u32,
+    height: u32,
+) -> [u8; 4] {
+    match gradient.colors.as_slice() {
+        [] => default_background(),
+        [color] => *color,
+        colors => {
+            let position = match gradient.orientation {
+                RenderBackgroundGradientOrientation::Horizontal => {
+                    gradient_axis_position(column, width)
+                }
+                RenderBackgroundGradientOrientation::Vertical => {
+                    1.0 - gradient_axis_position(row, height)
+                }
+            };
+            gradient_color_at_position(colors, position)
+        }
+    }
+}
+
+fn gradient_axis_position(value: u32, extent: u32) -> f64 {
+    if extent <= 1 {
+        return 0.0;
+    }
+
+    f64::from(value.min(extent - 1)) / f64::from(extent - 1)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn gradient_color_at_position(colors: &[[u8; 4]], position: f64) -> [u8; 4] {
+    if colors.len() == 1 {
+        return colors[0];
+    }
+    let position = position.clamp(0.0, 1.0);
+    let scaled = position * (colors.len() - 1) as f64;
+    let index = scaled.floor() as usize;
+    if index >= colors.len() - 1 {
+        return colors[colors.len() - 1];
+    }
+    let amount = scaled - index as f64;
+    interpolate_rgba(colors[index], colors[index + 1], amount)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn interpolate_rgba(from: [u8; 4], to: [u8; 4], amount: f64) -> [u8; 4] {
+    let amount = amount.clamp(0.0, 1.0);
+    [
+        (f64::from(from[0]) + (f64::from(to[0]) - f64::from(from[0])) * amount).round() as u8,
+        (f64::from(from[1]) + (f64::from(to[1]) - f64::from(from[1])) * amount).round() as u8,
+        (f64::from(from[2]) + (f64::from(to[2]) - f64::from(from[2])) * amount).round() as u8,
+        (f64::from(from[3]) + (f64::from(to[3]) - f64::from(from[3])) * amount).round() as u8,
+    ]
 }
 
 impl Surface<'_> {

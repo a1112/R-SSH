@@ -22,10 +22,11 @@ use rssh_core::{
 };
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
 use rssh_renderer::{
-    PixelRenderer, RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole,
-    RenderCursorThickness, RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize,
-    RenderStrikethroughPosition, RenderUnderlinePosition, RenderUnderlineThickness,
-    SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot, color_to_rgba,
+    PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientOrientation,
+    RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole, RenderCursorThickness,
+    RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize, RenderStrikethroughPosition,
+    RenderUnderlinePosition, RenderUnderlineThickness, SCROLLBAR_WIDTH, ScrollbackScrollbar,
+    TerminalRenderSnapshot, color_to_rgba,
 };
 use rssh_terminal::{
     CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,
@@ -817,6 +818,51 @@ impl NativeTextBackgroundOpacity {
 
     fn as_alpha(self) -> u8 {
         opacity_alpha(f64::from(self.0.min(1_000)) / 1_000.0)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeWindowBackgroundGradientOrientation {
+    Horizontal,
+    Vertical,
+}
+
+impl NativeWindowBackgroundGradientOrientation {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Horizontal" => Some(Self::Horizontal),
+            "Vertical" => Some(Self::Vertical),
+            _ => None,
+        }
+    }
+
+    const fn to_render(self) -> RenderBackgroundGradientOrientation {
+        match self {
+            Self::Horizontal => RenderBackgroundGradientOrientation::Horizontal,
+            Self::Vertical => RenderBackgroundGradientOrientation::Vertical,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
+struct NativeWindowBackgroundGradient {
+    orientation: NativeWindowBackgroundGradientOrientation,
+    colors: Vec<Color>,
+}
+
+impl NativeWindowBackgroundGradient {
+    fn to_render(&self) -> RenderBackgroundGradient {
+        RenderBackgroundGradient {
+            orientation: self.orientation.to_render(),
+            colors: self
+                .colors
+                .iter()
+                .copied()
+                .map(|color| color_to_rgba(color, DEFAULT_RENDER_BACKGROUND_RGBA))
+                .collect(),
+        }
     }
 }
 
@@ -2145,6 +2191,7 @@ struct NativeEffectiveConfig {
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    window_background_gradient: Option<NativeWindowBackgroundGradient>,
     kde_window_background_blur: bool,
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
@@ -2331,6 +2378,7 @@ struct NativeConfigOverrides {
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
+    window_background_gradient: Option<NativeWindowBackgroundGradient>,
     kde_window_background_blur: Option<bool>,
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
@@ -2845,6 +2893,20 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.window_background_opacity = Some(native_text_background_opacity_from_alpha(
             window_background_opacity,
         )?);
+        parsed = true;
+    }
+    if let Some(window_background_gradient) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "window_background_gradient",
+        )
+    {
+        overrides.window_background_gradient =
+            Some(native_window_background_gradient_lua_table_from_query(
+                config,
+                &window_background_gradient.value,
+                window_background_gradient.max_start,
+            )?);
         parsed = true;
     }
     if let Some(kde_window_background_blur) =
@@ -11552,6 +11614,54 @@ fn native_hsb_lua_table_from_query<'a>(
 }
 
 #[allow(dead_code)]
+fn native_window_background_gradient_lua_table_from_query<'a>(
+    source: &'a str,
+    value: &'a str,
+    max_start: usize,
+) -> Option<NativeWindowBackgroundGradient> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut orientation = NativeWindowBackgroundGradientOrientation::Horizontal;
+    let mut colors = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "orientation" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                orientation = NativeWindowBackgroundGradientOrientation::parse(&value)?;
+            }
+            "colors" => {
+                let parsed_colors =
+                    split_lua_table_string_array_with_static_source(static_source, value)?
+                        .into_iter()
+                        .map(|color| lua_opaque_color_from_query(&color))
+                        .collect::<Option<Vec<_>>>()?;
+                if parsed_colors.len() < 2 {
+                    return None;
+                }
+                colors = Some(parsed_colors);
+            }
+            _ => {}
+        }
+    }
+
+    Some(NativeWindowBackgroundGradient {
+        orientation,
+        colors: colors?,
+    })
+}
+
+#[allow(dead_code)]
 fn native_webgpu_preferred_adapter_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
@@ -13079,6 +13189,7 @@ struct NativeWindowApp {
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    window_background_gradient: Option<NativeWindowBackgroundGradient>,
     kde_window_background_blur: bool,
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
@@ -14550,6 +14661,7 @@ impl NativeWindowApp {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            window_background_gradient: None,
             kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
@@ -15576,6 +15688,7 @@ impl NativeWindowApp {
             .apply_bold_brightens_ansi_colors_override(Some(self.bold_brightens_ansi_colors));
         detached_app.text_background_opacity = self.text_background_opacity;
         detached_app.window_background_opacity = self.window_background_opacity;
+        detached_app.window_background_gradient = self.window_background_gradient.clone();
         detached_app.kde_window_background_blur = self.kde_window_background_blur;
         detached_app.macos_window_background_blur = self.macos_window_background_blur;
         detached_app.win32_system_backdrop = self.win32_system_backdrop;
@@ -15613,6 +15726,12 @@ impl NativeWindowApp {
             self.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
         ));
+        detached_app.renderer.set_default_background_gradient(
+            detached_app
+                .window_background_gradient
+                .as_ref()
+                .map(NativeWindowBackgroundGradient::to_render),
+        );
         detached_app.ansi_palette = self.ansi_palette;
         detached_app
             .renderer
@@ -15788,6 +15907,7 @@ impl NativeWindowApp {
         self.text_min_contrast_ratio = source.text_min_contrast_ratio;
         self.text_background_opacity = source.text_background_opacity;
         self.window_background_opacity = source.window_background_opacity;
+        self.window_background_gradient = source.window_background_gradient.clone();
         self.kde_window_background_blur = source.kde_window_background_blur;
         self.macos_window_background_blur = source.macos_window_background_blur;
         self.win32_system_backdrop = source.win32_system_backdrop;
@@ -15856,6 +15976,11 @@ impl NativeWindowApp {
             source.background_color,
             DEFAULT_RENDER_BACKGROUND_RGBA,
         ));
+        self.renderer.set_default_background_gradient(
+            self.window_background_gradient
+                .as_ref()
+                .map(NativeWindowBackgroundGradient::to_render),
+        );
         self.ansi_palette = source.ansi_palette;
         self.renderer
             .set_ansi_palette(source.ansi_palette.map(native_ansi_palette_to_rgba));
@@ -23801,6 +23926,7 @@ impl NativeWindowApp {
             text_min_contrast_ratio: self.text_min_contrast_ratio,
             text_background_opacity: self.text_background_opacity,
             window_background_opacity: self.window_background_opacity,
+            window_background_gradient: self.window_background_gradient.clone(),
             kde_window_background_blur: self.kde_window_background_blur,
             macos_window_background_blur: self.macos_window_background_blur,
             win32_system_backdrop: self.win32_system_backdrop,
@@ -24044,6 +24170,12 @@ impl NativeWindowApp {
         self.window_background_opacity = overrides
             .window_background_opacity
             .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY);
+        self.window_background_gradient = overrides.window_background_gradient.clone();
+        self.renderer.set_default_background_gradient(
+            self.window_background_gradient
+                .as_ref()
+                .map(NativeWindowBackgroundGradient::to_render),
+        );
         self.kde_window_background_blur = overrides
             .kde_window_background_blur
             .unwrap_or(DEFAULT_KDE_WINDOW_BACKGROUND_BLUR);
@@ -49382,24 +49514,24 @@ mod tests {
         NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
         NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
         NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
-        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBell,
-        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
-        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
-        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
-        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
-        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
-        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
+        NativeWindowBackgroundGradientOrientation, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
+        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
+        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
+        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
+        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
+        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
+        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
+        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
+        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
+        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_integrated_title_buttons, default_skip_close_confirmation_for_processes_named,
@@ -51459,6 +51591,51 @@ mod tests {
                 FRAME_WIDTH as usize,
                 CELL_WIDTH as usize,
                 terminal_origin_y
+            ),
+            [1, 2, 3, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_vertical_window_background_gradient() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              orientation = 'Vertical',
+              colors = { '#010203', '#111213' },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm window_background_gradient config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = FRAME_WIDTH as usize;
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, CELL_WIDTH as usize, terminal_origin_y),
+            [16, 17, 18, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                width,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
             ),
             [1, 2, 3, 255]
         );
@@ -61359,6 +61536,7 @@ mod tests {
                 text_min_contrast_ratio: None,
                 text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
                 window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+                window_background_gradient: None,
                 kde_window_background_blur: false,
                 macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
                 win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
@@ -91334,6 +91512,10 @@ mod tests {
             bold_brightens_ansi_colors: Some(NativeBoldBrightensAnsiColors::BrightOnly),
             text_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.4)),
             window_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
+            window_background_gradient: Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            }),
             kde_window_background_blur: Some(true),
             macos_window_background_blur: Some(20),
             win32_system_backdrop: Some(NativeWin32SystemBackdrop::Mica),
@@ -91618,6 +91800,10 @@ mod tests {
             bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors::BrightOnly,
             text_background_opacity: NativeTextBackgroundOpacity::from_f32(0.4),
             window_background_opacity: NativeTextBackgroundOpacity::from_f32(0.5),
+            window_background_gradient: Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            }),
             kde_window_background_blur: true,
             macos_window_background_blur: 20,
             win32_system_backdrop: NativeWin32SystemBackdrop::Mica,
@@ -91858,6 +92044,7 @@ mod tests {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            window_background_gradient: None,
             kde_window_background_blur: false,
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
