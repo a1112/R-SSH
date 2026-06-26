@@ -320,9 +320,52 @@ pub enum RenderBackgroundGradientOrientation {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundGradientPreset {
+    Blues,
+    BrBg,
+    BuGn,
+    BuPu,
+    Cividis,
+    Cool,
+    CubeHelixDefault,
+    GnBu,
+    Greens,
+    Greys,
+    Inferno,
+    Magma,
+    OrRd,
+    Oranges,
+    PiYg,
+    Plasma,
+    PrGn,
+    PuBu,
+    PuBuGn,
+    PuOr,
+    PuRd,
+    Purples,
+    Rainbow,
+    RdBu,
+    RdGy,
+    RdPu,
+    RdYlBu,
+    RdYlGn,
+    Reds,
+    Sinebow,
+    Spectral,
+    Turbo,
+    Viridis,
+    Warm,
+    YlGn,
+    YlGnBu,
+    YlOrBr,
+    YlOrRd,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderBackgroundGradient {
     pub orientation: RenderBackgroundGradientOrientation,
+    pub preset: Option<RenderBackgroundGradientPreset>,
     pub colors: Vec<[u8; 4]>,
 }
 
@@ -600,7 +643,8 @@ impl PixelRenderer {
     }
 
     pub fn set_default_background_gradient(&mut self, gradient: Option<RenderBackgroundGradient>) {
-        self.default_background_gradient = gradient.filter(|gradient| !gradient.colors.is_empty());
+        self.default_background_gradient =
+            gradient.filter(|gradient| gradient.preset.is_some() || !gradient.colors.is_empty());
     }
 
     pub fn set_default_foreground(&mut self, foreground: [u8; 4]) {
@@ -1146,36 +1190,35 @@ fn background_gradient_color_at(
     width: u32,
     height: u32,
 ) -> [u8; 4] {
+    let position = match gradient.orientation {
+        RenderBackgroundGradientOrientation::Horizontal => gradient_axis_position(column, width),
+        RenderBackgroundGradientOrientation::Vertical => 1.0 - gradient_axis_position(row, height),
+        RenderBackgroundGradientOrientation::Linear { angle_millidegrees } => {
+            linear_gradient_axis_position(column, row, width, height, angle_millidegrees)
+        }
+        RenderBackgroundGradientOrientation::Radial {
+            cx_millis,
+            cy_millis,
+            radius_millis,
+        } => radial_gradient_axis_position(
+            column,
+            row,
+            width,
+            height,
+            cx_millis,
+            cy_millis,
+            radius_millis,
+        ),
+    };
+
+    if let Some(preset) = gradient.preset {
+        return gradient_preset_color_at_position(preset, position);
+    }
+
     match gradient.colors.as_slice() {
         [] => default_background(),
         [color] => *color,
-        colors => {
-            let position = match gradient.orientation {
-                RenderBackgroundGradientOrientation::Horizontal => {
-                    gradient_axis_position(column, width)
-                }
-                RenderBackgroundGradientOrientation::Vertical => {
-                    1.0 - gradient_axis_position(row, height)
-                }
-                RenderBackgroundGradientOrientation::Linear { angle_millidegrees } => {
-                    linear_gradient_axis_position(column, row, width, height, angle_millidegrees)
-                }
-                RenderBackgroundGradientOrientation::Radial {
-                    cx_millis,
-                    cy_millis,
-                    radius_millis,
-                } => radial_gradient_axis_position(
-                    column,
-                    row,
-                    width,
-                    height,
-                    cx_millis,
-                    cy_millis,
-                    radius_millis,
-                ),
-            };
-            gradient_color_at_position(colors, position)
-        }
+        colors => gradient_color_at_position(colors, position),
     }
 }
 
@@ -1233,6 +1276,56 @@ fn radial_gradient_axis_position(
     let dy = y - cy;
 
     dx.hypot(dy) / radius
+}
+
+#[allow(clippy::too_many_lines)]
+fn gradient_preset_color_at_position(
+    preset: RenderBackgroundGradientPreset,
+    position: f64,
+) -> [u8; 4] {
+    let position = position.clamp(0.0, 1.0);
+    match preset {
+        RenderBackgroundGradientPreset::Blues => colorgrad::blues().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::BrBg => colorgrad::br_bg().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::BuGn => colorgrad::bu_gn().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::BuPu => colorgrad::bu_pu().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Cividis => colorgrad::cividis().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Cool => colorgrad::cool().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::CubeHelixDefault => {
+            colorgrad::cubehelix_default().at(position).to_rgba8()
+        }
+        RenderBackgroundGradientPreset::GnBu => colorgrad::gn_bu().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Greens => colorgrad::greens().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Greys => colorgrad::greys().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Inferno => colorgrad::inferno().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Magma => colorgrad::magma().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::OrRd => colorgrad::or_rd().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Oranges => colorgrad::oranges().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::PiYg => colorgrad::pi_yg().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Plasma => colorgrad::plasma().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::PrGn => colorgrad::pr_gn().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::PuBu => colorgrad::pu_bu().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::PuBuGn => colorgrad::pu_bu_gn().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::PuOr => colorgrad::pu_or().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::PuRd => colorgrad::pu_rd().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Purples => colorgrad::purples().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Rainbow => colorgrad::rainbow().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::RdBu => colorgrad::rd_bu().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::RdGy => colorgrad::rd_gy().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::RdPu => colorgrad::rd_pu().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::RdYlBu => colorgrad::rd_yl_bu().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::RdYlGn => colorgrad::rd_yl_gn().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Reds => colorgrad::reds().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Sinebow => colorgrad::sinebow().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Spectral => colorgrad::spectral().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Turbo => colorgrad::turbo().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Viridis => colorgrad::viridis().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Warm => colorgrad::warm().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::YlGn => colorgrad::yl_gn().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::YlGnBu => colorgrad::yl_gn_bu().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::YlOrBr => colorgrad::yl_or_br().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::YlOrRd => colorgrad::yl_or_rd().at(position).to_rgba8(),
+    }
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

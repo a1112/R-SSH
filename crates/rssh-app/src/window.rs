@@ -23,10 +23,10 @@ use rssh_core::{
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
 use rssh_renderer::{
     PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientOrientation,
-    RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole, RenderCursorThickness,
-    RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize, RenderStrikethroughPosition,
-    RenderUnderlinePosition, RenderUnderlineThickness, SCROLLBAR_WIDTH, ScrollbackScrollbar,
-    TerminalRenderSnapshot, color_to_rgba,
+    RenderBackgroundGradientPreset, RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole,
+    RenderCursorThickness, RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize,
+    RenderStrikethroughPosition, RenderUnderlinePosition, RenderUnderlineThickness,
+    SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot, color_to_rgba,
 };
 use rssh_terminal::{
     CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,
@@ -961,6 +961,138 @@ impl NativeWindowBackgroundGradientOrientation {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeWindowBackgroundGradientPreset {
+    Blues,
+    BrBg,
+    BuGn,
+    BuPu,
+    Cividis,
+    Cool,
+    CubeHelixDefault,
+    GnBu,
+    Greens,
+    Greys,
+    Inferno,
+    Magma,
+    OrRd,
+    Oranges,
+    PiYg,
+    Plasma,
+    PrGn,
+    PuBu,
+    PuBuGn,
+    PuOr,
+    PuRd,
+    Purples,
+    Rainbow,
+    RdBu,
+    RdGy,
+    RdPu,
+    RdYlBu,
+    RdYlGn,
+    Reds,
+    Sinebow,
+    Spectral,
+    Turbo,
+    Viridis,
+    Warm,
+    YlGn,
+    YlGnBu,
+    YlOrBr,
+    YlOrRd,
+}
+
+impl NativeWindowBackgroundGradientPreset {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Blues" => Some(Self::Blues),
+            "BrBg" => Some(Self::BrBg),
+            "BuGn" => Some(Self::BuGn),
+            "BuPu" => Some(Self::BuPu),
+            "Cividis" => Some(Self::Cividis),
+            "Cool" => Some(Self::Cool),
+            "CubeHelixDefault" => Some(Self::CubeHelixDefault),
+            "GnBu" => Some(Self::GnBu),
+            "Greens" => Some(Self::Greens),
+            "Greys" => Some(Self::Greys),
+            "Inferno" => Some(Self::Inferno),
+            "Magma" => Some(Self::Magma),
+            "OrRd" => Some(Self::OrRd),
+            "Oranges" => Some(Self::Oranges),
+            "PiYg" => Some(Self::PiYg),
+            "Plasma" => Some(Self::Plasma),
+            "PrGn" => Some(Self::PrGn),
+            "PuBu" => Some(Self::PuBu),
+            "PuBuGn" => Some(Self::PuBuGn),
+            "PuOr" => Some(Self::PuOr),
+            "PuRd" => Some(Self::PuRd),
+            "Purples" => Some(Self::Purples),
+            "Rainbow" => Some(Self::Rainbow),
+            "RdBu" => Some(Self::RdBu),
+            "RdGy" => Some(Self::RdGy),
+            "RdPu" => Some(Self::RdPu),
+            "RdYlBu" => Some(Self::RdYlBu),
+            "RdYlGn" => Some(Self::RdYlGn),
+            "Reds" => Some(Self::Reds),
+            "Sinebow" => Some(Self::Sinebow),
+            "Spectral" => Some(Self::Spectral),
+            "Turbo" => Some(Self::Turbo),
+            "Viridis" => Some(Self::Viridis),
+            "Warm" => Some(Self::Warm),
+            "YlGn" => Some(Self::YlGn),
+            "YlGnBu" => Some(Self::YlGnBu),
+            "YlOrBr" => Some(Self::YlOrBr),
+            "YlOrRd" => Some(Self::YlOrRd),
+            _ => None,
+        }
+    }
+
+    const fn to_render(self) -> RenderBackgroundGradientPreset {
+        match self {
+            Self::Blues => RenderBackgroundGradientPreset::Blues,
+            Self::BrBg => RenderBackgroundGradientPreset::BrBg,
+            Self::BuGn => RenderBackgroundGradientPreset::BuGn,
+            Self::BuPu => RenderBackgroundGradientPreset::BuPu,
+            Self::Cividis => RenderBackgroundGradientPreset::Cividis,
+            Self::Cool => RenderBackgroundGradientPreset::Cool,
+            Self::CubeHelixDefault => RenderBackgroundGradientPreset::CubeHelixDefault,
+            Self::GnBu => RenderBackgroundGradientPreset::GnBu,
+            Self::Greens => RenderBackgroundGradientPreset::Greens,
+            Self::Greys => RenderBackgroundGradientPreset::Greys,
+            Self::Inferno => RenderBackgroundGradientPreset::Inferno,
+            Self::Magma => RenderBackgroundGradientPreset::Magma,
+            Self::OrRd => RenderBackgroundGradientPreset::OrRd,
+            Self::Oranges => RenderBackgroundGradientPreset::Oranges,
+            Self::PiYg => RenderBackgroundGradientPreset::PiYg,
+            Self::Plasma => RenderBackgroundGradientPreset::Plasma,
+            Self::PrGn => RenderBackgroundGradientPreset::PrGn,
+            Self::PuBu => RenderBackgroundGradientPreset::PuBu,
+            Self::PuBuGn => RenderBackgroundGradientPreset::PuBuGn,
+            Self::PuOr => RenderBackgroundGradientPreset::PuOr,
+            Self::PuRd => RenderBackgroundGradientPreset::PuRd,
+            Self::Purples => RenderBackgroundGradientPreset::Purples,
+            Self::Rainbow => RenderBackgroundGradientPreset::Rainbow,
+            Self::RdBu => RenderBackgroundGradientPreset::RdBu,
+            Self::RdGy => RenderBackgroundGradientPreset::RdGy,
+            Self::RdPu => RenderBackgroundGradientPreset::RdPu,
+            Self::RdYlBu => RenderBackgroundGradientPreset::RdYlBu,
+            Self::RdYlGn => RenderBackgroundGradientPreset::RdYlGn,
+            Self::Reds => RenderBackgroundGradientPreset::Reds,
+            Self::Sinebow => RenderBackgroundGradientPreset::Sinebow,
+            Self::Spectral => RenderBackgroundGradientPreset::Spectral,
+            Self::Turbo => RenderBackgroundGradientPreset::Turbo,
+            Self::Viridis => RenderBackgroundGradientPreset::Viridis,
+            Self::Warm => RenderBackgroundGradientPreset::Warm,
+            Self::YlGn => RenderBackgroundGradientPreset::YlGn,
+            Self::YlGnBu => RenderBackgroundGradientPreset::YlGnBu,
+            Self::YlOrBr => RenderBackgroundGradientPreset::YlOrBr,
+            Self::YlOrRd => RenderBackgroundGradientPreset::YlOrRd,
+        }
+    }
+}
+
 #[allow(clippy::cast_possible_truncation)]
 fn native_gradient_angle_millidegrees_from_f64(angle_degrees: f64) -> Option<i32> {
     if !angle_degrees.is_finite() {
@@ -997,6 +1129,7 @@ fn native_gradient_positive_millis_from_f64(value: f64) -> Option<u32> {
 #[allow(dead_code)]
 struct NativeWindowBackgroundGradient {
     orientation: NativeWindowBackgroundGradientOrientation,
+    preset: Option<NativeWindowBackgroundGradientPreset>,
     colors: Vec<Color>,
 }
 
@@ -1004,6 +1137,9 @@ impl NativeWindowBackgroundGradient {
     fn to_render(&self) -> RenderBackgroundGradient {
         RenderBackgroundGradient {
             orientation: self.orientation.to_render(),
+            preset: self
+                .preset
+                .map(NativeWindowBackgroundGradientPreset::to_render),
             colors: self
                 .colors
                 .iter()
@@ -11770,6 +11906,7 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let static_source = Some(LuaStaticSource { source, max_start });
     let mut orientation = NativeWindowBackgroundGradientOrientation::Horizontal;
+    let mut preset = None;
     let mut colors = None;
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -11799,13 +11936,24 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
                 }
                 colors = Some(parsed_colors);
             }
+            "preset" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                preset = Some(NativeWindowBackgroundGradientPreset::parse(&value)?);
+            }
             _ => {}
         }
     }
 
+    let colors = colors.unwrap_or_default();
+    if colors.len() < 2 && preset.is_none() {
+        return None;
+    }
+
     Some(NativeWindowBackgroundGradient {
         orientation,
-        colors: colors?,
+        preset,
+        colors,
     })
 }
 
@@ -49663,9 +49811,10 @@ mod tests {
         NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
         NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
         NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
-        NativeWindowBackgroundGradientOrientation, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
+        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
         NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
         NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
         NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
@@ -51767,6 +51916,7 @@ mod tests {
             app.native_effective_config().window_background_gradient,
             Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -51814,6 +51964,7 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Linear {
                     angle_millidegrees: 180_000,
                 },
+                preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -51868,6 +52019,7 @@ mod tests {
                     cy_millis: 1_000,
                     radius_millis: 1_000,
                 },
+                preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -51886,6 +52038,50 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [17, 18, 19, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_preset_window_background_gradient() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              preset = 'Blues',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm preset window_background_gradient config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                preset: Some(NativeWindowBackgroundGradientPreset::Blues),
+                colors: Vec::new(),
+            })
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = FRAME_WIDTH as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, FRAME_HEIGHT as usize - 1),
+            [247, 251, 255, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                width,
+                FRAME_WIDTH as usize - 1,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [8, 48, 107, 255]
         );
     }
 
@@ -91762,6 +91958,7 @@ mod tests {
             window_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
             window_background_gradient: Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
             kde_window_background_blur: Some(true),
@@ -92050,6 +92247,7 @@ mod tests {
             window_background_opacity: NativeTextBackgroundOpacity::from_f32(0.5),
             window_background_gradient: Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
             kde_window_background_blur: true,
