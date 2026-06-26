@@ -10187,12 +10187,15 @@ fn lua_config_string_array_field_assignment_from_table_query(
     max_start: usize,
 ) -> Option<LuaTableValueAssignment> {
     let mut selected = None;
+    let static_source = Some(LuaStaticSource { source, max_start });
 
     for table_field in split_lua_table_top_level_fields(table)? {
         let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
             continue;
         };
-        let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+        let Some(key) =
+            split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+        else {
             continue;
         };
         if key == field {
@@ -82995,6 +82998,35 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm static field-name return table skip close config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            ["top".to_owned(), "cmd.exe".to_owned()]
+        );
+
+        app.handle_window_close_requested();
+
+        assert!(app.window_close_requested_for_test());
+        assert!(app.close_confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_static_initializer_skip_close_confirmation_key() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("top"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local skip_field = 'skip_close_confirmation_for_processes_named'
+            local config = {
+              window_close_confirmation = 'AlwaysPrompt',
+              [skip_field] = { 'top', 'cmd.exe' },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name initializer skip close config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
