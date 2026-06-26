@@ -2512,6 +2512,20 @@ const DEFAULT_WINDOW_CONTENT_ALIGNMENT: NativeWindowContentAlignment =
         vertical: NativeVerticalContentAlignment::Top,
     };
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NativeWindowFrameAppearance {
+    inactive_titlebar_bg: Option<Color>,
+    active_titlebar_bg: Option<Color>,
+    inactive_titlebar_fg: Option<Color>,
+    active_titlebar_fg: Option<Color>,
+    inactive_titlebar_border_bottom: Option<Color>,
+    active_titlebar_border_bottom: Option<Color>,
+    button_fg: Option<Color>,
+    button_bg: Option<Color>,
+    button_hover_fg: Option<Color>,
+    button_hover_bg: Option<Color>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -2566,6 +2580,7 @@ struct NativeEffectiveConfig {
     win32_system_backdrop: NativeWin32SystemBackdrop,
     win32_acrylic_accent_color: Option<Color>,
     window_decorations: NativeWindowDecorations,
+    window_frame_appearance: NativeWindowFrameAppearance,
     integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
     integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
     integrated_title_button_color: NativeIntegratedTitleButtonColor,
@@ -2754,6 +2769,7 @@ struct NativeConfigOverrides {
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
     win32_acrylic_accent_color: Option<Color>,
     window_decorations: Option<NativeWindowDecorations>,
+    window_frame_appearance: Option<NativeWindowFrameAppearance>,
     integrated_title_buttons: Option<Vec<NativeIntegratedTitleButton>>,
     integrated_title_button_alignment: Option<NativeIntegratedTitleButtonAlignment>,
     integrated_title_button_color: Option<NativeIntegratedTitleButtonColor>,
@@ -3321,6 +3337,26 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "window_decorations")
     {
         overrides.window_decorations = Some(NativeWindowDecorations::parse(&window_decorations)?);
+        parsed = true;
+    }
+    if let Some(window_frame_appearance) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "window_frame",
+        )
+        .and_then(|window_frame| {
+            native_window_frame_appearance_lua_table_from_query(config, &window_frame.value)
+                .flatten()
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "window_frame")
+                .and_then(|window_frame| {
+                    native_window_frame_appearance_lua_table_from_query(config, window_frame)
+                        .flatten()
+                })
+        })
+    {
+        overrides.window_frame_appearance = Some(window_frame_appearance);
         parsed = true;
     }
     if let Some(integrated_title_buttons) =
@@ -12283,6 +12319,45 @@ fn native_window_content_alignment_lua_table_from_query<'a>(
     Some(alignment)
 }
 
+fn native_window_frame_appearance_lua_table_from_query(
+    source: &str,
+    value: &str,
+) -> Option<Option<NativeWindowFrameAppearance>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut appearance = NativeWindowFrameAppearance::default();
+    let mut parsed = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let slot = match key.as_str() {
+            "inactive_titlebar_bg" => &mut appearance.inactive_titlebar_bg,
+            "active_titlebar_bg" => &mut appearance.active_titlebar_bg,
+            "inactive_titlebar_fg" => &mut appearance.inactive_titlebar_fg,
+            "active_titlebar_fg" => &mut appearance.active_titlebar_fg,
+            "inactive_titlebar_border_bottom" => &mut appearance.inactive_titlebar_border_bottom,
+            "active_titlebar_border_bottom" => &mut appearance.active_titlebar_border_bottom,
+            "button_fg" => &mut appearance.button_fg,
+            "button_bg" => &mut appearance.button_bg,
+            "button_hover_fg" => &mut appearance.button_hover_fg,
+            "button_hover_bg" => &mut appearance.button_hover_bg,
+            _ => continue,
+        };
+        let value = lua_static_string_assignment_value_from_query(source, value.trim())
+            .and_then(parse_maybe_quoted_query_text)?;
+        *slot = Some(lua_opaque_color_from_query(&value)?);
+        parsed = true;
+    }
+
+    Some(parsed.then_some(appearance))
+}
+
 #[allow(dead_code)]
 fn native_hsb_multiplier_from_ratio(ratio: f32) -> Option<NativeHsbMultiplier> {
     native_non_negative_ratio_to_per_mille(ratio).map(NativeHsbMultiplier::from_per_mille)
@@ -13674,6 +13749,7 @@ struct NativeWindowApp {
     win32_system_backdrop: NativeWin32SystemBackdrop,
     win32_acrylic_accent_color: Option<Color>,
     window_decorations: NativeWindowDecorations,
+    window_frame_appearance: NativeWindowFrameAppearance,
     integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
     integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
     integrated_title_button_color: NativeIntegratedTitleButtonColor,
@@ -15147,6 +15223,7 @@ impl NativeWindowApp {
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
             win32_acrylic_accent_color: None,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            window_frame_appearance: NativeWindowFrameAppearance::default(),
             integrated_title_buttons: default_integrated_title_buttons(),
             integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
             integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
@@ -16175,6 +16252,7 @@ impl NativeWindowApp {
         detached_app.win32_system_backdrop = self.win32_system_backdrop;
         detached_app.win32_acrylic_accent_color = self.win32_acrylic_accent_color;
         detached_app.window_decorations = self.window_decorations;
+        detached_app.window_frame_appearance = self.window_frame_appearance;
         detached_app.integrated_title_buttons = self.integrated_title_buttons.clone();
         detached_app.integrated_title_button_alignment = self.integrated_title_button_alignment;
         detached_app.integrated_title_button_color = self.integrated_title_button_color;
@@ -16395,6 +16473,7 @@ impl NativeWindowApp {
         self.win32_system_backdrop = source.win32_system_backdrop;
         self.win32_acrylic_accent_color = source.win32_acrylic_accent_color;
         self.window_decorations = source.window_decorations;
+        self.window_frame_appearance = source.window_frame_appearance;
         self.integrated_title_buttons = source.integrated_title_buttons.clone();
         self.integrated_title_button_alignment = source.integrated_title_button_alignment;
         self.integrated_title_button_color = source.integrated_title_button_color;
@@ -24415,6 +24494,7 @@ impl NativeWindowApp {
             win32_system_backdrop: self.win32_system_backdrop,
             win32_acrylic_accent_color: self.win32_acrylic_accent_color,
             window_decorations: self.window_decorations,
+            window_frame_appearance: self.window_frame_appearance,
             integrated_title_buttons: self.integrated_title_buttons.clone(),
             integrated_title_button_alignment: self.integrated_title_button_alignment,
             integrated_title_button_color: self.integrated_title_button_color,
@@ -24673,6 +24753,7 @@ impl NativeWindowApp {
         self.window_decorations = overrides
             .window_decorations
             .unwrap_or(DEFAULT_WINDOW_DECORATIONS);
+        self.window_frame_appearance = overrides.window_frame_appearance.unwrap_or_default();
         self.integrated_title_buttons = overrides
             .integrated_title_buttons
             .clone()
@@ -50076,21 +50157,22 @@ mod tests {
         NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
         NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
         NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
-        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
-        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
+        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_integrated_title_buttons, default_skip_close_confirmation_for_processes_named,
@@ -62632,6 +62714,7 @@ mod tests {
                 win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
                 win32_acrylic_accent_color: None,
                 window_decorations: DEFAULT_WINDOW_DECORATIONS,
+                window_frame_appearance: NativeWindowFrameAppearance::default(),
                 integrated_title_buttons: default_integrated_title_buttons(),
                 integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
                 integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
@@ -86221,6 +86304,52 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_window_frame_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_frame = {
+              inactive_titlebar_bg = '#010203',
+              active_titlebar_bg = '#040506',
+              inactive_titlebar_fg = '#070809',
+              active_titlebar_fg = '#0a0b0c',
+              inactive_titlebar_border_bottom = '#0d0e0f',
+              active_titlebar_border_bottom = '#101112',
+              button_fg = '#131415',
+              button_bg = '#161718',
+              button_hover_fg = '#191a1b',
+              button_hover_bg = '#1c1d1e',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window_frame color config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config().window_frame_appearance;
+        assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(effective.active_titlebar_bg, Some(Color::Rgb(4, 5, 6)));
+        assert_eq!(effective.inactive_titlebar_fg, Some(Color::Rgb(7, 8, 9)));
+        assert_eq!(effective.active_titlebar_fg, Some(Color::Rgb(10, 11, 12)));
+        assert_eq!(
+            effective.inactive_titlebar_border_bottom,
+            Some(Color::Rgb(13, 14, 15))
+        );
+        assert_eq!(
+            effective.active_titlebar_border_bottom,
+            Some(Color::Rgb(16, 17, 18))
+        );
+        assert_eq!(effective.button_fg, Some(Color::Rgb(19, 20, 21)));
+        assert_eq!(effective.button_bg, Some(Color::Rgb(22, 23, 24)));
+        assert_eq!(effective.button_hover_fg, Some(Color::Rgb(25, 26, 27)));
+        assert_eq!(effective.button_hover_bg, Some(Color::Rgb(28, 29, 30)));
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_integrated_title_button_config() {
         let effective = NativeWindowApp::new(None).native_effective_config();
 
@@ -92675,6 +92804,18 @@ mod tests {
                 macos_force_square_corners: false,
                 macos_use_background_color_as_titlebar_color: true,
             }),
+            window_frame_appearance: Some(NativeWindowFrameAppearance {
+                inactive_titlebar_bg: Some(Color::Rgb(1, 2, 3)),
+                active_titlebar_bg: Some(Color::Rgb(4, 5, 6)),
+                inactive_titlebar_fg: Some(Color::Rgb(7, 8, 9)),
+                active_titlebar_fg: Some(Color::Rgb(10, 11, 12)),
+                inactive_titlebar_border_bottom: Some(Color::Rgb(13, 14, 15)),
+                active_titlebar_border_bottom: Some(Color::Rgb(16, 17, 18)),
+                button_fg: Some(Color::Rgb(19, 20, 21)),
+                button_bg: Some(Color::Rgb(22, 23, 24)),
+                button_hover_fg: Some(Color::Rgb(25, 26, 27)),
+                button_hover_bg: Some(Color::Rgb(28, 29, 30)),
+            }),
             integrated_title_buttons: Some(vec![
                 NativeIntegratedTitleButton::Close,
                 NativeIntegratedTitleButton::Hide,
@@ -92969,6 +93110,18 @@ mod tests {
                 macos_force_square_corners: false,
                 macos_use_background_color_as_titlebar_color: true,
             },
+            window_frame_appearance: NativeWindowFrameAppearance {
+                inactive_titlebar_bg: Some(Color::Rgb(1, 2, 3)),
+                active_titlebar_bg: Some(Color::Rgb(4, 5, 6)),
+                inactive_titlebar_fg: Some(Color::Rgb(7, 8, 9)),
+                active_titlebar_fg: Some(Color::Rgb(10, 11, 12)),
+                inactive_titlebar_border_bottom: Some(Color::Rgb(13, 14, 15)),
+                active_titlebar_border_bottom: Some(Color::Rgb(16, 17, 18)),
+                button_fg: Some(Color::Rgb(19, 20, 21)),
+                button_bg: Some(Color::Rgb(22, 23, 24)),
+                button_hover_fg: Some(Color::Rgb(25, 26, 27)),
+                button_hover_bg: Some(Color::Rgb(28, 29, 30)),
+            },
             integrated_title_buttons: vec![
                 NativeIntegratedTitleButton::Close,
                 NativeIntegratedTitleButton::Hide,
@@ -93203,6 +93356,7 @@ mod tests {
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
             win32_acrylic_accent_color: None,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            window_frame_appearance: NativeWindowFrameAppearance::default(),
             integrated_title_buttons: default_integrated_title_buttons(),
             integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
             integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,

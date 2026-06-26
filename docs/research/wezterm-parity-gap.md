@@ -128,7 +128,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   parsing, but the current renderer remains the retro tab strip; proportional-font
   native fancy tab rendering remains open. `colors.tab_bar.inactive_tab_edge`
   parses into native/effective config and is retained for the future fancy
-  tab-bar renderer. The retro tab bar strip honors
+  tab-bar renderer. Top-level `config.window_frame` titlebar and button color
+  fields parse into native/effective config and are retained for future
+  native/fancy titlebar rendering. The retro tab bar strip honors
   `colors.tab_bar.background` for blank tab-bar cells, and active-tab,
   inactive-tab, plus new-tab button labels honor the corresponding
   `colors.tab_bar.active_tab`, `colors.tab_bar.inactive_tab`, and
@@ -2116,14 +2118,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `use_cap_height_to_scale_fallback_fonts`, `unicode_version`, `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `cursor_blink_rate`,
   `cursor_blink_ease_in`, `cursor_blink_ease_out`, `default_cursor_style`, and
-  `force_reverse_video_cursor`, `window_decorations`, `kde_window_background_blur`,
+  `force_reverse_video_cursor`, `window_decorations`, `window_frame`, `kde_window_background_blur`,
   `macos_window_background_blur`, `win32_system_backdrop`, `win32_acrylic_accent_color`,
   `integrated_title_buttons`, `integrated_title_button_alignment`,
   `integrated_title_button_color`, `integrated_title_button_style`, plus the implemented bell/notification subset:
   `audible_bell`, `visual_bell`, `colors.foreground`, `colors.background`, `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, `colors.compose_cursor`, `colors.visual_bell`, and
   `notification_handling`, plus the implemented render color subset:
   `foreground_text_hsb`, `inactive_pane_hsb`, `bold_brightens_ansi_colors`,
-  `text_background_opacity`, `window_background_opacity`, `window_background_gradient`, `kde_window_background_blur`,
+  `text_background_opacity`, `window_background_opacity`, `window_background_gradient`, `window_frame`, `kde_window_background_blur`,
   `macos_window_background_blur`, `win32_system_backdrop`, `win32_acrylic_accent_color`,
   `integrated_title_buttons`, `integrated_title_button_alignment`,
   `integrated_title_button_color`, `integrated_title_button_style`, `colors.foreground`, `colors.background`, `colors.ansi`, `colors.brights`, `colors.indexed`, `colors.selection_fg`, `colors.selection_bg`, `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, `colors.compose_cursor`, `config.color_scheme`, `config.color_schemes`, `config.color_scheme_dirs`, plus
@@ -2663,6 +2665,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window_maximize_hover`, `window_close`, and `window_close_hover` parse
   static `wezterm.format` item arrays and apply to retro integrated title
   button labels;
+  top-level `config.window_frame` titlebar/button color fields
+  (`inactive_titlebar_bg`, `active_titlebar_bg`, `inactive_titlebar_fg`,
+  `active_titlebar_fg`, `inactive_titlebar_border_bottom`,
+  `active_titlebar_border_bottom`, `button_fg`, `button_bg`,
+  `button_hover_fg`, and `button_hover_bg`) parse into native/effective config
+  and are retained for the future native/fancy titlebar renderer;
   top-level `command_palette_font_size` parses into native/effective config,
   while `command_palette_bg_color`/`command_palette_fg_color` parse and apply
   to normal command-palette candidate rows; top-level
@@ -2673,8 +2681,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   tables also parse into native/effective config, and copy-mode
   active/inactive highlight plus quick-select label/match colors apply to
   overlay rendering, while input-selector/launcher label colors apply to
-  default-mode shortcut labels. Native/fancy titlebar styling and other
-  non-terminal color fields remain later parity work.
+  default-mode shortcut labels. Applying retained native/fancy titlebar colors,
+  `window_frame` border widths/colors, font fields, and other non-terminal
+  color fields remain later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
   macOS-specific flags in effective config snapshots. Native config also
@@ -2685,11 +2694,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   supports configured integrated title button order, left/right alignment,
   Auto/custom color, WezTerm retro default `.`, `-`, and `X` labels,
   `tab_bar_style.window_*` label overrides, and Hide/Maximize/Close click
-  dispatch when `window_decorations` includes `INTEGRATED_BUTTONS`; when
+  dispatch when `window_decorations` includes `INTEGRATED_BUTTONS`; top-level
+  `config.window_frame` titlebar and button color fields parse into
+  native/effective config and are retained alongside the decoration/button
+  settings; when
   `integrated_title_button_style` is `MacOsNative`, top retro tab bars reserve
   the native button area instead of drawing text button labels.
-  Fine-grained native/fancy titlebar styling, resize-border behavior, actual
-  native macOS button drawing, and macOS shadow/corner behavior remain later
+  Applying those retained native/fancy titlebar colors, resize-border behavior,
+  `window_frame` border widths/colors and font/font_size fields, actual native
+  macOS button drawing, and macOS shadow/corner behavior remain later
   OS-specific parity work.
 - Native terminal rendering applies WezTerm-style `text_blink_rate`,
   `text_blink_rate_rapid`, `text_blink_ease_in`, `text_blink_ease_out`,
