@@ -1171,7 +1171,8 @@ keyboard, mouse, paste, resize
   when every affected pane's known local launch-program basename matches the
   list. Static Lua config parsing covers `window_close_confirmation` and
   `skip_close_confirmation_for_processes_named` inline, through top-level
-  static table variables, or through
+  static table variables, through static field names in direct return-table
+  configs, or through
   `table.insert(config.skip_close_confirmation_for_processes_named, ...)`
   appends. Full child process tree inspection and
   `mux-is-process-stateful` remain future parity work.

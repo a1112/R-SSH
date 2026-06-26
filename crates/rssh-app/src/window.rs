@@ -5634,7 +5634,8 @@ fn lua_config_string_array_assignment_with_insert_appends_with_max_start_from_qu
         let max_start = lua_source_slice_start_offset(source, table)?;
         let mut literal_from_query =
             |value| lua_string_array_value_table_string_from_query(source, value, max_start);
-        return lua_config_table_field_assignment_string_from_query(
+        return lua_config_table_field_assignment_string_from_query_with_static_source(
+            Some(LuaStaticSource { source, max_start }),
             table,
             field,
             &mut literal_from_query,
@@ -82966,6 +82967,34 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm skip close confirmation table variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            ["top".to_owned(), "cmd.exe".to_owned()]
+        );
+
+        app.handle_window_close_requested();
+
+        assert!(app.window_close_requested_for_test());
+        assert!(app.close_confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_static_return_table_skip_close_confirmation_key() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("top"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local skip_field = 'skip_close_confirmation_for_processes_named'
+
+            return {
+              window_close_confirmation = 'AlwaysPrompt',
+              [skip_field] = { 'top', 'cmd.exe' },
+            }
+            "#,
+        )
+        .expect("expected WezTerm static field-name return table skip close config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
