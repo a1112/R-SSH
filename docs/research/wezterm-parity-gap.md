@@ -156,7 +156,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   edge entries inline, through top-level static table variables, or through
   top-level `config[static_name].active_tab_left`/`active_tab_right`/
   `inactive_tab_left`/`inactive_tab_right`/`new_tab_left`/`new_tab_right`
-  mutations where `static_name` resolves to `tab_bar_style`.
+  mutations where `static_name` resolves to `tab_bar_style`. When
+  `window_decorations` includes WezTerm-style `INTEGRATED_BUTTONS`, the retro
+  tab bar renders configured integrated title buttons in configured order and
+  left/right alignment, applies Auto/custom button color, and dispatches
+  Hide/Maximize/Close clicks through the native window action paths.
 - App-shell state now exposes WezTerm-style `SpawnWindow`: the default
   `Ctrl+Shift+N` and `Super+N` shortcuts plus command-palette `Spawn Window`
   entry create a pending native-window app with a fresh default-launch tab and
@@ -2607,9 +2611,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   retains `integrated_title_buttons`, `integrated_title_button_alignment`,
   `integrated_title_button_color`, and `integrated_title_button_style` with
   WezTerm defaults and static Lua parsing for reordered/removed button lists,
-  alignment, style, and Auto/custom color values. Fine-grained titlebar,
-  resize-border, actual integrated button rendering, and macOS shadow/corner
-  behavior remain later OS-specific parity work.
+  alignment, style, and Auto/custom color values. Retro tab bar rendering now
+  supports configured integrated title button order, left/right alignment,
+  Auto/custom color, and Hide/Maximize/Close click dispatch when
+  `window_decorations` includes `INTEGRATED_BUTTONS`. Fine-grained native/fancy
+  titlebar styling, resize-border behavior, OS-specific button styles, and
+  macOS shadow/corner behavior remain later OS-specific parity work.
 - Native terminal rendering applies WezTerm-style `text_blink_rate`,
   `text_blink_rate_rapid`, `text_blink_ease_in`, `text_blink_ease_out`,
   `text_blink_rapid_ease_in`, and `text_blink_rapid_ease_out` to SGR 5/6

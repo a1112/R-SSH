@@ -193,7 +193,11 @@ keyboard, mouse, paste, resize
   top-level static table variables, including top-level
   `config[static_name].active_tab_left`/`active_tab_right`/`inactive_tab_left`/
   `inactive_tab_right`/`new_tab_left`/`new_tab_right` mutations where
-  `static_name` resolves to `tab_bar_style`.
+  `static_name` resolves to `tab_bar_style`. When `window_decorations` includes
+  WezTerm-style `INTEGRATED_BUTTONS`, the retro tab bar also renders configured
+  integrated title buttons in configured order and left/right alignment, applies
+  Auto/custom button color, and dispatches Hide/Maximize/Close clicks through
+  the native window action paths.
 - Completed in v1: tab state can carry an explicit title, and tab bar labels
   prefer that explicit title before falling back to each tab's active-pane
   terminal title when OSC 0/1/2 or Sun OSC L/l title state is available.

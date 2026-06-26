@@ -12903,6 +12903,7 @@ struct NativeWindowApp {
     application_quit_requested: bool,
     window_level: NativeWindowLevel,
     full_screen: bool,
+    window_maximized: bool,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     cell_widths: Vec<NativeCellWidthOverride>,
@@ -14359,6 +14360,7 @@ impl NativeWindowApp {
             application_quit_requested: false,
             window_level: NativeWindowLevel::Normal,
             full_screen: false,
+            window_maximized: false,
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             cell_widths: Vec::new(),
@@ -14786,6 +14788,11 @@ impl NativeWindowApp {
     }
 
     #[cfg(test)]
+    fn window_maximized_for_test(&self) -> bool {
+        self.window_maximized
+    }
+
+    #[cfg(test)]
     fn window_level_for_test(&self) -> NativeWindowLevel {
         self.window_level
     }
@@ -15004,6 +15011,13 @@ impl NativeWindowApp {
         self.application_hide_requested = true;
         if let Some(window) = &self.window {
             window.set_minimized(true);
+        }
+    }
+
+    fn toggle_window_maximized(&mut self) {
+        self.window_maximized = !self.window_maximized;
+        if let Some(window) = &self.window {
+            window.set_maximized(self.window_maximized);
         }
     }
 
@@ -22825,6 +22839,14 @@ impl NativeWindowApp {
             .collect::<Vec<_>>();
 
         let mut column = 0u16;
+        if self.integrated_title_buttons_are_left_aligned() {
+            write_tab_bar_ansi_segment(
+                &mut cells,
+                &mut column,
+                &self.integrated_title_buttons_tab_bar_label(),
+                self.integrated_title_button_segment_style(background),
+            );
+        }
         write_tab_bar_segment(
             &mut cells,
             &mut column,
@@ -23012,11 +23034,25 @@ impl NativeWindowApp {
             write_tab_bar_format_items_if_configured(&mut cells, &mut column, right_edge, style);
         }
 
+        let right_integrated_title_buttons_label = self
+            .integrated_title_buttons_are_right_aligned()
+            .then(|| self.integrated_title_buttons_tab_bar_label())
+            .unwrap_or_default();
+        let right_integrated_title_buttons_width =
+            tab_bar_ansi_visible_width(&right_integrated_title_buttons_label);
         if !self.right_status.is_empty() {
-            write_right_aligned_tab_bar_segment(
+            write_right_aligned_tab_bar_segment_with_reserved(
                 &mut cells,
                 &self.right_status,
                 tab_bar_segment_style(Color::Rgb(202, 232, 255), Color::Rgb(18, 18, 22), false),
+                right_integrated_title_buttons_width,
+            );
+        }
+        if !right_integrated_title_buttons_label.is_empty() {
+            write_right_aligned_tab_bar_segment(
+                &mut cells,
+                &right_integrated_title_buttons_label,
+                self.integrated_title_button_segment_style(background),
             );
         }
 
@@ -23058,6 +23094,13 @@ impl NativeWindowApp {
         let Some(column) = pixel_axis_to_cell(x, self.cell_width()) else {
             return false;
         };
+        if let Some(integrated_button) = self.integrated_title_button_for_tab_bar_column(column) {
+            if button != MouseButton::Left {
+                return false;
+            }
+            self.dispatch_integrated_title_button(integrated_button);
+            return true;
+        }
         if self.new_tab_button_for_tab_bar_column(column) {
             let event = NativeWindowNewTabButtonClick {
                 window_id: self.app_window_id,
@@ -23136,6 +23179,91 @@ impl NativeWindowApp {
         column >= start && column < start.saturating_add(width)
     }
 
+    fn integrated_title_buttons_are_visible(&self) -> bool {
+        self.window_decorations.integrated_buttons && !self.integrated_title_buttons.is_empty()
+    }
+
+    fn integrated_title_buttons_are_left_aligned(&self) -> bool {
+        self.integrated_title_buttons_are_visible()
+            && self.integrated_title_button_alignment == NativeIntegratedTitleButtonAlignment::Left
+    }
+
+    fn integrated_title_buttons_are_right_aligned(&self) -> bool {
+        self.integrated_title_buttons_are_visible()
+            && self.integrated_title_button_alignment == NativeIntegratedTitleButtonAlignment::Right
+    }
+
+    fn integrated_title_buttons_tab_bar_label(&self) -> String {
+        integrated_title_buttons_tab_bar_label(&self.integrated_title_buttons)
+    }
+
+    fn integrated_title_buttons_tab_bar_width(&self) -> usize {
+        if self.integrated_title_buttons_are_visible() {
+            self.integrated_title_buttons_tab_bar_label()
+                .chars()
+                .count()
+        } else {
+            0
+        }
+    }
+
+    fn integrated_title_button_segment_style(&self, background: Color) -> TabBarSegmentStyle {
+        let foreground = match self.integrated_title_button_color {
+            NativeIntegratedTitleButtonColor::Auto => Color::Rgb(230, 230, 230),
+            NativeIntegratedTitleButtonColor::Color(color) => color,
+        };
+        tab_bar_segment_style(foreground, background, true)
+    }
+
+    fn integrated_title_button_for_tab_bar_column(
+        &self,
+        column: u16,
+    ) -> Option<NativeIntegratedTitleButton> {
+        if !self.integrated_title_buttons_are_visible() {
+            return None;
+        }
+
+        let label_width = u16::try_from(self.integrated_title_buttons_tab_bar_width()).ok()?;
+        let start = match self.integrated_title_button_alignment {
+            NativeIntegratedTitleButtonAlignment::Left => 0,
+            NativeIntegratedTitleButtonAlignment::Right => self
+                .runtime
+                .terminal()
+                .grid()
+                .size()
+                .columns
+                .saturating_sub(label_width),
+        };
+        if column < start || column >= start.saturating_add(label_width) {
+            return None;
+        }
+
+        let mut cursor = start.saturating_add(1);
+        for button in &self.integrated_title_buttons {
+            let width = u16::try_from(
+                integrated_title_button_tab_bar_label(*button)
+                    .chars()
+                    .count(),
+            )
+            .ok()?;
+            let end = cursor.saturating_add(width);
+            if column >= cursor && column < end {
+                return Some(*button);
+            }
+            cursor = end.saturating_add(1);
+        }
+
+        None
+    }
+
+    fn dispatch_integrated_title_button(&mut self, button: NativeIntegratedTitleButton) {
+        match button {
+            NativeIntegratedTitleButton::Hide => self.hide_window(),
+            NativeIntegratedTitleButton::Maximize => self.toggle_window_maximized(),
+            NativeIntegratedTitleButton::Close => self.handle_window_close_requested(),
+        }
+    }
+
     fn tab_bar_hover_column(&self) -> Option<u16> {
         let Some(position) = self.mouse_pixel_position else {
             return None;
@@ -23195,7 +23323,13 @@ impl NativeWindowApp {
     }
 
     fn tab_bar_left_prefix_width(&self) -> Option<u16> {
-        let mut width = u16::try_from(self.tab_bar_workspace_label().chars().count()).ok()?;
+        let mut width = if self.integrated_title_buttons_are_left_aligned() {
+            u16::try_from(self.integrated_title_buttons_tab_bar_width()).ok()?
+        } else {
+            0
+        };
+        width = width
+            .checked_add(u16::try_from(self.tab_bar_workspace_label().chars().count()).ok()?)?;
         if !self.left_status.is_empty() {
             let left_status_width =
                 u16::try_from(tab_bar_ansi_visible_width(&self.left_status) + 1).ok()?;
@@ -23267,6 +23401,12 @@ impl NativeWindowApp {
             0
         };
         let right_status_width = tab_bar_ansi_visible_width(&self.right_status);
+        let right_integrated_title_buttons_width =
+            if self.integrated_title_buttons_are_right_aligned() {
+                self.integrated_title_buttons_tab_bar_width()
+            } else {
+                0
+            };
         let fixed_tab_width = self
             .app_shell
             .active_workspace()
@@ -23291,6 +23431,7 @@ impl NativeWindowApp {
             left_prefix_width
                 .saturating_add(new_tab_width)
                 .saturating_add(right_status_width)
+                .saturating_add(right_integrated_title_buttons_width)
                 .saturating_add(fixed_tab_width),
         );
         let per_tab_width = available_title_width / tab_count;
@@ -46613,6 +46754,30 @@ const fn tab_bar_new_tab_label() -> &'static str {
     " + "
 }
 
+fn integrated_title_button_tab_bar_label(button: NativeIntegratedTitleButton) -> &'static str {
+    match button {
+        NativeIntegratedTitleButton::Hide => "_",
+        NativeIntegratedTitleButton::Maximize => "[]",
+        NativeIntegratedTitleButton::Close => "x",
+    }
+}
+
+fn integrated_title_buttons_tab_bar_label(buttons: &[NativeIntegratedTitleButton]) -> String {
+    if buttons.is_empty() {
+        return String::new();
+    }
+
+    let mut label = String::from(" ");
+    for (index, button) in buttons.iter().enumerate() {
+        if index > 0 {
+            label.push(' ');
+        }
+        label.push_str(integrated_title_button_tab_bar_label(*button));
+    }
+    label.push(' ');
+    label
+}
+
 fn split_pane_render_rect(
     source: PaneRenderRect,
     new_pane_id: rssh_core::PaneId,
@@ -47233,14 +47398,24 @@ fn write_right_aligned_tab_bar_segment(
     text: &str,
     base_style: TabBarSegmentStyle,
 ) {
+    write_right_aligned_tab_bar_segment_with_reserved(cells, text, base_style, 0);
+}
+
+fn write_right_aligned_tab_bar_segment_with_reserved(
+    cells: &mut [RenderCell],
+    text: &str,
+    base_style: TabBarSegmentStyle,
+    reserved_right: usize,
+) {
     let text_cells = tab_bar_ansi_text_cells(text, base_style);
     let width = text_cells.len();
-    if width == 0 || cells.is_empty() {
+    let available_width = cells.len().saturating_sub(reserved_right);
+    if width == 0 || available_width == 0 {
         return;
     }
 
-    let visible_width = width.min(cells.len());
-    let start = cells.len() - visible_width;
+    let visible_width = width.min(available_width);
+    let start = available_width - visible_width;
     let skip = width.saturating_sub(visible_width);
     for (offset, (ch, style)) in text_cells.into_iter().skip(skip).enumerate() {
         let Ok(column) = u16::try_from(start + offset) else {
@@ -59713,6 +59888,122 @@ mod tests {
             app.close_tab_for_tab_bar_column(u16::try_from(close_column).unwrap_or(0)),
             None
         );
+    }
+
+    #[test]
+    fn window_app_renders_integrated_title_buttons_left_aligned_in_configured_order() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }),
+            integrated_title_buttons: Some(vec![
+                NativeIntegratedTitleButton::Close,
+                NativeIntegratedTitleButton::Hide,
+            ]),
+            integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            ..NativeConfigOverrides::default()
+        });
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.starts_with(" x _  ws:default"),
+            "tab bar was {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_renders_right_aligned_integrated_title_buttons_after_status() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }),
+            integrated_title_buttons: Some(vec![
+                NativeIntegratedTitleButton::Hide,
+                NativeIntegratedTitleButton::Maximize,
+                NativeIntegratedTitleButton::Close,
+            ]),
+            ..NativeConfigOverrides::default()
+        });
+        app.set_right_status("READY".to_owned());
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(tab_bar.ends_with(" _ [] x "), "tab bar was {tab_bar:?}");
+        assert!(tab_bar.contains("READY _ [] x "), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_integrated_title_button_clicks_dispatch_window_actions() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }),
+            integrated_title_buttons: Some(vec![
+                NativeIntegratedTitleButton::Hide,
+                NativeIntegratedTitleButton::Maximize,
+                NativeIntegratedTitleButton::Close,
+            ]),
+            integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            window_close_confirmation: Some(NativeWindowCloseConfirmation::NeverPrompt),
+            ..NativeConfigOverrides::default()
+        });
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let hide_column = tab_bar.find('_').expect("hide button should render");
+        let maximize_column = tab_bar.find("[]").expect("maximize button should render");
+        let close_column = tab_bar.find('x').expect("close button should render");
+
+        let x = u32::try_from(hide_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(app.window_hide_requested_for_test());
+
+        let x = u32::try_from(maximize_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(app.window_maximized_for_test());
+
+        let x = u32::try_from(close_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(app.window_close_requested_for_test());
     }
 
     #[test]
