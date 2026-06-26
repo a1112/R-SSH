@@ -310,7 +310,14 @@ pub enum RenderStrikethroughPosition {
 pub enum RenderBackgroundGradientOrientation {
     Horizontal,
     Vertical,
-    Linear { angle_millidegrees: i32 },
+    Linear {
+        angle_millidegrees: i32,
+    },
+    Radial {
+        cx_millis: u32,
+        cy_millis: u32,
+        radius_millis: u32,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1153,6 +1160,19 @@ fn background_gradient_color_at(
                 RenderBackgroundGradientOrientation::Linear { angle_millidegrees } => {
                     linear_gradient_axis_position(column, row, width, height, angle_millidegrees)
                 }
+                RenderBackgroundGradientOrientation::Radial {
+                    cx_millis,
+                    cy_millis,
+                    radius_millis,
+                } => radial_gradient_axis_position(
+                    column,
+                    row,
+                    width,
+                    height,
+                    cx_millis,
+                    cy_millis,
+                    radius_millis,
+                ),
             };
             gradient_color_at_position(colors, position)
         }
@@ -1189,6 +1209,30 @@ fn linear_gradient_axis_position(
     }
 
     (projection - min) / (max - min)
+}
+
+fn radial_gradient_axis_position(
+    column: u32,
+    row: u32,
+    width: u32,
+    height: u32,
+    cx_millis: u32,
+    cy_millis: u32,
+    radius_millis: u32,
+) -> f64 {
+    if radius_millis == 0 {
+        return 0.0;
+    }
+
+    let x = gradient_axis_position(column, width);
+    let y = gradient_axis_position(row, height);
+    let cx = f64::from(cx_millis) / 1_000.0;
+    let cy = f64::from(cy_millis) / 1_000.0;
+    let radius = f64::from(radius_millis) / 1_000.0;
+    let dx = x - cx;
+    let dy = y - cy;
+
+    dx.hypot(dy) / radius
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

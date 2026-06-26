@@ -826,7 +826,14 @@ impl NativeTextBackgroundOpacity {
 enum NativeWindowBackgroundGradientOrientation {
     Horizontal,
     Vertical,
-    Linear { angle_millidegrees: i32 },
+    Linear {
+        angle_millidegrees: i32,
+    },
+    Radial {
+        cx_millis: u32,
+        cy_millis: u32,
+        radius_millis: u32,
+    },
 }
 
 impl NativeWindowBackgroundGradientOrientation {
@@ -863,6 +870,9 @@ impl NativeWindowBackgroundGradientOrientation {
             if key == "Linear" {
                 return Self::parse_linear_lua_table(source, value.trim(), max_start);
             }
+            if key == "Radial" {
+                return Self::parse_radial_lua_table(source, value.trim(), max_start);
+            }
         }
         None
     }
@@ -890,6 +900,47 @@ impl NativeWindowBackgroundGradientOrientation {
         Some(Self::Linear { angle_millidegrees })
     }
 
+    fn parse_radial_lua_table(source: &str, value: &str, max_start: usize) -> Option<Self> {
+        let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+        let static_source = Some(LuaStaticSource { source, max_start });
+        let mut cx_millis = 500;
+        let mut cy_millis = 500;
+        let mut radius_millis = 500;
+
+        for field in split_lua_table_top_level_fields(table)? {
+            let field = field.trim();
+            if field.is_empty() {
+                continue;
+            }
+            let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+                continue;
+            };
+            let key = split_lua_table_key_from_query(key.trim())?;
+            let value = value.trim();
+            match key.as_str() {
+                "cx" => {
+                    let cx = parse_maybe_static_query_f64(static_source, value)?;
+                    cx_millis = native_gradient_unit_interval_millis_from_f64(cx)?;
+                }
+                "cy" => {
+                    let cy = parse_maybe_static_query_f64(static_source, value)?;
+                    cy_millis = native_gradient_unit_interval_millis_from_f64(cy)?;
+                }
+                "radius" => {
+                    let radius = parse_maybe_static_query_f64(static_source, value)?;
+                    radius_millis = native_gradient_positive_millis_from_f64(radius)?;
+                }
+                _ => {}
+            }
+        }
+
+        Some(Self::Radial {
+            cx_millis,
+            cy_millis,
+            radius_millis,
+        })
+    }
+
     const fn to_render(self) -> RenderBackgroundGradientOrientation {
         match self {
             Self::Horizontal => RenderBackgroundGradientOrientation::Horizontal,
@@ -897,6 +948,15 @@ impl NativeWindowBackgroundGradientOrientation {
             Self::Linear { angle_millidegrees } => {
                 RenderBackgroundGradientOrientation::Linear { angle_millidegrees }
             }
+            Self::Radial {
+                cx_millis,
+                cy_millis,
+                radius_millis,
+            } => RenderBackgroundGradientOrientation::Radial {
+                cx_millis,
+                cy_millis,
+                radius_millis,
+            },
         }
     }
 }
@@ -913,6 +973,24 @@ fn native_gradient_angle_millidegrees_from_f64(angle_degrees: f64) -> Option<i32
     }
 
     Some(angle_millidegrees as i32)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn native_gradient_unit_interval_millis_from_f64(value: f64) -> Option<u32> {
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return None;
+    }
+
+    Some((value * 1_000.0).round() as u32)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn native_gradient_positive_millis_from_f64(value: f64) -> Option<u32> {
+    if !value.is_finite() || value <= 0.0 || value > f64::from(u32::MAX) / 1_000.0 {
+        return None;
+    }
+
+    Some((value * 1_000.0).round() as u32)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51754,6 +51832,60 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [1, 2, 3, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_radial_window_background_gradient() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              orientation = {
+                Radial = {
+                  cx = 0.0,
+                  cy = 1.0,
+                  radius = 1.0,
+                },
+              },
+              colors = { '#010203', '#111213' },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm radial window_background_gradient config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Radial {
+                    cx_millis: 0,
+                    cy_millis: 1_000,
+                    radius_millis: 1_000,
+                },
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = FRAME_WIDTH as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, FRAME_HEIGHT as usize - 1),
+            [1, 2, 3, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                width,
+                FRAME_WIDTH as usize - 1,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [17, 18, 19, 255]
         );
     }
 
