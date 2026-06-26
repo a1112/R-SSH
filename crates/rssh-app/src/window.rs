@@ -28,7 +28,7 @@ use rssh_renderer::{
     RenderCell, RenderCellColorRole, RenderCursorThickness, RenderGeometry, RenderInlineImage,
     RenderScrollbarThumbSize, RenderStrikethroughPosition, RenderUnderlinePosition,
     RenderUnderlineThickness, SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot,
-    color_to_rgba,
+    background_gradient_color_strings, color_to_rgba,
 };
 use rssh_terminal::{
     CellWidthOverride, Color, CursorStyle, DEFAULT_SCROLLBACK_LIMIT, InlineImageFormat,
@@ -12048,7 +12048,7 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
             }
             "colors" => {
                 let parsed_colors =
-                    split_lua_table_string_array_with_static_source(static_source, value)?
+                    split_lua_gradient_color_array_with_static_source(static_source, value)?
                         .into_iter()
                         .map(|color| lua_opaque_color_from_query(&color))
                         .collect::<Option<Vec<_>>>()?;
@@ -39037,6 +39037,67 @@ fn split_lua_table_string_array_with_static_source(
     Some(values)
 }
 
+fn split_lua_gradient_color_array_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<String>> {
+    if let Some(static_source) = static_source
+        && let Some(colors) = lua_wezterm_gradient_color_array_from_query(static_source, value)
+    {
+        return Some(colors);
+    }
+
+    split_lua_table_string_array_with_static_source(static_source, value)
+}
+
+fn lua_wezterm_gradient_color_array_from_query(
+    static_source: LuaStaticSource<'_>,
+    value: &str,
+) -> Option<Vec<String>> {
+    let value = value.trim();
+    let rest = value
+        .strip_prefix("wezterm.color.gradient")
+        .or_else(|| value.strip_prefix("wezterm.gradient_colors"))?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (gradient, consumed) = lua_wezterm_gradient_color_array_spec_from_query(
+        static_source.source,
+        rest,
+        static_source.max_start,
+    )?;
+    let rest = lua_trim_start_comments(rest.get(consumed..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    let count_query = lua_trim_start_comments(rest)?.trim_end();
+    let count_query = count_query.strip_suffix(')')?.trim_end();
+    let count = parse_maybe_static_query_usize(Some(static_source), count_query)?;
+    let gradient = native_window_background_gradient_lua_table_from_query(
+        static_source.source,
+        &gradient,
+        static_source.max_start,
+    )?;
+
+    background_gradient_color_strings(&gradient.to_render(), count)
+}
+
+fn lua_wezterm_gradient_color_array_spec_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<(String, usize)> {
+    if let Some(value) = lua_braced_table_literal_from_query(query) {
+        return Some((value.to_owned(), value.len()));
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let value =
+        lua_static_table_variable_assignment_before_offset_from_query(source, variable, max_start)?;
+    Some((value.to_owned(), variable.len()))
+}
+
 fn split_lua_table_u32_array(value: &str) -> Option<Vec<u32>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut indexed_values = BTreeMap::new();
@@ -52385,6 +52446,112 @@ mod tests {
         assert_ne!(
             frame_pixel_at(&noisy_frame, width, x, y),
             frame_pixel_at(&smooth_frame, width, x, y)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_gradient_for_window_background_gradient_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_background_gradient = {
+              colors = wezterm.color.gradient({
+                colors = { '#010203', '#111213' },
+              }, 2),
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.gradient window_background_gradient colors");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_legacy_wezterm_gradient_colors_for_window_background_gradient_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_background_gradient = {
+              colors = wezterm.gradient_colors({
+                colors = { '#202122', '#303132' },
+              }, 2),
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected legacy WezTerm gradient_colors window_background_gradient colors");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                colors: vec![Color::Rgb(32, 33, 34), Color::Rgb(48, 49, 50)],
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_gradient_static_variable_spec() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local project_gradient = {
+              colors = { '#404142', '#505152' },
+            }
+
+            config.window_background_gradient = {
+              colors = wezterm.color.gradient(project_gradient, 2),
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.gradient static variable spec");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                colors: vec![Color::Rgb(64, 65, 66), Color::Rgb(80, 81, 82)],
+            })
         );
     }
 

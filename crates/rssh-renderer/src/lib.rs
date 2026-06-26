@@ -421,6 +421,30 @@ pub struct RenderBackgroundGradient {
     pub colors: Vec<[u8; 4]>,
 }
 
+pub fn background_gradient_color_strings(
+    gradient: &RenderBackgroundGradient,
+    count: usize,
+) -> Option<Vec<String>> {
+    let sampler = BackgroundGradientSampler::from_gradient(gradient);
+    if sampler.is_empty() {
+        return None;
+    }
+
+    Some(
+        (0..count)
+            .map(|index| {
+                let position = if count <= 1 {
+                    0.0
+                } else {
+                    index as f64 / (count - 1) as f64
+                };
+                let color = sampler.color_at(position);
+                format!("#{:02x}{:02x}{:02x}", color[0], color[1], color[2])
+            })
+            .collect(),
+    )
+}
+
 impl PixelRenderer {
     #[must_use]
     pub const fn new() -> Self {
@@ -1277,6 +1301,10 @@ impl BackgroundGradientSampler {
                     .map_or(Self::Empty, Self::Gradient)
             }
         }
+    }
+
+    const fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
     }
 
     fn color_at(&self, position: f64) -> [u8; 4] {
