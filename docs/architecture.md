@@ -154,7 +154,10 @@ keyboard, mouse, paste, resize
   threshold,
   `text_background_opacity` alpha transforms for non-default terminal
   background cells, `window_background_opacity` alpha transforms for default
-  terminal background cells, plus
+  terminal background cells, plus retained platform backdrop settings
+  `kde_window_background_blur`, `macos_window_background_blur`, and
+  `win32_system_backdrop`; actual KDE/macOS/Windows backdrop application
+  remains platform-adapter work. It also supports
   `inactive_pane_hsb` color transforms for inactive pane Default/Indexed/RGB/RGBA
   cells parsed inline or through top-level static table variables, with
   hue/saturation/brightness fields also parsed through top-level static number
@@ -1064,7 +1067,7 @@ keyboard, mouse, paste, resize
   `anti_alias_custom_block_glyphs`,
   `allow_square_glyphs_to_overflow_width`, `freetype_load_target`,
   `freetype_render_target`, `freetype_load_flags`,
-  `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `window_decorations`,
+  `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `bold_brightens_ansi_colors`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `window_padding`, `window_content_alignment`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `window_decorations`,
   `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`,
   `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `command_palette_rows`,
@@ -1432,7 +1435,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `reverse_video_cursor_min_contrast`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`,
   `command_palette_bg_color`, `command_palette_fg_color`,
@@ -1523,7 +1526,7 @@ keyboard, mouse, paste, resize
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `inactive_pane_hsb`,
   `command_palette_rows`, `command_palette_font_size`,

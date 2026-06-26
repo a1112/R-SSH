@@ -241,6 +241,9 @@ const DEFAULT_TEXT_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
     NativeTextBackgroundOpacity::ONE;
 const DEFAULT_WINDOW_BACKGROUND_OPACITY: NativeTextBackgroundOpacity =
     NativeTextBackgroundOpacity::ONE;
+const DEFAULT_KDE_WINDOW_BACKGROUND_BLUR: bool = false;
+const DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR: u32 = 0;
+const DEFAULT_WIN32_SYSTEM_BACKDROP: NativeWin32SystemBackdrop = NativeWin32SystemBackdrop::Auto;
 const DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST: NativeContrastRatio =
     NativeContrastRatio::from_centi(250);
 const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorations {
@@ -1260,6 +1263,30 @@ impl NativeWindowDecorations {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
+enum NativeWin32SystemBackdrop {
+    #[default]
+    Auto,
+    Disable,
+    Acrylic,
+    Mica,
+    Tabbed,
+}
+
+impl NativeWin32SystemBackdrop {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Auto" => Some(Self::Auto),
+            "Disable" => Some(Self::Disable),
+            "Acrylic" => Some(Self::Acrylic),
+            "Mica" => Some(Self::Mica),
+            "Tabbed" => Some(Self::Tabbed),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
 enum NativeExitBehavior {
     #[default]
     Close,
@@ -1994,6 +2021,9 @@ struct NativeEffectiveConfig {
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    kde_window_background_blur: bool,
+    macos_window_background_blur: u32,
+    win32_system_backdrop: NativeWin32SystemBackdrop,
     window_decorations: NativeWindowDecorations,
     default_cursor_style: NativeCursorStyle,
     cursor_thickness: Option<NativeCursorThickness>,
@@ -2167,6 +2197,9 @@ struct NativeConfigOverrides {
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
+    kde_window_background_blur: Option<bool>,
+    macos_window_background_blur: Option<u32>,
+    win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
     window_decorations: Option<NativeWindowDecorations>,
     default_cursor_style: Option<NativeCursorStyle>,
     cursor_thickness: Option<NativeCursorThickness>,
@@ -2668,6 +2701,28 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.window_background_opacity = Some(native_text_background_opacity_from_alpha(
             window_background_opacity,
         )?);
+        parsed = true;
+    }
+    if let Some(kde_window_background_blur) =
+        lua_config_bool_assignment_from_query(config, "kde_window_background_blur")
+    {
+        overrides.kde_window_background_blur = Some(kde_window_background_blur);
+        parsed = true;
+    }
+    if let Some(macos_window_background_blur) =
+        lua_config_usize_assignment_from_query(config, "macos_window_background_blur")
+    {
+        let Ok(macos_window_background_blur) = u32::try_from(macos_window_background_blur) else {
+            return None;
+        };
+        overrides.macos_window_background_blur = Some(macos_window_background_blur);
+        parsed = true;
+    }
+    if let Some(win32_system_backdrop) =
+        lua_config_string_assignment_from_query(config, "win32_system_backdrop")
+    {
+        overrides.win32_system_backdrop =
+            Some(NativeWin32SystemBackdrop::parse(&win32_system_backdrop)?);
         parsed = true;
     }
     if let Some(window_decorations) =
@@ -12795,6 +12850,9 @@ struct NativeWindowApp {
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    kde_window_background_blur: bool,
+    macos_window_background_blur: u32,
+    win32_system_backdrop: NativeWin32SystemBackdrop,
     window_decorations: NativeWindowDecorations,
     inactive_pane_hsb: NativeInactivePaneHsb,
     tab_max_width: usize,
@@ -14250,6 +14308,9 @@ impl NativeWindowApp {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
+            macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+            win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             tab_max_width: DEFAULT_TAB_MAX_WIDTH,
@@ -15244,6 +15305,9 @@ impl NativeWindowApp {
             .apply_bold_brightens_ansi_colors_override(Some(self.bold_brightens_ansi_colors));
         detached_app.text_background_opacity = self.text_background_opacity;
         detached_app.window_background_opacity = self.window_background_opacity;
+        detached_app.kde_window_background_blur = self.kde_window_background_blur;
+        detached_app.macos_window_background_blur = self.macos_window_background_blur;
+        detached_app.win32_system_backdrop = self.win32_system_backdrop;
         detached_app.window_decorations = self.window_decorations;
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
         detached_app.use_cap_height_to_scale_fallback_fonts =
@@ -15441,6 +15505,9 @@ impl NativeWindowApp {
         self.text_min_contrast_ratio = source.text_min_contrast_ratio;
         self.text_background_opacity = source.text_background_opacity;
         self.window_background_opacity = source.window_background_opacity;
+        self.kde_window_background_blur = source.kde_window_background_blur;
+        self.macos_window_background_blur = source.macos_window_background_blur;
+        self.win32_system_backdrop = source.win32_system_backdrop;
         self.window_decorations = source.window_decorations;
         self.window_content_alignment = source.window_content_alignment;
         self.inactive_pane_hsb = source.inactive_pane_hsb;
@@ -23194,6 +23261,9 @@ impl NativeWindowApp {
             text_min_contrast_ratio: self.text_min_contrast_ratio,
             text_background_opacity: self.text_background_opacity,
             window_background_opacity: self.window_background_opacity,
+            kde_window_background_blur: self.kde_window_background_blur,
+            macos_window_background_blur: self.macos_window_background_blur,
+            win32_system_backdrop: self.win32_system_backdrop,
             window_decorations: self.window_decorations,
             default_cursor_style: self.default_cursor_style,
             cursor_thickness: self.cursor_thickness,
@@ -23422,6 +23492,15 @@ impl NativeWindowApp {
         self.window_background_opacity = overrides
             .window_background_opacity
             .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY);
+        self.kde_window_background_blur = overrides
+            .kde_window_background_blur
+            .unwrap_or(DEFAULT_KDE_WINDOW_BACKGROUND_BLUR);
+        self.macos_window_background_blur = overrides
+            .macos_window_background_blur
+            .unwrap_or(DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR);
+        self.win32_system_backdrop = overrides
+            .win32_system_backdrop
+            .unwrap_or(DEFAULT_WIN32_SYSTEM_BACKDROP);
         self.window_decorations = overrides
             .window_decorations
             .unwrap_or(DEFAULT_WINDOW_DECORATIONS);
@@ -48475,56 +48554,58 @@ mod tests {
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
         DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
-        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
+        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
         DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
-        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
-        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
-        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
-        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeCellWidthOverride, NativeColorSpec, NativeCommandPaletteAugment,
-        NativeCommandPaletteEntry, NativeConfigOverrides, NativeConfirmation, NativeContrastRatio,
-        NativeCubicBezier, NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry,
-        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontHinting, NativeFontLocator,
-        NativeFontRasterizer, NativeFontShaper, NativeFontSize, NativeFormatAttribute,
-        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags,
-        NativeFreetypeTarget, NativeHorizontalContentAlignment, NativeHsbMultiplier,
-        NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
-        NativeKeyMapPreference, NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey,
-        NativeLineHeight, NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton,
-        NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind, NativeNotificationHandling,
-        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
-        NativeScrollBarHeight, NativeSquareGlyphOverflow, NativeStrikethroughPosition,
-        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
-        NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUserKeyAssignment, NativeUserMouseAssignment,
-        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
-        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWindowApp,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowLevel, NativeWindowManager,
-        NativeWindowNewTabButtonClick, NativeWindowOpenUri, NativeWindowPadding,
-        NativeWindowPaddingDimension, NativeWindowResize, NativeWindowStatusUpdate,
-        NativeWindowStatusUpdateEvent, NativeWindowUserVarChange, PaneLaunch, ProcessCwdCandidate,
-        ResizeDirection, SearchDirection, SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS,
-        TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable, WindowActivateWindowRequest,
-        WindowCharSelectOptions, WindowClearScrollbackMode, WindowCloseTarget, WindowCommand,
-        WindowCommandPaletteEntry, WindowConfirmationOptions, WindowCopyDestination,
-        WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction, WindowInputSelectorChoice,
-        WindowInputSelectorOptions, WindowMouseEvent, WindowMouseEventKind,
-        WindowMouseSelectionMode, WindowPaneSelectMode, WindowPaneSelectOptions, WindowPasteSource,
-        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
-        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
-        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
-        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        DEFAULT_WIN32_SYSTEM_BACKDROP, DEFAULT_WINDOW_BACKGROUND_OPACITY,
+        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
+        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
+        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeCellWidthOverride,
+        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
+        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
+        NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
+        NativeFontAntialias, NativeFontHinting, NativeFontLocator, NativeFontRasterizer,
+        NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
+        NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
+        NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
+        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
+        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
+        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
+        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
+        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBell,
+        NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
+        NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
+        NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
+        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
+        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
+        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
+        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
+        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
+        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
+        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
+        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
+        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
+        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
+        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
@@ -60154,6 +60235,9 @@ mod tests {
                 text_min_contrast_ratio: None,
                 text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
                 window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+                kde_window_background_blur: false,
+                macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+                win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
                 window_decorations: DEFAULT_WINDOW_DECORATIONS,
                 default_cursor_style: NativeCursorStyle::SteadyBlock,
                 cursor_thickness: None,
@@ -82086,6 +82170,44 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_platform_backdrop_config() {
+        let effective = NativeWindowApp::new(None).native_effective_config();
+
+        assert!(!effective.kde_window_background_blur);
+        assert_eq!(effective.macos_window_background_blur, 0);
+        assert_eq!(
+            effective.win32_system_backdrop,
+            NativeWin32SystemBackdrop::Auto
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_platform_backdrop_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.kde_window_background_blur = true
+            config.macos_window_background_blur = 20
+            config.win32_system_backdrop = 'Mica'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm platform backdrop config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(effective.kde_window_background_blur);
+        assert_eq!(effective.macos_window_background_blur, 20);
+        assert_eq!(
+            effective.win32_system_backdrop,
+            NativeWin32SystemBackdrop::Mica
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_render_backend_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -89815,6 +89937,9 @@ mod tests {
             bold_brightens_ansi_colors: Some(NativeBoldBrightensAnsiColors::BrightOnly),
             text_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.4)),
             window_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
+            kde_window_background_blur: Some(true),
+            macos_window_background_blur: Some(20),
+            win32_system_backdrop: Some(NativeWin32SystemBackdrop::Mica),
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -90081,6 +90206,9 @@ mod tests {
             bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors::BrightOnly,
             text_background_opacity: NativeTextBackgroundOpacity::from_f32(0.4),
             window_background_opacity: NativeTextBackgroundOpacity::from_f32(0.5),
+            kde_window_background_blur: true,
+            macos_window_background_blur: 20,
+            win32_system_backdrop: NativeWin32SystemBackdrop::Mica,
             window_decorations: NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -90303,6 +90431,9 @@ mod tests {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            kde_window_background_blur: false,
+            macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+            win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
             default_cursor_style: NativeCursorStyle::SteadyBlock,
             cursor_thickness: None,
