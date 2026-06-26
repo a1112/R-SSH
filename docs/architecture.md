@@ -98,7 +98,8 @@ keyboard, mouse, paste, resize
   table variables with pre/post-assignment field mutations including config
   table initializer aliases, through static field names in returned config
   table initializers and direct return-table configs, or through top-level
-  `config.set_environment_variables.NAME` field mutations; native
+  `config.set_environment_variables.NAME`, `config[static_name].NAME`, and
+  `config[static_name]['NAME']` field mutations; native
   `default_workspace` names the initial default workspace before spawn when no
   explicit startup workspace is present; native `default_domain` is retained in
   the effective config and `SpawnTab(DefaultDomain)` uses the local spawn path

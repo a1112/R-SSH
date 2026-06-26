@@ -6268,7 +6268,12 @@ fn lua_config_table_map_field_assignment_from_query<'a>(
 ) -> Option<LuaTableMapFieldAssignment<'a>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let (key, rest) = lua_table_map_field_key_from_query(rest)?;
     let rest = lua_trim_start_comments(rest)?;
@@ -79224,6 +79229,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm environment variable mutation config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+        assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_parses_static_key_environment_field_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local env_field = 'set_environment_variables'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config[env_field] = {}
+            config[env_field].PROJECT_MODE = 'dev'
+            config[env_field]['FEATURE_FLAG'] = 'on'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name environment mutation config");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::NewTab));
