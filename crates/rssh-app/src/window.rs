@@ -2624,6 +2624,7 @@ struct NativeEffectiveConfig {
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
+    tab_bar_inactive_tab_edge_color: Option<Color>,
     tab_bar_active_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
@@ -2811,6 +2812,7 @@ struct NativeConfigOverrides {
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
+    tab_bar_inactive_tab_edge_color: Option<Color>,
     tab_bar_active_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
@@ -5116,6 +5118,12 @@ fn apply_toml_colors_table_overrides(
         overrides.tab_bar_background_color = Some(tab_bar_background_color);
         parsed = true;
     }
+    if let Some(tab_bar_inactive_tab_edge_color) =
+        toml_tab_bar_inactive_tab_edge_from_query(colors)?
+    {
+        overrides.tab_bar_inactive_tab_edge_color = Some(tab_bar_inactive_tab_edge_color);
+        parsed = true;
+    }
     if let Some(active_tab_colors) = toml_tab_bar_item_colors_from_query(colors, "active_tab")? {
         overrides.tab_bar_active_tab_colors = active_tab_colors;
         parsed = true;
@@ -5292,6 +5300,13 @@ fn toml_tab_bar_background_from_query(value: &toml::Value) -> Option<Option<Colo
     toml_color_table_field_from_query(tab_bar, "background")
 }
 
+fn toml_tab_bar_inactive_tab_edge_from_query(value: &toml::Value) -> Option<Option<Color>> {
+    let Some(tab_bar) = toml_table_field(value, "tab_bar")? else {
+        return Some(None);
+    };
+    toml_color_table_field_from_query(tab_bar, "inactive_tab_edge")
+}
+
 fn toml_tab_bar_item_colors_from_query(
     value: &toml::Value,
     item_name: &str,
@@ -5438,6 +5453,12 @@ fn apply_lua_colors_table_overrides(
     }
     if let Some(tab_bar_background_color) = tab_bar_background_lua_table_from_query(colors)? {
         overrides.tab_bar_background_color = Some(tab_bar_background_color);
+        parsed = true;
+    }
+    if let Some(tab_bar_inactive_tab_edge_color) =
+        tab_bar_inactive_tab_edge_lua_table_from_query(colors)?
+    {
+        overrides.tab_bar_inactive_tab_edge_color = Some(tab_bar_inactive_tab_edge_color);
         parsed = true;
     }
     if let Some(active_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "active_tab")?
@@ -10607,6 +10628,15 @@ fn apply_lua_tab_bar_color_mutation_rest(
         overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
         return Some(true);
     }
+    if tab_bar_field == "inactive_tab_edge" {
+        let Some(value) = rest.strip_prefix('=') else {
+            return Some(false);
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        let value = parse_maybe_quoted_query_text(value)?;
+        overrides.tab_bar_inactive_tab_edge_color = Some(lua_opaque_color_from_query(&value)?);
+        return Some(true);
+    }
 
     if !lua_tab_bar_item_color_name(&tab_bar_field) {
         return Some(false);
@@ -13692,6 +13722,7 @@ struct NativeWindowApp {
     split_color: Option<Color>,
     scrollbar_thumb_color: Option<Color>,
     tab_bar_background_color: Option<Color>,
+    tab_bar_inactive_tab_edge_color: Option<Color>,
     tab_bar_active_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_colors: NativeTabBarItemColors,
     tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors,
@@ -15164,6 +15195,7 @@ impl NativeWindowApp {
             split_color: None,
             scrollbar_thumb_color: None,
             tab_bar_background_color: None,
+            tab_bar_inactive_tab_edge_color: None,
             tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
@@ -16212,6 +16244,7 @@ impl NativeWindowApp {
         detached_app.split_color = self.split_color;
         detached_app.scrollbar_thumb_color = self.scrollbar_thumb_color;
         detached_app.tab_bar_background_color = self.tab_bar_background_color;
+        detached_app.tab_bar_inactive_tab_edge_color = self.tab_bar_inactive_tab_edge_color;
         detached_app.tab_bar_active_tab_colors = self.tab_bar_active_tab_colors;
         detached_app.tab_bar_inactive_tab_colors = self.tab_bar_inactive_tab_colors;
         detached_app.tab_bar_inactive_tab_hover_colors = self.tab_bar_inactive_tab_hover_colors;
@@ -16459,6 +16492,7 @@ impl NativeWindowApp {
         self.split_color = source.split_color;
         self.scrollbar_thumb_color = source.scrollbar_thumb_color;
         self.tab_bar_background_color = source.tab_bar_background_color;
+        self.tab_bar_inactive_tab_edge_color = source.tab_bar_inactive_tab_edge_color;
         self.tab_bar_active_tab_colors = source.tab_bar_active_tab_colors;
         self.tab_bar_inactive_tab_colors = source.tab_bar_inactive_tab_colors;
         self.tab_bar_inactive_tab_hover_colors = source.tab_bar_inactive_tab_hover_colors;
@@ -24439,6 +24473,7 @@ impl NativeWindowApp {
             split_color: self.split_color,
             scrollbar_thumb_color: self.scrollbar_thumb_color,
             tab_bar_background_color: self.tab_bar_background_color,
+            tab_bar_inactive_tab_edge_color: self.tab_bar_inactive_tab_edge_color,
             tab_bar_active_tab_colors: self.tab_bar_active_tab_colors,
             tab_bar_inactive_tab_colors: self.tab_bar_inactive_tab_colors,
             tab_bar_inactive_tab_hover_colors: self.tab_bar_inactive_tab_hover_colors,
@@ -24770,6 +24805,7 @@ impl NativeWindowApp {
         self.split_color = overrides.split_color;
         self.scrollbar_thumb_color = overrides.scrollbar_thumb_color;
         self.tab_bar_background_color = overrides.tab_bar_background_color;
+        self.tab_bar_inactive_tab_edge_color = overrides.tab_bar_inactive_tab_edge_color;
         self.tab_bar_active_tab_colors = overrides.tab_bar_active_tab_colors;
         self.tab_bar_inactive_tab_colors = overrides.tab_bar_inactive_tab_colors;
         self.tab_bar_inactive_tab_hover_colors = overrides.tab_bar_inactive_tab_hover_colors;
@@ -38038,6 +38074,17 @@ fn visual_bell_color_lua_table_from_query(value: &str) -> Option<Option<Color>> 
 }
 
 fn tab_bar_background_lua_table_from_query(value: &str) -> Option<Option<Color>> {
+    tab_bar_color_lua_table_field_from_query(value, "background")
+}
+
+fn tab_bar_inactive_tab_edge_lua_table_from_query(value: &str) -> Option<Option<Color>> {
+    tab_bar_color_lua_table_field_from_query(value, "inactive_tab_edge")
+}
+
+fn tab_bar_color_lua_table_field_from_query(
+    value: &str,
+    field_name: &str,
+) -> Option<Option<Color>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut color = None;
 
@@ -38056,7 +38103,7 @@ fn tab_bar_background_lua_table_from_query(value: &str) -> Option<Option<Color>>
         if color.is_some() {
             return None;
         }
-        color = color_lua_table_field_from_query(value.trim(), "background")?;
+        color = color_lua_table_field_from_query(value.trim(), field_name)?;
     }
 
     Some(color)
@@ -54705,6 +54752,57 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_wezterm_lua_load_scheme_tab_bar_inactive_tab_edge() {
+        static NEXT_LOAD_SCHEME_TAB_BAR_EDGE_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-tab-bar-edge-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_TAB_BAR_EDGE_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Loaded Scheme"
+
+            [colors]
+            foreground = "#010203"
+
+            [colors.tab_bar]
+            inactive_tab_edge = "#202122"
+            "##,
+        )
+        .expect("expected temp load_scheme tab-bar inactive edge TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+
+            config.colors = wezterm.color.load_scheme('{}')
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme tab_bar inactive_tab_edge config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
+        assert_eq!(
+            effective.tab_bar_inactive_tab_edge_color,
+            Some(Color::Rgb(32, 33, 34))
+        );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
     fn window_app_wezterm_lua_config_colors_override_custom_color_scheme() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -59388,6 +59486,59 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_tab_bar_inactive_tab_edge_color() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              tab_bar = {
+                inactive_tab_edge = '#1a1b1c',
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar inactive_tab_edge config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config()
+                .tab_bar_inactive_tab_edge_color,
+            Some(Color::Rgb(26, 27, 28))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_inactive_tab_edge_mutation() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local colors = {}
+
+            colors.tab_bar = {}
+            colors.tab_bar.inactive_tab_edge = '#1d1e1f'
+            config.colors = colors
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar inactive_tab_edge mutation config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config()
+                .tab_bar_inactive_tab_edge_color,
+            Some(Color::Rgb(29, 30, 31))
+        );
+    }
+
+    #[test]
     fn window_app_parses_static_key_tab_bar_color_field_mutations() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -62539,6 +62690,7 @@ mod tests {
                 split_color: None,
                 scrollbar_thumb_color: None,
                 tab_bar_background_color: None,
+                tab_bar_inactive_tab_edge_color: None,
                 tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
                 tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
                 tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),
@@ -92607,6 +92759,7 @@ mod tests {
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
+            tab_bar_inactive_tab_edge_color: Some(Color::Rgb(27, 28, 29)),
             tab_bar_active_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(28, 29, 30)),
                 bg_color: Some(Color::Rgb(31, 32, 33)),
@@ -92900,6 +93053,7 @@ mod tests {
             split_color: Some(Color::Rgb(19, 20, 21)),
             scrollbar_thumb_color: Some(Color::Rgb(22, 23, 24)),
             tab_bar_background_color: Some(Color::Rgb(25, 26, 27)),
+            tab_bar_inactive_tab_edge_color: Some(Color::Rgb(27, 28, 29)),
             tab_bar_active_tab_colors: NativeTabBarItemColors {
                 fg_color: Some(Color::Rgb(28, 29, 30)),
                 bg_color: Some(Color::Rgb(31, 32, 33)),
@@ -93108,6 +93262,7 @@ mod tests {
             split_color: None,
             scrollbar_thumb_color: None,
             tab_bar_background_color: None,
+            tab_bar_inactive_tab_edge_color: None,
             tab_bar_active_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_inactive_tab_colors: NativeTabBarItemColors::default(),
             tab_bar_inactive_tab_hover_colors: NativeTabBarItemColors::default(),

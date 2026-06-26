@@ -126,7 +126,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `show_new_tab_button_in_tab_bar`. Native config retains
   `use_fancy_tab_bar` with WezTerm's `true` default and static Lua override
   parsing, but the current renderer remains the retro tab strip; proportional-font
-  native fancy tab rendering remains open. The retro tab bar strip honors
+  native fancy tab rendering remains open. `colors.tab_bar.inactive_tab_edge`
+  parses into native/effective config and is retained for the future fancy
+  tab-bar renderer. The retro tab bar strip honors
   `colors.tab_bar.background` for blank tab-bar cells, and active-tab,
   inactive-tab, plus new-tab button labels honor the corresponding
   `colors.tab_bar.active_tab`, `colors.tab_bar.inactive_tab`, and
@@ -145,6 +147,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `quit_when_all_windows_are_closed`, `show_close_tab_button_in_tabs`,
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`,
   `show_tabs_in_tab_bar`, `colors.tab_bar.background`,
+  `colors.tab_bar.inactive_tab_edge`,
   `colors.tab_bar.active_tab`/`inactive_tab`/`inactive_tab_hover`/`new_tab`/
   `new_tab_hover` `fg_color`/`bg_color` plus
   `intensity`/`underline`/`italic`/`strikethrough`, including top-level
@@ -2641,7 +2644,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   native/effective config and applies to pane separator rendering;
   `colors.scrollbar_thumb` parses into native/effective config and applies to
   scrollbar thumb rendering; `colors.tab_bar.background` parses into
-  native/effective config and applies to blank retro tab-bar cells; retro
+  native/effective config and applies to blank retro tab-bar cells;
+  `colors.tab_bar.inactive_tab_edge` parses into native/effective config and is
+  retained for the future fancy tab-bar renderer; retro
   tab-bar `active_tab`, `inactive_tab`, `inactive_tab_hover`, `new_tab`, and
   `new_tab_hover` `fg_color`/`bg_color` plus
   `intensity`/`underline`/`italic`/`strikethrough` entries parse into
