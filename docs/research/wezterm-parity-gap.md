@@ -427,8 +427,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `unicode_version` with WezTerm's default `9`,
   `use_ime` with WezTerm's current default `true`,
   `ime_preedit_rendering` with the `Builtin` default, plus optional
-  `xim_im_name`, including direct `return { [static_name] = ... }` config
-  tables whose static key variables resolve to those field names;
+  `xim_im_name`, including returned config table initializers and direct
+  `return { [static_name] = ... }` config tables whose static key variables
+  resolve to those field names;
   `treat_east_asian_ambiguous_width_as_wide` updates terminal
   character width calculation for ambiguous East Asian width characters, and
   static numeric `cell_widths` override tables parse inline, through
@@ -447,9 +448,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   output runs to Unicode NFC before rendering, including leading combining
   marks that arrive in the next PTY chunk when they compose with the prior
   cell without changing display width. `unicode_version` is retained in
-  effective config, static numeric Lua snippets apply to active and new pane
-  runtimes, and OSC 1337 `UnicodeVersion` set/push/pop sequences, including
-  labeled entries, now update terminal state. Unicode 14+ emoji/text
+  effective config, static numeric Lua snippets, including static field-name
+  config table initializers, apply to active and new pane runtimes, and OSC
+  1337 `UnicodeVersion` set/push/pop sequences, including labeled entries, now
+  update terminal state. Unicode 14+ emoji/text
   presentation selectors now adjust prior-cell width for FE0F/FE0E sequences,
   and Unicode 8-or-earlier runtimes keep WezTerm's `WidenedIn9` characters
   narrow while Unicode 9+ widens them. Native winit IME
@@ -1323,10 +1325,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   contiguous ordinary terminal output runs to Unicode NFC before cells are written,
   including leading combining marks that arrive in the next PTY chunk when
   they compose with the prior cell without changing display width.
-  `config.unicode_version` parses static numeric assignments into effective
-  config with WezTerm's default `9`, applies to active and new pane runtimes,
-  and OSC 1337 `UnicodeVersion` set/push/pop sequences update terminal state,
-  including labeled stack entries. Unicode 14+ emoji/text presentation
+  `config.unicode_version` parses static numeric assignments, including static
+  field-name config table initializers, into effective config with WezTerm's
+  default `9`, applies to active and new pane runtimes, and OSC 1337
+  `UnicodeVersion` set/push/pop sequences update terminal state, including
+  labeled stack entries. Unicode 14+ emoji/text presentation
   selectors adjust prior-cell width for FE0F/FE0E sequences, and Unicode
   8-or-earlier runtimes keep WezTerm's `WidenedIn9` characters narrow while
   Unicode 9+ widens them.

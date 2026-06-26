@@ -9997,11 +9997,17 @@ fn lua_config_assignment_from_query<'a>(
                     let after_assignment = lua_trim_start_comments(after_assignment)?;
                     if let Some(table) = lua_braced_table_literal_from_query(after_assignment) {
                         let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-                        if let Some(value) = lua_config_table_field_assignment_from_query(
-                            table,
-                            field,
-                            &mut literal_from_query,
-                        ) {
+                        if let Some(value) =
+                            lua_config_table_field_assignment_from_query_with_static_source(
+                                Some(LuaStaticSource {
+                                    source,
+                                    max_start: index,
+                                }),
+                                table,
+                                field,
+                                &mut literal_from_query,
+                            )
+                        {
                             selected = Some(value);
                         }
                     }
@@ -10625,13 +10631,19 @@ fn lua_config_table_initializer_assignment_from_query<'a>(
             let Some(table) = lua_braced_table_literal_from_query(after_assignment) else {
                 continue;
             };
+            let static_source = Some(LuaStaticSource {
+                source,
+                max_start: index,
+            });
             let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
             for table_field in split_lua_table_top_level_fields(table)? {
                 let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim())
                 else {
                     continue;
                 };
-                let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+                let Some(key) =
+                    split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+                else {
                     continue;
                 };
                 if key == field {
@@ -81796,6 +81808,27 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm unicode_version config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.native_effective_config().unicode_version, 14);
+        assert_eq!(app.runtime.terminal().unicode_version(), 14);
+    }
+
+    #[test]
+    fn window_app_parses_static_initializer_unicode_version_key() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local unicode_field = 'unicode_version'
+            local config = {
+              use_ime = false,
+              [unicode_field] = 14,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name initializer unicode version config");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.native_effective_config().unicode_version, 14);

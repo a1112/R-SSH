@@ -279,8 +279,9 @@ keyboard, mouse, paste, resize
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, and `xim_im_name` parse into the native override
-  path, including direct `return { [static_name] = ... }` config tables whose
-  static key variables resolve to those field names. `ui_key_cap_rendering`
+  path, including returned config table initializers and direct
+  `return { [static_name] = ... }` config tables whose static key variables
+  resolve to those field names. `ui_key_cap_rendering`
   controls native command-palette key-assignment
   display labels with UnixLong, Emacs, AppleSymbols, WindowsLong, and
   WindowsSymbols styles. `treat_east_asian_ambiguous_width_as_wide` updates
@@ -303,9 +304,10 @@ keyboard, mouse, paste, resize
   including leading combining marks that arrive in the next PTY chunk when
   they compose with the prior cell without changing display width.
   `unicode_version` is retained with WezTerm's default `9` in effective config,
-  static numeric Lua snippets configure active and new pane runtimes, and OSC
-  1337 `UnicodeVersion` set/push/pop sequences, including labeled entries,
-  update terminal state. Unicode 8-or-earlier runtimes keep WezTerm's
+  static numeric Lua snippets, including static field-name config table
+  initializers, configure active and new pane runtimes, and OSC 1337
+  `UnicodeVersion` set/push/pop sequences, including labeled entries, update
+  terminal state. Unicode 8-or-earlier runtimes keep WezTerm's
   `WidenedIn9` characters narrow, Unicode 9+ widens them, and Unicode 14+
   emoji/text presentation selectors adjust the prior cell width for FE0F/FE0E
   sequences.
