@@ -186,6 +186,7 @@ const DEFAULT_SKIP_CLOSE_CONFIRMATION_FOR_PROCESSES_NAMED: &[&str] = &[
 const DEFAULT_ENABLE_TAB_BAR: bool = true;
 const DEFAULT_ENABLE_SCROLL_BAR: bool = false;
 const DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB: bool = false;
+const DEFAULT_USE_FANCY_TAB_BAR: bool = true;
 const DEFAULT_UNZOOM_ON_SWITCH_PANE: bool = true;
 const DEFAULT_TAB_BAR_AT_BOTTOM: bool = false;
 const DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED: bool = false;
@@ -2101,6 +2102,7 @@ struct NativeEffectiveConfig {
     min_scroll_bar_height: Option<NativeScrollBarHeight>,
     enable_tab_bar: bool,
     hide_tab_bar_if_only_one_tab: bool,
+    use_fancy_tab_bar: bool,
     unzoom_on_switch_pane: bool,
     tab_bar_at_bottom: bool,
     tab_and_split_indices_are_zero_based: bool,
@@ -2278,6 +2280,7 @@ struct NativeConfigOverrides {
     min_scroll_bar_height: Option<NativeScrollBarHeight>,
     enable_tab_bar: Option<bool>,
     hide_tab_bar_if_only_one_tab: Option<bool>,
+    use_fancy_tab_bar: Option<bool>,
     unzoom_on_switch_pane: Option<bool>,
     tab_bar_at_bottom: Option<bool>,
     tab_and_split_indices_are_zero_based: Option<bool>,
@@ -3254,6 +3257,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "hide_tab_bar_if_only_one_tab")
     {
         overrides.hide_tab_bar_if_only_one_tab = Some(hide_tab_bar_if_only_one_tab);
+        parsed = true;
+    }
+    if let Some(use_fancy_tab_bar) =
+        lua_config_bool_assignment_from_query(config, "use_fancy_tab_bar")
+    {
+        overrides.use_fancy_tab_bar = Some(use_fancy_tab_bar);
         parsed = true;
     }
     if let Some(unzoom_on_switch_pane) =
@@ -12891,6 +12900,7 @@ struct NativeWindowApp {
     min_scroll_bar_height: Option<NativeScrollBarHeight>,
     enable_tab_bar: bool,
     hide_tab_bar_if_only_one_tab: bool,
+    use_fancy_tab_bar: bool,
     unzoom_on_switch_pane: bool,
     tab_bar_at_bottom: bool,
     tab_and_split_indices_are_zero_based: bool,
@@ -14346,6 +14356,7 @@ impl NativeWindowApp {
             min_scroll_bar_height: None,
             enable_tab_bar: DEFAULT_ENABLE_TAB_BAR,
             hide_tab_bar_if_only_one_tab: DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB,
+            use_fancy_tab_bar: DEFAULT_USE_FANCY_TAB_BAR,
             unzoom_on_switch_pane: DEFAULT_UNZOOM_ON_SWITCH_PANE,
             tab_bar_at_bottom: DEFAULT_TAB_BAR_AT_BOTTOM,
             tab_and_split_indices_are_zero_based: DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED,
@@ -15583,6 +15594,7 @@ impl NativeWindowApp {
         self.min_scroll_bar_height = source.min_scroll_bar_height;
         self.enable_tab_bar = source.enable_tab_bar;
         self.hide_tab_bar_if_only_one_tab = source.hide_tab_bar_if_only_one_tab;
+        self.use_fancy_tab_bar = source.use_fancy_tab_bar;
         self.unzoom_on_switch_pane = source.unzoom_on_switch_pane;
         self.tab_bar_at_bottom = source.tab_bar_at_bottom;
         self.tab_and_split_indices_are_zero_based = source.tab_and_split_indices_are_zero_based;
@@ -23291,6 +23303,7 @@ impl NativeWindowApp {
             min_scroll_bar_height: self.min_scroll_bar_height,
             enable_tab_bar: self.enable_tab_bar,
             hide_tab_bar_if_only_one_tab: self.hide_tab_bar_if_only_one_tab,
+            use_fancy_tab_bar: self.use_fancy_tab_bar,
             unzoom_on_switch_pane: self.unzoom_on_switch_pane,
             tab_bar_at_bottom: self.tab_bar_at_bottom,
             tab_and_split_indices_are_zero_based: self.tab_and_split_indices_are_zero_based,
@@ -23772,6 +23785,9 @@ impl NativeWindowApp {
         self.hide_tab_bar_if_only_one_tab = overrides
             .hide_tab_bar_if_only_one_tab
             .unwrap_or(DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB);
+        self.use_fancy_tab_bar = overrides
+            .use_fancy_tab_bar
+            .unwrap_or(DEFAULT_USE_FANCY_TAB_BAR);
         self.unzoom_on_switch_pane = overrides
             .unzoom_on_switch_pane
             .unwrap_or(DEFAULT_UNZOOM_ON_SWITCH_PANE);
@@ -60248,6 +60264,7 @@ mod tests {
                 min_scroll_bar_height: None,
                 enable_tab_bar: true,
                 hide_tab_bar_if_only_one_tab: false,
+                use_fancy_tab_bar: super::DEFAULT_USE_FANCY_TAB_BAR,
                 unzoom_on_switch_pane: true,
                 tab_bar_at_bottom: false,
                 tab_and_split_indices_are_zero_based: false,
@@ -81670,6 +81687,32 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_fancy_tab_bar_config() {
+        let app = NativeWindowApp::new(None);
+
+        assert!(app.native_effective_config().use_fancy_tab_bar);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_fancy_tab_bar_override() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.use_fancy_tab_bar = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm fancy tab bar config");
+        app.set_config_overrides(overrides);
+
+        assert!(!app.native_effective_config().use_fancy_tab_bar);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_window_content_alignment() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -89960,6 +90003,7 @@ mod tests {
             min_scroll_bar_height: Some(NativeScrollBarHeight::Pixels(12)),
             enable_tab_bar: Some(false),
             hide_tab_bar_if_only_one_tab: Some(true),
+            use_fancy_tab_bar: Some(false),
             unzoom_on_switch_pane: Some(false),
             tab_bar_at_bottom: Some(true),
             tab_and_split_indices_are_zero_based: Some(true),
@@ -90194,6 +90238,7 @@ mod tests {
             min_scroll_bar_height: Some(NativeScrollBarHeight::Pixels(12)),
             enable_tab_bar: false,
             hide_tab_bar_if_only_one_tab: true,
+            use_fancy_tab_bar: false,
             unzoom_on_switch_pane: false,
             tab_bar_at_bottom: true,
             tab_and_split_indices_are_zero_based: true,
@@ -90369,6 +90414,7 @@ mod tests {
             min_scroll_bar_height: None,
             enable_tab_bar: true,
             hide_tab_bar_if_only_one_tab: false,
+            use_fancy_tab_bar: super::DEFAULT_USE_FANCY_TAB_BAR,
             unzoom_on_switch_pane: true,
             tab_bar_at_bottom: false,
             tab_and_split_indices_are_zero_based: false,

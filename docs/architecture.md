@@ -182,7 +182,10 @@ keyboard, mouse, paste, resize
   command/confirmation paths, plus a
   configurable clickable new-tab button that reuses the app-shell `NewTab`
   action path and honors the native `show_new_tab_button_in_tab_bar`
-  effective-config field. Retro tab labels and the new-tab button also honor
+  effective-config field. Native config also retains `use_fancy_tab_bar` with
+  WezTerm's `true` default; the current renderer remains the retro tab strip,
+  so proportional-font native fancy tab rendering is still open. Retro tab
+  labels and the new-tab button also honor
   `tab_bar_style` edge `wezterm.format` items parsed inline or through
   top-level static table variables, including top-level
   `config[static_name].active_tab_left`/`active_tab_right`/`inactive_tab_left`/
@@ -1086,7 +1089,7 @@ keyboard, mouse, paste, resize
   `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`,
   `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`,
   `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`,
-  `unzoom_on_switch_pane`,
+  `use_fancy_tab_bar`, `unzoom_on_switch_pane`,
   `tab_bar_at_bottom`, `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`,
   `switch_to_last_active_tab_when_closing_tab`,
@@ -1457,7 +1460,7 @@ keyboard, mouse, paste, resize
   `bypass_mouse_reporting_modifiers`,
   `enable_scroll_bar`, `min_scroll_bar_height`,
   `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`,
-  `tab_bar_at_bottom`,
+  `use_fancy_tab_bar`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`, `mouse_wheel_scrolls_tabs`,
   `switch_to_last_active_tab_when_closing_tab`,
   `quit_when_all_windows_are_closed`,
@@ -1542,7 +1545,7 @@ keyboard, mouse, paste, resize
   `bypass_mouse_reporting_modifiers`,
   `enable_scroll_bar`, `min_scroll_bar_height`,
   `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`,
-  `tab_bar_at_bottom`,
+  `use_fancy_tab_bar`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`, `mouse_wheel_scrolls_tabs`,
   `switch_to_last_active_tab_when_closing_tab`,
   `quit_when_all_windows_are_closed`,

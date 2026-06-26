@@ -123,7 +123,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `show_tab_index_in_tab_bar`, configurable zero-based tab index labels honoring
   `tab_and_split_indices_are_zero_based`, configurable tab-label visibility honoring
   `show_tabs_in_tab_bar`, and a configurable new-tab button honoring
-  `show_new_tab_button_in_tab_bar`. The retro tab bar strip honors
+  `show_new_tab_button_in_tab_bar`. Native config retains
+  `use_fancy_tab_bar` with WezTerm's `true` default and static Lua override
+  parsing, but the current renderer remains the retro tab strip; proportional-font
+  native fancy tab rendering remains open. The retro tab bar strip honors
   `colors.tab_bar.background` for blank tab-bar cells, and active-tab,
   inactive-tab, plus new-tab button labels honor the corresponding
   `colors.tab_bar.active_tab`, `colors.tab_bar.inactive_tab`, and
@@ -135,8 +138,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   new-tab button also honor configured `tab_bar_style` left/right edge
   `wezterm.format` items for active, inactive, inactive-hover, new-tab, and
   new-tab-hover states. Static Lua config parsing covers
-  `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`,
-  `tab_bar_at_bottom`, `tab_and_split_indices_are_zero_based`,
+  `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `use_fancy_tab_bar`,
+  `unzoom_on_switch_pane`, `tab_bar_at_bottom`, `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`, `switch_to_last_active_tab_when_closing_tab`,
   `quit_when_all_windows_are_closed`, `show_close_tab_button_in_tabs`,
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`,
@@ -2028,8 +2031,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `swallow_mouse_click_on_window_focus`,
   `bypass_mouse_reporting_modifiers`,
   `enable_scroll_bar`, `min_scroll_bar_height`,
-  `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`,
-  `tab_bar_at_bottom`,
+  `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `use_fancy_tab_bar`,
+  `unzoom_on_switch_pane`, `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`, `mouse_wheel_scrolls_tabs`,
   `switch_to_last_active_tab_when_closing_tab`,
   `quit_when_all_windows_are_closed`,
@@ -2049,7 +2052,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `canonicalize_pasted_newlines`, `quote_dropped_files`,
   `disable_default_key_bindings`, `disable_default_mouse_bindings`, and
   `hide_mouse_cursor_when_typing`, `detect_password_input`, plus the implemented tab-bar boolean
-  subset from `enable_tab_bar` through `show_tabs_in_tab_bar`, and the
+  subset from `enable_tab_bar` through `show_tabs_in_tab_bar` including
+  `use_fancy_tab_bar`, and the
   diagnostic/reload/update/frame-rate fields `automatically_reload_config`,
   `check_for_updates`, `check_for_updates_interval_seconds`,
   `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`,
@@ -2124,7 +2128,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`,
   `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_decorations`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`, `ime_preedit_rendering`, `xim_im_name`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
-  `hide_tab_bar_if_only_one_tab`, `unzoom_on_switch_pane`, `tab_bar_at_bottom`,
+  `hide_tab_bar_if_only_one_tab`, `use_fancy_tab_bar`, `unzoom_on_switch_pane`,
+  `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`,
   `switch_to_last_active_tab_when_closing_tab`,
