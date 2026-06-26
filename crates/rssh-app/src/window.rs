@@ -22,7 +22,8 @@ use rssh_core::{
 };
 use rssh_pty::{PtyCommand, PtyExitStatus, PtySession, PtySize};
 use rssh_renderer::{
-    PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientOrientation,
+    PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
+    RenderBackgroundGradientInterpolation, RenderBackgroundGradientOrientation,
     RenderBackgroundGradientPreset, RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole,
     RenderCursorThickness, RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize,
     RenderStrikethroughPosition, RenderUnderlinePosition, RenderUnderlineThickness,
@@ -963,6 +964,63 @@ impl NativeWindowBackgroundGradientOrientation {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
+enum NativeWindowBackgroundGradientInterpolation {
+    Linear,
+    Basis,
+    CatmullRom,
+}
+
+impl NativeWindowBackgroundGradientInterpolation {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Linear" => Some(Self::Linear),
+            "Basis" => Some(Self::Basis),
+            "CatmullRom" => Some(Self::CatmullRom),
+            _ => None,
+        }
+    }
+
+    const fn to_render(self) -> RenderBackgroundGradientInterpolation {
+        match self {
+            Self::Linear => RenderBackgroundGradientInterpolation::Linear,
+            Self::Basis => RenderBackgroundGradientInterpolation::Basis,
+            Self::CatmullRom => RenderBackgroundGradientInterpolation::CatmullRom,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeWindowBackgroundGradientBlend {
+    Rgb,
+    LinearRgb,
+    Hsv,
+    Oklab,
+}
+
+impl NativeWindowBackgroundGradientBlend {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Rgb" => Some(Self::Rgb),
+            "LinearRgb" => Some(Self::LinearRgb),
+            "Hsv" => Some(Self::Hsv),
+            "Oklab" => Some(Self::Oklab),
+            _ => None,
+        }
+    }
+
+    const fn to_render(self) -> RenderBackgroundGradientBlend {
+        match self {
+            Self::Rgb => RenderBackgroundGradientBlend::Rgb,
+            Self::LinearRgb => RenderBackgroundGradientBlend::LinearRgb,
+            Self::Hsv => RenderBackgroundGradientBlend::Hsv,
+            Self::Oklab => RenderBackgroundGradientBlend::Oklab,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum NativeWindowBackgroundGradientPreset {
     Blues,
     BrBg,
@@ -1129,6 +1187,8 @@ fn native_gradient_positive_millis_from_f64(value: f64) -> Option<u32> {
 #[allow(dead_code)]
 struct NativeWindowBackgroundGradient {
     orientation: NativeWindowBackgroundGradientOrientation,
+    interpolation: NativeWindowBackgroundGradientInterpolation,
+    blend: NativeWindowBackgroundGradientBlend,
     preset: Option<NativeWindowBackgroundGradientPreset>,
     colors: Vec<Color>,
 }
@@ -1137,6 +1197,8 @@ impl NativeWindowBackgroundGradient {
     fn to_render(&self) -> RenderBackgroundGradient {
         RenderBackgroundGradient {
             orientation: self.orientation.to_render(),
+            interpolation: self.interpolation.to_render(),
+            blend: self.blend.to_render(),
             preset: self
                 .preset
                 .map(NativeWindowBackgroundGradientPreset::to_render),
@@ -11906,6 +11968,8 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let static_source = Some(LuaStaticSource { source, max_start });
     let mut orientation = NativeWindowBackgroundGradientOrientation::Horizontal;
+    let mut interpolation = NativeWindowBackgroundGradientInterpolation::Linear;
+    let mut blend = NativeWindowBackgroundGradientBlend::Rgb;
     let mut preset = None;
     let mut colors = None;
 
@@ -11924,6 +11988,16 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
                 orientation = NativeWindowBackgroundGradientOrientation::parse_lua_value(
                     source, value, max_start,
                 )?;
+            }
+            "interpolation" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                interpolation = NativeWindowBackgroundGradientInterpolation::parse(&value)?;
+            }
+            "blend" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                blend = NativeWindowBackgroundGradientBlend::parse(&value)?;
             }
             "colors" => {
                 let parsed_colors =
@@ -11952,6 +12026,8 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
 
     Some(NativeWindowBackgroundGradient {
         orientation,
+        interpolation,
+        blend,
         preset,
         colors,
     })
@@ -49811,6 +49887,7 @@ mod tests {
         NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
         NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
         NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
+        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
         NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
         NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
         NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
@@ -51916,6 +51993,8 @@ mod tests {
             app.native_effective_config().window_background_gradient,
             Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -51964,6 +52043,8 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Linear {
                     angle_millidegrees: 180_000,
                 },
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -52019,6 +52100,8 @@ mod tests {
                     cy_millis: 1_000,
                     radius_millis: 1_000,
                 },
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -52063,6 +52146,8 @@ mod tests {
             app.native_effective_config().window_background_gradient,
             Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
                 preset: Some(NativeWindowBackgroundGradientPreset::Blues),
                 colors: Vec::new(),
             })
@@ -52082,6 +52167,49 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [8, 48, 107, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_interpolated_blended_window_background_gradient() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              colors = { '#ff0000', '#00ff00', '#0000ff' },
+              interpolation = 'Basis',
+              blend = 'LinearRgb',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm interpolated blended window_background_gradient config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Basis,
+                blend: NativeWindowBackgroundGradientBlend::LinearRgb,
+                preset: None,
+                colors: vec![
+                    Color::Rgb(255, 0, 0),
+                    Color::Rgb(0, 255, 0),
+                    Color::Rgb(0, 0, 255),
+                ],
+            })
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = FRAME_WIDTH as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 320, FRAME_HEIGHT as usize - 1),
+            [113, 213, 114, 255]
         );
     }
 
@@ -91958,6 +92086,8 @@ mod tests {
             window_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
             window_background_gradient: Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
@@ -92247,6 +92377,8 @@ mod tests {
             window_background_opacity: NativeTextBackgroundOpacity::from_f32(0.5),
             window_background_gradient: Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),

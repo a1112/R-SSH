@@ -321,6 +321,42 @@ pub enum RenderBackgroundGradientOrientation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundGradientInterpolation {
+    Linear,
+    Basis,
+    CatmullRom,
+}
+
+impl RenderBackgroundGradientInterpolation {
+    const fn to_colorgrad(self) -> colorgrad::Interpolation {
+        match self {
+            Self::Linear => colorgrad::Interpolation::Linear,
+            Self::Basis => colorgrad::Interpolation::Basis,
+            Self::CatmullRom => colorgrad::Interpolation::CatmullRom,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundGradientBlend {
+    Rgb,
+    LinearRgb,
+    Hsv,
+    Oklab,
+}
+
+impl RenderBackgroundGradientBlend {
+    const fn to_colorgrad(self) -> colorgrad::BlendMode {
+        match self {
+            Self::Rgb => colorgrad::BlendMode::Rgb,
+            Self::LinearRgb => colorgrad::BlendMode::LinearRgb,
+            Self::Hsv => colorgrad::BlendMode::Hsv,
+            Self::Oklab => colorgrad::BlendMode::Oklab,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackgroundGradientPreset {
     Blues,
     BrBg,
@@ -365,6 +401,8 @@ pub enum RenderBackgroundGradientPreset {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderBackgroundGradient {
     pub orientation: RenderBackgroundGradientOrientation,
+    pub interpolation: RenderBackgroundGradientInterpolation,
+    pub blend: RenderBackgroundGradientBlend,
     pub preset: Option<RenderBackgroundGradientPreset>,
     pub colors: Vec<[u8; 4]>,
 }
@@ -1171,10 +1209,17 @@ fn fill_default_background_gradient(
         return;
     }
 
+    let sampler = BackgroundGradientSampler::from_gradient(gradient);
     for row in rect.y..max_y {
         for column in rect.x..max_x {
-            let color =
-                background_gradient_color_at(gradient, column, row, surface.width, surface.height);
+            let position = background_gradient_position_at(
+                gradient,
+                column,
+                row,
+                surface.width,
+                surface.height,
+            );
+            let color = sampler.color_at(position);
             let index = ((row * surface.width + column) * 4) as usize;
             if let Some(pixel) = surface.target.get_mut(index..index + 4) {
                 pixel.copy_from_slice(&color);
@@ -1183,14 +1228,64 @@ fn fill_default_background_gradient(
     }
 }
 
-fn background_gradient_color_at(
+enum BackgroundGradientSampler {
+    Empty,
+    Single([u8; 4]),
+    Gradient(colorgrad::Gradient),
+}
+
+impl BackgroundGradientSampler {
+    fn from_gradient(gradient: &RenderBackgroundGradient) -> Self {
+        if let Some(preset) = gradient.preset {
+            return Self::Gradient(colorgrad_gradient_for_preset(preset));
+        }
+
+        match gradient.colors.as_slice() {
+            [] => Self::Empty,
+            [color] => Self::Single(*color),
+            colors => {
+                let colors = colors
+                    .iter()
+                    .copied()
+                    .map(colorgrad_color_from_rgba)
+                    .collect::<Vec<_>>();
+                colorgrad::CustomGradient::new()
+                    .colors(&colors)
+                    .interpolation(gradient.interpolation.to_colorgrad())
+                    .mode(gradient.blend.to_colorgrad())
+                    .build()
+                    .map_or(Self::Empty, Self::Gradient)
+            }
+        }
+    }
+
+    fn color_at(&self, position: f64) -> [u8; 4] {
+        let position = position.clamp(0.0, 1.0);
+        match self {
+            Self::Empty => default_background(),
+            Self::Single(color) => *color,
+            Self::Gradient(gradient) => gradient.at(position).to_rgba8(),
+        }
+    }
+}
+
+fn colorgrad_color_from_rgba(color: [u8; 4]) -> colorgrad::Color {
+    colorgrad::Color::new(
+        f64::from(color[0]) / 255.0,
+        f64::from(color[1]) / 255.0,
+        f64::from(color[2]) / 255.0,
+        f64::from(color[3]) / 255.0,
+    )
+}
+
+fn background_gradient_position_at(
     gradient: &RenderBackgroundGradient,
     column: u32,
     row: u32,
     width: u32,
     height: u32,
-) -> [u8; 4] {
-    let position = match gradient.orientation {
+) -> f64 {
+    match gradient.orientation {
         RenderBackgroundGradientOrientation::Horizontal => gradient_axis_position(column, width),
         RenderBackgroundGradientOrientation::Vertical => 1.0 - gradient_axis_position(row, height),
         RenderBackgroundGradientOrientation::Linear { angle_millidegrees } => {
@@ -1209,16 +1304,6 @@ fn background_gradient_color_at(
             cy_millis,
             radius_millis,
         ),
-    };
-
-    if let Some(preset) = gradient.preset {
-        return gradient_preset_color_at_position(preset, position);
-    }
-
-    match gradient.colors.as_slice() {
-        [] => default_background(),
-        [color] => *color,
-        colors => gradient_color_at_position(colors, position),
     }
 }
 
@@ -1279,79 +1364,47 @@ fn radial_gradient_axis_position(
 }
 
 #[allow(clippy::too_many_lines)]
-fn gradient_preset_color_at_position(
-    preset: RenderBackgroundGradientPreset,
-    position: f64,
-) -> [u8; 4] {
-    let position = position.clamp(0.0, 1.0);
+fn colorgrad_gradient_for_preset(preset: RenderBackgroundGradientPreset) -> colorgrad::Gradient {
     match preset {
-        RenderBackgroundGradientPreset::Blues => colorgrad::blues().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::BrBg => colorgrad::br_bg().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::BuGn => colorgrad::bu_gn().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::BuPu => colorgrad::bu_pu().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Cividis => colorgrad::cividis().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Cool => colorgrad::cool().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::CubeHelixDefault => {
-            colorgrad::cubehelix_default().at(position).to_rgba8()
-        }
-        RenderBackgroundGradientPreset::GnBu => colorgrad::gn_bu().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Greens => colorgrad::greens().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Greys => colorgrad::greys().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Inferno => colorgrad::inferno().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Magma => colorgrad::magma().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::OrRd => colorgrad::or_rd().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Oranges => colorgrad::oranges().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::PiYg => colorgrad::pi_yg().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Plasma => colorgrad::plasma().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::PrGn => colorgrad::pr_gn().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::PuBu => colorgrad::pu_bu().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::PuBuGn => colorgrad::pu_bu_gn().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::PuOr => colorgrad::pu_or().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::PuRd => colorgrad::pu_rd().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Purples => colorgrad::purples().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Rainbow => colorgrad::rainbow().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::RdBu => colorgrad::rd_bu().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::RdGy => colorgrad::rd_gy().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::RdPu => colorgrad::rd_pu().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::RdYlBu => colorgrad::rd_yl_bu().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::RdYlGn => colorgrad::rd_yl_gn().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Reds => colorgrad::reds().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Sinebow => colorgrad::sinebow().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Spectral => colorgrad::spectral().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Turbo => colorgrad::turbo().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Viridis => colorgrad::viridis().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::Warm => colorgrad::warm().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::YlGn => colorgrad::yl_gn().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::YlGnBu => colorgrad::yl_gn_bu().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::YlOrBr => colorgrad::yl_or_br().at(position).to_rgba8(),
-        RenderBackgroundGradientPreset::YlOrRd => colorgrad::yl_or_rd().at(position).to_rgba8(),
+        RenderBackgroundGradientPreset::Blues => colorgrad::blues(),
+        RenderBackgroundGradientPreset::BrBg => colorgrad::br_bg(),
+        RenderBackgroundGradientPreset::BuGn => colorgrad::bu_gn(),
+        RenderBackgroundGradientPreset::BuPu => colorgrad::bu_pu(),
+        RenderBackgroundGradientPreset::Cividis => colorgrad::cividis(),
+        RenderBackgroundGradientPreset::Cool => colorgrad::cool(),
+        RenderBackgroundGradientPreset::CubeHelixDefault => colorgrad::cubehelix_default(),
+        RenderBackgroundGradientPreset::GnBu => colorgrad::gn_bu(),
+        RenderBackgroundGradientPreset::Greens => colorgrad::greens(),
+        RenderBackgroundGradientPreset::Greys => colorgrad::greys(),
+        RenderBackgroundGradientPreset::Inferno => colorgrad::inferno(),
+        RenderBackgroundGradientPreset::Magma => colorgrad::magma(),
+        RenderBackgroundGradientPreset::OrRd => colorgrad::or_rd(),
+        RenderBackgroundGradientPreset::Oranges => colorgrad::oranges(),
+        RenderBackgroundGradientPreset::PiYg => colorgrad::pi_yg(),
+        RenderBackgroundGradientPreset::Plasma => colorgrad::plasma(),
+        RenderBackgroundGradientPreset::PrGn => colorgrad::pr_gn(),
+        RenderBackgroundGradientPreset::PuBu => colorgrad::pu_bu(),
+        RenderBackgroundGradientPreset::PuBuGn => colorgrad::pu_bu_gn(),
+        RenderBackgroundGradientPreset::PuOr => colorgrad::pu_or(),
+        RenderBackgroundGradientPreset::PuRd => colorgrad::pu_rd(),
+        RenderBackgroundGradientPreset::Purples => colorgrad::purples(),
+        RenderBackgroundGradientPreset::Rainbow => colorgrad::rainbow(),
+        RenderBackgroundGradientPreset::RdBu => colorgrad::rd_bu(),
+        RenderBackgroundGradientPreset::RdGy => colorgrad::rd_gy(),
+        RenderBackgroundGradientPreset::RdPu => colorgrad::rd_pu(),
+        RenderBackgroundGradientPreset::RdYlBu => colorgrad::rd_yl_bu(),
+        RenderBackgroundGradientPreset::RdYlGn => colorgrad::rd_yl_gn(),
+        RenderBackgroundGradientPreset::Reds => colorgrad::reds(),
+        RenderBackgroundGradientPreset::Sinebow => colorgrad::sinebow(),
+        RenderBackgroundGradientPreset::Spectral => colorgrad::spectral(),
+        RenderBackgroundGradientPreset::Turbo => colorgrad::turbo(),
+        RenderBackgroundGradientPreset::Viridis => colorgrad::viridis(),
+        RenderBackgroundGradientPreset::Warm => colorgrad::warm(),
+        RenderBackgroundGradientPreset::YlGn => colorgrad::yl_gn(),
+        RenderBackgroundGradientPreset::YlGnBu => colorgrad::yl_gn_bu(),
+        RenderBackgroundGradientPreset::YlOrBr => colorgrad::yl_or_br(),
+        RenderBackgroundGradientPreset::YlOrRd => colorgrad::yl_or_rd(),
     }
-}
-
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn gradient_color_at_position(colors: &[[u8; 4]], position: f64) -> [u8; 4] {
-    if colors.len() == 1 {
-        return colors[0];
-    }
-    let position = position.clamp(0.0, 1.0);
-    let scaled = position * (colors.len() - 1) as f64;
-    let index = scaled.floor() as usize;
-    if index >= colors.len() - 1 {
-        return colors[colors.len() - 1];
-    }
-    let amount = scaled - index as f64;
-    interpolate_rgba(colors[index], colors[index + 1], amount)
-}
-
-#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn interpolate_rgba(from: [u8; 4], to: [u8; 4], amount: f64) -> [u8; 4] {
-    let amount = amount.clamp(0.0, 1.0);
-    [
-        (f64::from(from[0]) + (f64::from(to[0]) - f64::from(from[0])) * amount).round() as u8,
-        (f64::from(from[1]) + (f64::from(to[1]) - f64::from(from[1])) * amount).round() as u8,
-        (f64::from(from[2]) + (f64::from(to[2]) - f64::from(from[2])) * amount).round() as u8,
-        (f64::from(from[3]) + (f64::from(to[3]) - f64::from(from[3])) * amount).round() as u8,
-    ]
 }
 
 impl Surface<'_> {
