@@ -3142,12 +3142,21 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(window_padding) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "window_padding")
-    {
-        overrides.window_padding = Some(native_window_padding_lua_table_from_query(
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
             config,
-            window_padding,
-        )?);
+            "window_padding",
+        )
+        .and_then(|window_padding| {
+            native_window_padding_lua_table_from_query(config, &window_padding.value)
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "window_padding")
+                .and_then(|window_padding| {
+                    native_window_padding_lua_table_from_query(config, window_padding)
+                })
+        })
+    {
+        overrides.window_padding = Some(window_padding);
         parsed = true;
     }
     if let Some(window_content_alignment) =
@@ -6295,7 +6304,12 @@ fn lua_config_table_static_field_assignment_from_query<'a>(
 ) -> Option<LuaTableMapFieldAssignment<'a>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let (key, rest) = lua_table_map_field_key_from_query(rest)?;
     let rest = lua_trim_start_comments(rest)?;
@@ -8507,28 +8521,6 @@ fn lua_top_level_statement_start_indices_before_offset(
     }
 
     Some(starts)
-}
-
-fn lua_config_field_access_rest_from_query<'a>(query: &'a str, field: &str) -> Option<&'a str> {
-    let query = lua_trim_start_comments(query)?;
-    if let Some(rest) = query.strip_prefix('.') {
-        let rest = lua_trim_start_comments(rest)?;
-        if !rest.starts_with(field) || !lua_config_assignment_field_has_boundaries(rest, 0, field) {
-            return None;
-        }
-        return rest.get(field.len()..);
-    }
-
-    let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
-    let key_literal = lua_quoted_string_literal_from_query(after_open)
-        .or_else(|| lua_long_bracket_literal_from_query(after_open))?;
-    let key = parse_maybe_quoted_query_text(key_literal)?;
-    if key != field {
-        return None;
-    }
-
-    let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
-    rest.strip_prefix(']')
 }
 
 fn lua_config_field_access_rest_from_query_with_static_key<'a>(
@@ -83975,6 +83967,37 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm window padding static field variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::CellFractionPerMille(1_000),
+                bottom: NativeWindowPaddingDimension::Points(2),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_window_padding_field_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local padding_field = 'window_padding'
+
+            config[padding_field] = {}
+            config[padding_field].left = 8
+            config[padding_field].right = 16
+            config[padding_field].top = '1cell'
+            config[padding_field].bottom = '2pt'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name window padding field config");
         app.set_config_overrides(overrides);
 
         assert_eq!(

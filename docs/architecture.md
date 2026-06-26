@@ -1901,7 +1901,8 @@ keyboard, mouse, paste, resize
 - Implemented in v1: native `window_padding` parses WezTerm-style px and
   cell-unit side padding inline or through top-level static table variables,
   with side values also parsed through top-level static number/string
-  variables.
+  variables, plus top-level `config[static_name].left`/`right`/`top`/`bottom`
+  field mutations where `static_name` resolves to `window_padding`.
   Native `window_content_alignment` parses WezTerm-style static tables, inline
   or through top-level static table variables, for
   horizontal `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom`
