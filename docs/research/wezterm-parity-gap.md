@@ -1461,8 +1461,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `LowPower`, `webgpu_force_fallback_adapter` with `false`, optional static
   `webgpu_preferred_adapter` tables inline or through top-level static table
   variables with fields inline or through top-level static string/integer
-  variables, and `prefer_egl`/`enable_wayland` with `true`; actual renderer
-  front-end, WebGPU adapter, EGL, and Wayland/X11 startup selection remain open.
+  variables, plus top-level
+  `config[static_name].backend`/`device`/`device_type`/`driver`/
+  `driver_info`/`name`/`vendor` mutations where `static_name` resolves to
+  `webgpu_preferred_adapter`, and `prefer_egl`/`enable_wayland` with `true`;
+  actual renderer front-end, WebGPU adapter, EGL, and Wayland/X11 startup
+  selection remain open.
   `use_resize_increments`,
   `debug_key_events`, and `log_unknown_escape_sequences` are retained with
   WezTerm's default `false`, parse inline or through top-level static bool

@@ -2820,14 +2820,30 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(webgpu_preferred_adapter) =
-        lua_config_table_or_static_variable_assignment_from_query(
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
             config,
             "webgpu_preferred_adapter",
         )
+        .and_then(|webgpu_preferred_adapter| {
+            native_webgpu_preferred_adapter_lua_table_from_query(
+                config,
+                &webgpu_preferred_adapter.value,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(
+                config,
+                "webgpu_preferred_adapter",
+            )
+            .and_then(|webgpu_preferred_adapter| {
+                native_webgpu_preferred_adapter_lua_table_from_query(
+                    config,
+                    webgpu_preferred_adapter,
+                )
+            })
+        })
     {
-        overrides.webgpu_preferred_adapter = Some(
-            native_webgpu_preferred_adapter_lua_table_from_query(config, webgpu_preferred_adapter)?,
-        );
+        overrides.webgpu_preferred_adapter = Some(webgpu_preferred_adapter);
         parsed = true;
     }
     if let Some(prefer_egl) = lua_config_bool_assignment_from_query(config, "prefer_egl") {
@@ -82022,6 +82038,50 @@ mod tests {
 
         assert_eq!(
             app.native_effective_config().webgpu_preferred_adapter,
+            Some(NativeWebGpuPreferredAdapter {
+                backend: Some("Vulkan".to_owned()),
+                device: Some(29_730),
+                device_type: Some("DiscreteGpu".to_owned()),
+                driver: Some("radv".to_owned()),
+                driver_info: Some("Mesa 22.3.4".to_owned()),
+                name: Some("AMD Radeon Pro W6400 (RADV NAVI24)".to_owned()),
+                vendor: Some(4_098),
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_webgpu_preferred_adapter_field_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local adapter_field = 'webgpu_preferred_adapter'
+            local adapter_device = 29730
+            local adapter_driver_info = 'Mesa 22.3.4'
+            local adapter_name = 'AMD Radeon Pro W6400 (RADV NAVI24)'
+            local adapter_vendor = 4098
+
+            config.front_end = 'WebGpu'
+            config[adapter_field] = {}
+            config[adapter_field].backend = 'Vulkan'
+            config[adapter_field].device = adapter_device
+            config[adapter_field].device_type = 'DiscreteGpu'
+            config[adapter_field].driver = 'radv'
+            config[adapter_field].driver_info = adapter_driver_info
+            config[adapter_field].name = adapter_name
+            config[adapter_field]['vendor'] = adapter_vendor
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name WebGPU preferred adapter config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.front_end, NativeRenderFrontEnd::WebGpu);
+        assert_eq!(
+            effective.webgpu_preferred_adapter,
             Some(NativeWebGpuPreferredAdapter {
                 backend: Some("Vulkan".to_owned()),
                 device: Some(29_730),

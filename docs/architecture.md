@@ -1117,7 +1117,10 @@ keyboard, mouse, paste, resize
   `webgpu_power_preference` with `LowPower`, `webgpu_force_fallback_adapter`
   with `false`, optional static `webgpu_preferred_adapter` tables inline or
   through top-level static table variables with fields inline or through
-  top-level static string/integer variables, and
+  top-level static string/integer variables, plus top-level
+  `config[static_name].backend`/`device`/`device_type`/`driver`/
+  `driver_info`/`name`/`vendor` mutations where `static_name` resolves to
+  `webgpu_preferred_adapter`, and
   `prefer_egl`/`enable_wayland` with `true`; actual renderer front-end, WebGPU
   adapter, EGL, and Wayland/X11 startup selection remain future parity work.
   `use_resize_increments` is
