@@ -203,6 +203,7 @@ const DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC: bool = false;
 const DEFAULT_UNICODE_VERSION: u32 = 9;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
+const DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK: ModifiersState = ModifiersState::SHIFT;
 const DEFAULT_UI_KEY_CAP_RENDERING: NativeUiKeyCapRendering = if cfg!(target_os = "macos") {
     NativeUiKeyCapRendering::AppleSymbols
 } else if cfg!(target_os = "windows") {
@@ -2238,6 +2239,7 @@ struct NativeEffectiveConfig {
     unicode_version: u32,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
+    macos_forward_to_ime_modifier_mask: ModifiersState,
     xim_im_name: Option<String>,
     detect_password_input: bool,
     scroll_to_bottom_on_input: bool,
@@ -2420,6 +2422,7 @@ struct NativeConfigOverrides {
     unicode_version: Option<u32>,
     use_ime: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
+    macos_forward_to_ime_modifier_mask: Option<ModifiersState>,
     xim_im_name: Option<String>,
     detect_password_input: Option<bool>,
     leader: Option<NativeLeaderKey>,
@@ -3287,6 +3290,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.ime_preedit_rendering =
             Some(NativeImePreeditRendering::parse(&ime_preedit_rendering)?);
+        parsed = true;
+    }
+    if let Some(macos_forward_to_ime_modifier_mask) =
+        lua_config_string_assignment_from_query(config, "macos_forward_to_ime_modifier_mask")
+    {
+        overrides.macos_forward_to_ime_modifier_mask = Some(
+            native_modifiers_from_wezterm_lua_config(&macos_forward_to_ime_modifier_mask)?,
+        );
         parsed = true;
     }
     if let Some(xim_im_name) = lua_config_string_assignment_from_query(config, "xim_im_name") {
@@ -13116,6 +13127,7 @@ struct NativeWindowApp {
     unicode_version: u32,
     use_ime: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
+    macos_forward_to_ime_modifier_mask: ModifiersState,
     ime_preedit: Option<String>,
     dead_key_active: bool,
     xim_im_name: Option<String>,
@@ -14581,6 +14593,7 @@ impl NativeWindowApp {
             unicode_version: DEFAULT_UNICODE_VERSION,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
+            macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
             ime_preedit: None,
             dead_key_active: false,
             xim_im_name: None,
@@ -15849,6 +15862,7 @@ impl NativeWindowApp {
         self.unicode_version = source.unicode_version;
         self.use_ime = source.use_ime;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
+        self.macos_forward_to_ime_modifier_mask = source.macos_forward_to_ime_modifier_mask;
         self.ime_preedit = source.ime_preedit.clone();
         self.dead_key_active = false;
         self.xim_im_name.clone_from(&source.xim_im_name);
@@ -23818,6 +23832,7 @@ impl NativeWindowApp {
             unicode_version: self.unicode_version,
             use_ime: self.use_ime,
             ime_preedit_rendering: self.ime_preedit_rendering,
+            macos_forward_to_ime_modifier_mask: self.macos_forward_to_ime_modifier_mask,
             xim_im_name: self.xim_im_name.clone(),
             detect_password_input: self.detect_password_input,
             scroll_to_bottom_on_input: self.scroll_to_bottom_on_input,
@@ -24182,6 +24197,9 @@ impl NativeWindowApp {
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
             .unwrap_or(DEFAULT_IME_PREEDIT_RENDERING);
+        self.macos_forward_to_ime_modifier_mask = overrides
+            .macos_forward_to_ime_modifier_mask
+            .unwrap_or(DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK);
         if !self.use_ime || self.ime_preedit_rendering != NativeImePreeditRendering::Builtin {
             self.ime_preedit = None;
         }
@@ -25762,6 +25780,17 @@ impl NativeWindowApp {
     ) -> io::Result<()> {
         self.record_debug_key_event(logical_key, physical_key, text, state, key_event_kind);
         let modifiers = self.effective_keyboard_modifiers(physical_key, text);
+
+        if state == ElementState::Pressed
+            && native_key_should_forward_to_ime(
+                self.use_ime,
+                current_native_ime_platform(),
+                modifiers,
+                self.macos_forward_to_ime_modifier_mask,
+            )
+        {
+            return Ok(());
+        }
 
         if state != ElementState::Pressed {
             if key_event_kind == KittyKeyEventKind::Release {
@@ -48473,6 +48502,32 @@ fn native_window_resize_increments_supported() -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeImePlatform {
+    Macos,
+    Other,
+}
+
+fn current_native_ime_platform() -> NativeImePlatform {
+    if cfg!(target_os = "macos") {
+        NativeImePlatform::Macos
+    } else {
+        NativeImePlatform::Other
+    }
+}
+
+fn native_key_should_forward_to_ime(
+    use_ime: bool,
+    platform: NativeImePlatform,
+    modifiers: ModifiersState,
+    macos_forward_to_ime_modifier_mask: ModifiersState,
+) -> bool {
+    use_ime
+        && platform == NativeImePlatform::Macos
+        && !modifiers.is_empty()
+        && modifiers.intersects(macos_forward_to_ime_modifier_mask)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeFullscreenPlatform {
     Macos,
     Other,
@@ -49128,11 +49183,11 @@ mod tests {
         DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
         DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS,
-        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
-        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+        DEFAULT_MAX_FPS, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
@@ -61208,6 +61263,7 @@ mod tests {
                 unicode_version: DEFAULT_UNICODE_VERSION,
                 use_ime: DEFAULT_USE_IME,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
+                macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
                 xim_im_name: None,
                 detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
                 scroll_to_bottom_on_input: true,
@@ -82378,6 +82434,10 @@ mod tests {
             NativeImePreeditRendering::Builtin
         );
         assert_eq!(effective.xim_im_name, None);
+        assert_eq!(
+            effective.macos_forward_to_ime_modifier_mask,
+            ModifiersState::SHIFT
+        );
     }
 
     #[test]
@@ -82390,6 +82450,7 @@ mod tests {
             config.use_ime = false
             config.ime_preedit_rendering = 'System'
             config.xim_im_name = 'fcitx'
+            config.macos_forward_to_ime_modifier_mask = 'SHIFT|CTRL'
 
             return config
             "#,
@@ -82404,6 +82465,10 @@ mod tests {
             NativeImePreeditRendering::System
         );
         assert_eq!(effective.xim_im_name.as_deref(), Some("fcitx"));
+        assert_eq!(
+            effective.macos_forward_to_ime_modifier_mask,
+            ModifiersState::SHIFT | ModifiersState::CONTROL
+        );
     }
 
     #[test]
@@ -82414,11 +82479,13 @@ mod tests {
             local ime_field = 'use_ime'
             local preedit_field = 'ime_preedit_rendering'
             local xim_field = 'xim_im_name'
+            local forward_field = 'macos_forward_to_ime_modifier_mask'
 
             return {
                 [ime_field] = false,
                 [preedit_field] = 'System',
                 [xim_field] = 'fcitx',
+                [forward_field] = 'SHIFT|CTRL',
             }
             "#,
         )
@@ -82432,6 +82499,50 @@ mod tests {
             NativeImePreeditRendering::System
         );
         assert_eq!(effective.xim_im_name.as_deref(), Some("fcitx"));
+        assert_eq!(
+            effective.macos_forward_to_ime_modifier_mask,
+            ModifiersState::SHIFT | ModifiersState::CONTROL
+        );
+    }
+
+    #[test]
+    fn macos_ime_forwarding_uses_configured_modifier_mask_only_on_macos_with_ime_enabled() {
+        assert!(super::native_key_should_forward_to_ime(
+            true,
+            super::NativeImePlatform::Macos,
+            ModifiersState::SHIFT,
+            ModifiersState::SHIFT | ModifiersState::CONTROL,
+        ));
+        assert!(super::native_key_should_forward_to_ime(
+            true,
+            super::NativeImePlatform::Macos,
+            ModifiersState::CONTROL | ModifiersState::ALT,
+            ModifiersState::SHIFT | ModifiersState::CONTROL,
+        ));
+        assert!(!super::native_key_should_forward_to_ime(
+            true,
+            super::NativeImePlatform::Macos,
+            ModifiersState::ALT,
+            ModifiersState::SHIFT | ModifiersState::CONTROL,
+        ));
+        assert!(!super::native_key_should_forward_to_ime(
+            false,
+            super::NativeImePlatform::Macos,
+            ModifiersState::SHIFT,
+            ModifiersState::SHIFT,
+        ));
+        assert!(!super::native_key_should_forward_to_ime(
+            true,
+            super::NativeImePlatform::Other,
+            ModifiersState::SHIFT,
+            ModifiersState::SHIFT,
+        ));
+        assert!(!super::native_key_should_forward_to_ime(
+            true,
+            super::NativeImePlatform::Macos,
+            ModifiersState::SHIFT,
+            ModifiersState::empty(),
+        ));
     }
 
     #[test]
@@ -91061,6 +91172,7 @@ mod tests {
             unicode_version: Some(14),
             use_ime: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
+            macos_forward_to_ime_modifier_mask: Some(ModifiersState::ALT),
             xim_im_name: Some("fcitx".to_owned()),
             detect_password_input: Some(false),
             launch_menu: Some(vec![NativeLaunchMenuItem {
@@ -91340,6 +91452,7 @@ mod tests {
             unicode_version: 14,
             use_ime: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
+            macos_forward_to_ime_modifier_mask: ModifiersState::ALT,
             xim_im_name: Some("fcitx".to_owned()),
             detect_password_input: false,
             scroll_to_bottom_on_input: false,
@@ -91523,6 +91636,7 @@ mod tests {
             unicode_version: DEFAULT_UNICODE_VERSION,
             use_ime: DEFAULT_USE_IME,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
+            macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
             xim_im_name: None,
             detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
             scroll_to_bottom_on_input: true,

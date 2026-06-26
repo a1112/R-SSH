@@ -303,8 +303,9 @@ keyboard, mouse, paste, resize
   `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `ime_preedit_rendering`, and `xim_im_name` parse into the native override
-  path, including returned config table initializers and direct
+  `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`, and
+  `xim_im_name` parse into the native override path, including returned config
+  table initializers and direct
   `return { [static_name] = ... }` config tables whose static key variables
   resolve to those field names. `ui_key_cap_rendering`
   controls native command-palette key-assignment
@@ -1092,7 +1093,8 @@ keyboard, mouse, paste, resize
   `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `ime_preedit_rendering`, `xim_im_name`,
+  `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`,
+  `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`, `quote_dropped_files`,
@@ -1178,12 +1180,17 @@ keyboard, mouse, paste, resize
   emoji/text presentation selectors adjust the prior cell width for FE0F/FE0E
   sequences. `use_ime`
   is stored with WezTerm's current default `true`,
-  `ime_preedit_rendering` with WezTerm's `Builtin` default, and `xim_im_name`
-  is retained as an optional XIM server name for X11-style IME configuration.
+  `ime_preedit_rendering` with WezTerm's `Builtin` default,
+  `macos_forward_to_ime_modifier_mask` with WezTerm's `SHIFT` default, and
+  `xim_im_name` is retained as an optional XIM server name for X11-style IME
+  configuration.
   Native winit IME commit text is written to the active pane when `use_ime` is
   enabled and ignored when disabled; native winit IME preedit text is rendered
   as a Builtin overlay at the active pane cursor and suppressed for `System` or
-  disabled IME, with commit/empty preedit clearing the overlay. Static Lua
+  disabled IME, with commit/empty preedit clearing the overlay. On macOS with
+  `use_ime` enabled, modified key presses whose modifiers intersect
+  `macos_forward_to_ime_modifier_mask` are left for IME routing before native
+  shortcut/input handling. Static Lua
   `colors.compose_cursor` overrides the cursor color while Builtin preedit text
   or the leader modifier is active, and dead-key input uses the same cursor
   override while composition is pending. Deeper platform IME/XIM setup remains
@@ -1465,7 +1472,8 @@ keyboard, mouse, paste, resize
   `treat_left_ctrlalt_as_altgr`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `ime_preedit_rendering`, `xim_im_name`,
+  `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`,
+  `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,
