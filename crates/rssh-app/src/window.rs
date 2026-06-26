@@ -8652,7 +8652,12 @@ fn lua_config_nested_key_table_indexed_field_assignment_from_query<'a>(
 ) -> Option<(String, LuaTableIndexedFieldAssignment<'a>)> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let (name, rest) = lua_nested_table_insert_key_from_query(source, rest, start)?;
     let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
@@ -74502,6 +74507,66 @@ mod tests {
         assert_eq!(
             written.lock().unwrap().as_slice(),
             b"from-config-index-fields"
+        );
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_static_key_key_table_index_field_assignments() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local key_tables_field = 'key_tables'
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config[key_tables_field] = { resize_pane = {} }
+            config[key_tables_field].resize_pane[1] = {}
+            config[key_tables_field].resize_pane[1].key = 'h'
+            config[key_tables_field].resize_pane[1].action =
+              act.SendString 'from-static-key-table-index-fields'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name indexed key table field config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-static-key-table-index-fields"
         );
         assert_eq!(app.active_key_table_for_test(), None);
     }
