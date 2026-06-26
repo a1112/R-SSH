@@ -2148,6 +2148,7 @@ struct NativeEffectiveConfig {
     kde_window_background_blur: bool,
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
+    win32_acrylic_accent_color: Option<Color>,
     window_decorations: NativeWindowDecorations,
     integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
     integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
@@ -2333,6 +2334,7 @@ struct NativeConfigOverrides {
     kde_window_background_blur: Option<bool>,
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
+    win32_acrylic_accent_color: Option<Color>,
     window_decorations: Option<NativeWindowDecorations>,
     integrated_title_buttons: Option<Vec<NativeIntegratedTitleButton>>,
     integrated_title_button_alignment: Option<NativeIntegratedTitleButtonAlignment>,
@@ -2865,6 +2867,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.win32_system_backdrop =
             Some(NativeWin32SystemBackdrop::parse(&win32_system_backdrop)?);
+        parsed = true;
+    }
+    if let Some(win32_acrylic_accent_color) =
+        lua_config_string_assignment_from_query(config, "win32_acrylic_accent_color")
+    {
+        overrides.win32_acrylic_accent_color =
+            Some(lua_opaque_color_from_query(&win32_acrylic_accent_color)?);
         parsed = true;
     }
     if let Some(window_decorations) =
@@ -13073,6 +13082,7 @@ struct NativeWindowApp {
     kde_window_background_blur: bool,
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
+    win32_acrylic_accent_color: Option<Color>,
     window_decorations: NativeWindowDecorations,
     integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
     integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
@@ -14543,6 +14553,7 @@ impl NativeWindowApp {
             kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
+            win32_acrylic_accent_color: None,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
             integrated_title_buttons: default_integrated_title_buttons(),
             integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
@@ -15568,6 +15579,7 @@ impl NativeWindowApp {
         detached_app.kde_window_background_blur = self.kde_window_background_blur;
         detached_app.macos_window_background_blur = self.macos_window_background_blur;
         detached_app.win32_system_backdrop = self.win32_system_backdrop;
+        detached_app.win32_acrylic_accent_color = self.win32_acrylic_accent_color;
         detached_app.window_decorations = self.window_decorations;
         detached_app.integrated_title_buttons = self.integrated_title_buttons.clone();
         detached_app.integrated_title_button_alignment = self.integrated_title_button_alignment;
@@ -15779,6 +15791,7 @@ impl NativeWindowApp {
         self.kde_window_background_blur = source.kde_window_background_blur;
         self.macos_window_background_blur = source.macos_window_background_blur;
         self.win32_system_backdrop = source.win32_system_backdrop;
+        self.win32_acrylic_accent_color = source.win32_acrylic_accent_color;
         self.window_decorations = source.window_decorations;
         self.integrated_title_buttons = source.integrated_title_buttons.clone();
         self.integrated_title_button_alignment = source.integrated_title_button_alignment;
@@ -23791,6 +23804,7 @@ impl NativeWindowApp {
             kde_window_background_blur: self.kde_window_background_blur,
             macos_window_background_blur: self.macos_window_background_blur,
             win32_system_backdrop: self.win32_system_backdrop,
+            win32_acrylic_accent_color: self.win32_acrylic_accent_color,
             window_decorations: self.window_decorations,
             integrated_title_buttons: self.integrated_title_buttons.clone(),
             integrated_title_button_alignment: self.integrated_title_button_alignment,
@@ -24039,6 +24053,7 @@ impl NativeWindowApp {
         self.win32_system_backdrop = overrides
             .win32_system_backdrop
             .unwrap_or(DEFAULT_WIN32_SYSTEM_BACKDROP);
+        self.win32_acrylic_accent_color = overrides.win32_acrylic_accent_color;
         self.window_decorations = overrides
             .window_decorations
             .unwrap_or(DEFAULT_WINDOW_DECORATIONS);
@@ -61347,6 +61362,7 @@ mod tests {
                 kde_window_background_blur: false,
                 macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
                 win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
+                win32_acrylic_accent_color: None,
                 window_decorations: DEFAULT_WINDOW_DECORATIONS,
                 integrated_title_buttons: default_integrated_title_buttons(),
                 integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
@@ -83481,6 +83497,7 @@ mod tests {
             effective.win32_system_backdrop,
             NativeWin32SystemBackdrop::Auto
         );
+        assert_eq!(effective.win32_acrylic_accent_color, None);
     }
 
     #[test]
@@ -83493,6 +83510,7 @@ mod tests {
             config.kde_window_background_blur = true
             config.macos_window_background_blur = 20
             config.win32_system_backdrop = 'Mica'
+            config.win32_acrylic_accent_color = '#112233'
 
             return config
             "#,
@@ -83506,6 +83524,10 @@ mod tests {
         assert_eq!(
             effective.win32_system_backdrop,
             NativeWin32SystemBackdrop::Mica
+        );
+        assert_eq!(
+            effective.win32_acrylic_accent_color,
+            Some(Color::Rgb(17, 34, 51))
         );
     }
 
@@ -91315,6 +91337,7 @@ mod tests {
             kde_window_background_blur: Some(true),
             macos_window_background_blur: Some(20),
             win32_system_backdrop: Some(NativeWin32SystemBackdrop::Mica),
+            win32_acrylic_accent_color: Some(Color::Rgb(17, 34, 51)),
             window_decorations: Some(NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -91598,6 +91621,7 @@ mod tests {
             kde_window_background_blur: true,
             macos_window_background_blur: 20,
             win32_system_backdrop: NativeWin32SystemBackdrop::Mica,
+            win32_acrylic_accent_color: Some(Color::Rgb(17, 34, 51)),
             window_decorations: NativeWindowDecorations {
                 title: false,
                 resize: true,
@@ -91837,6 +91861,7 @@ mod tests {
             kde_window_background_blur: false,
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
+            win32_acrylic_accent_color: None,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
             integrated_title_buttons: default_integrated_title_buttons(),
             integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
