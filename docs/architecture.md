@@ -188,9 +188,11 @@ keyboard, mouse, paste, resize
   effective-config field. Native config also retains `use_fancy_tab_bar` with
   WezTerm's `true` default; the current renderer remains the retro tab strip,
   so proportional-font native fancy tab rendering is still open. Retro tab
-  labels and the new-tab button also honor
-  `tab_bar_style` edge `wezterm.format` items parsed inline or through
-  top-level static table variables, including top-level
+  labels honor `tab_bar_style` edge `wezterm.format` items, and the new-tab
+  button honors the current WezTerm `tab_bar_style.new_tab`/`new_tab_hover`
+  full-button format fields while retaining the legacy left/right edge fields.
+  These fields parse inline or through top-level static table variables,
+  including top-level
   `config[static_name].active_tab_left`/`active_tab_right`/`inactive_tab_left`/
   `inactive_tab_right`/`new_tab_left`/`new_tab_right` mutations where
   `static_name` resolves to `tab_bar_style`. When `window_decorations` includes

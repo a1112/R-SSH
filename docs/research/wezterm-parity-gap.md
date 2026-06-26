@@ -134,10 +134,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `intensity`/`underline`/`italic`/`strikethrough` entries; inactive-tab hover
   and new-tab button hover labels honor `colors.tab_bar.inactive_tab_hover`
   and `colors.tab_bar.new_tab_hover` `fg_color`/`bg_color` plus
-  `intensity`/`underline`/`italic`/`strikethrough`. Retro tab labels and the
-  new-tab button also honor configured `tab_bar_style` left/right edge
-  `wezterm.format` items for active, inactive, inactive-hover, new-tab, and
-  new-tab-hover states. Static Lua config parsing covers
+  `intensity`/`underline`/`italic`/`strikethrough`. Retro tab labels honor
+  configured `tab_bar_style` left/right edge `wezterm.format` items for active,
+  inactive, and inactive-hover states; the new-tab button honors current
+  WezTerm `tab_bar_style.new_tab`/`new_tab_hover` full-button format fields
+  while retaining legacy new-tab left/right edge fields. Static Lua config parsing covers
   `enable_tab_bar`, `hide_tab_bar_if_only_one_tab`, `use_fancy_tab_bar`,
   `unzoom_on_switch_pane`, `tab_bar_at_bottom`, `tab_and_split_indices_are_zero_based`,
   `mouse_wheel_scrolls_tabs`, `switch_to_last_active_tab_when_closing_tab`,
@@ -152,8 +153,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   tab-bar item, and `tab_bar_style`
   `active_tab_left`/`active_tab_right`/`inactive_tab_left`/
   `inactive_tab_right`/`inactive_tab_hover_left`/`inactive_tab_hover_right`/
-  `new_tab_left`/`new_tab_right`/`new_tab_hover_left`/`new_tab_hover_right`
-  edge entries inline, through top-level static table variables, or through
+  `new_tab`/`new_tab_hover` plus legacy `new_tab_left`/`new_tab_right`/
+  `new_tab_hover_left`/`new_tab_hover_right` edge entries inline, through
+  top-level static table variables, or through
   top-level `config[static_name].active_tab_left`/`active_tab_right`/
   `inactive_tab_left`/`inactive_tab_right`/`new_tab_left`/`new_tab_right`
   mutations where `static_name` resolves to `tab_bar_style`. When
@@ -2594,10 +2596,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   active/inactive/inactive-hover/new-tab/new-tab-hover left/right edge
   entries parse static `wezterm.format` item arrays inline or through
   top-level static table variables, plus top-level static-key field mutations,
-  and apply to retro tab/new-tab labels; `tab_bar_style.window_hide`,
-  `window_hide_hover`, `window_maximize`, `window_maximize_hover`,
-  `window_close`, and `window_close_hover` parse static `wezterm.format` item
-  arrays and apply to retro integrated title button labels;
+  and apply to retro tab labels and legacy new-tab edges;
+  `tab_bar_style.new_tab` and `new_tab_hover` parse current full-button
+  `wezterm.format` item arrays and apply to the retro new-tab button;
+  `tab_bar_style.window_hide`, `window_hide_hover`, `window_maximize`,
+  `window_maximize_hover`, `window_close`, and `window_close_hover` parse
+  static `wezterm.format` item arrays and apply to retro integrated title
+  button labels;
   top-level `command_palette_font_size` parses into native/effective config,
   while `command_palette_bg_color`/`command_palette_fg_color` parse and apply
   to normal command-palette candidate rows; top-level

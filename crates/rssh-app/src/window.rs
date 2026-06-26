@@ -1989,6 +1989,8 @@ struct NativeTabBarStyle {
     inactive_tab_right: Option<Vec<NativeFormatItem>>,
     inactive_tab_hover_left: Option<Vec<NativeFormatItem>>,
     inactive_tab_hover_right: Option<Vec<NativeFormatItem>>,
+    new_tab: Option<Vec<NativeFormatItem>>,
+    new_tab_hover: Option<Vec<NativeFormatItem>>,
     new_tab_left: Option<Vec<NativeFormatItem>>,
     new_tab_right: Option<Vec<NativeFormatItem>>,
     new_tab_hover_left: Option<Vec<NativeFormatItem>>,
@@ -2009,6 +2011,8 @@ impl NativeTabBarStyle {
             && self.inactive_tab_right.is_none()
             && self.inactive_tab_hover_left.is_none()
             && self.inactive_tab_hover_right.is_none()
+            && self.new_tab.is_none()
+            && self.new_tab_hover.is_none()
             && self.new_tab_left.is_none()
             && self.new_tab_right.is_none()
             && self.new_tab_hover_left.is_none()
@@ -22991,24 +22995,7 @@ impl NativeWindowApp {
         }
 
         if self.show_new_tab_button_in_tab_bar {
-            let new_tab_width = u16::try_from(
-                tab_bar_new_tab_label()
-                    .chars()
-                    .count()
-                    .saturating_add(
-                        self.tab_bar_style
-                            .new_tab_left
-                            .as_deref()
-                            .map_or(0, native_format_items_visible_width),
-                    )
-                    .saturating_add(
-                        self.tab_bar_style
-                            .new_tab_right
-                            .as_deref()
-                            .map_or(0, native_format_items_visible_width),
-                    ),
-            )
-            .unwrap_or(0);
+            let new_tab_width = u16::try_from(self.new_tab_button_tab_bar_width()).unwrap_or(0);
             let new_tab_hovered = hover_column.is_some_and(|hover_column| {
                 let end = column.saturating_add(new_tab_width);
                 hover_column >= column && hover_column < end
@@ -23041,9 +23028,25 @@ impl NativeWindowApp {
                 Color::Rgb(46, 56, 48),
                 true,
             );
-            write_tab_bar_format_items_if_configured(&mut cells, &mut column, left_edge, style);
-            write_tab_bar_ansi_segment(&mut cells, &mut column, tab_bar_new_tab_label(), style);
-            write_tab_bar_format_items_if_configured(&mut cells, &mut column, right_edge, style);
+            if self.tab_bar_style.new_tab.is_some()
+                || (new_tab_hovered && self.tab_bar_style.new_tab_hover.is_some())
+            {
+                write_tab_bar_format_items(
+                    &mut cells,
+                    &mut column,
+                    &self.new_tab_button_tab_bar_items(new_tab_hovered),
+                    style,
+                );
+            } else {
+                write_tab_bar_format_items_if_configured(&mut cells, &mut column, left_edge, style);
+                write_tab_bar_ansi_segment(&mut cells, &mut column, tab_bar_new_tab_label(), style);
+                write_tab_bar_format_items_if_configured(
+                    &mut cells,
+                    &mut column,
+                    right_edge,
+                    style,
+                );
+            }
         }
 
         let right_integrated_title_buttons_items =
@@ -23191,10 +23194,58 @@ impl NativeWindowApp {
         let Some(start) = self.tab_bar_new_tab_column_start() else {
             return false;
         };
-        let Ok(width) = u16::try_from(tab_bar_new_tab_label().chars().count()) else {
+        let Ok(width) = u16::try_from(self.new_tab_button_tab_bar_width()) else {
             return false;
         };
         column >= start && column < start.saturating_add(width)
+    }
+
+    fn new_tab_button_tab_bar_items(&self, hovered: bool) -> Vec<NativeFormatItem> {
+        if hovered
+            && let Some(items) = self
+                .tab_bar_style
+                .new_tab_hover
+                .as_ref()
+                .or(self.tab_bar_style.new_tab.as_ref())
+        {
+            return items.clone();
+        }
+        if let Some(items) = self.tab_bar_style.new_tab.as_ref() {
+            return items.clone();
+        }
+
+        let mut items = Vec::new();
+        let (left_edge, right_edge) = if hovered {
+            (
+                self.tab_bar_style
+                    .new_tab_hover_left
+                    .as_deref()
+                    .or(self.tab_bar_style.new_tab_left.as_deref()),
+                self.tab_bar_style
+                    .new_tab_hover_right
+                    .as_deref()
+                    .or(self.tab_bar_style.new_tab_right.as_deref()),
+            )
+        } else {
+            (
+                self.tab_bar_style.new_tab_left.as_deref(),
+                self.tab_bar_style.new_tab_right.as_deref(),
+            )
+        };
+        if let Some(left_edge) = left_edge {
+            items.extend_from_slice(left_edge);
+        }
+        items.push(NativeFormatItem::Text(tab_bar_new_tab_label().to_owned()));
+        if let Some(right_edge) = right_edge {
+            items.extend_from_slice(right_edge);
+        }
+        items
+    }
+
+    fn new_tab_button_tab_bar_width(&self) -> usize {
+        native_format_items_visible_width(&self.new_tab_button_tab_bar_items(false)).max(
+            native_format_items_visible_width(&self.new_tab_button_tab_bar_items(true)),
+        )
     }
 
     fn integrated_title_buttons_are_visible(&self) -> bool {
@@ -23462,7 +23513,7 @@ impl NativeWindowApp {
         let columns = usize::from(self.runtime.terminal().grid().size().columns);
         let left_prefix_width = usize::from(self.tab_bar_left_prefix_width().unwrap_or(0));
         let new_tab_width = if self.show_new_tab_button_in_tab_bar {
-            tab_bar_new_tab_label().chars().count()
+            self.new_tab_button_tab_bar_width()
         } else {
             0
         };
@@ -37334,6 +37385,8 @@ fn native_tab_bar_style_lua_table_from_query(value: &str) -> Option<Option<Nativ
             "inactive_tab_hover_right" => {
                 assign_tab_bar_style_edge(&mut style.inactive_tab_hover_right, items)?;
             }
+            "new_tab" => assign_tab_bar_style_edge(&mut style.new_tab, items)?,
+            "new_tab_hover" => assign_tab_bar_style_edge(&mut style.new_tab_hover, items)?,
             "new_tab_left" => assign_tab_bar_style_edge(&mut style.new_tab_left, items)?,
             "new_tab_right" => assign_tab_bar_style_edge(&mut style.new_tab_right, items)?,
             "new_tab_hover_left" => {
@@ -58116,6 +58169,80 @@ mod tests {
             tab_bar.contains("{ + }"),
             "new-tab button should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_tab_bar_style_window_button_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local style_field = 'tab_bar_style'
+
+            config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
+            config.integrated_title_button_alignment = 'Left'
+            config.integrated_title_buttons = { 'Hide', 'Maximize', 'Close' }
+            config[style_field] = {}
+            config[style_field].window_hide = wezterm.format({ { Text = ' h ' } })
+            config[style_field].window_maximize = wezterm.format({ { Text = ' m ' } })
+            config[style_field]['window_close'] = wezterm.format({ { Text = ' c ' } })
+
+            return config
+            "##,
+        )
+        .expect("expected static-key tab_bar_style window button config");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.starts_with(" h  m  c  ws:default"),
+            "window buttons should use static-key tab_bar_style labels: {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_tab_bar_style_new_tab_button_labels() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.tab_bar_style = {
+              new_tab = wezterm.format({ { Text = ' add ' } }),
+              new_tab_hover = wezterm.format({ { Text = ' hover-add ' } }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style new_tab config");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let add_column = tab_bar.find(" add ").expect("new-tab label should render");
+        assert!(!tab_bar.contains(" + "), "tab bar was {tab_bar:?}");
+
+        let x = u32::try_from(add_column + 1).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains(" hover-add "),
+            "hover new-tab label should render: {tab_bar:?}"
+        );
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 2);
     }
 
     #[test]
