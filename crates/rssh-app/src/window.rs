@@ -22855,7 +22855,8 @@ impl NativeWindowApp {
             .collect::<Vec<_>>();
 
         let hover_column = self.tab_bar_hover_column();
-        let mut column = 0u16;
+        let mut column =
+            u16::try_from(self.macos_native_integrated_title_button_spacer_width()).unwrap_or(0);
         if self.integrated_title_buttons_are_left_aligned() {
             write_tab_bar_format_items(
                 &mut cells,
@@ -23249,7 +23250,21 @@ impl NativeWindowApp {
     }
 
     fn integrated_title_buttons_are_visible(&self) -> bool {
-        self.window_decorations.integrated_buttons && !self.integrated_title_buttons.is_empty()
+        self.window_decorations.integrated_buttons
+            && !self.integrated_title_buttons.is_empty()
+            && self.integrated_title_button_style != NativeIntegratedTitleButtonStyle::MacOsNative
+    }
+
+    fn macos_native_integrated_title_button_spacer_width(&self) -> usize {
+        if self.window_decorations.integrated_buttons
+            && self.integrated_title_button_style == NativeIntegratedTitleButtonStyle::MacOsNative
+            && !self.use_fancy_tab_bar
+            && !self.tab_bar_at_bottom
+        {
+            10
+        } else {
+            0
+        }
     }
 
     fn integrated_title_buttons_are_left_aligned(&self) -> bool {
@@ -23440,11 +23455,13 @@ impl NativeWindowApp {
     }
 
     fn tab_bar_left_prefix_width(&self) -> Option<u16> {
-        let mut width = if self.integrated_title_buttons_are_left_aligned() {
+        let mut width =
+            u16::try_from(self.macos_native_integrated_title_button_spacer_width()).ok()?;
+        width = width.checked_add(if self.integrated_title_buttons_are_left_aligned() {
             u16::try_from(self.integrated_title_buttons_tab_bar_width()).ok()?
         } else {
             0
-        };
+        })?;
         width = width
             .checked_add(u16::try_from(self.tab_bar_workspace_label().chars().count()).ok()?)?;
         if !self.left_status.is_empty() {
@@ -58181,6 +58198,7 @@ mod tests {
             local style_field = 'tab_bar_style'
 
             config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
+            config.integrated_title_button_style = 'Windows'
             config.integrated_title_button_alignment = 'Left'
             config.integrated_title_buttons = { 'Hide', 'Maximize', 'Close' }
             config[style_field] = {}
@@ -60091,6 +60109,7 @@ mod tests {
                 NativeIntegratedTitleButton::Hide,
             ]),
             integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Windows),
             ..NativeConfigOverrides::default()
         });
 
@@ -60121,6 +60140,7 @@ mod tests {
                 NativeIntegratedTitleButton::Maximize,
                 NativeIntegratedTitleButton::Close,
             ]),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Windows),
             ..NativeConfigOverrides::default()
         });
         app.set_right_status("READY".to_owned());
@@ -60136,6 +60156,45 @@ mod tests {
     }
 
     #[test]
+    fn window_app_macos_native_integrated_title_buttons_reserve_top_retro_space() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::MacOsNative),
+            integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            use_fancy_tab_bar: Some(false),
+            tab_bar_at_bottom: Some(false),
+            ..NativeConfigOverrides::default()
+        });
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert_eq!(&tab_bar[..10], "          ");
+        assert!(
+            tab_bar[10..].starts_with(" ws:default"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert_eq!(app.integrated_title_button_for_tab_bar_column(1), None);
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(CELL_WIDTH), 0.0))
+            .unwrap();
+        assert!(
+            !app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+        assert!(!app.window_hide_requested_for_test());
+    }
+
+    #[test]
     fn window_app_applies_wezterm_tab_bar_style_integrated_title_button_labels() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -60144,6 +60203,7 @@ mod tests {
             local config = {}
 
             config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
+            config.integrated_title_button_style = "Windows"
             config.integrated_title_button_alignment = "Left"
             config.integrated_title_buttons = { "Hide", "Maximize", "Close" }
             config.tab_bar_style = {
@@ -60186,6 +60246,7 @@ mod tests {
                 NativeIntegratedTitleButton::Close,
             ]),
             integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Windows),
             window_close_confirmation: Some(NativeWindowCloseConfirmation::NeverPrompt),
             ..NativeConfigOverrides::default()
         });

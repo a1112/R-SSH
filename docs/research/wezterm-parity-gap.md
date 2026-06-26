@@ -165,6 +165,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   defaults `.`, `-`, and `X`, honors `tab_bar_style.window_hide`/
   `window_maximize`/`window_close` `wezterm.format` label overrides, and
   dispatches Hide/Maximize/Close clicks through the native window action paths.
+  `MacOsNative` style in a top retro tab bar reserves native button space
+  instead of drawing text buttons.
 - App-shell state now exposes WezTerm-style `SpawnWindow`: the default
   `Ctrl+Shift+N` and `Super+N` shortcuts plus command-palette `Spawn Window`
   entry create a pending native-window app with a fresh default-launch tab and
@@ -2625,9 +2627,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   supports configured integrated title button order, left/right alignment,
   Auto/custom color, WezTerm retro default `.`, `-`, and `X` labels,
   `tab_bar_style.window_*` label overrides, and Hide/Maximize/Close click
-  dispatch when `window_decorations` includes `INTEGRATED_BUTTONS`.
-  Fine-grained native/fancy titlebar styling, resize-border behavior,
-  OS-specific button styles, and macOS shadow/corner behavior remain later
+  dispatch when `window_decorations` includes `INTEGRATED_BUTTONS`; when
+  `integrated_title_button_style` is `MacOsNative`, top retro tab bars reserve
+  the native button area instead of drawing text button labels.
+  Fine-grained native/fancy titlebar styling, resize-border behavior, actual
+  native macOS button drawing, and macOS shadow/corner behavior remain later
   OS-specific parity work.
 - Native terminal rendering applies WezTerm-style `text_blink_rate`,
   `text_blink_rate_rapid`, `text_blink_ease_in`, `text_blink_ease_out`,

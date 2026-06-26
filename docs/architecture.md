@@ -200,8 +200,10 @@ keyboard, mouse, paste, resize
   integrated title buttons in configured order and left/right alignment, applies
   Auto/custom button color, uses WezTerm's retro defaults `.`, `-`, and `X`,
   honors `tab_bar_style.window_hide`/`window_maximize`/`window_close`
-  `wezterm.format` label overrides, and dispatches Hide/Maximize/Close clicks
-  through the native window action paths.
+  `wezterm.format` label overrides, dispatches Hide/Maximize/Close clicks
+  through the native window action paths, and honors `MacOsNative` style in a
+  top retro tab bar by reserving native button space instead of drawing text
+  buttons.
 - Completed in v1: tab state can carry an explicit title, and tab bar labels
   prefer that explicit title before falling back to each tab's active-pane
   terminal title when OSC 0/1/2 or Sun OSC L/l title state is available.
