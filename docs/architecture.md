@@ -156,8 +156,8 @@ keyboard, mouse, paste, resize
   background cells, `window_background_opacity` alpha transforms for default
   terminal background cells, basic `window_background_gradient`
   Horizontal/Vertical/Linear-angle/Radial color-list fills with colorgrad
-  interpolation/blend modes and colorgrad preset fills for default window
-  backgrounds, plus retained platform backdrop settings
+  interpolation/blend/segment controls and colorgrad preset fills for default
+  window backgrounds, plus retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual
   KDE/macOS/Windows backdrop and accent application remains platform-adapter work. It also supports

@@ -357,6 +357,18 @@ impl RenderBackgroundGradientBlend {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderBackgroundGradientSegment {
+    pub size: usize,
+    pub smoothness_millis: u32,
+}
+
+impl RenderBackgroundGradientSegment {
+    fn smoothness(self) -> f64 {
+        f64::from(self.smoothness_millis) / 1_000.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackgroundGradientPreset {
     Blues,
     BrBg,
@@ -403,6 +415,7 @@ pub struct RenderBackgroundGradient {
     pub orientation: RenderBackgroundGradientOrientation,
     pub interpolation: RenderBackgroundGradientInterpolation,
     pub blend: RenderBackgroundGradientBlend,
+    pub segment: Option<RenderBackgroundGradientSegment>,
     pub preset: Option<RenderBackgroundGradientPreset>,
     pub colors: Vec<[u8; 4]>,
 }
@@ -1237,7 +1250,10 @@ enum BackgroundGradientSampler {
 impl BackgroundGradientSampler {
     fn from_gradient(gradient: &RenderBackgroundGradient) -> Self {
         if let Some(preset) = gradient.preset {
-            return Self::Gradient(colorgrad_gradient_for_preset(preset));
+            return Self::Gradient(segment_colorgrad_gradient(
+                colorgrad_gradient_for_preset(preset),
+                gradient.segment,
+            ));
         }
 
         match gradient.colors.as_slice() {
@@ -1254,6 +1270,7 @@ impl BackgroundGradientSampler {
                     .interpolation(gradient.interpolation.to_colorgrad())
                     .mode(gradient.blend.to_colorgrad())
                     .build()
+                    .map(|base| segment_colorgrad_gradient(base, gradient.segment))
                     .map_or(Self::Empty, Self::Gradient)
             }
         }
@@ -1266,6 +1283,16 @@ impl BackgroundGradientSampler {
             Self::Single(color) => *color,
             Self::Gradient(gradient) => gradient.at(position).to_rgba8(),
         }
+    }
+}
+
+fn segment_colorgrad_gradient(
+    gradient: colorgrad::Gradient,
+    segment: Option<RenderBackgroundGradientSegment>,
+) -> colorgrad::Gradient {
+    match segment {
+        Some(segment) => gradient.sharp(segment.size, segment.smoothness()),
+        None => gradient,
     }
 }
 
