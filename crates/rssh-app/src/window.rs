@@ -255,6 +255,16 @@ const DEFAULT_WINDOW_DECORATIONS: NativeWindowDecorations = NativeWindowDecorati
     macos_force_square_corners: false,
     macos_use_background_color_as_titlebar_color: false,
 };
+const DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT: NativeIntegratedTitleButtonAlignment =
+    NativeIntegratedTitleButtonAlignment::Right;
+const DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR: NativeIntegratedTitleButtonColor =
+    NativeIntegratedTitleButtonColor::Auto;
+#[cfg(target_os = "macos")]
+const DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE: NativeIntegratedTitleButtonStyle =
+    NativeIntegratedTitleButtonStyle::MacOsNative;
+#[cfg(not(target_os = "macos"))]
+const DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE: NativeIntegratedTitleButtonStyle =
+    NativeIntegratedTitleButtonStyle::Windows;
 const DEFAULT_QUICK_SELECT_ALPHABET: &str = "asdfqwerzxcvjklmiuopghtybn";
 const DEFAULT_LAUNCHER_ALPHABET: &str = "1234567890abcdefghilmnopqrstuvwxyz";
 const DEFAULT_LAUNCHER_HELP_TEXT: &str =
@@ -1261,6 +1271,97 @@ impl NativeWindowDecorations {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeIntegratedTitleButton {
+    Hide,
+    Maximize,
+    Close,
+}
+
+impl NativeIntegratedTitleButton {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Hide" => Some(Self::Hide),
+            "Maximize" => Some(Self::Maximize),
+            "Close" => Some(Self::Close),
+            _ => None,
+        }
+    }
+}
+
+fn default_integrated_title_buttons() -> Vec<NativeIntegratedTitleButton> {
+    vec![
+        NativeIntegratedTitleButton::Hide,
+        NativeIntegratedTitleButton::Maximize,
+        NativeIntegratedTitleButton::Close,
+    ]
+}
+
+fn native_integrated_title_buttons_from_strings(
+    buttons: Vec<String>,
+) -> Option<Vec<NativeIntegratedTitleButton>> {
+    buttons
+        .into_iter()
+        .map(|button| NativeIntegratedTitleButton::parse(&button))
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeIntegratedTitleButtonAlignment {
+    Left,
+    #[default]
+    Right,
+}
+
+impl NativeIntegratedTitleButtonAlignment {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Left" => Some(Self::Left),
+            "Right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeIntegratedTitleButtonColor {
+    #[default]
+    Auto,
+    Color(Color),
+}
+
+impl NativeIntegratedTitleButtonColor {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Auto" => Some(Self::Auto),
+            color => Some(Self::Color(lua_opaque_color_from_query(color)?)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeIntegratedTitleButtonStyle {
+    #[default]
+    Windows,
+    Gnome,
+    MacOsNative,
+}
+
+impl NativeIntegratedTitleButtonStyle {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "Windows" => Some(Self::Windows),
+            "Gnome" => Some(Self::Gnome),
+            "MacOsNative" => Some(Self::MacOsNative),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeWin32SystemBackdrop {
@@ -2025,6 +2126,10 @@ struct NativeEffectiveConfig {
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
     window_decorations: NativeWindowDecorations,
+    integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
+    integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
+    integrated_title_button_color: NativeIntegratedTitleButtonColor,
+    integrated_title_button_style: NativeIntegratedTitleButtonStyle,
     default_cursor_style: NativeCursorStyle,
     cursor_thickness: Option<NativeCursorThickness>,
     underline_thickness: Option<NativeUnderlineThickness>,
@@ -2201,6 +2306,10 @@ struct NativeConfigOverrides {
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
     window_decorations: Option<NativeWindowDecorations>,
+    integrated_title_buttons: Option<Vec<NativeIntegratedTitleButton>>,
+    integrated_title_button_alignment: Option<NativeIntegratedTitleButtonAlignment>,
+    integrated_title_button_color: Option<NativeIntegratedTitleButtonColor>,
+    integrated_title_button_style: Option<NativeIntegratedTitleButtonStyle>,
     default_cursor_style: Option<NativeCursorStyle>,
     cursor_thickness: Option<NativeCursorThickness>,
     underline_thickness: Option<NativeUnderlineThickness>,
@@ -2729,6 +2838,47 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_string_assignment_from_query(config, "window_decorations")
     {
         overrides.window_decorations = Some(NativeWindowDecorations::parse(&window_decorations)?);
+        parsed = true;
+    }
+    if let Some(integrated_title_buttons) =
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "integrated_title_buttons",
+        )
+    {
+        let buttons = split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: integrated_title_buttons.max_start,
+            }),
+            &integrated_title_buttons.value,
+        )?;
+        overrides.integrated_title_buttons =
+            Some(native_integrated_title_buttons_from_strings(buttons)?);
+        parsed = true;
+    }
+    if let Some(integrated_title_button_alignment) =
+        lua_config_string_assignment_from_query(config, "integrated_title_button_alignment")
+    {
+        overrides.integrated_title_button_alignment = Some(
+            NativeIntegratedTitleButtonAlignment::parse(&integrated_title_button_alignment)?,
+        );
+        parsed = true;
+    }
+    if let Some(integrated_title_button_color) =
+        lua_config_string_assignment_from_query(config, "integrated_title_button_color")
+    {
+        overrides.integrated_title_button_color = Some(NativeIntegratedTitleButtonColor::parse(
+            &integrated_title_button_color,
+        )?);
+        parsed = true;
+    }
+    if let Some(integrated_title_button_style) =
+        lua_config_string_assignment_from_query(config, "integrated_title_button_style")
+    {
+        overrides.integrated_title_button_style = Some(NativeIntegratedTitleButtonStyle::parse(
+            &integrated_title_button_style,
+        )?);
         parsed = true;
     }
     if let Some(initial_cols) = lua_config_usize_assignment_from_query(config, "initial_cols") {
@@ -12854,6 +13004,10 @@ struct NativeWindowApp {
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
     window_decorations: NativeWindowDecorations,
+    integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
+    integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
+    integrated_title_button_color: NativeIntegratedTitleButtonColor,
+    integrated_title_button_style: NativeIntegratedTitleButtonStyle,
     inactive_pane_hsb: NativeInactivePaneHsb,
     tab_max_width: usize,
     command_palette_rows: Option<usize>,
@@ -14312,6 +14466,10 @@ impl NativeWindowApp {
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            integrated_title_buttons: default_integrated_title_buttons(),
+            integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+            integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
+            integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             tab_max_width: DEFAULT_TAB_MAX_WIDTH,
             command_palette_rows: None,
@@ -15309,6 +15467,10 @@ impl NativeWindowApp {
         detached_app.macos_window_background_blur = self.macos_window_background_blur;
         detached_app.win32_system_backdrop = self.win32_system_backdrop;
         detached_app.window_decorations = self.window_decorations;
+        detached_app.integrated_title_buttons = self.integrated_title_buttons.clone();
+        detached_app.integrated_title_button_alignment = self.integrated_title_button_alignment;
+        detached_app.integrated_title_button_color = self.integrated_title_button_color;
+        detached_app.integrated_title_button_style = self.integrated_title_button_style;
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
         detached_app.use_cap_height_to_scale_fallback_fonts =
             self.use_cap_height_to_scale_fallback_fonts;
@@ -15509,6 +15671,10 @@ impl NativeWindowApp {
         self.macos_window_background_blur = source.macos_window_background_blur;
         self.win32_system_backdrop = source.win32_system_backdrop;
         self.window_decorations = source.window_decorations;
+        self.integrated_title_buttons = source.integrated_title_buttons.clone();
+        self.integrated_title_button_alignment = source.integrated_title_button_alignment;
+        self.integrated_title_button_color = source.integrated_title_button_color;
+        self.integrated_title_button_style = source.integrated_title_button_style;
         self.window_content_alignment = source.window_content_alignment;
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
@@ -23265,6 +23431,10 @@ impl NativeWindowApp {
             macos_window_background_blur: self.macos_window_background_blur,
             win32_system_backdrop: self.win32_system_backdrop,
             window_decorations: self.window_decorations,
+            integrated_title_buttons: self.integrated_title_buttons.clone(),
+            integrated_title_button_alignment: self.integrated_title_button_alignment,
+            integrated_title_button_color: self.integrated_title_button_color,
+            integrated_title_button_style: self.integrated_title_button_style,
             default_cursor_style: self.default_cursor_style,
             cursor_thickness: self.cursor_thickness,
             underline_thickness: self.underline_thickness,
@@ -23504,6 +23674,19 @@ impl NativeWindowApp {
         self.window_decorations = overrides
             .window_decorations
             .unwrap_or(DEFAULT_WINDOW_DECORATIONS);
+        self.integrated_title_buttons = overrides
+            .integrated_title_buttons
+            .clone()
+            .unwrap_or_else(default_integrated_title_buttons);
+        self.integrated_title_button_alignment = overrides
+            .integrated_title_button_alignment
+            .unwrap_or(DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT);
+        self.integrated_title_button_color = overrides
+            .integrated_title_button_color
+            .unwrap_or(DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR);
+        self.integrated_title_button_style = overrides
+            .integrated_title_button_style
+            .unwrap_or(DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE);
         self.apply_default_cursor_style_override(overrides.default_cursor_style);
         self.apply_cursor_thickness_override(overrides.cursor_thickness);
         self.apply_underline_thickness_override(overrides.underline_thickness);
@@ -48553,12 +48736,13 @@ mod tests {
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
-        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
-        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
-        DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
-        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+        DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
+        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
@@ -48578,17 +48762,19 @@ mod tests {
         NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
         NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
-        NativeInactivePaneHsb, NativeInputSelector, NativeKeyMapPreference,
-        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
-        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
-        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
-        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBell,
+        NativeInactivePaneHsb, NativeInputSelector, NativeIntegratedTitleButton,
+        NativeIntegratedTitleButtonAlignment, NativeIntegratedTitleButtonColor,
+        NativeIntegratedTitleButtonStyle, NativeKeyMapPreference, NativeLaunchMenuCommand,
+        NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight, NativeMouseAssignmentAltScreen,
+        NativeMouseAssignmentButton, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
+        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUiKeyCapRendering,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
+        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
+        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBell,
         NativeWindowCloseConfirmation, NativeWindowConfigReloaded, NativeWindowContentAlignment,
         NativeWindowDecorations, NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowLevel,
         NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
@@ -48608,8 +48794,8 @@ mod tests {
         WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
-        default_skip_close_confirmation_for_processes_named, demo_snapshot,
-        encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
+        default_integrated_title_buttons, default_skip_close_confirmation_for_processes_named,
+        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
         encode_window_key_with_kitty_event, encode_window_mouse_event,
         encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
@@ -60239,6 +60425,10 @@ mod tests {
                 macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
                 win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
                 window_decorations: DEFAULT_WINDOW_DECORATIONS,
+                integrated_title_buttons: default_integrated_title_buttons(),
+                integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+                integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
+                integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
                 default_cursor_style: NativeCursorStyle::SteadyBlock,
                 cursor_thickness: None,
                 underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
@@ -83578,6 +83768,79 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_integrated_title_button_config() {
+        let effective = NativeWindowApp::new(None).native_effective_config();
+
+        assert_eq!(
+            effective.integrated_title_buttons,
+            vec![
+                NativeIntegratedTitleButton::Hide,
+                NativeIntegratedTitleButton::Maximize,
+                NativeIntegratedTitleButton::Close,
+            ]
+        );
+        assert_eq!(
+            effective.integrated_title_button_alignment,
+            NativeIntegratedTitleButtonAlignment::Right
+        );
+        assert_eq!(
+            effective.integrated_title_button_color,
+            NativeIntegratedTitleButtonColor::Auto
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            effective.integrated_title_button_style,
+            NativeIntegratedTitleButtonStyle::MacOsNative
+        );
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(
+            effective.integrated_title_button_style,
+            NativeIntegratedTitleButtonStyle::Windows
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_integrated_title_button_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.integrated_title_buttons = { 'Close', 'Hide' }
+            config.integrated_title_button_alignment = 'Left'
+            config.integrated_title_button_color = '#010203'
+            config.integrated_title_button_style = 'Gnome'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm integrated title button config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.integrated_title_buttons,
+            vec![
+                NativeIntegratedTitleButton::Close,
+                NativeIntegratedTitleButton::Hide,
+            ]
+        );
+        assert_eq!(
+            effective.integrated_title_button_alignment,
+            NativeIntegratedTitleButtonAlignment::Left
+        );
+        assert_eq!(
+            effective.integrated_title_button_color,
+            NativeIntegratedTitleButtonColor::Color(Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.integrated_title_button_style,
+            NativeIntegratedTitleButtonStyle::Gnome
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_hsb_table_long_bracket_key_query() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -89949,6 +90212,15 @@ mod tests {
                 macos_force_square_corners: false,
                 macos_use_background_color_as_titlebar_color: true,
             }),
+            integrated_title_buttons: Some(vec![
+                NativeIntegratedTitleButton::Close,
+                NativeIntegratedTitleButton::Hide,
+            ]),
+            integrated_title_button_alignment: Some(NativeIntegratedTitleButtonAlignment::Left),
+            integrated_title_button_color: Some(NativeIntegratedTitleButtonColor::Color(
+                Color::Rgb(1, 2, 3),
+            )),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Gnome),
             default_cursor_style: Some(NativeCursorStyle::BlinkingUnderline),
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
             underline_thickness: Some(NativeUnderlineThickness::Pixels(2)),
@@ -90218,6 +90490,15 @@ mod tests {
                 macos_force_square_corners: false,
                 macos_use_background_color_as_titlebar_color: true,
             },
+            integrated_title_buttons: vec![
+                NativeIntegratedTitleButton::Close,
+                NativeIntegratedTitleButton::Hide,
+            ],
+            integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment::Left,
+            integrated_title_button_color: NativeIntegratedTitleButtonColor::Color(Color::Rgb(
+                1, 2, 3,
+            )),
+            integrated_title_button_style: NativeIntegratedTitleButtonStyle::Gnome,
             default_cursor_style: NativeCursorStyle::BlinkingUnderline,
             cursor_thickness: Some(NativeCursorThickness::Pixels(3)),
             underline_thickness: Some(NativeUnderlineThickness::Pixels(2)),
@@ -90435,6 +90716,10 @@ mod tests {
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            integrated_title_buttons: default_integrated_title_buttons(),
+            integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+            integrated_title_button_color: DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
+            integrated_title_button_style: DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
             default_cursor_style: NativeCursorStyle::SteadyBlock,
             cursor_thickness: None,
             underline_thickness: DEFAULT_UNDERLINE_THICKNESS,
