@@ -5240,7 +5240,8 @@ fn lua_config_table_map_assignment_with_field_mutations_from_query(
         let max_start = lua_source_slice_start_offset(source, table)?;
         let mut literal_from_query =
             |value| lua_table_insert_value_table_string_from_query(source, value, max_start);
-        return lua_config_table_field_assignment_string_from_query(
+        return lua_config_table_field_assignment_string_from_query_with_static_source(
+            Some(LuaStaticSource { source, max_start }),
             table,
             field,
             &mut literal_from_query,
@@ -79253,6 +79254,42 @@ mod tests {
             app.default_cwd.as_deref(),
         );
         assert_eq!(command.cwd(), Some(Path::new("C:/Project Dir")));
+    }
+
+    #[test]
+    fn window_app_parses_static_return_table_set_environment_variables_key() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local env_field = 'set_environment_variables'
+
+            return {
+              default_prog = { 'nu', '--login' },
+              [env_field] = {
+                PROJECT_MODE = 'dev',
+                FEATURE_FLAG = 'on',
+              },
+            }
+            "#,
+        )
+        .expect("expected WezTerm static field-name return table environment config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+        assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
     }
 
     #[test]
