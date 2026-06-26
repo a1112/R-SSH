@@ -826,6 +826,7 @@ impl NativeTextBackgroundOpacity {
 enum NativeWindowBackgroundGradientOrientation {
     Horizontal,
     Vertical,
+    Linear { angle_millidegrees: i32 },
 }
 
 impl NativeWindowBackgroundGradientOrientation {
@@ -837,12 +838,81 @@ impl NativeWindowBackgroundGradientOrientation {
         }
     }
 
+    fn parse_lua_value(source: &str, value: &str, max_start: usize) -> Option<Self> {
+        let value = value.trim();
+        if value.starts_with('{') {
+            return Self::parse_lua_table(source, value, max_start);
+        }
+
+        let value = lua_static_string_assignment_value_from_query(source, value)
+            .and_then(parse_maybe_quoted_query_text)?;
+        Self::parse(&value)
+    }
+
+    fn parse_lua_table(source: &str, value: &str, max_start: usize) -> Option<Self> {
+        let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+        for field in split_lua_table_top_level_fields(table)? {
+            let field = field.trim();
+            if field.is_empty() {
+                continue;
+            }
+            let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+                continue;
+            };
+            let key = split_lua_table_key_from_query(key.trim())?;
+            if key == "Linear" {
+                return Self::parse_linear_lua_table(source, value.trim(), max_start);
+            }
+        }
+        None
+    }
+
+    fn parse_linear_lua_table(source: &str, value: &str, max_start: usize) -> Option<Self> {
+        let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+        let static_source = Some(LuaStaticSource { source, max_start });
+        let mut angle_millidegrees = 0;
+
+        for field in split_lua_table_top_level_fields(table)? {
+            let field = field.trim();
+            if field.is_empty() {
+                continue;
+            }
+            let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+                continue;
+            };
+            let key = split_lua_table_key_from_query(key.trim())?;
+            if key == "angle" {
+                let angle = parse_maybe_static_query_f64(static_source, value.trim())?;
+                angle_millidegrees = native_gradient_angle_millidegrees_from_f64(angle)?;
+            }
+        }
+
+        Some(Self::Linear { angle_millidegrees })
+    }
+
     const fn to_render(self) -> RenderBackgroundGradientOrientation {
         match self {
             Self::Horizontal => RenderBackgroundGradientOrientation::Horizontal,
             Self::Vertical => RenderBackgroundGradientOrientation::Vertical,
+            Self::Linear { angle_millidegrees } => {
+                RenderBackgroundGradientOrientation::Linear { angle_millidegrees }
+            }
         }
     }
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn native_gradient_angle_millidegrees_from_f64(angle_degrees: f64) -> Option<i32> {
+    if !angle_degrees.is_finite() {
+        return None;
+    }
+
+    let angle_millidegrees = (angle_degrees * 1_000.0).round();
+    if angle_millidegrees < f64::from(i32::MIN) || angle_millidegrees > f64::from(i32::MAX) {
+        return None;
+    }
+
+    Some(angle_millidegrees as i32)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11636,9 +11706,9 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
         let value = value.trim();
         match key.as_str() {
             "orientation" => {
-                let value = lua_static_string_assignment_value_from_query(source, value)
-                    .and_then(parse_maybe_quoted_query_text)?;
-                orientation = NativeWindowBackgroundGradientOrientation::parse(&value)?;
+                orientation = NativeWindowBackgroundGradientOrientation::parse_lua_value(
+                    source, value, max_start,
+                )?;
             }
             "colors" => {
                 let parsed_colors =
@@ -51635,6 +51705,52 @@ mod tests {
                 &frame,
                 width,
                 CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [1, 2, 3, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_linear_angle_window_background_gradient() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              orientation = { Linear = { angle = 180.0 } },
+              colors = { '#010203', '#111213' },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm linear window_background_gradient config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Linear {
+                    angle_millidegrees: 180_000,
+                },
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = FRAME_WIDTH as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, FRAME_HEIGHT as usize - 1),
+            [17, 18, 19, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                width,
+                FRAME_WIDTH as usize - 1,
                 FRAME_HEIGHT as usize - 1
             ),
             [1, 2, 3, 255]

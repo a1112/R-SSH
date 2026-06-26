@@ -155,7 +155,7 @@ keyboard, mouse, paste, resize
   `text_background_opacity` alpha transforms for non-default terminal
   background cells, `window_background_opacity` alpha transforms for default
   terminal background cells, basic `window_background_gradient`
-  Horizontal/Vertical color-list fills for default window backgrounds, plus retained platform backdrop settings
+  Horizontal/Vertical/Linear-angle color-list fills for default window backgrounds, plus retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual
   KDE/macOS/Windows backdrop and accent application remains platform-adapter work. It also supports

@@ -310,6 +310,7 @@ pub enum RenderStrikethroughPosition {
 pub enum RenderBackgroundGradientOrientation {
     Horizontal,
     Vertical,
+    Linear { angle_millidegrees: i32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1149,6 +1150,9 @@ fn background_gradient_color_at(
                 RenderBackgroundGradientOrientation::Vertical => {
                     1.0 - gradient_axis_position(row, height)
                 }
+                RenderBackgroundGradientOrientation::Linear { angle_millidegrees } => {
+                    linear_gradient_axis_position(column, row, width, height, angle_millidegrees)
+                }
             };
             gradient_color_at_position(colors, position)
         }
@@ -1161,6 +1165,30 @@ fn gradient_axis_position(value: u32, extent: u32) -> f64 {
     }
 
     f64::from(value.min(extent - 1)) / f64::from(extent - 1)
+}
+
+fn linear_gradient_axis_position(
+    column: u32,
+    row: u32,
+    width: u32,
+    height: u32,
+    angle_millidegrees: i32,
+) -> f64 {
+    let x = gradient_axis_position(column, width);
+    let y = gradient_axis_position(row, height);
+    let radians = (f64::from(angle_millidegrees) / 1_000.0).to_radians();
+    let axis_x = radians.cos();
+    let axis_y = -radians.sin();
+    let projection = x.mul_add(axis_x, y * axis_y);
+    let corners = [0.0, axis_x, axis_y, axis_x + axis_y];
+    let min = corners.iter().copied().fold(f64::INFINITY, f64::min);
+    let max = corners.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+
+    if (max - min).abs() <= f64::EPSILON {
+        return 0.0;
+    }
+
+    (projection - min) / (max - min)
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
