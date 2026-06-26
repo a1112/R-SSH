@@ -72,6 +72,7 @@ const DEFAULT_CHECK_FOR_UPDATES: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS: u64 = 86_400;
 const DEFAULT_SHOW_UPDATE_WINDOW: bool = false;
 const DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE: bool = false;
+const DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH: bool = false;
 const DEFAULT_USE_RESIZE_INCREMENTS: bool = false;
 const DEFAULT_PREFER_TO_SPAWN_TABS: bool = false;
 const DEFAULT_DEBUG_KEY_EVENTS: bool = false;
@@ -2223,6 +2224,7 @@ struct NativeEffectiveConfig {
     check_for_updates_interval_seconds: u64,
     show_update_window: bool,
     native_macos_fullscreen_mode: bool,
+    macos_fullscreen_extend_behind_notch: bool,
     use_resize_increments: bool,
     debug_key_events: bool,
     log_unknown_escape_sequences: bool,
@@ -2407,6 +2409,7 @@ struct NativeConfigOverrides {
     check_for_updates_interval_seconds: Option<u64>,
     show_update_window: Option<bool>,
     native_macos_fullscreen_mode: Option<bool>,
+    macos_fullscreen_extend_behind_notch: Option<bool>,
     use_resize_increments: Option<bool>,
     debug_key_events: Option<bool>,
     log_unknown_escape_sequences: Option<bool>,
@@ -3403,6 +3406,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "native_macos_fullscreen_mode")
     {
         overrides.native_macos_fullscreen_mode = Some(native_macos_fullscreen_mode);
+        parsed = true;
+    }
+    if let Some(macos_fullscreen_extend_behind_notch) =
+        lua_config_bool_assignment_from_query(config, "macos_fullscreen_extend_behind_notch")
+    {
+        overrides.macos_fullscreen_extend_behind_notch = Some(macos_fullscreen_extend_behind_notch);
         parsed = true;
     }
     if let Some(use_resize_increments) =
@@ -13130,6 +13139,7 @@ struct NativeWindowApp {
     check_for_updates_interval_seconds: u64,
     show_update_window: bool,
     native_macos_fullscreen_mode: bool,
+    macos_fullscreen_extend_behind_notch: bool,
     use_resize_increments: bool,
     debug_key_events: bool,
     log_unknown_escape_sequences: bool,
@@ -14599,6 +14609,7 @@ impl NativeWindowApp {
             check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
             show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
             native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+            macos_fullscreen_extend_behind_notch: DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
             use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
             debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
@@ -15478,6 +15489,7 @@ impl NativeWindowApp {
                 native_fullscreen_request(
                     self.full_screen,
                     self.native_macos_fullscreen_mode,
+                    self.macos_fullscreen_extend_behind_notch,
                     current_native_fullscreen_platform(),
                 ),
             );
@@ -15639,6 +15651,8 @@ impl NativeWindowApp {
         detached_app.check_for_updates_interval_seconds = self.check_for_updates_interval_seconds;
         detached_app.show_update_window = self.show_update_window;
         detached_app.native_macos_fullscreen_mode = self.native_macos_fullscreen_mode;
+        detached_app.macos_fullscreen_extend_behind_notch =
+            self.macos_fullscreen_extend_behind_notch;
         detached_app.use_resize_increments = self.use_resize_increments;
         detached_app.debug_key_events = self.debug_key_events;
         detached_app.log_unknown_escape_sequences = self.log_unknown_escape_sequences;
@@ -15875,6 +15889,7 @@ impl NativeWindowApp {
         self.check_for_updates_interval_seconds = source.check_for_updates_interval_seconds;
         self.show_update_window = source.show_update_window;
         self.native_macos_fullscreen_mode = source.native_macos_fullscreen_mode;
+        self.macos_fullscreen_extend_behind_notch = source.macos_fullscreen_extend_behind_notch;
         self.use_resize_increments = source.use_resize_increments;
         self.debug_key_events = source.debug_key_events;
         self.log_unknown_escape_sequences = source.log_unknown_escape_sequences;
@@ -23852,6 +23867,7 @@ impl NativeWindowApp {
             check_for_updates_interval_seconds: self.check_for_updates_interval_seconds,
             show_update_window: self.show_update_window,
             native_macos_fullscreen_mode: self.native_macos_fullscreen_mode,
+            macos_fullscreen_extend_behind_notch: self.macos_fullscreen_extend_behind_notch,
             use_resize_increments: self.use_resize_increments,
             debug_key_events: self.debug_key_events,
             log_unknown_escape_sequences: self.log_unknown_escape_sequences,
@@ -24193,6 +24209,9 @@ impl NativeWindowApp {
         self.native_macos_fullscreen_mode = overrides
             .native_macos_fullscreen_mode
             .unwrap_or(DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE);
+        self.macos_fullscreen_extend_behind_notch = overrides
+            .macos_fullscreen_extend_behind_notch
+            .unwrap_or(DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH);
         self.use_resize_increments = overrides
             .use_resize_increments
             .unwrap_or(DEFAULT_USE_RESIZE_INCREMENTS);
@@ -48642,6 +48661,7 @@ enum NativeFullscreenRequest {
     Windowed,
     Borderless,
     MacosSimple,
+    MacosSimpleExtendBehindNotch,
 }
 
 fn current_native_fullscreen_platform() -> NativeFullscreenPlatform {
@@ -48655,6 +48675,7 @@ fn current_native_fullscreen_platform() -> NativeFullscreenPlatform {
 fn native_fullscreen_request(
     full_screen: bool,
     native_macos_fullscreen_mode: bool,
+    macos_fullscreen_extend_behind_notch: bool,
     platform: NativeFullscreenPlatform,
 ) -> NativeFullscreenRequest {
     if !full_screen {
@@ -48662,7 +48683,11 @@ fn native_fullscreen_request(
     }
 
     if platform == NativeFullscreenPlatform::Macos && !native_macos_fullscreen_mode {
-        NativeFullscreenRequest::MacosSimple
+        if macos_fullscreen_extend_behind_notch {
+            NativeFullscreenRequest::MacosSimpleExtendBehindNotch
+        } else {
+            NativeFullscreenRequest::MacosSimple
+        }
     } else {
         NativeFullscreenRequest::Borderless
     }
@@ -48671,15 +48696,20 @@ fn native_fullscreen_request(
 fn apply_native_fullscreen(window: &Window, request: NativeFullscreenRequest) {
     match request {
         NativeFullscreenRequest::Windowed => {
-            let _ = set_native_simple_fullscreen(window, false);
+            let _ = set_native_simple_fullscreen(window, false, false);
             window.set_fullscreen(None);
         }
         NativeFullscreenRequest::Borderless => {
-            let _ = set_native_simple_fullscreen(window, false);
+            let _ = set_native_simple_fullscreen(window, false, false);
             window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
         }
-        NativeFullscreenRequest::MacosSimple => {
-            if !set_native_simple_fullscreen(window, true) {
+        NativeFullscreenRequest::MacosSimple
+        | NativeFullscreenRequest::MacosSimpleExtendBehindNotch => {
+            if !set_native_simple_fullscreen(
+                window,
+                true,
+                request == NativeFullscreenRequest::MacosSimpleExtendBehindNotch,
+            ) {
                 window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
             }
         }
@@ -48687,12 +48717,20 @@ fn apply_native_fullscreen(window: &Window, request: NativeFullscreenRequest) {
 }
 
 #[cfg(target_os = "macos")]
-fn set_native_simple_fullscreen(window: &Window, full_screen: bool) -> bool {
+fn set_native_simple_fullscreen(
+    window: &Window,
+    full_screen: bool,
+    _extend_behind_notch: bool,
+) -> bool {
     window.set_simple_fullscreen(full_screen)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn set_native_simple_fullscreen(_window: &Window, _full_screen: bool) -> bool {
+fn set_native_simple_fullscreen(
+    _window: &Window,
+    _full_screen: bool,
+    _extend_behind_notch: bool,
+) -> bool {
     false
 }
 
@@ -49291,12 +49329,12 @@ mod tests {
         DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
         DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
-        DEFAULT_MAX_FPS, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY,
-        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS,
+        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
+        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
@@ -55348,32 +55386,63 @@ mod tests {
 
     #[test]
     fn fullscreen_strategy_selects_simple_macos_fullscreen_when_native_mode_is_disabled() {
-        let request =
-            super::native_fullscreen_request(true, false, super::NativeFullscreenPlatform::Macos);
+        let request = super::native_fullscreen_request(
+            true,
+            false,
+            false,
+            super::NativeFullscreenPlatform::Macos,
+        );
 
         assert_eq!(request, super::NativeFullscreenRequest::MacosSimple);
     }
 
     #[test]
     fn fullscreen_strategy_selects_native_macos_fullscreen_when_native_mode_is_enabled() {
-        let request =
-            super::native_fullscreen_request(true, true, super::NativeFullscreenPlatform::Macos);
+        let request = super::native_fullscreen_request(
+            true,
+            true,
+            true,
+            super::NativeFullscreenPlatform::Macos,
+        );
 
         assert_eq!(request, super::NativeFullscreenRequest::Borderless);
     }
 
     #[test]
     fn fullscreen_strategy_keeps_borderless_fullscreen_on_non_macos_platforms() {
-        let fullscreen_request =
-            super::native_fullscreen_request(true, false, super::NativeFullscreenPlatform::Other);
-        let windowed_request =
-            super::native_fullscreen_request(false, false, super::NativeFullscreenPlatform::Macos);
+        let fullscreen_request = super::native_fullscreen_request(
+            true,
+            false,
+            true,
+            super::NativeFullscreenPlatform::Other,
+        );
+        let windowed_request = super::native_fullscreen_request(
+            false,
+            false,
+            true,
+            super::NativeFullscreenPlatform::Macos,
+        );
 
         assert_eq!(
             fullscreen_request,
             super::NativeFullscreenRequest::Borderless
         );
         assert_eq!(windowed_request, super::NativeFullscreenRequest::Windowed);
+    }
+
+    #[test]
+    fn fullscreen_strategy_selects_simple_macos_fullscreen_behind_notch_when_enabled() {
+        let request = super::native_fullscreen_request(
+            true,
+            false,
+            true,
+            super::NativeFullscreenPlatform::Macos,
+        );
+
+        assert_eq!(
+            request,
+            super::NativeFullscreenRequest::MacosSimpleExtendBehindNotch
+        );
     }
 
     #[test]
@@ -61354,6 +61423,7 @@ mod tests {
                 check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
                 show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
                 native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+                macos_fullscreen_extend_behind_notch: DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
                 use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
                 debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
                 log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
@@ -83203,6 +83273,7 @@ mod tests {
         assert_eq!(effective.check_for_updates_interval_seconds, 86_400);
         assert!(!effective.show_update_window);
         assert!(!effective.native_macos_fullscreen_mode);
+        assert!(!effective.macos_fullscreen_extend_behind_notch);
     }
 
     #[test]
@@ -83216,6 +83287,7 @@ mod tests {
             config.check_for_updates = false
             config.check_for_updates_interval_seconds = 43200
             config.show_update_window = true
+            config.macos_fullscreen_extend_behind_notch = true
 
             return config
             "#,
@@ -83227,6 +83299,7 @@ mod tests {
         assert!(!effective.check_for_updates);
         assert_eq!(effective.check_for_updates_interval_seconds, 43_200);
         assert!(effective.show_update_window);
+        assert!(effective.macos_fullscreen_extend_behind_notch);
     }
 
     #[test]
@@ -91372,6 +91445,7 @@ mod tests {
             check_for_updates_interval_seconds: Some(43_200),
             show_update_window: Some(true),
             native_macos_fullscreen_mode: Some(true),
+            macos_fullscreen_extend_behind_notch: Some(true),
             use_resize_increments: Some(true),
             debug_key_events: Some(true),
             log_unknown_escape_sequences: Some(true),
@@ -91654,6 +91728,7 @@ mod tests {
             check_for_updates_interval_seconds: 43_200,
             show_update_window: true,
             native_macos_fullscreen_mode: true,
+            macos_fullscreen_extend_behind_notch: true,
             use_resize_increments: true,
             debug_key_events: true,
             log_unknown_escape_sequences: true,
@@ -91839,6 +91914,7 @@ mod tests {
             check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
             show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
             native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+            macos_fullscreen_extend_behind_notch: DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
             use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
             debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
