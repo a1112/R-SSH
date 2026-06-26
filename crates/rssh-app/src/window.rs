@@ -2357,12 +2357,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(visual_bell) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "visual_bell")
-    {
-        overrides.visual_bell = Some(native_visual_bell_lua_table_from_query(
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
             config,
-            visual_bell,
-        )?);
+            "visual_bell",
+        )
+        .and_then(|visual_bell| native_visual_bell_lua_table_from_query(config, &visual_bell.value))
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "visual_bell")
+                .and_then(|visual_bell| {
+                    native_visual_bell_lua_table_from_query(config, visual_bell)
+                })
+        })
+    {
+        overrides.visual_bell = Some(visual_bell);
         parsed = true;
     }
     if let Some(tab_bar_style) =
@@ -82813,6 +82820,40 @@ mod tests {
                     x2_per_mille: 580,
                     y2_per_mille: 1_000,
                 }),
+                target: NativeVisualBellTarget::CursorColor,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_visual_bell_field_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+            local bell_field = 'visual_bell'
+            local fade_out_function = 'EaseOut'
+
+            config[bell_field] = {}
+            config[bell_field].fade_in_duration_ms = 75
+            config[bell_field].fade_out_duration_ms = 125
+            config[bell_field].fade_in_function = 'EaseIn'
+            config[bell_field]['fade_out_function'] = fade_out_function
+            config[bell_field].target = 'CursorColor'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm static field-name visual_bell config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().visual_bell,
+            NativeVisualBell {
+                fade_in_duration_ms: 75,
+                fade_out_duration_ms: 125,
+                fade_in_function: NativeEasingFunction::EaseIn,
+                fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::CursorColor,
             }
         );

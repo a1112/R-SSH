@@ -1967,7 +1967,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   behavior. Static WezTerm-style Lua `config.audible_bell`,
   `config.visual_bell` snippets parse inline or through top-level static table
   variables with duration, easing, and target fields parsed inline or through
-  top-level static variables, and `config.colors.foreground`,
+  top-level static variables or through top-level
+  `config[static_name].fade_in_duration_ms`/`fade_out_duration_ms`/
+  `fade_in_function`/`fade_out_function`/`target` mutations where
+  `static_name` resolves to `visual_bell`, and `config.colors.foreground`,
   `config.colors.background`,
   `config.colors.selection_fg`, `config.colors.selection_bg`,
   `config.colors.cursor_bg`, `config.colors.cursor_border`,
