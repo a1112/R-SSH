@@ -2584,19 +2584,39 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(foreground_text_hsb) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "foreground_text_hsb")
-    {
-        overrides.foreground_text_hsb = Some(native_hsb_lua_table_from_query(
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
             config,
-            foreground_text_hsb,
-        )?);
+            "foreground_text_hsb",
+        )
+        .and_then(|foreground_text_hsb| {
+            native_hsb_lua_table_from_query(config, &foreground_text_hsb.value)
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "foreground_text_hsb")
+                .and_then(|foreground_text_hsb| {
+                    native_hsb_lua_table_from_query(config, foreground_text_hsb)
+                })
+        })
+    {
+        overrides.foreground_text_hsb = Some(foreground_text_hsb);
         parsed = true;
     }
     if let Some(inactive_pane_hsb) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "inactive_pane_hsb")
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "inactive_pane_hsb",
+        )
+        .and_then(|inactive_pane_hsb| {
+            native_hsb_lua_table_from_query(config, &inactive_pane_hsb.value)
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "inactive_pane_hsb")
+                .and_then(|inactive_pane_hsb| {
+                    native_hsb_lua_table_from_query(config, inactive_pane_hsb)
+                })
+        })
     {
-        overrides.inactive_pane_hsb =
-            Some(native_hsb_lua_table_from_query(config, inactive_pane_hsb)?);
+        overrides.inactive_pane_hsb = Some(inactive_pane_hsb);
         parsed = true;
     }
     if let Some(bold_brightens_ansi_colors) =
@@ -82978,6 +82998,52 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm HSB static field variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.foreground_text_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.9),
+                brightness: NativeHsbMultiplier::from_f32(0.6),
+            }
+        );
+        assert_eq!(
+            effective.inactive_pane_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.7),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_hsb_field_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local foreground_field = 'foreground_text_hsb'
+            local inactive_field = 'inactive_pane_hsb'
+            local foreground_brightness = 0.6
+            local inactive_brightness = 0.5
+
+            config[foreground_field] = {}
+            config[foreground_field].hue = 1.0
+            config[foreground_field].saturation = 0.9
+            config[foreground_field]['brightness'] = foreground_brightness
+
+            config[inactive_field] = {}
+            config[inactive_field].hue = 1.0
+            config[inactive_field].saturation = 0.7
+            config[inactive_field]['brightness'] = inactive_brightness
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name HSB config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

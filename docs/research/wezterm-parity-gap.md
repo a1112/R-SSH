@@ -2390,16 +2390,20 @@ what remains before WezTerm-style parity in key UX/composition areas.
   parse into the same native override path inline or through top-level static
   table variables, including bracketed string table keys with long-bracket
   values and hue/saturation/brightness fields inline or through top-level
-  static number variables; dynamic palette-aware resolution for this option
-  remains later parity work.
+  static number variables, plus top-level
+  `config[static_name].hue`/`saturation`/`brightness` field mutations where
+  `static_name` resolves to `inactive_pane_hsb`; dynamic palette-aware
+  resolution for this option remains later parity work.
 - Native terminal rendering applies WezTerm-style `foreground_text_hsb`
   overrides to foreground and underline Default/Indexed/RGB/RGBA cell colors
   while preserving background colors. Static WezTerm-style Lua
   `config.foreground_text_hsb` snippets now parse into the same native override
   path inline or through top-level static table variables, including bracketed
   string table keys with long-bracket values and hue/saturation/brightness
-  fields inline or through top-level static number variables; dynamic
-  palette-aware resolution for this option remains later parity work.
+  fields inline or through top-level static number variables, plus top-level
+  `config[static_name].hue`/`saturation`/`brightness` field mutations where
+  `static_name` resolves to `foreground_text_hsb`; dynamic palette-aware
+  resolution for this option remains later parity work.
 - Native terminal rendering applies WezTerm-style `bold_brightens_ansi_colors`
   to bold ANSI 0-7 foreground colors, defaulting to `BrightAndBold` and
   supporting `No` plus `BrightOnly`. Static WezTerm-style Lua
