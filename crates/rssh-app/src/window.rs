@@ -1206,6 +1206,7 @@ struct NativeWindowBackgroundGradient {
     orientation: NativeWindowBackgroundGradientOrientation,
     interpolation: NativeWindowBackgroundGradientInterpolation,
     blend: NativeWindowBackgroundGradientBlend,
+    noise: Option<usize>,
     segment: Option<NativeWindowBackgroundGradientSegment>,
     preset: Option<NativeWindowBackgroundGradientPreset>,
     colors: Vec<Color>,
@@ -1217,6 +1218,7 @@ impl NativeWindowBackgroundGradient {
             orientation: self.orientation.to_render(),
             interpolation: self.interpolation.to_render(),
             blend: self.blend.to_render(),
+            noise: self.noise,
             segment: self
                 .segment
                 .map(NativeWindowBackgroundGradientSegment::to_render),
@@ -11991,6 +11993,7 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
     let mut orientation = NativeWindowBackgroundGradientOrientation::Horizontal;
     let mut interpolation = NativeWindowBackgroundGradientInterpolation::Linear;
     let mut blend = NativeWindowBackgroundGradientBlend::Rgb;
+    let mut noise = None;
     let mut segment_size = None;
     let mut segment_smoothness_millis = 0;
     let mut preset = None;
@@ -12021,6 +12024,12 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
                 let value = lua_static_string_assignment_value_from_query(source, value)
                     .and_then(parse_maybe_quoted_query_text)?;
                 blend = NativeWindowBackgroundGradientBlend::parse(&value)?;
+            }
+            "noise" => {
+                let value = lua_static_unsigned_u32_value_before_offset_from_query(
+                    source, value, max_start,
+                )?;
+                noise = Some(usize::try_from(value).ok()?);
             }
             "segment_size" => {
                 let size = lua_static_unsigned_u32_value_before_offset_from_query(
@@ -12066,6 +12075,7 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
         orientation,
         interpolation,
         blend,
+        noise,
         segment: segment_size.map(|size| NativeWindowBackgroundGradientSegment {
             size,
             smoothness_millis: segment_smoothness_millis,
@@ -52022,6 +52032,7 @@ mod tests {
             config.window_background_gradient = {
               orientation = 'Vertical',
               colors = { '#010203', '#111213' },
+              noise = 0,
             }
 
             return config
@@ -52037,6 +52048,7 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
                 blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
                 segment: None,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
@@ -52071,6 +52083,7 @@ mod tests {
             config.window_background_gradient = {
               orientation = { Linear = { angle = 180.0 } },
               colors = { '#010203', '#111213' },
+              noise = 0,
             }
 
             return config
@@ -52088,6 +52101,7 @@ mod tests {
                 },
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
                 blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
                 segment: None,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
@@ -52127,6 +52141,7 @@ mod tests {
                 },
               },
               colors = { '#010203', '#111213' },
+              noise = 0,
             }
 
             return config
@@ -52146,6 +52161,7 @@ mod tests {
                 },
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
                 blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
                 segment: None,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
@@ -52178,6 +52194,7 @@ mod tests {
 
             config.window_background_gradient = {
               preset = 'Blues',
+              noise = 0,
             }
 
             return config
@@ -52193,6 +52210,7 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
                 blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
                 segment: None,
                 preset: Some(NativeWindowBackgroundGradientPreset::Blues),
                 colors: Vec::new(),
@@ -52227,6 +52245,7 @@ mod tests {
               colors = { '#ff0000', '#00ff00', '#0000ff' },
               interpolation = 'Basis',
               blend = 'LinearRgb',
+              noise = 0,
             }
 
             return config
@@ -52242,6 +52261,7 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Basis,
                 blend: NativeWindowBackgroundGradientBlend::LinearRgb,
+                noise: Some(0),
                 segment: None,
                 preset: None,
                 colors: vec![
@@ -52271,6 +52291,7 @@ mod tests {
               colors = { '#ff0000', '#00ff00', '#0000ff' },
               segment_size = 5,
               segment_smoothness = 0.0,
+              noise = 0,
             }
 
             return config
@@ -52286,6 +52307,7 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
                 blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
                 segment: Some(NativeWindowBackgroundGradientSegment {
                     size: 5,
                     smoothness_millis: 0,
@@ -52308,6 +52330,61 @@ mod tests {
         assert_eq!(
             frame_pixel_at(&frame, width, 256, FRAME_HEIGHT as usize - 1),
             [0, 255, 0, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_noisy_window_background_gradient() {
+        let mut smooth_app = NativeWindowApp::new(None);
+        let smooth_overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              colors = { '#000000', '#ff0000' },
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected smooth WezTerm window_background_gradient config");
+        smooth_app.set_config_overrides(smooth_overrides);
+        let mut smooth_frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            smooth_app.render_framebuffer(&mut smooth_frame),
+            FrameRenderMode::Full
+        );
+
+        let mut noisy_app = NativeWindowApp::new(None);
+        let noisy_overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              colors = { '#000000', '#ff0000' },
+              noise = 128,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected noisy WezTerm window_background_gradient config");
+        noisy_app.set_config_overrides(noisy_overrides);
+        let mut noisy_frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            noisy_app.render_framebuffer(&mut noisy_frame),
+            FrameRenderMode::Full
+        );
+
+        let width = FRAME_WIDTH as usize;
+        let y = FRAME_HEIGHT as usize - 1;
+        let x = 96;
+        assert_ne!(
+            frame_pixel_at(&noisy_frame, width, x, y),
+            frame_pixel_at(&smooth_frame, width, x, y)
         );
     }
 
@@ -92186,6 +92263,7 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
                 blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: None,
                 segment: None,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
@@ -92478,6 +92556,7 @@ mod tests {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
                 blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: None,
                 segment: None,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],

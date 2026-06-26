@@ -415,6 +415,7 @@ pub struct RenderBackgroundGradient {
     pub orientation: RenderBackgroundGradientOrientation,
     pub interpolation: RenderBackgroundGradientInterpolation,
     pub blend: RenderBackgroundGradientBlend,
+    pub noise: Option<usize>,
     pub segment: Option<RenderBackgroundGradientSegment>,
     pub preset: Option<RenderBackgroundGradientPreset>,
     pub colors: Vec<[u8; 4]>,
@@ -1223,6 +1224,7 @@ fn fill_default_background_gradient(
     }
 
     let sampler = BackgroundGradientSampler::from_gradient(gradient);
+    let noise_amount = background_gradient_noise_amount(gradient);
     for row in rect.y..max_y {
         for column in rect.x..max_x {
             let position = background_gradient_position_at(
@@ -1231,6 +1233,7 @@ fn fill_default_background_gradient(
                 row,
                 surface.width,
                 surface.height,
+                noise_amount,
             );
             let color = sampler.color_at(position);
             let index = ((row * surface.width + column) * 4) as usize;
@@ -1311,12 +1314,24 @@ fn background_gradient_position_at(
     row: u32,
     width: u32,
     height: u32,
+    noise_amount: usize,
 ) -> f64 {
     match gradient.orientation {
-        RenderBackgroundGradientOrientation::Horizontal => gradient_axis_position(column, width),
-        RenderBackgroundGradientOrientation::Vertical => 1.0 - gradient_axis_position(row, height),
+        RenderBackgroundGradientOrientation::Horizontal => {
+            gradient_axis_position_with_noise(column, width, column, row, noise_amount)
+        }
+        RenderBackgroundGradientOrientation::Vertical => {
+            1.0 - gradient_axis_position_with_noise(row, height, column, row, noise_amount)
+        }
         RenderBackgroundGradientOrientation::Linear { angle_millidegrees } => {
-            linear_gradient_axis_position(column, row, width, height, angle_millidegrees)
+            linear_gradient_axis_position(
+                column,
+                row,
+                width,
+                height,
+                angle_millidegrees,
+                noise_amount,
+            )
         }
         RenderBackgroundGradientOrientation::Radial {
             cx_millis,
@@ -1330,6 +1345,7 @@ fn background_gradient_position_at(
             cx_millis,
             cy_millis,
             radius_millis,
+            noise_amount,
         ),
     }
 }
@@ -1342,19 +1358,41 @@ fn gradient_axis_position(value: u32, extent: u32) -> f64 {
     f64::from(value.min(extent - 1)) / f64::from(extent - 1)
 }
 
+fn gradient_axis_position_with_noise(
+    value: u32,
+    extent: u32,
+    column: u32,
+    row: u32,
+    noise_amount: usize,
+) -> f64 {
+    if extent <= 1 {
+        return 0.0;
+    }
+
+    let noise = background_gradient_noise_offset(column, row, noise_amount);
+    (f64::from(value.min(extent - 1)) + noise) / f64::from(extent - 1)
+}
+
 fn linear_gradient_axis_position(
     column: u32,
     row: u32,
     width: u32,
     height: u32,
     angle_millidegrees: i32,
+    noise_amount: usize,
 ) -> f64 {
     let x = gradient_axis_position(column, width);
     let y = gradient_axis_position(row, height);
     let radians = (f64::from(angle_millidegrees) / 1_000.0).to_radians();
     let axis_x = radians.cos();
     let axis_y = -radians.sin();
-    let projection = x.mul_add(axis_x, y * axis_y);
+    let pixel_noise = background_gradient_noise_offset(column, row, noise_amount);
+    let noise = if width <= 1 {
+        0.0
+    } else {
+        pixel_noise / f64::from(width - 1)
+    };
+    let projection = x.mul_add(axis_x, y * axis_y) + noise;
     let corners = [0.0, axis_x, axis_y, axis_x + axis_y];
     let min = corners.iter().copied().fold(f64::INFINITY, f64::min);
     let max = corners.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -1374,9 +1412,23 @@ fn radial_gradient_axis_position(
     cx_millis: u32,
     cy_millis: u32,
     radius_millis: u32,
+    noise_amount: usize,
 ) -> f64 {
     if radius_millis == 0 {
         return 0.0;
+    }
+
+    if noise_amount > 0 {
+        return radial_gradient_axis_position_with_noise(
+            column,
+            row,
+            width,
+            height,
+            cx_millis,
+            cy_millis,
+            radius_millis,
+            noise_amount,
+        );
     }
 
     let x = gradient_axis_position(column, width);
@@ -1388,6 +1440,70 @@ fn radial_gradient_axis_position(
     let dy = y - cy;
 
     dx.hypot(dy) / radius
+}
+
+fn radial_gradient_axis_position_with_noise(
+    column: u32,
+    row: u32,
+    width: u32,
+    height: u32,
+    cx_millis: u32,
+    cy_millis: u32,
+    radius_millis: u32,
+    noise_amount: usize,
+) -> f64 {
+    let width = width.max(1);
+    let height = height.max(1);
+    let radius = (f64::from(width) * f64::from(radius_millis) / 1_000.0).max(f64::EPSILON);
+    let cx = f64::from(width) * f64::from(cx_millis) / 1_000.0;
+    let cy = f64::from(height) * f64::from(cy_millis) / 1_000.0;
+    let x = f64::from(column.min(width - 1));
+    let y = f64::from(row.min(height - 1));
+    let noise_limit = noise_amount as f64;
+    let nx = if (cx - x).abs() < noise_limit {
+        0.0
+    } else {
+        background_gradient_noise_offset(column, row, noise_amount)
+    };
+    let ny = if (cy - y).abs() < noise_limit {
+        0.0
+    } else {
+        background_gradient_noise_offset(row, column, noise_amount)
+    };
+    let value = nx + (x - cx).powi(2) + (ny + y - cy).powi(2);
+
+    if value <= 0.0 {
+        0.0
+    } else {
+        value.sqrt() / radius
+    }
+}
+
+fn background_gradient_noise_amount(gradient: &RenderBackgroundGradient) -> usize {
+    gradient.noise.unwrap_or(match gradient.orientation {
+        RenderBackgroundGradientOrientation::Radial { .. } => 16,
+        RenderBackgroundGradientOrientation::Horizontal
+        | RenderBackgroundGradientOrientation::Vertical
+        | RenderBackgroundGradientOrientation::Linear { .. } => 64,
+    })
+}
+
+fn background_gradient_noise_offset(column: u32, row: u32, noise_amount: usize) -> f64 {
+    if noise_amount == 0 {
+        return 0.0;
+    }
+
+    let amount = u64::try_from(noise_amount).unwrap_or(u64::MAX);
+    let hash =
+        splitmix64(u64::from(column) ^ u64::from(row).rotate_left(21) ^ 0x9e37_79b9_7f4a_7c15);
+    -((hash % amount) as f64)
+}
+
+fn splitmix64(mut value: u64) -> u64 {
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
 #[allow(clippy::too_many_lines)]
