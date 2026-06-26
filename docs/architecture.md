@@ -1907,10 +1907,13 @@ keyboard, mouse, paste, resize
   or through top-level static table variables, for
   horizontal `Left`/`Center`/`Right` and vertical `Top`/`Center`/`Bottom`
   values, including field values supplied through top-level static string
-  variables. When explicitly configured, native resize keeps the real framebuffer
-  pixel size, renders terminal cells into the aligned grid, fills leftover gap
-  pixels with the configured background color, and maps mouse coordinates back
-  through the same pixel offset.
+  variables or through top-level
+  `config[static_name].horizontal`/`vertical` field mutations where
+  `static_name` resolves to `window_content_alignment`. When explicitly
+  configured, native resize keeps the real framebuffer pixel size, renders
+  terminal cells into the aligned grid, fills leftover gap pixels with the
+  configured background color, and maps mouse coordinates back through the same
+  pixel offset.
 - Implemented in v1: Meta-key mode `?1034` is tracked in the shared runtime
   mode tracker, DECRQM reports it for ESC/C1 CSI forms, and XTGETTCAP exposes
   WezTerm `km`/`smm`/`rmm` Meta-key capabilities.

@@ -3160,14 +3160,30 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(window_content_alignment) =
-        lua_config_table_or_static_variable_assignment_from_query(
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
             config,
             "window_content_alignment",
         )
+        .and_then(|window_content_alignment| {
+            native_window_content_alignment_lua_table_from_query(
+                config,
+                &window_content_alignment.value,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(
+                config,
+                "window_content_alignment",
+            )
+            .and_then(|window_content_alignment| {
+                native_window_content_alignment_lua_table_from_query(
+                    config,
+                    window_content_alignment,
+                )
+            })
+        })
     {
-        overrides.window_content_alignment = Some(
-            native_window_content_alignment_lua_table_from_query(config, window_content_alignment)?,
-        );
+        overrides.window_content_alignment = Some(window_content_alignment);
         parsed = true;
     }
     if let Some(enable_tab_bar) = lua_config_bool_assignment_from_query(config, "enable_tab_bar") {
@@ -81504,6 +81520,34 @@ mod tests {
             NativeWindowContentAlignment {
                 horizontal: NativeHorizontalContentAlignment::Right,
                 vertical: NativeVerticalContentAlignment::Center,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_window_content_alignment_field_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local alignment_field = 'window_content_alignment'
+            local vertical_alignment = 'Bottom'
+
+            config[alignment_field] = {}
+            config[alignment_field].horizontal = 'Right'
+            config[alignment_field]['vertical'] = vertical_alignment
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name window content alignment config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_content_alignment,
+            NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Right,
+                vertical: NativeVerticalContentAlignment::Bottom,
             }
         );
     }
