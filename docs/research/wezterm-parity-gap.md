@@ -2670,7 +2670,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `active_titlebar_fg`, `inactive_titlebar_border_bottom`,
   `active_titlebar_border_bottom`, `button_fg`, `button_bg`,
   `button_hover_fg`, and `button_hover_bg`) parse into native/effective config
-  and are retained for the future native/fancy titlebar renderer;
+  and are retained for the future native/fancy titlebar renderer; `window_frame`
+  also now retains `border_left_width`, `border_right_width`,
+  `border_top_height`, `border_bottom_height`, `border_left_color`,
+  `border_right_color`, `border_top_color`, `border_bottom_color`, `font`,
+  and `font_size` in native/effective config;
   top-level `command_palette_font_size` parses into native/effective config,
   while `command_palette_bg_color`/`command_palette_fg_color` parse and apply
   to normal command-palette candidate rows; top-level
@@ -2683,7 +2687,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   overlay rendering, while input-selector/launcher label colors apply to
   default-mode shortcut labels. Applying retained native/fancy titlebar colors,
   `window_frame` border widths/colors, font fields, and other non-terminal
-  color fields remain later parity work.
+  color fields to rendering remain later parity work.
 - Native window creation parses WezTerm-style `window_decorations` flags and
   maps `NONE` to a borderless winit window while retaining `TITLE`/`RESIZE` and
   macOS-specific flags in effective config snapshots. Native config also
@@ -2700,10 +2704,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   settings; when
   `integrated_title_button_style` is `MacOsNative`, top retro tab bars reserve
   the native button area instead of drawing text button labels.
-  Applying those retained native/fancy titlebar colors, resize-border behavior,
-  `window_frame` border widths/colors and font/font_size fields, actual native
-  macOS button drawing, and macOS shadow/corner behavior remain later
-  OS-specific parity work.
+  Applying those retained native/fancy titlebar colors to rendering and resize-border
+  behavior, actual native macOS button drawing, and macOS shadow/corner behavior
+  remain later OS-specific parity work.
 - Native terminal rendering applies WezTerm-style `text_blink_rate`,
   `text_blink_rate_rapid`, `text_blink_ease_in`, `text_blink_ease_out`,
   `text_blink_rapid_ease_in`, and `text_blink_rapid_ease_out` to SGR 5/6

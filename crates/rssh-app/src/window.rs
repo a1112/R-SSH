@@ -2512,7 +2512,7 @@ const DEFAULT_WINDOW_CONTENT_ALIGNMENT: NativeWindowContentAlignment =
         vertical: NativeVerticalContentAlignment::Top,
     };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NativeWindowFrameAppearance {
     inactive_titlebar_bg: Option<Color>,
     active_titlebar_bg: Option<Color>,
@@ -2524,6 +2524,16 @@ struct NativeWindowFrameAppearance {
     button_bg: Option<Color>,
     button_hover_fg: Option<Color>,
     button_hover_bg: Option<Color>,
+    border_left_width: Option<NativeWindowPaddingDimension>,
+    border_right_width: Option<NativeWindowPaddingDimension>,
+    border_top_height: Option<NativeWindowPaddingDimension>,
+    border_bottom_height: Option<NativeWindowPaddingDimension>,
+    border_left_color: Option<Color>,
+    border_right_color: Option<Color>,
+    border_top_color: Option<Color>,
+    border_bottom_color: Option<Color>,
+    font: Option<String>,
+    font_size: Option<NativeFontSize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12347,15 +12357,114 @@ fn native_window_frame_appearance_lua_table_from_query(
             "button_bg" => &mut appearance.button_bg,
             "button_hover_fg" => &mut appearance.button_hover_fg,
             "button_hover_bg" => &mut appearance.button_hover_bg,
+            "border_left_width" => {
+                let value = lua_static_string_assignment_value_from_query(source, value.trim())
+                    .or_else(|| {
+                        lua_static_number_assignment_value_from_query(
+                            source,
+                            value,
+                            lua_unsigned_number_literal_from_query,
+                        )
+                    })?;
+                appearance.border_left_width = Some(NativeWindowPaddingDimension::parse(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+                parsed = true;
+                continue;
+            }
+            "border_right_width" => {
+                let value = lua_static_string_assignment_value_from_query(source, value.trim())
+                    .or_else(|| {
+                        lua_static_number_assignment_value_from_query(
+                            source,
+                            value,
+                            lua_unsigned_number_literal_from_query,
+                        )
+                    })?;
+                appearance.border_right_width = Some(NativeWindowPaddingDimension::parse(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+                parsed = true;
+                continue;
+            }
+            "border_top_height" => {
+                let value = lua_static_string_assignment_value_from_query(source, value.trim())
+                    .or_else(|| {
+                        lua_static_number_assignment_value_from_query(
+                            source,
+                            value,
+                            lua_unsigned_number_literal_from_query,
+                        )
+                    })?;
+                appearance.border_top_height = Some(NativeWindowPaddingDimension::parse(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+                parsed = true;
+                continue;
+            }
+            "border_bottom_height" => {
+                let value = lua_static_string_assignment_value_from_query(source, value.trim())
+                    .or_else(|| {
+                        lua_static_number_assignment_value_from_query(
+                            source,
+                            value,
+                            lua_unsigned_number_literal_from_query,
+                        )
+                    })?;
+                appearance.border_bottom_height = Some(NativeWindowPaddingDimension::parse(
+                    &parse_maybe_quoted_query_text(value)?,
+                )?);
+                parsed = true;
+                continue;
+            }
+            "border_left_color" => &mut appearance.border_left_color,
+            "border_right_color" => &mut appearance.border_right_color,
+            "border_top_color" => &mut appearance.border_top_color,
+            "border_bottom_color" => &mut appearance.border_bottom_color,
+            "font" => {
+                appearance.font = parse_wezterm_window_frame_font_value(source, value.trim());
+                parsed = true;
+                continue;
+            }
+            "font_size" => {
+                let value = lua_static_string_assignment_value_from_query(source, value.trim())
+                    .or_else(|| {
+                        lua_static_number_assignment_value_from_query(
+                            source,
+                            value,
+                            lua_unsigned_number_literal_from_query,
+                        )
+                    })?;
+                let value = parse_maybe_quoted_query_text(value)?;
+                appearance.font_size =
+                    Some(native_font_size_from_points(value.parse::<f32>().ok()?)?);
+                parsed = true;
+                continue;
+            }
             _ => continue,
         };
         let value = lua_static_string_assignment_value_from_query(source, value.trim())
             .and_then(parse_maybe_quoted_query_text)?;
         *slot = Some(lua_opaque_color_from_query(&value)?);
-        parsed = true;
     }
 
     Some(parsed.then_some(appearance))
+}
+
+fn parse_wezterm_window_frame_font_value(source: &str, value: &str) -> Option<String> {
+    lua_static_string_assignment_value_from_query(source, value)
+        .and_then(parse_maybe_quoted_query_text)
+        .or_else(|| {
+            let value = value.trim();
+            let call = value.find(".font")?;
+            let mut rest = value.get(call + ".font".len()..)?.trim_start();
+            if let Some(stripped) = rest.strip_prefix('(') {
+                rest = stripped.trim_start();
+            }
+            let quote = rest.find(|character| character == '\'' || character == '"')?;
+            let literal = lua_quoted_string_literal_from_query(rest.get(quote..)?)?;
+            parse_lua_quoted_query_text(literal)
+        })
 }
 
 #[allow(dead_code)]
@@ -16252,7 +16361,7 @@ impl NativeWindowApp {
         detached_app.win32_system_backdrop = self.win32_system_backdrop;
         detached_app.win32_acrylic_accent_color = self.win32_acrylic_accent_color;
         detached_app.window_decorations = self.window_decorations;
-        detached_app.window_frame_appearance = self.window_frame_appearance;
+        detached_app.window_frame_appearance = self.window_frame_appearance.clone();
         detached_app.integrated_title_buttons = self.integrated_title_buttons.clone();
         detached_app.integrated_title_button_alignment = self.integrated_title_button_alignment;
         detached_app.integrated_title_button_color = self.integrated_title_button_color;
@@ -16473,7 +16582,7 @@ impl NativeWindowApp {
         self.win32_system_backdrop = source.win32_system_backdrop;
         self.win32_acrylic_accent_color = source.win32_acrylic_accent_color;
         self.window_decorations = source.window_decorations;
-        self.window_frame_appearance = source.window_frame_appearance;
+        self.window_frame_appearance = source.window_frame_appearance.clone();
         self.integrated_title_buttons = source.integrated_title_buttons.clone();
         self.integrated_title_button_alignment = source.integrated_title_button_alignment;
         self.integrated_title_button_color = source.integrated_title_button_color;
@@ -24494,7 +24603,7 @@ impl NativeWindowApp {
             win32_system_backdrop: self.win32_system_backdrop,
             win32_acrylic_accent_color: self.win32_acrylic_accent_color,
             window_decorations: self.window_decorations,
-            window_frame_appearance: self.window_frame_appearance,
+            window_frame_appearance: self.window_frame_appearance.clone(),
             integrated_title_buttons: self.integrated_title_buttons.clone(),
             integrated_title_button_alignment: self.integrated_title_button_alignment,
             integrated_title_button_color: self.integrated_title_button_color,
@@ -24753,7 +24862,10 @@ impl NativeWindowApp {
         self.window_decorations = overrides
             .window_decorations
             .unwrap_or(DEFAULT_WINDOW_DECORATIONS);
-        self.window_frame_appearance = overrides.window_frame_appearance.unwrap_or_default();
+        self.window_frame_appearance = overrides
+            .window_frame_appearance
+            .clone()
+            .unwrap_or_default();
         self.integrated_title_buttons = overrides
             .integrated_title_buttons
             .clone()
@@ -86310,6 +86422,8 @@ mod tests {
             r#"
             local wezterm = require 'wezterm'
             local config = {}
+            local border_top_height = 4
+            local frame_font_size = 13.5
 
             config.window_frame = {
               inactive_titlebar_bg = '#010203',
@@ -86322,6 +86436,16 @@ mod tests {
               button_bg = '#161718',
               button_hover_fg = '#191a1b',
               button_hover_bg = '#1c1d1e',
+              border_left_width = '0.5cell',
+              border_right_width = 2.5,
+              border_top_height = border_top_height,
+              border_bottom_height = '1.5cell',
+              border_left_color = '#1f2021',
+              border_right_color = '#222324',
+              border_top_color = '#252627',
+              border_bottom_color = '#28292a',
+              font = wezterm.font 'Roboto',
+              font_size = frame_font_size,
             }
 
             return config
@@ -86347,6 +86471,31 @@ mod tests {
         assert_eq!(effective.button_bg, Some(Color::Rgb(22, 23, 24)));
         assert_eq!(effective.button_hover_fg, Some(Color::Rgb(25, 26, 27)));
         assert_eq!(effective.button_hover_bg, Some(Color::Rgb(28, 29, 30)));
+        assert_eq!(
+            effective.border_left_width,
+            Some(NativeWindowPaddingDimension::CellFractionPerMille(500))
+        );
+        assert_eq!(
+            effective.border_right_width,
+            Some(NativeWindowPaddingDimension::Pixels(3))
+        );
+        assert_eq!(
+            effective.border_top_height,
+            Some(NativeWindowPaddingDimension::Pixels(4))
+        );
+        assert_eq!(
+            effective.border_bottom_height,
+            Some(NativeWindowPaddingDimension::CellFractionPerMille(1500))
+        );
+        assert_eq!(effective.border_left_color, Some(Color::Rgb(31, 32, 33)));
+        assert_eq!(effective.border_right_color, Some(Color::Rgb(34, 35, 36)));
+        assert_eq!(effective.border_top_color, Some(Color::Rgb(37, 38, 39)));
+        assert_eq!(effective.border_bottom_color, Some(Color::Rgb(40, 41, 42)));
+        assert_eq!(effective.font, Some("Roboto".to_owned()));
+        assert_eq!(
+            effective.font_size,
+            Some(NativeFontSize::from_millipoints(13_500))
+        );
     }
 
     #[test]
@@ -92815,6 +92964,16 @@ mod tests {
                 button_bg: Some(Color::Rgb(22, 23, 24)),
                 button_hover_fg: Some(Color::Rgb(25, 26, 27)),
                 button_hover_bg: Some(Color::Rgb(28, 29, 30)),
+                border_left_width: Some(NativeWindowPaddingDimension::Pixels(3)),
+                border_right_width: Some(NativeWindowPaddingDimension::Pixels(4)),
+                border_top_height: Some(NativeWindowPaddingDimension::Pixels(5)),
+                border_bottom_height: Some(NativeWindowPaddingDimension::Pixels(6)),
+                border_left_color: Some(Color::Rgb(31, 32, 33)),
+                border_right_color: Some(Color::Rgb(34, 35, 36)),
+                border_top_color: Some(Color::Rgb(37, 38, 39)),
+                border_bottom_color: Some(Color::Rgb(40, 41, 42)),
+                font: Some("Monaco".to_owned()),
+                font_size: Some(NativeFontSize::from_millipoints(13_000)),
             }),
             integrated_title_buttons: Some(vec![
                 NativeIntegratedTitleButton::Close,
@@ -93121,6 +93280,16 @@ mod tests {
                 button_bg: Some(Color::Rgb(22, 23, 24)),
                 button_hover_fg: Some(Color::Rgb(25, 26, 27)),
                 button_hover_bg: Some(Color::Rgb(28, 29, 30)),
+                border_left_width: Some(NativeWindowPaddingDimension::Pixels(3)),
+                border_right_width: Some(NativeWindowPaddingDimension::Pixels(4)),
+                border_top_height: Some(NativeWindowPaddingDimension::Pixels(5)),
+                border_bottom_height: Some(NativeWindowPaddingDimension::Pixels(6)),
+                border_left_color: Some(Color::Rgb(31, 32, 33)),
+                border_right_color: Some(Color::Rgb(34, 35, 36)),
+                border_top_color: Some(Color::Rgb(37, 38, 39)),
+                border_bottom_color: Some(Color::Rgb(40, 41, 42)),
+                font: Some("Monaco".to_owned()),
+                font_size: Some(NativeFontSize::from_millipoints(13_000)),
             },
             integrated_title_buttons: vec![
                 NativeIntegratedTitleButton::Close,
