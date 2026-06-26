@@ -69,6 +69,7 @@ const DEFAULT_AUTOMATICALLY_RELOAD_CONFIG: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS: u64 = 86_400;
 const DEFAULT_SHOW_UPDATE_WINDOW: bool = false;
+const DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE: bool = false;
 const DEFAULT_USE_RESIZE_INCREMENTS: bool = false;
 const DEFAULT_PREFER_TO_SPAWN_TABS: bool = false;
 const DEFAULT_DEBUG_KEY_EVENTS: bool = false;
@@ -2216,6 +2217,7 @@ struct NativeEffectiveConfig {
     check_for_updates: bool,
     check_for_updates_interval_seconds: u64,
     show_update_window: bool,
+    native_macos_fullscreen_mode: bool,
     use_resize_increments: bool,
     debug_key_events: bool,
     log_unknown_escape_sequences: bool,
@@ -2396,6 +2398,7 @@ struct NativeConfigOverrides {
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
     show_update_window: Option<bool>,
+    native_macos_fullscreen_mode: Option<bool>,
     use_resize_increments: Option<bool>,
     debug_key_events: Option<bool>,
     log_unknown_escape_sequences: Option<bool>,
@@ -3361,6 +3364,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "show_update_window")
     {
         overrides.show_update_window = Some(show_update_window);
+        parsed = true;
+    }
+    if let Some(native_macos_fullscreen_mode) =
+        lua_config_bool_assignment_from_query(config, "native_macos_fullscreen_mode")
+    {
+        overrides.native_macos_fullscreen_mode = Some(native_macos_fullscreen_mode);
         parsed = true;
     }
     if let Some(use_resize_increments) =
@@ -13085,6 +13094,7 @@ struct NativeWindowApp {
     check_for_updates: bool,
     check_for_updates_interval_seconds: u64,
     show_update_window: bool,
+    native_macos_fullscreen_mode: bool,
     use_resize_increments: bool,
     debug_key_events: bool,
     log_unknown_escape_sequences: bool,
@@ -14548,6 +14558,7 @@ impl NativeWindowApp {
             check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
             check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
             show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
+            native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
             use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
             debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
@@ -15578,6 +15589,7 @@ impl NativeWindowApp {
         detached_app.check_for_updates = self.check_for_updates;
         detached_app.check_for_updates_interval_seconds = self.check_for_updates_interval_seconds;
         detached_app.show_update_window = self.show_update_window;
+        detached_app.native_macos_fullscreen_mode = self.native_macos_fullscreen_mode;
         detached_app.use_resize_increments = self.use_resize_increments;
         detached_app.debug_key_events = self.debug_key_events;
         detached_app.log_unknown_escape_sequences = self.log_unknown_escape_sequences;
@@ -15809,6 +15821,7 @@ impl NativeWindowApp {
         self.check_for_updates = source.check_for_updates;
         self.check_for_updates_interval_seconds = source.check_for_updates_interval_seconds;
         self.show_update_window = source.show_update_window;
+        self.native_macos_fullscreen_mode = source.native_macos_fullscreen_mode;
         self.use_resize_increments = source.use_resize_increments;
         self.debug_key_events = source.debug_key_events;
         self.log_unknown_escape_sequences = source.log_unknown_escape_sequences;
@@ -23780,6 +23793,7 @@ impl NativeWindowApp {
             check_for_updates: self.check_for_updates,
             check_for_updates_interval_seconds: self.check_for_updates_interval_seconds,
             show_update_window: self.show_update_window,
+            native_macos_fullscreen_mode: self.native_macos_fullscreen_mode,
             use_resize_increments: self.use_resize_increments,
             debug_key_events: self.debug_key_events,
             log_unknown_escape_sequences: self.log_unknown_escape_sequences,
@@ -24113,6 +24127,9 @@ impl NativeWindowApp {
         self.show_update_window = overrides
             .show_update_window
             .unwrap_or(DEFAULT_SHOW_UPDATE_WINDOW);
+        self.native_macos_fullscreen_mode = overrides
+            .native_macos_fullscreen_mode
+            .unwrap_or(DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE);
         self.use_resize_increments = overrides
             .use_resize_increments
             .unwrap_or(DEFAULT_USE_RESIZE_INCREMENTS);
@@ -49041,9 +49058,10 @@ mod tests {
         DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
@@ -61069,6 +61087,7 @@ mod tests {
                 check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
                 check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
                 show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
+                native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
                 use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
                 debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
                 log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
@@ -82753,6 +82772,7 @@ mod tests {
         assert!(effective.check_for_updates);
         assert_eq!(effective.check_for_updates_interval_seconds, 86_400);
         assert!(!effective.show_update_window);
+        assert!(!effective.native_macos_fullscreen_mode);
     }
 
     #[test]
@@ -82777,6 +82797,25 @@ mod tests {
         assert!(!effective.check_for_updates);
         assert_eq!(effective.check_for_updates_interval_seconds, 43_200);
         assert!(effective.show_update_window);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_native_macos_fullscreen_mode() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.native_macos_fullscreen_mode = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm native_macos_fullscreen_mode config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.native_effective_config().native_macos_fullscreen_mode);
     }
 
     #[test]
@@ -90902,6 +90941,7 @@ mod tests {
             check_for_updates: Some(false),
             check_for_updates_interval_seconds: Some(43_200),
             show_update_window: Some(true),
+            native_macos_fullscreen_mode: Some(true),
             use_resize_increments: Some(true),
             debug_key_events: Some(true),
             log_unknown_escape_sequences: Some(true),
@@ -91180,6 +91220,7 @@ mod tests {
             check_for_updates: false,
             check_for_updates_interval_seconds: 43_200,
             show_update_window: true,
+            native_macos_fullscreen_mode: true,
             use_resize_increments: true,
             debug_key_events: true,
             log_unknown_escape_sequences: true,
@@ -91361,6 +91402,7 @@ mod tests {
             check_for_updates: DEFAULT_CHECK_FOR_UPDATES,
             check_for_updates_interval_seconds: DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS,
             show_update_window: DEFAULT_SHOW_UPDATE_WINDOW,
+            native_macos_fullscreen_mode: DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
             use_resize_increments: DEFAULT_USE_RESIZE_INCREMENTS,
             debug_key_events: DEFAULT_DEBUG_KEY_EVENTS,
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,

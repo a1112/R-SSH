@@ -1086,7 +1086,7 @@ keyboard, mouse, paste, resize
   `char_select_bg_color`, `char_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
   `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
@@ -1121,7 +1121,11 @@ keyboard, mouse, paste, resize
   `check_for_updates` is stored with WezTerm's default `true`,
   `check_for_updates_interval_seconds` with the default `86400`, and
   `show_update_window` with the compatibility default `false`; actual update
-  checks and update-window UI remain future parity work. `max_fps` is stored
+  checks and update-window UI remain future parity work.
+  `native_macos_fullscreen_mode` is stored with WezTerm's default `false`,
+  parses inline or through top-level static bool variables, and is included in
+  effective config snapshots; actual native macOS fullscreen backend behavior
+  remains future platform parity work. `max_fps` is stored
   with WezTerm's default `60` and parses inline or through top-level static
   number variables before throttling native redraw requests from `about_to_wait`
   to the configured frame interval. `animation_fps` is stored with the default
@@ -1453,7 +1457,7 @@ keyboard, mouse, paste, resize
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
   `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
@@ -1487,7 +1491,8 @@ keyboard, mouse, paste, resize
   `show_tabs_in_tab_bar`, updates effective config snapshots, and
   emits `window-config-reloaded` on every set. `automatically_reload_config`,
   `check_for_updates`, `check_for_updates_interval_seconds`,
-  `show_update_window`, `use_resize_increments`, `debug_key_events`, and
+  `show_update_window`, `native_macos_fullscreen_mode`,
+  `use_resize_increments`, `debug_key_events`, and
   `log_unknown_escape_sequences` are retained in effective config snapshots.
   `warn_about_missing_glyphs` is retained with WezTerm's default `true`.
   Unknown ESC/CSI sequences are recorded by the terminal runtime and emitted
@@ -1498,7 +1503,9 @@ keyboard, mouse, paste, resize
   glyph ...` diagnostics when `warn_about_missing_glyphs` is enabled.
   `use_resize_increments` applies current cell-size resize hints on
   X11/Wayland/macOS-capable builds and remains a WezTerm-style no-op on
-  unsupported platforms. Lua event wiring, full WezTerm-style configuration
+  unsupported platforms. `native_macos_fullscreen_mode` is retained with
+  WezTerm's default `false`; actual native macOS fullscreen behavior remains
+  future platform parity work. Lua event wiring, full WezTerm-style configuration
   error window UI, actual Lua config reload, automatic file watching, Lua
   `window:set_config_overrides` wiring, and broader config option coverage
   remain future parity work.
@@ -1545,7 +1552,7 @@ keyboard, mouse, paste, resize
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
   `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
   `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,
   `quote_dropped_files`,
