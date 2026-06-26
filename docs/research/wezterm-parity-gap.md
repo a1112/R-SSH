@@ -143,7 +143,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `show_tabs_in_tab_bar`, `colors.tab_bar.background`,
   `colors.tab_bar.active_tab`/`inactive_tab`/`inactive_tab_hover`/`new_tab`/
   `new_tab_hover` `fg_color`/`bg_color` plus
-  `intensity`/`underline`/`italic`/`strikethrough`, and `tab_bar_style`
+  `intensity`/`underline`/`italic`/`strikethrough`, including top-level
+  `config[static_name].tab_bar[tab_field].fg_color`/`bg_color` mutations where
+  `static_name` resolves to `colors` and `tab_field` resolves to a supported
+  tab-bar item, and `tab_bar_style`
   `active_tab_left`/`active_tab_right`/`inactive_tab_left`/
   `inactive_tab_right`/`inactive_tab_hover_left`/`inactive_tab_hover_right`/
   `new_tab_left`/`new_tab_right`/`new_tab_hover_left`/`new_tab_hover_right`
@@ -2477,8 +2480,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `colors['background'] = '#101010'`, indexed slot mutations such as
   `colors.indexed[136] = '#101010'`, ANSI/bright slot mutations such as
   `colors.ansi[2] = '#101010'`, tab-bar nested mutations such as
-  `colors.tab_bar.active_tab.bg_color = '#101010'`, or multiline table mutations such as
-  `colors.ansi = { ... }` before assignment. When complete `config.colors`
+  `colors.tab_bar.active_tab.bg_color = '#101010'`, static-key config
+  mutations such as `config[colors_field].tab_bar[tab_field].bg_color` where
+  the keys resolve to `colors` and a supported tab-bar item, or multiline table
+  mutations such as `colors.ansi = { ... }` before assignment. When complete
+  `config.colors`
   table assignments, static table-variable `config.colors = colors`
   assignments, and load-scheme-backed `config.colors = colors` assignments
   appear together, the static parser chooses the later source before
@@ -2558,7 +2564,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   tab-bar `active_tab`, `inactive_tab`, `inactive_tab_hover`, `new_tab`, and
   `new_tab_hover` `fg_color`/`bg_color` plus
   `intensity`/`underline`/`italic`/`strikethrough` entries parse into
-  native/effective config and apply to tab/new-tab labels; `tab_bar_style`
+  native/effective config and apply to tab/new-tab labels, including
+  top-level static-key config mutations through `config[static_name].tab_bar`
+  where `static_name` resolves to `colors`; `tab_bar_style`
   active/inactive/inactive-hover/new-tab/new-tab-hover left/right edge
   entries parse static `wezterm.format` item arrays inline or through
   top-level static table variables, plus top-level static-key field mutations,

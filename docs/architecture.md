@@ -1390,8 +1390,11 @@ keyboard, mouse, paste, resize
   `colors['background'] = '#101010'`, indexed slot mutations such as
   `colors.indexed[136] = '#101010'`, ANSI/bright slot mutations such as
   `colors.ansi[2] = '#101010'`, tab-bar nested mutations such as
-  `colors.tab_bar.active_tab.bg_color = '#101010'`, or multiline table mutations such as
-  `colors.ansi = { ... }` before assignment. When complete `config.colors`
+  `colors.tab_bar.active_tab.bg_color = '#101010'`, static-key config
+  mutations such as `config[colors_field].tab_bar[tab_field].bg_color` where
+  the keys resolve to `colors` and a supported tab-bar item, or multiline table
+  mutations such as `colors.ansi = { ... }` before assignment. When complete
+  `config.colors`
   table assignments, static table-variable `config.colors = colors`
   assignments, and load-scheme-backed `config.colors = colors` assignments
   appear together, the static parser chooses the later source before

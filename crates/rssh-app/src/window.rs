@@ -2461,6 +2461,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                 }
             }
         }
+        parsed |= apply_lua_config_colors_tab_bar_mutation_overrides(
+            config,
+            config_receiver,
+            config.len(),
+            &mut overrides,
+        )?;
     }
     if let Some(notification_handling) =
         lua_config_string_assignment_from_query(config, "notification_handling")
@@ -3801,50 +3807,7 @@ fn apply_lua_color_scheme_entry_tab_bar_mutation_overrides(
             continue;
         }
 
-        let rest = lua_trim_start_comments(rest)?;
-        if let Some(value) = rest.strip_prefix('=') {
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            parsed |=
-                apply_lua_colors_table_overrides(&format!("{{\ntab_bar = {value}\n}}"), overrides)?;
-            continue;
-        }
-
-        let Some((tab_bar_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        if tab_bar_field == "background" {
-            let Some(value) = rest.strip_prefix('=') else {
-                continue;
-            };
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            let value = parse_maybe_quoted_query_text(value)?;
-            overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
-            parsed = true;
-            continue;
-        }
-
-        if !lua_tab_bar_item_color_name(&tab_bar_field) {
-            continue;
-        }
-        if let Some(value) = rest.strip_prefix('=') {
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            parsed |= apply_lua_colors_table_overrides(
-                &format!("{{\ntab_bar = {{ {tab_bar_field} = {value} }}\n}}"),
-                overrides,
-            )?;
-            continue;
-        }
-
-        let Some((item_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        let Some(value) = rest.strip_prefix('=') else {
-            continue;
-        };
-        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-        if apply_lua_tab_bar_item_color_mutation(overrides, &tab_bar_field, &item_field, value)? {
+        if apply_lua_tab_bar_color_mutation_rest(source, rest, start, overrides)? {
             parsed = true;
         }
     }
@@ -4863,6 +4826,45 @@ fn apply_lua_color_variable_mutation_overrides(
         mutation_max_start,
         overrides,
     )?;
+
+    Some(parsed)
+}
+
+fn apply_lua_config_colors_tab_bar_mutation_overrides(
+    source: &str,
+    receiver: &str,
+    max_start: usize,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let Some(after_receiver) = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)
+        else {
+            continue;
+        };
+        let after_receiver = lua_trim_start_comments(after_receiver)?;
+        let Some(rest) = lua_config_field_access_rest_from_query_with_static_key(
+            source,
+            after_receiver,
+            "colors",
+            start,
+        ) else {
+            continue;
+        };
+        let Some((field_name, rest)) =
+            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
+        else {
+            continue;
+        };
+        if field_name != "tab_bar" {
+            continue;
+        }
+
+        if apply_lua_tab_bar_color_mutation_rest(source, rest, start, overrides)? {
+            parsed = true;
+        }
+    }
 
     Some(parsed)
 }
@@ -9824,55 +9826,64 @@ fn apply_lua_color_variable_tab_bar_mutation_overrides(
             continue;
         }
 
-        let rest = lua_trim_start_comments(rest)?;
-        if let Some(value) = rest.strip_prefix('=') {
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            parsed |=
-                apply_lua_colors_table_overrides(&format!("{{\ntab_bar = {value}\n}}"), overrides)?;
-            continue;
-        }
-
-        let Some((tab_bar_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        if tab_bar_field == "background" {
-            let Some(value) = rest.strip_prefix('=') else {
-                continue;
-            };
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            let value = parse_maybe_quoted_query_text(value)?;
-            overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
-            parsed = true;
-            continue;
-        }
-
-        if !lua_tab_bar_item_color_name(&tab_bar_field) {
-            continue;
-        }
-        if let Some(value) = rest.strip_prefix('=') {
-            let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            parsed |= apply_lua_colors_table_overrides(
-                &format!("{{\ntab_bar = {{ {tab_bar_field} = {value} }}\n}}"),
-                overrides,
-            )?;
-            continue;
-        }
-
-        let Some((item_field, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
-            continue;
-        };
-        let rest = lua_trim_start_comments(rest)?;
-        let Some(value) = rest.strip_prefix('=') else {
-            continue;
-        };
-        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-        if apply_lua_tab_bar_item_color_mutation(overrides, &tab_bar_field, &item_field, value)? {
+        if apply_lua_tab_bar_color_mutation_rest(source, rest, start, overrides)? {
             parsed = true;
         }
     }
 
     Some(parsed)
+}
+
+fn apply_lua_tab_bar_color_mutation_rest(
+    source: &str,
+    rest: &str,
+    max_start: usize,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let rest = lua_trim_start_comments(rest)?;
+    if let Some(value) = rest.strip_prefix('=') {
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        return apply_lua_colors_table_overrides(&format!("{{\ntab_bar = {value}\n}}"), overrides);
+    }
+
+    let Some((tab_bar_field, rest)) =
+        lua_color_variable_mutation_field_from_query_with_static_key(source, rest, max_start)
+    else {
+        return Some(false);
+    };
+    let rest = lua_trim_start_comments(rest)?;
+    if tab_bar_field == "background" {
+        let Some(value) = rest.strip_prefix('=') else {
+            return Some(false);
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        let value = parse_maybe_quoted_query_text(value)?;
+        overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
+        return Some(true);
+    }
+
+    if !lua_tab_bar_item_color_name(&tab_bar_field) {
+        return Some(false);
+    }
+    if let Some(value) = rest.strip_prefix('=') {
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        return apply_lua_colors_table_overrides(
+            &format!("{{\ntab_bar = {{ {tab_bar_field} = {value} }}\n}}"),
+            overrides,
+        );
+    }
+
+    let Some((item_field, rest)) =
+        lua_color_variable_mutation_field_from_query_with_static_key(source, rest, max_start)
+    else {
+        return Some(false);
+    };
+    let rest = lua_trim_start_comments(rest)?;
+    let Some(value) = rest.strip_prefix('=') else {
+        return Some(false);
+    };
+    let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+    apply_lua_tab_bar_item_color_mutation(overrides, &tab_bar_field, &item_field, value)
 }
 
 fn lua_tab_bar_item_color_name(value: &str) -> bool {
@@ -9931,6 +9942,45 @@ fn lua_color_variable_mutation_array_index_from_query(query: &str) -> Option<(us
     let index = index.trim().parse::<usize>().ok()?;
 
     Some((index, rest))
+}
+
+fn lua_color_variable_mutation_field_from_query_with_static_key<'a>(
+    source: &str,
+    query: &'a str,
+    max_start: usize,
+) -> Option<(String, &'a str)> {
+    let query = lua_trim_start_comments(query)?;
+    if let Some(rest) = query.strip_prefix('.') {
+        let field_name = lua_identifier_literal_from_query(rest)?;
+        return Some((field_name.to_owned(), rest.get(field_name.len()..)?));
+    }
+
+    let rest = query.strip_prefix('[')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if let Some(literal) = lua_quoted_string_literal_from_query(rest)
+        .or_else(|| lua_long_bracket_literal_from_query(rest))
+    {
+        let field_name = parse_maybe_quoted_query_text(literal)?;
+        let after_literal = lua_trim_start_comments(rest.get(literal.len()..)?)?;
+        let after_bracket = after_literal.strip_prefix(']')?;
+
+        return Some((
+            non_empty_spawn_command_option_value(&field_name).ok()?,
+            after_bracket,
+        ));
+    }
+
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let field_name =
+        lua_static_string_variable_assignment_before_offset_from_query(source, variable, max_start)
+            .and_then(parse_maybe_quoted_query_text)?;
+    let after_variable = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let after_bracket = after_variable.strip_prefix(']')?;
+
+    Some((
+        non_empty_spawn_command_option_value(&field_name).ok()?,
+        after_bracket,
+    ))
 }
 
 fn lua_color_variable_mutation_field_from_query(query: &str) -> Option<(String, &str)> {
@@ -57267,6 +57317,83 @@ mod tests {
             new_tab_cell.background,
             rssh_terminal::Color::Rgb(13, 14, 15)
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_tab_bar_color_field_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local colors_field = 'colors'
+            local active_tab_field = 'active_tab'
+            local new_tab_field = 'new_tab'
+
+            config[colors_field] = {}
+            config[colors_field].tab_bar = {}
+            config[colors_field].tab_bar.background = '#202122'
+            config[colors_field].tab_bar[active_tab_field] = {}
+            config[colors_field].tab_bar[active_tab_field].bg_color = '#010203'
+            config[colors_field].tab_bar[active_tab_field].fg_color = '#040506'
+            config[colors_field].tab_bar.inactive_tab = {}
+            config[colors_field].tab_bar.inactive_tab.bg_color = '#070809'
+            config[colors_field].tab_bar.inactive_tab.fg_color = '#0a0b0c'
+            config[colors_field].tab_bar[new_tab_field] = {}
+            config[colors_field].tab_bar[new_tab_field].bg_color = '#0d0e0f'
+            config[colors_field].tab_bar[new_tab_field].fg_color = '#101112'
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm static field-name tab_bar color config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.tab_bar_background_color,
+            Some(rssh_terminal::Color::Rgb(32, 33, 34))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.bg_color,
+            Some(rssh_terminal::Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.fg_color,
+            Some(rssh_terminal::Color::Rgb(4, 5, 6))
+        );
+        assert_eq!(
+            effective.tab_bar_inactive_tab_colors.bg_color,
+            Some(rssh_terminal::Color::Rgb(7, 8, 9))
+        );
+        assert_eq!(
+            effective.tab_bar_inactive_tab_colors.fg_color,
+            Some(rssh_terminal::Color::Rgb(10, 11, 12))
+        );
+        assert_eq!(
+            effective.tab_bar_new_tab_colors.bg_color,
+            Some(rssh_terminal::Color::Rgb(13, 14, 15))
+        );
+        assert_eq!(
+            effective.tab_bar_new_tab_colors.fg_color,
+            Some(rssh_terminal::Color::Rgb(16, 17, 18))
+        );
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let active_column = tab_bar
+            .find("2:2*")
+            .expect("active tab label should be visible");
+        let active_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+        let blank_cell = snapshot_cell(&snapshot, 0, TERMINAL_COLUMNS - 1)
+            .expect("expected trailing tab bar cell");
+
+        assert_eq!(active_cell.foreground, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert_eq!(active_cell.background, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(blank_cell.background, rssh_terminal::Color::Rgb(32, 33, 34));
     }
 
     #[test]
