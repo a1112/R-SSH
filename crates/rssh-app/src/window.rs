@@ -198,6 +198,8 @@ const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
 const DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR: bool = false;
+const DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED: bool = false;
+const DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED: bool = true;
 const DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE: bool = false;
 const DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC: bool = false;
 const DEFAULT_UNICODE_VERSION: u32 = 9;
@@ -2234,6 +2236,8 @@ struct NativeEffectiveConfig {
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
+    send_composed_key_when_left_alt_is_pressed: bool,
+    send_composed_key_when_right_alt_is_pressed: bool,
     treat_east_asian_ambiguous_width_as_wide: bool,
     normalize_output_to_unicode_nfc: bool,
     unicode_version: u32,
@@ -2417,6 +2421,8 @@ struct NativeConfigOverrides {
     enable_kitty_keyboard: Option<bool>,
     allow_win32_input_mode: Option<bool>,
     treat_left_ctrlalt_as_altgr: Option<bool>,
+    send_composed_key_when_left_alt_is_pressed: Option<bool>,
+    send_composed_key_when_right_alt_is_pressed: Option<bool>,
     treat_east_asian_ambiguous_width_as_wide: Option<bool>,
     normalize_output_to_unicode_nfc: Option<bool>,
     unicode_version: Option<u32>,
@@ -3258,6 +3264,20 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "treat_left_ctrlalt_as_altgr")
     {
         overrides.treat_left_ctrlalt_as_altgr = Some(treat_left_ctrlalt_as_altgr);
+        parsed = true;
+    }
+    if let Some(send_composed_key_when_left_alt_is_pressed) =
+        lua_config_bool_assignment_from_query(config, "send_composed_key_when_left_alt_is_pressed")
+    {
+        overrides.send_composed_key_when_left_alt_is_pressed =
+            Some(send_composed_key_when_left_alt_is_pressed);
+        parsed = true;
+    }
+    if let Some(send_composed_key_when_right_alt_is_pressed) =
+        lua_config_bool_assignment_from_query(config, "send_composed_key_when_right_alt_is_pressed")
+    {
+        overrides.send_composed_key_when_right_alt_is_pressed =
+            Some(send_composed_key_when_right_alt_is_pressed);
         parsed = true;
     }
     if let Some(treat_east_asian_ambiguous_width_as_wide) =
@@ -13004,6 +13024,8 @@ struct NativeWindowApp {
     session_log: Option<Box<dyn Write + Send>>,
     reader_thread: Option<thread::JoinHandle<()>>,
     modifiers: ModifiersState,
+    left_alt_pressed: bool,
+    right_alt_pressed: bool,
     scrollback_offset: usize,
     mouse_pixel_position: Option<PhysicalPosition<f64>>,
     mouse_position: Option<(u16, u16)>,
@@ -13122,6 +13144,8 @@ struct NativeWindowApp {
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
+    send_composed_key_when_left_alt_is_pressed: bool,
+    send_composed_key_when_right_alt_is_pressed: bool,
     treat_east_asian_ambiguous_width_as_wide: bool,
     normalize_output_to_unicode_nfc: bool,
     unicode_version: u32,
@@ -14469,6 +14493,8 @@ impl NativeWindowApp {
             session_log: None,
             reader_thread: None,
             modifiers: ModifiersState::empty(),
+            left_alt_pressed: false,
+            right_alt_pressed: false,
             scrollback_offset: 0,
             mouse_pixel_position: None,
             mouse_position: None,
@@ -14587,6 +14613,10 @@ impl NativeWindowApp {
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+            send_composed_key_when_left_alt_is_pressed:
+                DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+            send_composed_key_when_right_alt_is_pressed:
+                DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED,
             treat_east_asian_ambiguous_width_as_wide:
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
@@ -15627,6 +15657,10 @@ impl NativeWindowApp {
         detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
         detached_app.allow_win32_input_mode = self.allow_win32_input_mode;
         detached_app.treat_left_ctrlalt_as_altgr = self.treat_left_ctrlalt_as_altgr;
+        detached_app.send_composed_key_when_left_alt_is_pressed =
+            self.send_composed_key_when_left_alt_is_pressed;
+        detached_app.send_composed_key_when_right_alt_is_pressed =
+            self.send_composed_key_when_right_alt_is_pressed;
         detached_app.treat_east_asian_ambiguous_width_as_wide =
             self.treat_east_asian_ambiguous_width_as_wide;
         detached_app.normalize_output_to_unicode_nfc = self.normalize_output_to_unicode_nfc;
@@ -15856,6 +15890,10 @@ impl NativeWindowApp {
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
         self.treat_left_ctrlalt_as_altgr = source.treat_left_ctrlalt_as_altgr;
+        self.send_composed_key_when_left_alt_is_pressed =
+            source.send_composed_key_when_left_alt_is_pressed;
+        self.send_composed_key_when_right_alt_is_pressed =
+            source.send_composed_key_when_right_alt_is_pressed;
         self.treat_east_asian_ambiguous_width_as_wide =
             source.treat_east_asian_ambiguous_width_as_wide;
         self.normalize_output_to_unicode_nfc = source.normalize_output_to_unicode_nfc;
@@ -23827,6 +23865,10 @@ impl NativeWindowApp {
             enable_kitty_keyboard: self.enable_kitty_keyboard,
             allow_win32_input_mode: self.allow_win32_input_mode,
             treat_left_ctrlalt_as_altgr: self.treat_left_ctrlalt_as_altgr,
+            send_composed_key_when_left_alt_is_pressed: self
+                .send_composed_key_when_left_alt_is_pressed,
+            send_composed_key_when_right_alt_is_pressed: self
+                .send_composed_key_when_right_alt_is_pressed,
             treat_east_asian_ambiguous_width_as_wide: self.treat_east_asian_ambiguous_width_as_wide,
             normalize_output_to_unicode_nfc: self.normalize_output_to_unicode_nfc,
             unicode_version: self.unicode_version,
@@ -24186,6 +24228,12 @@ impl NativeWindowApp {
         self.treat_left_ctrlalt_as_altgr = overrides
             .treat_left_ctrlalt_as_altgr
             .unwrap_or(DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR);
+        self.send_composed_key_when_left_alt_is_pressed = overrides
+            .send_composed_key_when_left_alt_is_pressed
+            .unwrap_or(DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED);
+        self.send_composed_key_when_right_alt_is_pressed = overrides
+            .send_composed_key_when_right_alt_is_pressed
+            .unwrap_or(DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED);
         self.treat_east_asian_ambiguous_width_as_wide = overrides
             .treat_east_asian_ambiguous_width_as_wide
             .unwrap_or(DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE);
@@ -25769,6 +25817,36 @@ impl NativeWindowApp {
         modifiers
     }
 
+    fn update_alt_modifier_side_state(&mut self, physical_key: PhysicalKey, state: ElementState) {
+        let pressed = state != ElementState::Released;
+        match physical_key {
+            PhysicalKey::Code(WinitKeyCode::AltLeft) => self.left_alt_pressed = pressed,
+            PhysicalKey::Code(WinitKeyCode::AltRight) => self.right_alt_pressed = pressed,
+            _ => {}
+        }
+    }
+
+    fn terminal_keyboard_modifiers(
+        &self,
+        physical_key: PhysicalKey,
+        text: Option<&str>,
+        modifiers: ModifiersState,
+    ) -> ModifiersState {
+        let mut modifiers = modifiers;
+        if native_alt_composed_key_should_remove_alt_modifier(
+            physical_key,
+            text,
+            modifiers,
+            self.left_alt_pressed,
+            self.right_alt_pressed,
+            self.send_composed_key_when_left_alt_is_pressed,
+            self.send_composed_key_when_right_alt_is_pressed,
+        ) {
+            modifiers.remove(ModifiersState::ALT);
+        }
+        modifiers
+    }
+
     #[allow(clippy::too_many_lines)]
     fn handle_keyboard_input_event(
         &mut self,
@@ -25778,6 +25856,7 @@ impl NativeWindowApp {
         state: ElementState,
         key_event_kind: KittyKeyEventKind,
     ) -> io::Result<()> {
+        self.update_alt_modifier_side_state(physical_key, state);
         self.record_debug_key_event(logical_key, physical_key, text, state, key_event_kind);
         let modifiers = self.effective_keyboard_modifiers(physical_key, text);
 
@@ -25798,14 +25877,22 @@ impl NativeWindowApp {
                     logical_key,
                     self.swap_backspace_and_delete,
                 );
+                let terminal_modifiers =
+                    self.terminal_keyboard_modifiers(physical_key, text, modifiers);
                 let bytes = if self.runtime.win32_input_mode() {
-                    encode_win32_window_key(&encoded_key, physical_key, text, modifiers, false)
+                    encode_win32_window_key(
+                        &encoded_key,
+                        physical_key,
+                        text,
+                        terminal_modifiers,
+                        false,
+                    )
                 } else {
                     encode_window_key_with_kitty_event(
                         &encoded_key,
                         physical_key,
                         text,
-                        modifiers,
+                        terminal_modifiers,
                         self.runtime.application_cursor_keys(),
                         self.runtime.application_keypad(),
                         self.effective_kitty_keyboard_flags(),
@@ -26030,14 +26117,15 @@ impl NativeWindowApp {
 
         let encoded_key =
             swap_backspace_delete_key_if_needed(logical_key, self.swap_backspace_and_delete);
+        let terminal_modifiers = self.terminal_keyboard_modifiers(physical_key, text, modifiers);
         let bytes = if self.runtime.win32_input_mode() {
-            encode_win32_window_key(&encoded_key, physical_key, text, modifiers, true)
+            encode_win32_window_key(&encoded_key, physical_key, text, terminal_modifiers, true)
         } else {
             encode_window_key_with_kitty_event(
                 &encoded_key,
                 physical_key,
                 text,
-                modifiers,
+                terminal_modifiers,
                 self.runtime.application_cursor_keys(),
                 self.runtime.application_keypad(),
                 self.effective_kitty_keyboard_flags(),
@@ -28112,6 +28200,22 @@ fn window_physical_key_is_modifier(physical_key: PhysicalKey) -> bool {
                 | WinitKeyCode::SuperRight
         )
     )
+}
+
+fn native_alt_composed_key_should_remove_alt_modifier(
+    physical_key: PhysicalKey,
+    text: Option<&str>,
+    modifiers: ModifiersState,
+    left_alt_pressed: bool,
+    right_alt_pressed: bool,
+    send_composed_key_when_left_alt_is_pressed: bool,
+    send_composed_key_when_right_alt_is_pressed: bool,
+) -> bool {
+    text.is_some_and(|text| !text.is_empty())
+        && modifiers.contains(ModifiersState::ALT)
+        && !window_physical_key_is_modifier(physical_key)
+        && ((left_alt_pressed && send_composed_key_when_left_alt_is_pressed)
+            || (right_alt_pressed && send_composed_key_when_right_alt_is_pressed))
 }
 
 #[cfg(test)]
@@ -48842,6 +48946,10 @@ impl ApplicationHandler<WindowUserEvent> for NativeWindowApp {
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 self.modifiers = modifiers.state();
+                if !self.modifiers.contains(ModifiersState::ALT) {
+                    self.left_alt_pressed = false;
+                    self.right_alt_pressed = false;
+                }
             }
             WindowEvent::Focused(focused) => {
                 if let Err(error) = self.handle_focus_changed(focused) {
@@ -49187,7 +49295,9 @@ mod tests {
         DEFAULT_MAX_FPS, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
         DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
         DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY,
+        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
@@ -61257,6 +61367,10 @@ mod tests {
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
                 treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+                send_composed_key_when_left_alt_is_pressed:
+                    DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+                send_composed_key_when_right_alt_is_pressed:
+                    DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED,
                 treat_east_asian_ambiguous_width_as_wide:
                     DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
                 normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
@@ -73004,6 +73118,104 @@ mod tests {
     }
 
     #[test]
+    fn window_app_sends_right_alt_composed_text_without_meta_prefix_by_default() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.handle_keyboard_input_event(
+            &Key::Named(NamedKey::Alt),
+            PhysicalKey::Code(WinitKeyCode::AltRight),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        app.modifiers = ModifiersState::ALT;
+        app.handle_keyboard_input_event(
+            &Key::Character("∂".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyD),
+            Some("∂"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), "∂".as_bytes());
+    }
+
+    #[test]
+    fn window_app_sends_right_alt_composed_release_without_alt_modifier_by_default() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_kitty_keyboard: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.handle_pty_output(b"\x1b[=2u").unwrap();
+
+        app.handle_keyboard_input_event(
+            &Key::Named(NamedKey::Alt),
+            PhysicalKey::Code(WinitKeyCode::AltRight),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        app.modifiers = ModifiersState::ALT;
+        app.handle_keyboard_input_event(
+            &Key::Character("∂".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyD),
+            Some("∂"),
+            ElementState::Released,
+            KittyKeyEventKind::Release,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x1b[8706;1:3u");
+    }
+
+    #[test]
+    fn window_app_matches_raw_alt_assignment_before_right_alt_composed_text() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.set_config_overrides(NativeConfigOverrides {
+            key_map_preference: Some(NativeKeyMapPreference::Physical),
+            key_assignments: Some(vec![NativeUserKeyAssignment {
+                keys: "ALT+D".to_owned(),
+                command: WindowCommand::ShowDebugOverlay,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+
+        app.handle_keyboard_input_event(
+            &Key::Named(NamedKey::Alt),
+            PhysicalKey::Code(WinitKeyCode::AltRight),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        app.modifiers = ModifiersState::ALT;
+        app.handle_keyboard_input_event(
+            &Key::Character("∂".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyD),
+            Some("∂"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
+        assert!(written.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn window_app_key_assignments_accept_wezterm_pipe_modifier_separator() {
         let mut app = NativeWindowApp::new(None);
         app.set_config_overrides(NativeConfigOverrides {
@@ -82013,6 +82225,8 @@ mod tests {
             config.enable_kitty_keyboard = true
             config.allow_win32_input_mode = false
             config.treat_left_ctrlalt_as_altgr = true
+            config.send_composed_key_when_left_alt_is_pressed = true
+            config.send_composed_key_when_right_alt_is_pressed = false
 
             return config
             "#,
@@ -82030,6 +82244,8 @@ mod tests {
         assert!(effective.enable_kitty_keyboard);
         assert!(!effective.allow_win32_input_mode);
         assert!(effective.treat_left_ctrlalt_as_altgr);
+        assert!(effective.send_composed_key_when_left_alt_is_pressed);
+        assert!(!effective.send_composed_key_when_right_alt_is_pressed);
     }
 
     #[test]
@@ -82041,6 +82257,8 @@ mod tests {
             effective.treat_left_ctrlalt_as_altgr,
             DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR
         );
+        assert!(!effective.send_composed_key_when_left_alt_is_pressed);
+        assert!(effective.send_composed_key_when_right_alt_is_pressed);
     }
 
     #[test]
@@ -91167,6 +91385,8 @@ mod tests {
             enable_kitty_keyboard: Some(true),
             allow_win32_input_mode: Some(false),
             treat_left_ctrlalt_as_altgr: Some(true),
+            send_composed_key_when_left_alt_is_pressed: Some(true),
+            send_composed_key_when_right_alt_is_pressed: Some(false),
             treat_east_asian_ambiguous_width_as_wide: Some(true),
             normalize_output_to_unicode_nfc: Some(true),
             unicode_version: Some(14),
@@ -91447,6 +91667,8 @@ mod tests {
             enable_kitty_keyboard: true,
             allow_win32_input_mode: false,
             treat_left_ctrlalt_as_altgr: true,
+            send_composed_key_when_left_alt_is_pressed: true,
+            send_composed_key_when_right_alt_is_pressed: false,
             treat_east_asian_ambiguous_width_as_wide: true,
             normalize_output_to_unicode_nfc: true,
             unicode_version: 14,
@@ -91630,6 +91852,10 @@ mod tests {
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+            send_composed_key_when_left_alt_is_pressed:
+                DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+            send_composed_key_when_right_alt_is_pressed:
+                DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED,
             treat_east_asian_ambiguous_width_as_wide:
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,

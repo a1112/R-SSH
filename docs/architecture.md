@@ -301,6 +301,8 @@ keyboard, mouse, paste, resize
   Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
   `ui_key_cap_rendering`, `enable_csi_u_key_encoding`, `enable_kitty_keyboard`,
   `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
+  `send_composed_key_when_left_alt_is_pressed`,
+  `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`, and
@@ -338,12 +340,15 @@ keyboard, mouse, paste, resize
   emoji/text presentation selectors adjust the prior cell width for FE0F/FE0E
   sequences.
   `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
-  AltGr text path rather than Ctrl+Alt key bindings. Native winit IME preedit
-  text renders through the Builtin overlay path at the active pane cursor, and
+  AltGr text path rather than Ctrl+Alt key bindings. Left/right Alt side state
+  honors WezTerm's composed-key defaults: left Alt keeps Meta behavior, while
+  right Alt writes composed text without an ESC Meta prefix unless a raw Alt key
+  assignment matches first. Native winit IME preedit text renders through the
+  Builtin overlay path at the active pane cursor, and
   static Lua `colors.compose_cursor` overrides the cursor color while Builtin
   preedit text, the leader modifier, or a dead key is active. Platform IME/XIM
-  connection, exact left/right modifier source tracking, and broader dynamic
-  `cell_widths` Lua parity remain future parity work.
+  connection, broader dead-key expansion, and broader dynamic `cell_widths` Lua
+  parity remain future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
   the configured leader key arms the virtual modifier until the next key press
@@ -1091,6 +1096,8 @@ keyboard, mouse, paste, resize
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
+  `send_composed_key_when_left_alt_is_pressed`,
+  `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`,
@@ -1159,8 +1166,12 @@ keyboard, mouse, paste, resize
   static bool variables, and are included in effective config snapshots.
   `treat_left_ctrlalt_as_altgr` is stored with WezTerm's default
   `false`; when enabled, Ctrl+Alt text key events are routed as AltGr text
-  input instead of matching Ctrl+Alt key bindings, while exact platform
-  left/right modifier source tracking remains future parity work.
+  input instead of matching Ctrl+Alt key bindings.
+  `send_composed_key_when_left_alt_is_pressed` is stored with WezTerm's default
+  `false`, `send_composed_key_when_right_alt_is_pressed` with WezTerm's default
+  `true`, and native window input tracks left/right Alt key state so composed
+  text from right Alt is written without an ESC Meta prefix while raw Alt key
+  assignments retain precedence.
   `treat_east_asian_ambiguous_width_as_wide` is stored with WezTerm's
   default `false` and, when enabled, makes the terminal runtime treat East
   Asian ambiguous-width characters as two cells wide; static numeric
@@ -1470,6 +1481,8 @@ keyboard, mouse, paste, resize
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
+  `send_composed_key_when_left_alt_is_pressed`,
+  `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`,
