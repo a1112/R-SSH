@@ -147,7 +147,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `active_tab_left`/`active_tab_right`/`inactive_tab_left`/
   `inactive_tab_right`/`inactive_tab_hover_left`/`inactive_tab_hover_right`/
   `new_tab_left`/`new_tab_right`/`new_tab_hover_left`/`new_tab_hover_right`
-  edge entries inline or through top-level static table variables.
+  edge entries inline, through top-level static table variables, or through
+  top-level `config[static_name].active_tab_left`/`active_tab_right`/
+  `inactive_tab_left`/`inactive_tab_right`/`new_tab_left`/`new_tab_right`
+  mutations where `static_name` resolves to `tab_bar_style`.
 - App-shell state now exposes WezTerm-style `SpawnWindow`: the default
   `Ctrl+Shift+N` and `Super+N` shortcuts plus command-palette `Spawn Window`
   entry create a pending native-window app with a fresh default-launch tab and
@@ -2554,7 +2557,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   native/effective config and apply to tab/new-tab labels; `tab_bar_style`
   active/inactive/inactive-hover/new-tab/new-tab-hover left/right edge
   entries parse static `wezterm.format` item arrays inline or through
-  top-level static table variables and apply to retro tab/new-tab labels;
+  top-level static table variables, plus top-level static-key field mutations,
+  and apply to retro tab/new-tab labels;
   top-level `command_palette_font_size` parses into native/effective config,
   while `command_palette_bg_color`/`command_palette_fg_color` parse and apply
   to normal command-palette candidate rows; top-level

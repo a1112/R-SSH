@@ -2373,8 +2373,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(tab_bar_style) =
-        lua_config_table_or_static_variable_assignment_from_query(config, "tab_bar_style")
-        && let Some(tab_bar_style) = native_tab_bar_style_lua_table_from_query(tab_bar_style)?
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "tab_bar_style",
+        )
+        .and_then(|tab_bar_style| {
+            native_tab_bar_style_lua_table_from_query(&tab_bar_style.value).flatten()
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "tab_bar_style")
+                .and_then(|tab_bar_style| {
+                    native_tab_bar_style_lua_table_from_query(tab_bar_style).flatten()
+                })
+        })
     {
         overrides.tab_bar_style = tab_bar_style;
         parsed = true;
@@ -6359,7 +6370,15 @@ fn lua_config_table_static_field_assignment_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableMapFieldAssignment {
         key,
-        value: lua_static_table_field_assignment_value_from_query(source, rest, start)?,
+        value: lua_static_table_field_assignment_value_from_query(source, rest, start).or_else(
+            || {
+                if field == "tab_bar_style" {
+                    lua_top_level_statement_value_from_query(rest)
+                } else {
+                    None
+                }
+            },
+        )?,
     })
 }
 
@@ -57397,6 +57416,48 @@ mod tests {
         assert!(
             tab_bar.contains("{ + }"),
             "new-tab button should be wrapped by configured tab_bar_style static variable edges: {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_tab_bar_style_field_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local style_field = 'tab_bar_style'
+
+            config[style_field] = {}
+            config[style_field].active_tab_left = wezterm.format({ { Text = '[' } })
+            config[style_field].active_tab_right = wezterm.format({ { Text = ']' } })
+            config[style_field].inactive_tab_left = wezterm.format({ { Text = '<' } })
+            config[style_field].inactive_tab_right = wezterm.format({ { Text = '>' } })
+            config[style_field].new_tab_left = wezterm.format({ { Text = '{' } })
+            config[style_field]['new_tab_right'] = wezterm.format({ { Text = '}' } })
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm static field-name tab_bar_style config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("[ 2:2* panes:1 x ]"),
+            "active tab should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("{ + }"),
+            "new-tab button should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
         );
     }
 
