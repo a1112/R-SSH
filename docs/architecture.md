@@ -286,10 +286,12 @@ keyboard, mouse, paste, resize
   inline, through top-level static table variables, or through
   `table.insert(config.cell_widths, { ... })` appends from WezTerm-style Lua,
   including `config[static_name]` assignments and
-  `table.insert(config[static_name], { ... })` appends where `static_name`
-  resolves to `cell_widths`, plus table-constructor `[static_name] = { ... }`
-  fields for directly returned or returned-variable config tables. Entries
-  parse inline or through top-level static table variables. Entry
+  `table.insert(config[static_name], { ... })` or
+  `config[static_name][#config[static_name] + 1] = { ... }` appends where
+  `static_name` resolves to `cell_widths`, plus table-constructor
+  `[static_name] = { ... }` fields for directly returned or returned-variable
+  config tables. Entries parse inline or through top-level static table
+  variables. Entry
   `first`/`last`/`width` fields parse inline or through top-level static
   number variables, and take priority over the ambiguous-width setting in
   active and new panes.
