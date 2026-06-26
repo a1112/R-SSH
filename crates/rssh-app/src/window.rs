@@ -10213,12 +10213,15 @@ fn lua_config_u32_array_field_assignment_from_table_query(
     max_start: usize,
 ) -> Option<LuaTableValueAssignment> {
     let mut selected = None;
+    let static_source = Some(LuaStaticSource { source, max_start });
 
     for table_field in split_lua_table_top_level_fields(table)? {
         let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
             continue;
         };
-        let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+        let Some(key) =
+            split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+        else {
             continue;
         };
         if key == field {
@@ -83116,6 +83119,33 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm static field-name return table clean exit codes config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.clean_exit_codes, [130, 143]);
+
+        let close_window = app.apply_pane_exit_behavior(
+            rssh_core::PaneId::new(1),
+            &PtyExitStatus::from_exit_code(143),
+        );
+        assert!(close_window);
+    }
+
+    #[test]
+    fn window_app_parses_static_initializer_clean_exit_codes_key() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("tool"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local codes_field = 'clean_exit_codes'
+            local config = {
+              exit_behavior = 'CloseOnCleanExit',
+              [codes_field] = { 130, [2] = 143 },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name initializer clean exit codes config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
