@@ -1237,8 +1237,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   as `config.keys[index] = { ... }`, `config.keys[index] = binding`, or
   `config.keys[#config.keys + 1] = { ... }`, plus direct indexed field
   mutations on existing binding tables such as `config.keys[1].key = 'K'`,
-  `config.keys[1].mods = 'CTRL|SHIFT'`, and
-  `config.keys[1].action = act.SendString '...'`, plus
+  `config.keys[1].mods = 'CTRL|SHIFT'`,
+  `config.keys[1].action = act.SendString '...'`, or the same
+  `config[static_name][1].field` form where `static_name` resolves to `keys`, plus
   `table.insert(config.key_tables.<name>, { ... })` nested appends plus
   static table variables such as
   `table.insert(config.key_tables.<name>, item)` or

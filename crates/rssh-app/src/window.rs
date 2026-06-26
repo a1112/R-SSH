@@ -6314,7 +6314,12 @@ fn lua_config_table_indexed_field_assignment_from_query<'a>(
 ) -> Option<LuaTableIndexedFieldAssignment<'a>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
     let (key, rest) = lua_table_map_field_key_from_query(rest)?;
     let rest = lua_trim_start_comments(rest)?;
@@ -74996,6 +75001,35 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("from-config-index-fields".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_key_index_field_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local keys_field = 'keys'
+            local config = {}
+
+            config[keys_field] = {}
+            config[keys_field][1] = {}
+            config[keys_field][1].key = 'K'
+            config[keys_field][1].mods = 'CTRL|SHIFT'
+            config[keys_field][1].action = act.SendString 'from-static-key-index-fields'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name indexed key field config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString("from-static-key-index-fields".to_owned()),
             }])
         );
     }
