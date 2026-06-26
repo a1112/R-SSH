@@ -2620,6 +2620,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `selection_bg = 'hsla(h,s,l,a)'`, `hwb(h w b / a)`, and `hsv(h s v / a)`
   alpha blending over the current cell background. Copy-mode/quick-select
   label/match `Color`/`AnsiColor` tables now parse into native/effective config,
+  including top-level `config.colors = colors` table variables with supported
+  static field mutations and static string variable bracket keys,
   `copy_mode_active_highlight_bg`/`copy_mode_active_highlight_fg` apply to
   copy-mode selections, `copy_mode_inactive_highlight_bg`/
   `copy_mode_inactive_highlight_fg` apply to non-current copy-mode search

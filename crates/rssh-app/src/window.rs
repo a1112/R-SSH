@@ -3040,8 +3040,16 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(colors_source) = lua_config_colors_source_from_query(config)? {
         match colors_source {
-            NativeConfigColorsLuaSource::Table(colors) => {
+            NativeConfigColorsLuaSource::Table { colors, variable } => {
                 parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
+                if let Some(variable) = variable.as_ref() {
+                    parsed |= apply_lua_color_variable_mutation_overrides(
+                        config,
+                        &variable.name,
+                        variable.mutation_max_start,
+                        &mut overrides,
+                    )?;
+                }
             }
             NativeConfigColorsLuaSource::LoadScheme(load_scheme) => {
                 parsed |= apply_toml_color_scheme_file_overrides(
@@ -9973,7 +9981,10 @@ struct NativeLoadSchemeColorsAssignment {
 }
 
 enum NativeConfigColorsLuaSource<'a> {
-    Table(&'a str),
+    Table {
+        colors: &'a str,
+        variable: Option<NativeLoadSchemeVariableReference>,
+    },
     LoadScheme(NativeLoadSchemeColorsAssignment),
 }
 
@@ -9998,7 +10009,10 @@ fn lua_config_colors_source_from_query<'a>(
     }
 
     if let Some(colors) = lua_config_table_assignment_from_query(source, "colors") {
-        return Some(Some(NativeConfigColorsLuaSource::Table(colors)));
+        return Some(Some(NativeConfigColorsLuaSource::Table {
+            colors,
+            variable: None,
+        }));
     }
 
     if let Some(load_scheme) = lua_config_load_scheme_colors_assignment_from_query(source) {
@@ -10147,7 +10161,10 @@ fn lua_config_colors_source_value_from_query<'a>(
     let value = lua_trim_start_comments(value)?.trim_start();
     if value.starts_with('{') {
         let colors = lua_braced_table_literal_from_query(value)?;
-        return Some(NativeConfigColorsLuaSource::Table(colors));
+        return Some(NativeConfigColorsLuaSource::Table {
+            colors,
+            variable: None,
+        });
     }
 
     if let Some(path) = lua_wezterm_color_load_scheme_path_literal_from_query(value)
@@ -10183,7 +10200,13 @@ fn lua_config_colors_variable_source_before_offset<'a>(
         if let Some(table) =
             lua_static_table_variable_assignment_table_from_query(table_statement, variable)
         {
-            selected = Some(NativeConfigColorsLuaSource::Table(table));
+            selected = Some(NativeConfigColorsLuaSource::Table {
+                colors: table,
+                variable: Some(NativeLoadSchemeVariableReference {
+                    name: variable.to_owned(),
+                    mutation_max_start: reference_start,
+                }),
+            });
             continue;
         }
         if let Some(path) = lua_load_scheme_assignment_path_from_query(statement, variable) {
@@ -10405,7 +10428,9 @@ fn lua_color_variable_mutation_table_from_query(
             continue;
         }
         let rest = source.get(start + variable.len()..)?.trim_start();
-        let Some((field_name, rest)) = lua_color_variable_mutation_field_from_query(rest) else {
+        let Some((field_name, rest)) =
+            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
+        else {
             continue;
         };
         let rest = lua_trim_start_comments(rest)?;
@@ -85011,6 +85036,56 @@ mod tests {
         assert_eq!(
             effective.launcher_label_fg,
             Some(NativeColorSpec::Color(Color::Rgb(13, 14, 15)))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_color_spec_static_key_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local colors = {}
+            local active_bg = 'copy_mode_active_highlight_bg'
+            local active_fg = 'copy_mode_active_highlight_fg'
+            local quick_match_bg = 'quick_select_match_bg'
+            local input_label_fg = 'input_selector_label_fg'
+            local launcher_label_bg = 'launcher_label_bg'
+
+            colors[active_bg] = { Color = '#111213' }
+            colors[active_fg] = { AnsiColor = 'Black' }
+            colors[quick_match_bg] = { AnsiColor = 'Navy' }
+            colors[input_label_fg] = { Color = '#141516' }
+            colors[launcher_label_bg] = { Color = '#171819' }
+            config.colors = colors
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm color spec static-key mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.copy_mode_active_highlight_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(17, 18, 19)))
+        );
+        assert_eq!(
+            effective.copy_mode_active_highlight_fg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black))
+        );
+        assert_eq!(
+            effective.quick_select_match_bg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy))
+        );
+        assert_eq!(
+            effective.input_selector_label_fg,
+            Some(NativeColorSpec::Color(Color::Rgb(20, 21, 22)))
+        );
+        assert_eq!(
+            effective.launcher_label_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(23, 24, 25)))
         );
     }
 
