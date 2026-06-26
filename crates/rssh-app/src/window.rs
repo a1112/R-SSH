@@ -9873,7 +9873,13 @@ fn lua_config_assignment_from_query<'a>(
     mut literal_from_query: impl FnMut(&'a str) -> Option<&'a str>,
 ) -> Option<&'a str> {
     if let Some(table) = lua_config_static_return_table_from_query(source) {
-        return lua_config_table_field_assignment_from_query(table, field, &mut literal_from_query);
+        let max_start = lua_source_slice_start_offset(source, table)?;
+        return lua_config_table_field_assignment_from_query_with_static_source(
+            Some(LuaStaticSource { source, max_start }),
+            table,
+            field,
+            &mut literal_from_query,
+        );
     }
     let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
 
@@ -10070,13 +10076,29 @@ fn lua_config_table_field_assignment_from_query<'a>(
     field: &str,
     literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
 ) -> Option<&'a str> {
+    lua_config_table_field_assignment_from_query_with_static_source(
+        None,
+        table,
+        field,
+        literal_from_query,
+    )
+}
+
+fn lua_config_table_field_assignment_from_query_with_static_source<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    table: &'a str,
+    field: &str,
+    literal_from_query: &mut impl FnMut(&'a str) -> Option<&'a str>,
+) -> Option<&'a str> {
     let mut selected = None;
 
     for table_field in split_lua_table_top_level_fields(table)? {
         let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
             continue;
         };
-        let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+        let Some(key) =
+            split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+        else {
             continue;
         };
         if key == field {
@@ -80645,6 +80667,34 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm IME config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.use_ime);
+        assert_eq!(
+            effective.ime_preedit_rendering,
+            NativeImePreeditRendering::System
+        );
+        assert_eq!(effective.xim_im_name.as_deref(), Some("fcitx"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_field_name_return_table_ime_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local ime_field = 'use_ime'
+            local preedit_field = 'ime_preedit_rendering'
+            local xim_field = 'xim_im_name'
+
+            return {
+                [ime_field] = false,
+                [preedit_field] = 'System',
+                [xim_field] = 'fcitx',
+            }
+            "#,
+        )
+        .expect("expected WezTerm static field-name return table IME config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

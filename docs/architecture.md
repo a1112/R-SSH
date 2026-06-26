@@ -278,7 +278,9 @@ keyboard, mouse, paste, resize
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
   `ime_preedit_rendering`, and `xim_im_name` parse into the native override
-  path. `ui_key_cap_rendering` controls native command-palette key-assignment
+  path, including direct `return { [static_name] = ... }` config tables whose
+  static key variables resolve to those field names. `ui_key_cap_rendering`
+  controls native command-palette key-assignment
   display labels with UnixLong, Emacs, AppleSymbols, WindowsLong, and
   WindowsSymbols styles. `treat_east_asian_ambiguous_width_as_wide` updates
   terminal character width calculation for ambiguous East Asian width characters

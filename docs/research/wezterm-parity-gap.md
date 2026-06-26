@@ -427,7 +427,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `unicode_version` with WezTerm's default `9`,
   `use_ime` with WezTerm's current default `true`,
   `ime_preedit_rendering` with the `Builtin` default, plus optional
-  `xim_im_name`; `treat_east_asian_ambiguous_width_as_wide` updates terminal
+  `xim_im_name`, including direct `return { [static_name] = ... }` config
+  tables whose static key variables resolve to those field names;
+  `treat_east_asian_ambiguous_width_as_wide` updates terminal
   character width calculation for ambiguous East Asian width characters, and
   static numeric `cell_widths` override tables parse inline, through
   top-level static table variables, or through
