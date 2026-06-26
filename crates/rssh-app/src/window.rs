@@ -6511,7 +6511,12 @@ fn lua_config_u32_array_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let after_receiver = lua_config_receiver_prefix_rest(rest, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     if let Some(value) = lua_table_insert_value_u32_from_query(source, rest, start) {
@@ -6539,7 +6544,12 @@ fn lua_config_u32_array_index_or_append_assignment_from_query<'a>(
 ) -> Option<LuaTableIndexOrAppendAssignment<&'a str>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     if let Some(assignment) = lua_u32_array_index_assignment_value_from_query(source, rest, start) {
         return Some(LuaTableIndexOrAppendAssignment {
             index: Some(assignment.index),
@@ -6552,7 +6562,12 @@ fn lua_config_u32_array_index_or_append_assignment_from_query<'a>(
     let after_hash = lua_trim_start_comments(after_hash)?;
     let after_receiver = lua_config_receiver_prefix_rest(after_hash, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     Some(LuaTableIndexOrAppendAssignment {
         index: None,
         value: lua_u32_array_length_append_assignment_value_after_target_from_query(
@@ -83269,6 +83284,64 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm clean exit codes table insert config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.clean_exit_codes, [130, 143]);
+
+        let close_window = app.apply_pane_exit_behavior(
+            rssh_core::PaneId::new(1),
+            &PtyExitStatus::from_exit_code(143),
+        );
+        assert!(close_window);
+    }
+
+    #[test]
+    fn window_app_parses_static_key_clean_exit_codes_table_insert() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("tool"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local codes_field = 'clean_exit_codes'
+            local config = {}
+
+            config.exit_behavior = 'CloseOnCleanExit'
+            config[codes_field] = {}
+            table.insert(config[codes_field], 130)
+            table.insert(config[codes_field], 143)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name clean exit codes insert config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.clean_exit_codes, [130, 143]);
+
+        let close_window = app.apply_pane_exit_behavior(
+            rssh_core::PaneId::new(1),
+            &PtyExitStatus::from_exit_code(143),
+        );
+        assert!(close_window);
+    }
+
+    #[test]
+    fn window_app_parses_static_key_clean_exit_codes_length_append() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("tool"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local codes_field = 'clean_exit_codes'
+            local config = {}
+
+            config.exit_behavior = 'CloseOnCleanExit'
+            config[codes_field] = {}
+            config[codes_field][#config[codes_field] + 1] = 130
+            config[codes_field][#config[codes_field] + 1] = 143
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name clean exit codes length append config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();

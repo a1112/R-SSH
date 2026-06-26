@@ -976,7 +976,10 @@ keyboard, mouse, paste, resize
   `exit_behavior_messaging`, and `clean_exit_codes` inline, through top-level
   static table variables with pre/post-assignment `table.insert` appends, or
   through static field names in returned config table initializers and direct
-  return-table configs or `table.insert(config.clean_exit_codes, ...)` appends;
+  return-table configs, `table.insert(config.clean_exit_codes, ...)` appends,
+  or `table.insert(config[static_name], ...)` and
+  `config[static_name][#config[static_name] + 1] = ...` appends where
+  `static_name` resolves to `clean_exit_codes`;
   exact message text parity remains future work.
 - Completed in v1: ClosePane follows WezTerm-style lifecycle cascading by
   closing a single-pane tab when another tab exists, while final tab/pane close
