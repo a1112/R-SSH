@@ -23753,12 +23753,17 @@ impl NativeWindowApp {
         let mut column =
             u16::try_from(self.macos_native_integrated_title_button_spacer_width()).unwrap_or(0);
         if self.integrated_title_buttons_are_left_aligned() {
-            write_tab_bar_format_items(
-                &mut cells,
-                &mut column,
-                &self.integrated_title_buttons_tab_bar_items(hover_column),
-                self.integrated_title_button_segment_style(background),
-            );
+            let hovered_button = hover_column
+                .and_then(|column| self.integrated_title_button_for_tab_bar_column(column));
+            for button in &self.integrated_title_buttons {
+                let hovered = hovered_button == Some(*button);
+                write_tab_bar_format_items(
+                    &mut cells,
+                    &mut column,
+                    &self.integrated_title_button_tab_bar_items(*button, hovered),
+                    self.integrated_title_button_segment_style(background, hovered),
+                );
+            }
         }
         write_tab_bar_segment(
             &mut cells,
@@ -23965,12 +23970,18 @@ impl NativeWindowApp {
             let mut button_column = columns.saturating_sub(
                 u16::try_from(right_integrated_title_buttons_width).unwrap_or(columns),
             );
-            write_tab_bar_format_items(
-                &mut cells,
-                &mut button_column,
-                &right_integrated_title_buttons_items,
-                self.integrated_title_button_segment_style(background),
-            );
+            let hovered_button = hover_column
+                .and_then(|column| self.integrated_title_button_for_tab_bar_column(column));
+            for button in &self.integrated_title_buttons {
+                let hovered = hovered_button == Some(*button);
+                let style = self.integrated_title_button_segment_style(background, hovered);
+                write_tab_bar_format_items(
+                    &mut cells,
+                    &mut button_column,
+                    &self.integrated_title_button_tab_bar_items(*button, hovered),
+                    style,
+                );
+            }
         }
 
         let row = self.tab_bar_frame_row();
@@ -24239,12 +24250,30 @@ impl NativeWindowApp {
         normal.max(hover)
     }
 
-    fn integrated_title_button_segment_style(&self, background: Color) -> TabBarSegmentStyle {
-        let foreground = match self.integrated_title_button_color {
-            NativeIntegratedTitleButtonColor::Auto => Color::Rgb(230, 230, 230),
-            NativeIntegratedTitleButtonColor::Color(color) => color,
+    fn integrated_title_button_segment_style(
+        &self,
+        background: Color,
+        hovered: bool,
+    ) -> TabBarSegmentStyle {
+        let button_background = if hovered {
+            self.window_frame_appearance.button_hover_bg
+        } else {
+            self.window_frame_appearance.button_bg
+        }
+        .unwrap_or(background);
+        let button_foreground = if hovered {
+            self.window_frame_appearance.button_hover_fg
+        } else {
+            self.window_frame_appearance.button_fg
         };
-        tab_bar_segment_style(foreground, background, true)
+        let foreground = match button_foreground {
+            Some(foreground) => foreground,
+            None => match self.integrated_title_button_color {
+                NativeIntegratedTitleButtonColor::Auto => Color::Rgb(230, 230, 230),
+                NativeIntegratedTitleButtonColor::Color(color) => color,
+            },
+        };
+        tab_bar_segment_style(foreground, button_background, true)
     }
 
     fn integrated_title_button_for_tab_bar_column(
@@ -62054,6 +62083,55 @@ mod tests {
             tab_bar.starts_with(" h  m  c  ws:default"),
             "tab bar was {tab_bar:?}"
         );
+    }
+
+    #[test]
+    fn window_app_applies_window_frame_button_colors_to_integrated_title_buttons() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            window_decorations: Some(NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }),
+            integrated_title_buttons: Some(vec![NativeIntegratedTitleButton::Close]),
+            integrated_title_button_style: Some(NativeIntegratedTitleButtonStyle::Windows),
+            window_frame_appearance: Some(NativeWindowFrameAppearance {
+                button_fg: Some(Color::Rgb(23, 24, 25)),
+                button_bg: Some(Color::Rgb(45, 46, 47)),
+                button_hover_fg: Some(Color::Rgb(67, 68, 69)),
+                button_hover_bg: Some(Color::Rgb(89, 90, 91)),
+                ..NativeWindowFrameAppearance::default()
+            }),
+            ..NativeConfigOverrides::default()
+        });
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let close_column = tab_bar.find('X').expect("close button should render");
+        let close_cell = snapshot_cell(&snapshot, 0, u16::try_from(close_column).unwrap_or(0))
+            .expect("expected close button cell");
+
+        assert_eq!(close_cell.foreground, Color::Rgb(23, 24, 25));
+        assert_eq!(close_cell.background, Color::Rgb(45, 46, 47));
+
+        let x = u32::try_from(close_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        let hovered_snapshot = app.render_snapshot();
+        let hovered_cell = snapshot_cell(
+            &hovered_snapshot,
+            0,
+            u16::try_from(close_column).unwrap_or(0),
+        )
+        .expect("expected hovered close button cell");
+
+        assert_eq!(hovered_cell.foreground, Color::Rgb(67, 68, 69));
+        assert_eq!(hovered_cell.background, Color::Rgb(89, 90, 91));
     }
 
     #[test]
