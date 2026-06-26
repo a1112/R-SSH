@@ -33,6 +33,8 @@ use rssh_terminal::{
 };
 use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
+#[cfg(target_os = "macos")]
+use winit::platform::macos::WindowExtMacOS;
 #[cfg(target_os = "windows")]
 use winit::platform::windows::WindowAttributesExtWindows;
 use winit::{
@@ -15428,10 +15430,14 @@ impl NativeWindowApp {
     fn toggle_full_screen(&mut self) {
         self.full_screen = !self.full_screen;
         if let Some(window) = &self.window {
-            let full_screen = self
-                .full_screen
-                .then(|| Fullscreen::Borderless(window.current_monitor()));
-            window.set_fullscreen(full_screen);
+            apply_native_fullscreen(
+                window,
+                native_fullscreen_request(
+                    self.full_screen,
+                    self.native_macos_fullscreen_mode,
+                    current_native_fullscreen_platform(),
+                ),
+            );
         }
 
         let resize = self.native_window_resize_event(
@@ -48466,6 +48472,71 @@ fn native_window_resize_increments_supported() -> bool {
     ))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeFullscreenPlatform {
+    Macos,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeFullscreenRequest {
+    Windowed,
+    Borderless,
+    MacosSimple,
+}
+
+fn current_native_fullscreen_platform() -> NativeFullscreenPlatform {
+    if cfg!(target_os = "macos") {
+        NativeFullscreenPlatform::Macos
+    } else {
+        NativeFullscreenPlatform::Other
+    }
+}
+
+fn native_fullscreen_request(
+    full_screen: bool,
+    native_macos_fullscreen_mode: bool,
+    platform: NativeFullscreenPlatform,
+) -> NativeFullscreenRequest {
+    if !full_screen {
+        return NativeFullscreenRequest::Windowed;
+    }
+
+    if platform == NativeFullscreenPlatform::Macos && !native_macos_fullscreen_mode {
+        NativeFullscreenRequest::MacosSimple
+    } else {
+        NativeFullscreenRequest::Borderless
+    }
+}
+
+fn apply_native_fullscreen(window: &Window, request: NativeFullscreenRequest) {
+    match request {
+        NativeFullscreenRequest::Windowed => {
+            let _ = set_native_simple_fullscreen(window, false);
+            window.set_fullscreen(None);
+        }
+        NativeFullscreenRequest::Borderless => {
+            let _ = set_native_simple_fullscreen(window, false);
+            window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+        }
+        NativeFullscreenRequest::MacosSimple => {
+            if !set_native_simple_fullscreen(window, true) {
+                window.set_fullscreen(Some(Fullscreen::Borderless(window.current_monitor())));
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn set_native_simple_fullscreen(window: &Window, full_screen: bool) -> bool {
+    window.set_simple_fullscreen(full_screen)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn set_native_simple_fullscreen(_window: &Window, _full_screen: bool) -> bool {
+    false
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn window_dpi_from_scale_factor(scale_factor: f64) -> u32 {
     if !scale_factor.is_finite() || scale_factor <= 0.0 {
@@ -49057,9 +49128,9 @@ mod tests {
         DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
         DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
-        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS,
+        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
+        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
@@ -55108,6 +55179,36 @@ mod tests {
             scaled_increment_cell_size
         );
         assert_eq!(app.window_resize_increments(), expected_scaled_increments);
+    }
+
+    #[test]
+    fn fullscreen_strategy_selects_simple_macos_fullscreen_when_native_mode_is_disabled() {
+        let request =
+            super::native_fullscreen_request(true, false, super::NativeFullscreenPlatform::Macos);
+
+        assert_eq!(request, super::NativeFullscreenRequest::MacosSimple);
+    }
+
+    #[test]
+    fn fullscreen_strategy_selects_native_macos_fullscreen_when_native_mode_is_enabled() {
+        let request =
+            super::native_fullscreen_request(true, true, super::NativeFullscreenPlatform::Macos);
+
+        assert_eq!(request, super::NativeFullscreenRequest::Borderless);
+    }
+
+    #[test]
+    fn fullscreen_strategy_keeps_borderless_fullscreen_on_non_macos_platforms() {
+        let fullscreen_request =
+            super::native_fullscreen_request(true, false, super::NativeFullscreenPlatform::Other);
+        let windowed_request =
+            super::native_fullscreen_request(false, false, super::NativeFullscreenPlatform::Macos);
+
+        assert_eq!(
+            fullscreen_request,
+            super::NativeFullscreenRequest::Borderless
+        );
+        assert_eq!(windowed_request, super::NativeFullscreenRequest::Windowed);
     }
 
     #[test]

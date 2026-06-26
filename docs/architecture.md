@@ -1124,8 +1124,10 @@ keyboard, mouse, paste, resize
   checks and update-window UI remain future parity work.
   `native_macos_fullscreen_mode` is stored with WezTerm's default `false`,
   parses inline or through top-level static bool variables, and is included in
-  effective config snapshots; actual native macOS fullscreen backend behavior
-  remains future platform parity work. `max_fps` is stored
+  effective config snapshots; on macOS, `ToggleFullScreen` uses simple fullscreen
+  by default and the native macOS Space transition when this option is `true`.
+  Non-macOS platforms keep the existing borderless fullscreen behavior.
+  `max_fps` is stored
   with WezTerm's default `60` and parses inline or through top-level static
   number variables before throttling native redraw requests from `about_to_wait`
   to the configured frame interval. `animation_fps` is stored with the default
@@ -1504,8 +1506,9 @@ keyboard, mouse, paste, resize
   `use_resize_increments` applies current cell-size resize hints on
   X11/Wayland/macOS-capable builds and remains a WezTerm-style no-op on
   unsupported platforms. `native_macos_fullscreen_mode` is retained with
-  WezTerm's default `false`; actual native macOS fullscreen behavior remains
-  future platform parity work. Lua event wiring, full WezTerm-style configuration
+  WezTerm's default `false`; on macOS, `ToggleFullScreen` uses simple fullscreen
+  unless this option is `true`, in which case it uses native macOS fullscreen.
+  Lua event wiring, full WezTerm-style configuration
   error window UI, actual Lua config reload, automatic file watching, Lua
   `window:set_config_overrides` wiring, and broader config option coverage
   remain future parity work.
