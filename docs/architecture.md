@@ -97,7 +97,8 @@ keyboard, mouse, paste, resize
   `set_environment_variables` maps parse inline, through top-level static
   table variables with pre/post-assignment field mutations including config
   table initializer aliases, through static field names in returned config
-  table initializers and direct return-table configs, or through top-level
+  table initializers, direct return-table configs, and top-level
+  `config[static_name] = { ... }` assignments, or through top-level
   `config.set_environment_variables.NAME`, `config[static_name].NAME`, and
   `config[static_name]['NAME']` field mutations; native
   `default_workspace` names the initial default workspace before spawn when no

@@ -5282,9 +5282,12 @@ fn lua_config_table_map_assignment_with_field_mutations_from_query(
                 }
             }
 
-            if let Some(after_field) =
-                lua_config_field_access_rest_from_query(after_receiver, field)
-            {
+            if let Some(after_field) = lua_config_field_access_rest_from_query_with_static_key(
+                source,
+                after_receiver,
+                field,
+                start,
+            ) {
                 let after_field = lua_trim_start_comments(after_field)?;
                 if let Some(after_assignment) = after_field.strip_prefix('=')
                     && let Some(assignment) = lua_table_map_assignment_from_query(
@@ -79120,6 +79123,43 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm static field-name initializer environment config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
+        assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_parses_static_key_environment_table_assignment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local env_field = 'set_environment_variables'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config[env_field] = {
+              PROJECT_MODE = 'dev',
+              FEATURE_FLAG = 'on',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name environment table config");
         app.set_config_overrides(overrides);
 
         assert!(app.command_palette_execute(WindowCommand::NewTab));
