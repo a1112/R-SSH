@@ -383,7 +383,8 @@ keyboard, mouse, paste, resize
   `config.key_tables.<name>[1].key = 'h'` and
   `config.key_tables.<name>[1].action = act.SendString '...'`, parse into
   native key assignments, with bracket field selectors such as
-  `config['key_tables']` supported for nested inserts. Static
+  `config['key_tables']` and `config[static_name]` supported for nested inserts
+  where `static_name` resolves to `key_tables`. Static
   `config.key_tables = user_key_tables` assignments also merge top-level nested
   inserts such as `table.insert(user_key_tables.resize_pane, { ... })` and
   static field assignments such as `user_key_tables.resize_pane = { ... }`, as
