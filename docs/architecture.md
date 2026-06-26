@@ -1179,7 +1179,10 @@ keyboard, mouse, paste, resize
   static table variables, through static field names in returned config table
   initializers and direct return-table configs, or through
   `table.insert(config.skip_close_confirmation_for_processes_named, ...)`
-  appends. Full child process tree inspection and
+  appends, plus `table.insert(config[static_name], ...)` and
+  `config[static_name][#config[static_name] + 1] = ...` appends where
+  `static_name` resolves to `skip_close_confirmation_for_processes_named`.
+  Full child process tree inspection and
   `mux-is-process-stateful` remain future parity work.
 - Implemented in v1: opening the command palette dispatches a typed native
   `augment-command-palette` hook with the window id and active pane id. Returned

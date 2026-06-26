@@ -6597,7 +6597,12 @@ fn lua_config_string_array_insert_append_value_from_query<'a>(
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let after_receiver = lua_config_receiver_prefix_rest(rest, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     if let Some(value) = lua_table_insert_value_string_from_query(source, rest, start) {
@@ -6625,7 +6630,12 @@ fn lua_config_string_array_index_or_append_assignment_from_query<'a>(
 ) -> Option<LuaTableIndexOrAppendAssignment<&'a str>> {
     let after_receiver = lua_config_receiver_prefix_rest(source.get(start..)?, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     if let Some(assignment) =
         lua_string_array_index_assignment_value_from_query(source, rest, start)
     {
@@ -6640,7 +6650,12 @@ fn lua_config_string_array_index_or_append_assignment_from_query<'a>(
     let after_hash = lua_trim_start_comments(after_hash)?;
     let after_receiver = lua_config_receiver_prefix_rest(after_hash, receiver)?;
     let after_receiver = lua_trim_start_comments(after_receiver)?;
-    let rest = lua_config_field_access_rest_from_query(after_receiver, field)?;
+    let rest = lua_config_field_access_rest_from_query_with_static_key(
+        source,
+        after_receiver,
+        field,
+        start,
+    )?;
     Some(LuaTableIndexOrAppendAssignment {
         index: None,
         value: lua_string_array_length_append_assignment_value_after_target_from_query(
@@ -83106,6 +83121,68 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm skip close confirmation table insert config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            ["top".to_owned(), "cmd.exe".to_owned()]
+        );
+
+        app.handle_window_close_requested();
+
+        assert!(app.window_close_requested_for_test());
+        assert!(app.close_confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_static_key_skip_close_confirmation_table_insert() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("top"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local skip_field = 'skip_close_confirmation_for_processes_named'
+            local config = {}
+
+            config.window_close_confirmation = 'AlwaysPrompt'
+            config[skip_field] = {}
+            table.insert(config[skip_field], 'top')
+            table.insert(config[skip_field], 'cmd.exe')
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name skip close insert config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.skip_close_confirmation_for_processes_named,
+            ["top".to_owned(), "cmd.exe".to_owned()]
+        );
+
+        app.handle_window_close_requested();
+
+        assert!(app.window_close_requested_for_test());
+        assert!(app.close_confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_static_key_skip_close_confirmation_length_append() {
+        let mut app = NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("top"));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local skip_field = 'skip_close_confirmation_for_processes_named'
+            local config = {}
+
+            config.window_close_confirmation = 'AlwaysPrompt'
+            config[skip_field] = {}
+            config[skip_field][#config[skip_field] + 1] = 'top'
+            config[skip_field][#config[skip_field] + 1] = 'cmd.exe'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name skip close length append config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
