@@ -159,8 +159,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   mutations where `static_name` resolves to `tab_bar_style`. When
   `window_decorations` includes WezTerm-style `INTEGRATED_BUTTONS`, the retro
   tab bar renders configured integrated title buttons in configured order and
-  left/right alignment, applies Auto/custom button color, and dispatches
-  Hide/Maximize/Close clicks through the native window action paths.
+  left/right alignment, applies Auto/custom button color, uses WezTerm's retro
+  defaults `.`, `-`, and `X`, honors `tab_bar_style.window_hide`/
+  `window_maximize`/`window_close` `wezterm.format` label overrides, and
+  dispatches Hide/Maximize/Close clicks through the native window action paths.
 - App-shell state now exposes WezTerm-style `SpawnWindow`: the default
   `Ctrl+Shift+N` and `Super+N` shortcuts plus command-palette `Spawn Window`
   entry create a pending native-window app with a fresh default-launch tab and
@@ -2592,7 +2594,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   active/inactive/inactive-hover/new-tab/new-tab-hover left/right edge
   entries parse static `wezterm.format` item arrays inline or through
   top-level static table variables, plus top-level static-key field mutations,
-  and apply to retro tab/new-tab labels;
+  and apply to retro tab/new-tab labels; `tab_bar_style.window_hide`,
+  `window_hide_hover`, `window_maximize`, `window_maximize_hover`,
+  `window_close`, and `window_close_hover` parse static `wezterm.format` item
+  arrays and apply to retro integrated title button labels;
   top-level `command_palette_font_size` parses into native/effective config,
   while `command_palette_bg_color`/`command_palette_fg_color` parse and apply
   to normal command-palette candidate rows; top-level
@@ -2613,10 +2618,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm defaults and static Lua parsing for reordered/removed button lists,
   alignment, style, and Auto/custom color values. Retro tab bar rendering now
   supports configured integrated title button order, left/right alignment,
-  Auto/custom color, and Hide/Maximize/Close click dispatch when
-  `window_decorations` includes `INTEGRATED_BUTTONS`. Fine-grained native/fancy
-  titlebar styling, resize-border behavior, OS-specific button styles, and
-  macOS shadow/corner behavior remain later OS-specific parity work.
+  Auto/custom color, WezTerm retro default `.`, `-`, and `X` labels,
+  `tab_bar_style.window_*` label overrides, and Hide/Maximize/Close click
+  dispatch when `window_decorations` includes `INTEGRATED_BUTTONS`.
+  Fine-grained native/fancy titlebar styling, resize-border behavior,
+  OS-specific button styles, and macOS shadow/corner behavior remain later
+  OS-specific parity work.
 - Native terminal rendering applies WezTerm-style `text_blink_rate`,
   `text_blink_rate_rapid`, `text_blink_ease_in`, `text_blink_ease_out`,
   `text_blink_rapid_ease_in`, and `text_blink_rapid_ease_out` to SGR 5/6

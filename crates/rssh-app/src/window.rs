@@ -1993,6 +1993,12 @@ struct NativeTabBarStyle {
     new_tab_right: Option<Vec<NativeFormatItem>>,
     new_tab_hover_left: Option<Vec<NativeFormatItem>>,
     new_tab_hover_right: Option<Vec<NativeFormatItem>>,
+    window_hide: Option<Vec<NativeFormatItem>>,
+    window_hide_hover: Option<Vec<NativeFormatItem>>,
+    window_maximize: Option<Vec<NativeFormatItem>>,
+    window_maximize_hover: Option<Vec<NativeFormatItem>>,
+    window_close: Option<Vec<NativeFormatItem>>,
+    window_close_hover: Option<Vec<NativeFormatItem>>,
 }
 
 impl NativeTabBarStyle {
@@ -2007,6 +2013,12 @@ impl NativeTabBarStyle {
             && self.new_tab_right.is_none()
             && self.new_tab_hover_left.is_none()
             && self.new_tab_hover_right.is_none()
+            && self.window_hide.is_none()
+            && self.window_hide_hover.is_none()
+            && self.window_maximize.is_none()
+            && self.window_maximize_hover.is_none()
+            && self.window_close.is_none()
+            && self.window_close_hover.is_none()
     }
 }
 
@@ -22838,12 +22850,13 @@ impl NativeWindowApp {
             })
             .collect::<Vec<_>>();
 
+        let hover_column = self.tab_bar_hover_column();
         let mut column = 0u16;
         if self.integrated_title_buttons_are_left_aligned() {
-            write_tab_bar_ansi_segment(
+            write_tab_bar_format_items(
                 &mut cells,
                 &mut column,
-                &self.integrated_title_buttons_tab_bar_label(),
+                &self.integrated_title_buttons_tab_bar_items(hover_column),
                 self.integrated_title_button_segment_style(background),
             );
         }
@@ -22864,7 +22877,6 @@ impl NativeWindowApp {
             );
         }
 
-        let hover_column = self.tab_bar_hover_column();
         if self.show_tabs_in_tab_bar {
             let active_tab_id = self.app_shell.active_tab_id();
             for (index, tab) in self.app_shell.active_workspace().tabs().iter().enumerate() {
@@ -23034,12 +23046,14 @@ impl NativeWindowApp {
             write_tab_bar_format_items_if_configured(&mut cells, &mut column, right_edge, style);
         }
 
-        let right_integrated_title_buttons_label = self
-            .integrated_title_buttons_are_right_aligned()
-            .then(|| self.integrated_title_buttons_tab_bar_label())
-            .unwrap_or_default();
+        let right_integrated_title_buttons_items =
+            if self.integrated_title_buttons_are_right_aligned() {
+                self.integrated_title_buttons_tab_bar_items(hover_column)
+            } else {
+                Vec::new()
+            };
         let right_integrated_title_buttons_width =
-            tab_bar_ansi_visible_width(&right_integrated_title_buttons_label);
+            native_format_items_visible_width(&right_integrated_title_buttons_items);
         if !self.right_status.is_empty() {
             write_right_aligned_tab_bar_segment_with_reserved(
                 &mut cells,
@@ -23048,10 +23062,14 @@ impl NativeWindowApp {
                 right_integrated_title_buttons_width,
             );
         }
-        if !right_integrated_title_buttons_label.is_empty() {
-            write_right_aligned_tab_bar_segment(
+        if right_integrated_title_buttons_width > 0 {
+            let mut button_column = columns.saturating_sub(
+                u16::try_from(right_integrated_title_buttons_width).unwrap_or(columns),
+            );
+            write_tab_bar_format_items(
                 &mut cells,
-                &right_integrated_title_buttons_label,
+                &mut button_column,
+                &right_integrated_title_buttons_items,
                 self.integrated_title_button_segment_style(background),
             );
         }
@@ -23193,18 +23211,71 @@ impl NativeWindowApp {
             && self.integrated_title_button_alignment == NativeIntegratedTitleButtonAlignment::Right
     }
 
-    fn integrated_title_buttons_tab_bar_label(&self) -> String {
-        integrated_title_buttons_tab_bar_label(&self.integrated_title_buttons)
+    fn integrated_title_buttons_tab_bar_items(
+        &self,
+        hover_column: Option<u16>,
+    ) -> Vec<NativeFormatItem> {
+        let hovered_button =
+            hover_column.and_then(|column| self.integrated_title_button_for_tab_bar_column(column));
+        let mut items = Vec::new();
+        for button in &self.integrated_title_buttons {
+            items.extend(
+                self.integrated_title_button_tab_bar_items(
+                    *button,
+                    hovered_button == Some(*button),
+                ),
+            );
+        }
+        items
+    }
+
+    fn integrated_title_button_tab_bar_items(
+        &self,
+        button: NativeIntegratedTitleButton,
+        hovered: bool,
+    ) -> Vec<NativeFormatItem> {
+        let (normal, hover) = match button {
+            NativeIntegratedTitleButton::Hide => (
+                self.tab_bar_style.window_hide.as_ref(),
+                self.tab_bar_style.window_hide_hover.as_ref(),
+            ),
+            NativeIntegratedTitleButton::Maximize => (
+                self.tab_bar_style.window_maximize.as_ref(),
+                self.tab_bar_style.window_maximize_hover.as_ref(),
+            ),
+            NativeIntegratedTitleButton::Close => (
+                self.tab_bar_style.window_close.as_ref(),
+                self.tab_bar_style.window_close_hover.as_ref(),
+            ),
+        };
+        if hovered { hover.or(normal) } else { normal }
+            .cloned()
+            .unwrap_or_else(|| {
+                vec![NativeFormatItem::Text(
+                    integrated_title_button_default_tab_bar_label(button).to_owned(),
+                )]
+            })
     }
 
     fn integrated_title_buttons_tab_bar_width(&self) -> usize {
         if self.integrated_title_buttons_are_visible() {
-            self.integrated_title_buttons_tab_bar_label()
-                .chars()
-                .count()
+            self.integrated_title_buttons
+                .iter()
+                .map(|button| self.integrated_title_button_tab_bar_width(*button))
+                .sum()
         } else {
             0
         }
+    }
+
+    fn integrated_title_button_tab_bar_width(&self, button: NativeIntegratedTitleButton) -> usize {
+        let normal = native_format_items_visible_width(
+            &self.integrated_title_button_tab_bar_items(button, false),
+        );
+        let hover = native_format_items_visible_width(
+            &self.integrated_title_button_tab_bar_items(button, true),
+        );
+        normal.max(hover)
     }
 
     fn integrated_title_button_segment_style(&self, background: Color) -> TabBarSegmentStyle {
@@ -23238,19 +23309,14 @@ impl NativeWindowApp {
             return None;
         }
 
-        let mut cursor = start.saturating_add(1);
+        let mut cursor = start;
         for button in &self.integrated_title_buttons {
-            let width = u16::try_from(
-                integrated_title_button_tab_bar_label(*button)
-                    .chars()
-                    .count(),
-            )
-            .ok()?;
+            let width = u16::try_from(self.integrated_title_button_tab_bar_width(*button)).ok()?;
             let end = cursor.saturating_add(width);
             if column >= cursor && column < end {
                 return Some(*button);
             }
-            cursor = end.saturating_add(1);
+            cursor = end;
         }
 
         None
@@ -37276,6 +37342,18 @@ fn native_tab_bar_style_lua_table_from_query(value: &str) -> Option<Option<Nativ
             "new_tab_hover_right" => {
                 assign_tab_bar_style_edge(&mut style.new_tab_hover_right, items)?;
             }
+            "window_hide" => assign_tab_bar_style_edge(&mut style.window_hide, items)?,
+            "window_hide_hover" => {
+                assign_tab_bar_style_edge(&mut style.window_hide_hover, items)?;
+            }
+            "window_maximize" => assign_tab_bar_style_edge(&mut style.window_maximize, items)?,
+            "window_maximize_hover" => {
+                assign_tab_bar_style_edge(&mut style.window_maximize_hover, items)?;
+            }
+            "window_close" => assign_tab_bar_style_edge(&mut style.window_close, items)?,
+            "window_close_hover" => {
+                assign_tab_bar_style_edge(&mut style.window_close_hover, items)?;
+            }
             _ => {}
         }
     }
@@ -46754,28 +46832,14 @@ const fn tab_bar_new_tab_label() -> &'static str {
     " + "
 }
 
-fn integrated_title_button_tab_bar_label(button: NativeIntegratedTitleButton) -> &'static str {
+fn integrated_title_button_default_tab_bar_label(
+    button: NativeIntegratedTitleButton,
+) -> &'static str {
     match button {
-        NativeIntegratedTitleButton::Hide => "_",
-        NativeIntegratedTitleButton::Maximize => "[]",
-        NativeIntegratedTitleButton::Close => "x",
+        NativeIntegratedTitleButton::Hide => " . ",
+        NativeIntegratedTitleButton::Maximize => " - ",
+        NativeIntegratedTitleButton::Close => " X ",
     }
-}
-
-fn integrated_title_buttons_tab_bar_label(buttons: &[NativeIntegratedTitleButton]) -> String {
-    if buttons.is_empty() {
-        return String::new();
-    }
-
-    let mut label = String::from(" ");
-    for (index, button) in buttons.iter().enumerate() {
-        if index > 0 {
-            label.push(' ');
-        }
-        label.push_str(integrated_title_button_tab_bar_label(*button));
-    }
-    label.push(' ');
-    label
 }
 
 fn split_pane_render_rect(
@@ -47391,14 +47455,6 @@ fn native_format_items_visible_width(items: &[NativeFormatItem]) -> usize {
             | NativeFormatItem::ResetAttributes => None,
         })
         .sum()
-}
-
-fn write_right_aligned_tab_bar_segment(
-    cells: &mut [RenderCell],
-    text: &str,
-    base_style: TabBarSegmentStyle,
-) {
-    write_right_aligned_tab_bar_segment_with_reserved(cells, text, base_style, 0);
 }
 
 fn write_right_aligned_tab_bar_segment_with_reserved(
@@ -59915,7 +59971,7 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
 
         assert!(
-            tab_bar.starts_with(" x _  ws:default"),
+            tab_bar.starts_with(" X  .  ws:default"),
             "tab bar was {tab_bar:?}"
         );
     }
@@ -59945,8 +60001,43 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
 
-        assert!(tab_bar.ends_with(" _ [] x "), "tab bar was {tab_bar:?}");
-        assert!(tab_bar.contains("READY _ [] x "), "tab bar was {tab_bar:?}");
+        assert!(tab_bar.ends_with(" .  -  X "), "tab bar was {tab_bar:?}");
+        assert!(
+            tab_bar.contains("READY .  -  X "),
+            "tab bar was {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_tab_bar_style_integrated_title_button_labels() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_decorations = "INTEGRATED_BUTTONS|RESIZE"
+            config.integrated_title_button_alignment = "Left"
+            config.integrated_title_buttons = { "Hide", "Maximize", "Close" }
+            config.tab_bar_style = {
+              window_hide = wezterm.format({ { Text = ' h ' } }),
+              window_maximize = wezterm.format({ { Text = ' m ' } }),
+              window_close = wezterm.format({ { Text = ' c ' } }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm integrated title button style config");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.starts_with(" h  m  c  ws:default"),
+            "tab bar was {tab_bar:?}"
+        );
     }
 
     #[test]
@@ -59974,9 +60065,9 @@ mod tests {
 
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
-        let hide_column = tab_bar.find('_').expect("hide button should render");
-        let maximize_column = tab_bar.find("[]").expect("maximize button should render");
-        let close_column = tab_bar.find('x').expect("close button should render");
+        let hide_column = tab_bar.find('.').expect("hide button should render");
+        let maximize_column = tab_bar.find('-').expect("maximize button should render");
+        let close_column = tab_bar.find('X').expect("close button should render");
 
         let x = u32::try_from(hide_column).unwrap_or(0) * CELL_WIDTH;
         app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))

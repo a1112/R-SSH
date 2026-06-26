@@ -196,8 +196,10 @@ keyboard, mouse, paste, resize
   `static_name` resolves to `tab_bar_style`. When `window_decorations` includes
   WezTerm-style `INTEGRATED_BUTTONS`, the retro tab bar also renders configured
   integrated title buttons in configured order and left/right alignment, applies
-  Auto/custom button color, and dispatches Hide/Maximize/Close clicks through
-  the native window action paths.
+  Auto/custom button color, uses WezTerm's retro defaults `.`, `-`, and `X`,
+  honors `tab_bar_style.window_hide`/`window_maximize`/`window_close`
+  `wezterm.format` label overrides, and dispatches Hide/Maximize/Close clicks
+  through the native window action paths.
 - Completed in v1: tab state can carry an explicit title, and tab bar labels
   prefer that explicit title before falling back to each tab's active-pane
   terminal title when OSC 0/1/2 or Sun OSC L/l title state is available.
