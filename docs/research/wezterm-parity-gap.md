@@ -435,10 +435,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   including `config[static_name]` assignments and
   `table.insert(config[static_name], { ... })` appends where `static_name`
   resolves to `cell_widths`, plus table-constructor `[static_name] = { ... }`
-  fields for returned config tables. Entries parse inline or through top-level
-  static table variables. Entry `first`/`last`/`width` fields parse inline or
-  through top-level static number variables, and take priority over that
-  ambiguous-width setting. When enabled,
+  fields for directly returned or returned-variable config tables. Entries
+  parse inline or through top-level static table variables. Entry
+  `first`/`last`/`width` fields parse inline or through top-level static number
+  variables, and take priority over that ambiguous-width setting. When enabled,
   `normalize_output_to_unicode_nfc` normalizes contiguous ordinary terminal
   output runs to Unicode NFC before rendering, including leading combining
   marks that arrive in the next PTY chunk when they compose with the prior

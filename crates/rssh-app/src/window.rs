@@ -4891,7 +4891,8 @@ fn lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
         let max_start = lua_source_slice_start_offset(source, table)?;
         let mut literal_from_query =
             |value| lua_table_insert_value_table_string_from_query(source, value, max_start);
-        return lua_config_table_field_assignment_string_from_query(
+        return lua_config_table_field_assignment_string_from_query_with_static_source(
+            Some(LuaStaticSource { source, max_start }),
             table,
             field,
             &mut literal_from_query,
@@ -10081,13 +10082,29 @@ fn lua_config_table_field_assignment_string_from_query<'a>(
     field: &str,
     literal_from_query: &mut impl FnMut(&'a str) -> Option<String>,
 ) -> Option<String> {
+    lua_config_table_field_assignment_string_from_query_with_static_source(
+        None,
+        table,
+        field,
+        literal_from_query,
+    )
+}
+
+fn lua_config_table_field_assignment_string_from_query_with_static_source<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    table: &'a str,
+    field: &str,
+    literal_from_query: &mut impl FnMut(&'a str) -> Option<String>,
+) -> Option<String> {
     let mut selected = None;
 
     for table_field in split_lua_table_top_level_fields(table)? {
         let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
             continue;
         };
-        let Some(key) = split_lua_table_key_from_query(key.trim()) else {
+        let Some(key) =
+            split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+        else {
             continue;
         };
         if key == field {
@@ -80425,6 +80442,35 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm cell width static field-name constructor config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(effective.treat_east_asian_ambiguous_width_as_wide);
+        assert_eq!(
+            effective.cell_widths,
+            vec![NativeCellWidthOverride::new(0x2606, 0x2606, 1)]
+        );
+
+        app.runtime.feed_pty_output("☆x".as_bytes());
+        assert_eq!(app.runtime.terminal().cursor(), (0, 2));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_cell_widths_static_field_name_in_return_table() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local widths_field = 'cell_widths'
+
+            return {
+                treat_east_asian_ambiguous_width_as_wide = true,
+                [widths_field] = {
+                    { first = 0x2606, last = 0x2606, width = 1 },
+                },
+            }
+            "#,
+        )
+        .expect("expected WezTerm cell width static field-name return table config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
