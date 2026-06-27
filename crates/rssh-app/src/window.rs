@@ -55033,6 +55033,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_wezterm_background_tga_file_layer() {
+        let image_path = write_test_tga_file("wezterm-background-file-layer.tga");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm TGA background File layer");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
     fn window_app_renders_wezterm_background_file_layer_table_path() {
         let image_path = write_test_png_file("wezterm-background-file-layer-table-path.png");
         let lua_path = lua_string_path(&image_path);
@@ -114628,6 +114664,14 @@ mod tests {
     fn write_test_ppm_file(name: &str) -> PathBuf {
         const RED_PPM: &[u8] = b"P6\n1 1\n255\n\xff\x00\x00";
         write_test_file(name, RED_PPM, "PPM")
+    }
+
+    fn write_test_tga_file(name: &str) -> PathBuf {
+        const RED_TGA: &[u8] = &[
+            0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x00, 0x18, 0x20, 0x00, 0x00, 0xff,
+        ];
+        write_test_file(name, RED_TGA, "TGA")
     }
 
     fn write_test_file(name: &str, bytes: &[u8], format_name: &str) -> PathBuf {

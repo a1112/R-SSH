@@ -9,7 +9,7 @@ version.workspace = true
 [dependencies]
 colorgrad = "0.6"
 font8x8 = "0.3"
-image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "pnm"] }
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "pnm", "tga"] }
 rssh-core = { path = "../rssh-core" }
 rssh-terminal = { path = "../rssh-terminal" }
 

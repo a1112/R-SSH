@@ -2545,7 +2545,10 @@ fn decode_image_rgba(
         return decode_gif_frame_rgba(data, animation_frame, animation_elapsed_ms);
     }
 
-    let image = image::load_from_memory(data).ok()?.to_rgba8();
+    let image = image::load_from_memory(data)
+        .or_else(|_| image::load_from_memory_with_format(data, image::ImageFormat::Tga))
+        .ok()?
+        .to_rgba8();
     let width = image.width();
     let height = image.height();
 
