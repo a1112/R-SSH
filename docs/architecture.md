@@ -167,7 +167,8 @@ keyboard, mouse, paste, resize
   layer are composed into native background color/gradient overrides, and
   single `source = { File = ... }` image layers plus Color-below-File stacks
   render through the native background image path using WezTerm's default
-  cover-style sizing, fixed-pixel width/height with Repeat/NoRepeat tiling and
+  cover-style sizing, Contain sizing, px/percentage/cell width and height,
+  Repeat/Mirror/NoRepeat tiling with optional repeat sizes, offsets,
   Left/Center/Right plus Top/Middle/Bottom alignment, source-over opacity, and
   layer `hsb` transforms, plus
   retained platform backdrop settings

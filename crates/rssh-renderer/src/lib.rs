@@ -436,17 +436,32 @@ pub struct RenderBackgroundImage {
     pub repeat_y: RenderBackgroundImageRepeat,
     pub horizontal_align: RenderBackgroundImageHorizontalAlign,
     pub vertical_align: RenderBackgroundImageVerticalAlign,
+    pub horizontal_offset: RenderBackgroundImageLength,
+    pub vertical_offset: RenderBackgroundImageLength,
+    pub repeat_x_size: Option<RenderBackgroundImageLength>,
+    pub repeat_y_size: Option<RenderBackgroundImageLength>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackgroundImageDimension {
     Cover,
+    Contain,
     Pixels(u32),
+    Percent(u32),
+    Cells(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundImageLength {
+    Pixels(i32),
+    Percent(i32),
+    Cells(i32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackgroundImageRepeat {
     Repeat,
+    Mirror,
     NoRepeat,
 }
 
@@ -949,6 +964,8 @@ impl PixelRenderer {
             },
             self.animation_frame,
             self.animation_elapsed_ms,
+            cell_width,
+            cell_height,
         );
 
         render_inline_images_in_z_order(
@@ -1130,6 +1147,8 @@ impl PixelRenderer {
                 rect,
                 self.animation_frame,
                 self.animation_elapsed_ms,
+                geometry.cell_width,
+                geometry.cell_height,
             );
         }
 
@@ -1945,6 +1964,8 @@ fn render_background_image(
     rect: Rect,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
+    cell_width: u32,
+    cell_height: u32,
 ) {
     let Some(image) = image else {
         return;
@@ -1962,8 +1983,14 @@ fn render_background_image(
         return;
     }
 
-    let Some(layout) = background_image_layout(image, &decoded, surface.width, surface.height)
-    else {
+    let Some(layout) = background_image_layout(
+        image,
+        &decoded,
+        surface.width,
+        surface.height,
+        cell_width,
+        cell_height,
+    ) else {
         return;
     };
 
@@ -1971,6 +1998,7 @@ fn render_background_image(
         let Some(layout_y) = background_image_axis_coordinate(
             i64::from(target_y) - layout.origin_y,
             layout.height,
+            layout.repeat_height,
             image.repeat_y,
         ) else {
             continue;
@@ -1980,6 +2008,7 @@ fn render_background_image(
             let Some(layout_x) = background_image_axis_coordinate(
                 i64::from(target_x) - layout.origin_x,
                 layout.width,
+                layout.repeat_width,
                 image.repeat_x,
             ) else {
                 continue;
@@ -2012,6 +2041,8 @@ struct BackgroundImageLayout {
     origin_y: i64,
     width: u32,
     height: u32,
+    repeat_width: u32,
+    repeat_height: u32,
 }
 
 fn background_image_layout(
@@ -2019,15 +2050,32 @@ fn background_image_layout(
     decoded: &DecodedImage,
     surface_width: u32,
     surface_height: u32,
+    cell_width: u32,
+    cell_height: u32,
 ) -> Option<BackgroundImageLayout> {
-    let (width, height) = match (image.width, image.height) {
-        (
-            RenderBackgroundImageDimension::Pixels(width),
-            RenderBackgroundImageDimension::Pixels(height),
-        ) => (width, height),
-        (RenderBackgroundImageDimension::Cover, RenderBackgroundImageDimension::Cover) => {
-            let scale = (f64::from(surface_width) / f64::from(decoded.width))
-                .max(f64::from(surface_height) / f64::from(decoded.height));
+    let explicit_width = background_image_dimension_pixels(image.width, surface_width, cell_width);
+    let explicit_height =
+        background_image_dimension_pixels(image.height, surface_height, cell_height);
+    let (width, height) = match (explicit_width, explicit_height) {
+        (Some(width), Some(height)) => (width, height),
+        (Some(width), None) => (
+            width,
+            scale_preserving_aspect(width, decoded.height, decoded.width)?,
+        ),
+        (None, Some(height)) => (
+            scale_preserving_aspect(height, decoded.width, decoded.height)?,
+            height,
+        ),
+        (None, None) => {
+            let width_scale = f64::from(surface_width) / f64::from(decoded.width);
+            let height_scale = f64::from(surface_height) / f64::from(decoded.height);
+            let scale = if image.width == RenderBackgroundImageDimension::Contain
+                && image.height == RenderBackgroundImageDimension::Contain
+            {
+                width_scale.min(height_scale)
+            } else {
+                width_scale.max(height_scale)
+            };
             if !scale.is_finite() || scale <= 0.0 {
                 return None;
             }
@@ -2036,9 +2084,25 @@ fn background_image_layout(
                 (f64::from(decoded.height) * scale).ceil() as u32,
             )
         }
-        _ => return None,
     };
     if width == 0 || height == 0 {
+        return None;
+    }
+    let horizontal_offset =
+        background_image_length_pixels(image.horizontal_offset, surface_width, cell_width);
+    let vertical_offset =
+        background_image_length_pixels(image.vertical_offset, surface_height, cell_height);
+    let repeat_width = image
+        .repeat_x_size
+        .map(|length| background_image_length_pixels(length, surface_width, cell_width))
+        .and_then(positive_i64_to_u32)
+        .unwrap_or(width);
+    let repeat_height = image
+        .repeat_y_size
+        .map(|length| background_image_length_pixels(length, surface_height, cell_height))
+        .and_then(positive_i64_to_u32)
+        .unwrap_or(height);
+    if repeat_width == 0 || repeat_height == 0 {
         return None;
     }
 
@@ -2047,15 +2111,71 @@ fn background_image_layout(
             surface_width,
             width,
             image.horizontal_align,
-        ),
+        ) + horizontal_offset,
         origin_y: background_image_vertical_align_offset(
             surface_height,
             height,
             image.vertical_align,
-        ),
+        ) + vertical_offset,
         width,
         height,
+        repeat_width,
+        repeat_height,
     })
+}
+
+fn background_image_dimension_pixels(
+    dimension: RenderBackgroundImageDimension,
+    viewport_size: u32,
+    cell_size: u32,
+) -> Option<u32> {
+    match dimension {
+        RenderBackgroundImageDimension::Cover | RenderBackgroundImageDimension::Contain => None,
+        RenderBackgroundImageDimension::Pixels(pixels) => Some(pixels),
+        RenderBackgroundImageDimension::Percent(basis_points) => {
+            Some(scale_basis_points(viewport_size, basis_points))
+        }
+        RenderBackgroundImageDimension::Cells(cells) => cells.checked_mul(cell_size),
+    }
+}
+
+fn background_image_length_pixels(
+    length: RenderBackgroundImageLength,
+    viewport_size: u32,
+    cell_size: u32,
+) -> i64 {
+    match length {
+        RenderBackgroundImageLength::Pixels(pixels) => i64::from(pixels),
+        RenderBackgroundImageLength::Percent(basis_points) => {
+            i64::from(viewport_size).saturating_mul(i64::from(basis_points)) / 10_000
+        }
+        RenderBackgroundImageLength::Cells(cells) => {
+            i64::from(cell_size).saturating_mul(i64::from(cells))
+        }
+    }
+}
+
+fn scale_basis_points(value: u32, basis_points: u32) -> u32 {
+    let scaled = u64::from(value).saturating_mul(u64::from(basis_points)) / 10_000;
+    u32::try_from(scaled).unwrap_or(u32::MAX)
+}
+
+fn scale_preserving_aspect(size: u32, numerator: u32, denominator: u32) -> Option<u32> {
+    if denominator == 0 {
+        return None;
+    }
+    let scaled = u64::from(size)
+        .saturating_mul(u64::from(numerator))
+        .saturating_add(u64::from(denominator) - 1)
+        / u64::from(denominator);
+    Some(u32::try_from(scaled.max(1)).unwrap_or(u32::MAX))
+}
+
+fn positive_i64_to_u32(value: i64) -> Option<u32> {
+    if value <= 0 {
+        return None;
+    }
+    u32::try_from(value).ok()
 }
 
 fn background_image_horizontal_align_offset(
@@ -2093,9 +2213,11 @@ fn background_image_vertical_align_offset(
 fn background_image_axis_coordinate(
     relative_coordinate: i64,
     image_size: u32,
+    repeat_size: u32,
     repeat: RenderBackgroundImageRepeat,
 ) -> Option<u32> {
     let image_size = i64::from(image_size);
+    let repeat_size = i64::from(repeat_size);
     match repeat {
         RenderBackgroundImageRepeat::NoRepeat => {
             if (0..image_size).contains(&relative_coordinate) {
@@ -2104,8 +2226,18 @@ fn background_image_axis_coordinate(
                 None
             }
         }
-        RenderBackgroundImageRepeat::Repeat => {
-            u32::try_from(relative_coordinate.rem_euclid(image_size)).ok()
+        RenderBackgroundImageRepeat::Repeat | RenderBackgroundImageRepeat::Mirror => {
+            let coordinate = relative_coordinate.rem_euclid(repeat_size);
+            if coordinate >= image_size {
+                return None;
+            }
+            if repeat == RenderBackgroundImageRepeat::Mirror
+                && relative_coordinate.div_euclid(repeat_size).rem_euclid(2) != 0
+            {
+                u32::try_from(image_size - coordinate - 1).ok()
+            } else {
+                u32::try_from(coordinate).ok()
+            }
         }
     }
 }
@@ -3922,14 +4054,104 @@ mod tests {
     };
 
     use super::{
-        DamageRegion, PixelRenderer, RenderBoldBrightensAnsiColors, RenderCell, RenderGeometry,
-        RenderInlineImage, SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar,
-        TerminalRenderSnapshot,
+        DamageRegion, DecodedImage, PixelRenderer, RenderBackgroundGradientHsb,
+        RenderBackgroundImage, RenderBackgroundImageDimension,
+        RenderBackgroundImageHorizontalAlign, RenderBackgroundImageLength,
+        RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
+        RenderBoldBrightensAnsiColors, RenderCell, RenderGeometry, RenderInlineImage,
+        SCROLLBAR_THUMB_COLOR, SCROLLBAR_TRACK_COLOR, ScrollbackScrollbar, TerminalRenderSnapshot,
+        background_image_axis_coordinate, background_image_layout,
     };
 
     #[test]
     fn zero_width_region_is_empty() {
         assert!(DamageRegion::new(0, 0, 0, 1).is_empty());
+    }
+
+    #[test]
+    fn background_image_layout_resolves_percent_cell_offsets_and_repeat_sizes() {
+        let image = RenderBackgroundImage {
+            data: Vec::new(),
+            opacity_alpha: u8::MAX,
+            hsb: RenderBackgroundGradientHsb::IDENTITY,
+            width: RenderBackgroundImageDimension::Percent(5_000),
+            height: RenderBackgroundImageDimension::Cells(2),
+            repeat_x: RenderBackgroundImageRepeat::Repeat,
+            repeat_y: RenderBackgroundImageRepeat::Repeat,
+            horizontal_align: RenderBackgroundImageHorizontalAlign::Left,
+            vertical_align: RenderBackgroundImageVerticalAlign::Top,
+            horizontal_offset: RenderBackgroundImageLength::Cells(1),
+            vertical_offset: RenderBackgroundImageLength::Percent(1_000),
+            repeat_x_size: Some(RenderBackgroundImageLength::Percent(2_500)),
+            repeat_y_size: Some(RenderBackgroundImageLength::Cells(3)),
+        };
+        let decoded = DecodedImage {
+            width: 1,
+            height: 1,
+            pixels: Vec::new(),
+        };
+
+        let layout = background_image_layout(&image, &decoded, 640, 400, 8, 16)
+            .expect("expected background image layout");
+
+        assert_eq!(layout.origin_x, 8);
+        assert_eq!(layout.origin_y, 40);
+        assert_eq!(layout.width, 320);
+        assert_eq!(layout.height, 32);
+        assert_eq!(layout.repeat_width, 160);
+        assert_eq!(layout.repeat_height, 48);
+    }
+
+    #[test]
+    fn background_image_layout_resolves_contain_sizing() {
+        let image = RenderBackgroundImage {
+            data: Vec::new(),
+            opacity_alpha: u8::MAX,
+            hsb: RenderBackgroundGradientHsb::IDENTITY,
+            width: RenderBackgroundImageDimension::Contain,
+            height: RenderBackgroundImageDimension::Contain,
+            repeat_x: RenderBackgroundImageRepeat::NoRepeat,
+            repeat_y: RenderBackgroundImageRepeat::NoRepeat,
+            horizontal_align: RenderBackgroundImageHorizontalAlign::Right,
+            vertical_align: RenderBackgroundImageVerticalAlign::Bottom,
+            horizontal_offset: RenderBackgroundImageLength::Pixels(0),
+            vertical_offset: RenderBackgroundImageLength::Pixels(0),
+            repeat_x_size: None,
+            repeat_y_size: None,
+        };
+        let decoded = DecodedImage {
+            width: 2,
+            height: 1,
+            pixels: Vec::new(),
+        };
+
+        let layout = background_image_layout(&image, &decoded, 100, 80, 8, 16)
+            .expect("expected background image layout");
+
+        assert_eq!(layout.origin_x, 0);
+        assert_eq!(layout.origin_y, 30);
+        assert_eq!(layout.width, 100);
+        assert_eq!(layout.height, 50);
+    }
+
+    #[test]
+    fn background_image_axis_coordinate_mirrors_alternate_tiles() {
+        assert_eq!(
+            background_image_axis_coordinate(0, 2, 2, RenderBackgroundImageRepeat::Mirror),
+            Some(0)
+        );
+        assert_eq!(
+            background_image_axis_coordinate(1, 2, 2, RenderBackgroundImageRepeat::Mirror),
+            Some(1)
+        );
+        assert_eq!(
+            background_image_axis_coordinate(2, 2, 2, RenderBackgroundImageRepeat::Mirror),
+            Some(1)
+        );
+        assert_eq!(
+            background_image_axis_coordinate(3, 2, 2, RenderBackgroundImageRepeat::Mirror),
+            Some(0)
+        );
     }
 
     #[test]

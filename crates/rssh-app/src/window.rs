@@ -26,7 +26,7 @@ use rssh_renderer::{
     RenderBackgroundGradientHsb, RenderBackgroundGradientInterpolation,
     RenderBackgroundGradientOrientation, RenderBackgroundGradientPreset,
     RenderBackgroundGradientSegment, RenderBackgroundImage, RenderBackgroundImageDimension,
-    RenderBackgroundImageHorizontalAlign, RenderBackgroundImageRepeat,
+    RenderBackgroundImageHorizontalAlign, RenderBackgroundImageLength, RenderBackgroundImageRepeat,
     RenderBackgroundImageVerticalAlign, RenderBoldBrightensAnsiColors, RenderCell,
     RenderCellColorRole, RenderCursorThickness, RenderGeometry, RenderInlineImage,
     RenderScrollbarThumbSize, RenderStrikethroughPosition, RenderUnderlinePosition,
@@ -1275,6 +1275,10 @@ impl NativeWindowBackgroundImage {
             repeat_y: self.layout.repeat_y,
             horizontal_align: self.layout.horizontal_align,
             vertical_align: self.layout.vertical_align,
+            horizontal_offset: self.layout.horizontal_offset,
+            vertical_offset: self.layout.vertical_offset,
+            repeat_x_size: self.layout.repeat_x_size,
+            repeat_y_size: self.layout.repeat_y_size,
         }
     }
 }
@@ -1287,6 +1291,10 @@ struct NativeWindowBackgroundImageLayout {
     repeat_y: RenderBackgroundImageRepeat,
     horizontal_align: RenderBackgroundImageHorizontalAlign,
     vertical_align: RenderBackgroundImageVerticalAlign,
+    horizontal_offset: RenderBackgroundImageLength,
+    vertical_offset: RenderBackgroundImageLength,
+    repeat_x_size: Option<RenderBackgroundImageLength>,
+    repeat_y_size: Option<RenderBackgroundImageLength>,
 }
 
 impl Default for NativeWindowBackgroundImageLayout {
@@ -1298,6 +1306,10 @@ impl Default for NativeWindowBackgroundImageLayout {
             repeat_y: RenderBackgroundImageRepeat::Repeat,
             horizontal_align: RenderBackgroundImageHorizontalAlign::Left,
             vertical_align: RenderBackgroundImageVerticalAlign::Top,
+            horizontal_offset: RenderBackgroundImageLength::Pixels(0),
+            vertical_offset: RenderBackgroundImageLength::Pixels(0),
+            repeat_x_size: None,
+            repeat_y_size: None,
         }
     }
 }
@@ -12959,6 +12971,30 @@ fn native_background_layer_lua_table_from_query(
                         value,
                     )?;
             }
+            "horizontal_offset" => {
+                image_layout.horizontal_offset =
+                    native_background_image_length_lua_value_from_query(static_source, value)?;
+            }
+            "vertical_offset" => {
+                image_layout.vertical_offset =
+                    native_background_image_length_lua_value_from_query(static_source, value)?;
+            }
+            "repeat_x_size" => {
+                image_layout.repeat_x_size = Some(
+                    native_background_image_positive_length_lua_value_from_query(
+                        static_source,
+                        value,
+                    )?,
+                );
+            }
+            "repeat_y_size" => {
+                image_layout.repeat_y_size = Some(
+                    native_background_image_positive_length_lua_value_from_query(
+                        static_source,
+                        value,
+                    )?,
+                );
+            }
             _ => return None,
         }
     }
@@ -12985,13 +13021,78 @@ fn native_background_image_dimension_lua_value_from_query(
     let value = parse_maybe_static_query_text(static_source, value.trim())?;
     match value.as_str() {
         "Cover" => Some(RenderBackgroundImageDimension::Cover),
+        "Contain" => Some(RenderBackgroundImageDimension::Contain),
         _ => {
+            if let Some(percent) = value.strip_suffix('%') {
+                return Some(RenderBackgroundImageDimension::Percent(
+                    parse_background_image_percent_basis_points(percent)?,
+                ));
+            }
+            if let Some(cells) = value.strip_suffix("cell") {
+                return Some(RenderBackgroundImageDimension::Cells(
+                    cells.parse::<u32>().ok()?,
+                ));
+            }
             let pixels = value.strip_suffix("px").unwrap_or(&value);
-            Some(RenderBackgroundImageDimension::Pixels(
-                pixels.parse::<u32>().ok()?,
-            ))
+            Some(RenderBackgroundImageDimension::Pixels(pixels.parse().ok()?))
         }
     }
+}
+
+fn native_background_image_length_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<RenderBackgroundImageLength> {
+    if let Some(pixels) = parse_maybe_static_query_isize(static_source, value.trim()) {
+        return Some(RenderBackgroundImageLength::Pixels(
+            i32::try_from(pixels).ok()?,
+        ));
+    }
+
+    let value = parse_maybe_static_query_text(static_source, value.trim())?;
+    if let Some(percent) = value.strip_suffix('%') {
+        return Some(RenderBackgroundImageLength::Percent(
+            parse_background_image_signed_percent_basis_points(percent)?,
+        ));
+    }
+    if let Some(cells) = value.strip_suffix("cell") {
+        return Some(RenderBackgroundImageLength::Cells(cells.parse().ok()?));
+    }
+    let pixels = value.strip_suffix("px").unwrap_or(&value);
+    Some(RenderBackgroundImageLength::Pixels(pixels.parse().ok()?))
+}
+
+fn native_background_image_positive_length_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<RenderBackgroundImageLength> {
+    let length = native_background_image_length_lua_value_from_query(static_source, value)?;
+    match length {
+        RenderBackgroundImageLength::Pixels(value)
+        | RenderBackgroundImageLength::Percent(value)
+        | RenderBackgroundImageLength::Cells(value)
+            if value <= 0 =>
+        {
+            None
+        }
+        _ => Some(length),
+    }
+}
+
+fn parse_background_image_percent_basis_points(value: &str) -> Option<u32> {
+    let basis_points = parse_background_image_signed_percent_basis_points(value)?;
+    if basis_points < 0 {
+        return None;
+    }
+    u32::try_from(basis_points).ok()
+}
+
+fn parse_background_image_signed_percent_basis_points(value: &str) -> Option<i32> {
+    let percent: f64 = parse_single_query_value(value)?.parse().ok()?;
+    if !percent.is_finite() {
+        return None;
+    }
+    i32::try_from((percent * 100.0).round() as i64).ok()
 }
 
 fn native_background_image_repeat_lua_value_from_query(
@@ -13000,6 +13101,7 @@ fn native_background_image_repeat_lua_value_from_query(
 ) -> Option<RenderBackgroundImageRepeat> {
     match parse_maybe_static_query_text(static_source, value.trim())?.as_str() {
         "Repeat" => Some(RenderBackgroundImageRepeat::Repeat),
+        "Mirror" => Some(RenderBackgroundImageRepeat::Mirror),
         "NoRepeat" => Some(RenderBackgroundImageRepeat::NoRepeat),
         _ => None,
     }
@@ -54557,6 +54659,113 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_file_layer_percent_width() {
+        let image_path = write_test_png_file("wezterm-background-file-layer-percent.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+                width = '50%',
+                height = 1,
+                repeat_x = 'NoRepeat',
+                repeat_y = 'NoRepeat',
+                horizontal_align = 'Left',
+                vertical_align = 'Bottom',
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File layer percentage width");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        let width = FRAME_WIDTH as usize;
+        let bottom_y = FRAME_HEIGHT as usize - 1;
+        assert_eq!(frame_pixel_at(&frame, width, 0, bottom_y), [255, 0, 0, 255]);
+        assert_eq!(
+            frame_pixel_at(&frame, width, FRAME_WIDTH as usize / 2 - 1, bottom_y),
+            [255, 0, 0, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, FRAME_WIDTH as usize / 2, bottom_y),
+            [12, 12, 12, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_file_layer_cell_repeat_size() {
+        let image_path = write_test_png_file("wezterm-background-file-layer-cell-repeat.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+                width = 1,
+                height = '1cell',
+                repeat_x = 'Repeat',
+                repeat_y = 'NoRepeat',
+                repeat_x_size = '2cell',
+                horizontal_offset = '1cell',
+                vertical_align = 'Bottom',
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File layer cell repeat size");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        let width = FRAME_WIDTH as usize;
+        let bottom_y = FRAME_HEIGHT as usize - 1;
+        let first_tile_x = CELL_WIDTH as usize;
+        let second_tile_x = first_tile_x + CELL_WIDTH as usize * 2;
+        assert_eq!(
+            frame_pixel_at(&frame, width, first_tile_x - 1, bottom_y),
+            [12, 12, 12, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, first_tile_x, bottom_y),
+            [255, 0, 0, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, first_tile_x + 1, bottom_y),
+            [12, 12, 12, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(&frame, width, second_tile_x, bottom_y),
+            [255, 0, 0, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                width,
+                first_tile_x,
+                FRAME_HEIGHT as usize - CELL_HEIGHT as usize - 1
+            ),
+            [12, 12, 12, 255]
         );
 
         let _ = std::fs::remove_file(image_path);
