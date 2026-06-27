@@ -2471,6 +2471,9 @@ struct NativeFontAttributes {
     style: Option<String>,
     harfbuzz_features: Vec<String>,
     assume_emoji_presentation: Option<bool>,
+    freetype_load_target: Option<NativeFreetypeTarget>,
+    freetype_render_target: Option<NativeFreetypeTarget>,
+    freetype_load_flags: Option<NativeFreetypeLoadFlags>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -12980,6 +12983,21 @@ fn native_font_attributes_lua_table_from_query(
                         .parse()
                         .ok()?,
                 );
+            }
+            "freetype_load_target" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                attributes.freetype_load_target = Some(NativeFreetypeTarget::parse(&value)?);
+            }
+            "freetype_render_target" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                attributes.freetype_render_target = Some(NativeFreetypeTarget::parse(&value)?);
+            }
+            "freetype_load_flags" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                attributes.freetype_load_flags = Some(NativeFreetypeLoadFlags::parse(&value)?);
             }
             _ => {}
         }
@@ -87174,7 +87192,7 @@ mod tests {
         );
         assert!(
             effective.contains(
-                "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\"), harfbuzz_features: [], assume_emoji_presentation: None }"
+                "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\"), harfbuzz_features: [], assume_emoji_presentation: None, freetype_load_target: None, freetype_render_target: None, freetype_load_flags: None }"
             ),
             "effective config should expose WezTerm's configured font attributes: {effective:?}"
         );
@@ -87209,6 +87227,9 @@ mod tests {
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
                 assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
             }
         );
     }
@@ -87244,6 +87265,9 @@ mod tests {
                 style: Some("Oblique".to_owned()),
                 harfbuzz_features: Vec::new(),
                 assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
             }
         );
     }
@@ -87299,6 +87323,43 @@ mod tests {
         assert_eq!(
             effective.font_attributes.assume_emoji_presentation,
             Some(true)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_freetype_attributes() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font {
+              family = 'Iosevka Term',
+              freetype_load_target = 'Light',
+              freetype_render_target = 'HorizontalLcd',
+              freetype_load_flags = 'NO_HINTING|MONOCHROME',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font freetype attributes config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("Iosevka Term"));
+        assert_eq!(
+            effective.font_attributes.freetype_load_target,
+            Some(NativeFreetypeTarget::Light)
+        );
+        assert_eq!(
+            effective.font_attributes.freetype_render_target,
+            Some(NativeFreetypeTarget::HorizontalLcd)
+        );
+        assert_eq!(
+            effective.font_attributes.freetype_load_flags,
+            Some(NativeFreetypeLoadFlags::NO_HINTING.union(NativeFreetypeLoadFlags::MONOCHROME))
         );
     }
 
@@ -87420,6 +87481,9 @@ mod tests {
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
                 assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
             }
         );
     }
@@ -87507,6 +87571,9 @@ mod tests {
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
                 assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
             }
         );
     }
@@ -95018,6 +95085,9 @@ mod tests {
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
                 assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
             }),
             font_rules: Some(vec![NativeFontRule {
                 italic: Some(true),
@@ -95360,6 +95430,9 @@ mod tests {
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
                 assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
             },
             font_rules: vec![NativeFontRule {
                 italic: Some(true),
