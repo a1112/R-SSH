@@ -2601,6 +2601,7 @@ struct NativeEffectiveConfig {
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
     font_shaper: NativeFontShaper,
+    harfbuzz_features: Vec<String>,
     font_dirs: Vec<String>,
     font_locator: Option<NativeFontLocator>,
     use_cap_height_to_scale_fallback_fonts: bool,
@@ -2790,6 +2791,7 @@ struct NativeConfigOverrides {
     font_hinting: Option<NativeFontHinting>,
     font_rasterizer: Option<NativeFontRasterizer>,
     font_shaper: Option<NativeFontShaper>,
+    harfbuzz_features: Option<Vec<String>>,
     font_dirs: Option<Vec<String>>,
     font_locator: Option<NativeFontLocator>,
     use_cap_height_to_scale_fallback_fonts: Option<bool>,
@@ -3192,6 +3194,21 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(font_shaper) = lua_config_string_assignment_from_query(config, "font_shaper") {
         overrides.font_shaper = Some(NativeFontShaper::parse(&font_shaper)?);
+        parsed = true;
+    }
+    if let Some(harfbuzz_features) =
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "harfbuzz_features",
+        )
+    {
+        overrides.harfbuzz_features = Some(split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: harfbuzz_features.max_start,
+            }),
+            &harfbuzz_features.value,
+        )?);
         parsed = true;
     }
     if let Some(font_dirs) =
@@ -13795,6 +13812,7 @@ struct NativeWindowApp {
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
     font_shaper: NativeFontShaper,
+    harfbuzz_features: Vec<String>,
     font_dirs: Vec<String>,
     font_locator: Option<NativeFontLocator>,
     use_cap_height_to_scale_fallback_fonts: bool,
@@ -15263,6 +15281,7 @@ impl NativeWindowApp {
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
             font_shaper: DEFAULT_FONT_SHAPER,
+            harfbuzz_features: Vec::new(),
             font_dirs: Vec::new(),
             font_locator: DEFAULT_FONT_LOCATOR,
             use_cap_height_to_scale_fallback_fonts: DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
@@ -16592,6 +16611,7 @@ impl NativeWindowApp {
         self.font_hinting = source.font_hinting;
         self.font_rasterizer = source.font_rasterizer;
         self.font_shaper = source.font_shaper;
+        self.harfbuzz_features.clone_from(&source.harfbuzz_features);
         self.font_dirs.clone_from(&source.font_dirs);
         self.font_locator = source.font_locator;
         self.custom_block_glyphs = source.custom_block_glyphs;
@@ -24829,6 +24849,7 @@ impl NativeWindowApp {
             font_hinting: self.font_hinting,
             font_rasterizer: self.font_rasterizer,
             font_shaper: self.font_shaper,
+            harfbuzz_features: self.harfbuzz_features.clone(),
             font_dirs: self.font_dirs.clone(),
             font_locator: self.font_locator,
             use_cap_height_to_scale_fallback_fonts: self.use_cap_height_to_scale_fallback_fonts,
@@ -25053,6 +25074,7 @@ impl NativeWindowApp {
         self.font_hinting = overrides.font_hinting.unwrap_or(DEFAULT_FONT_HINTING);
         self.font_rasterizer = overrides.font_rasterizer.unwrap_or(DEFAULT_FONT_RASTERIZER);
         self.font_shaper = overrides.font_shaper.unwrap_or(DEFAULT_FONT_SHAPER);
+        self.harfbuzz_features = overrides.harfbuzz_features.clone().unwrap_or_default();
         self.font_dirs = overrides.font_dirs.clone().unwrap_or_default();
         self.font_locator = overrides.font_locator.or(DEFAULT_FONT_LOCATOR);
         self.use_cap_height_to_scale_fallback_fonts = overrides
@@ -63205,6 +63227,7 @@ mod tests {
                 font_hinting: DEFAULT_FONT_HINTING,
                 font_rasterizer: DEFAULT_FONT_RASTERIZER,
                 font_shaper: DEFAULT_FONT_SHAPER,
+                harfbuzz_features: Vec::new(),
                 font_dirs: Vec::new(),
                 font_locator: DEFAULT_FONT_LOCATOR,
                 use_cap_height_to_scale_fallback_fonts:
@@ -86171,6 +86194,30 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_harfbuzz_features() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local features = { 'kern', 'liga=0' }
+            table.insert(features, 'calt=0')
+
+            config.harfbuzz_features = features
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Harfbuzz features config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.harfbuzz_features,
+            vec!["kern".to_owned(), "liga=0".to_owned(), "calt=0".to_owned()]
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_font_dirs_and_locator() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -93328,6 +93375,7 @@ mod tests {
             font_hinting: Some(NativeFontHinting::VerticalSubpixel),
             font_rasterizer: Some(NativeFontRasterizer::FreeType),
             font_shaper: Some(NativeFontShaper::Harfbuzz),
+            harfbuzz_features: Some(vec!["kern".to_owned(), "liga=0".to_owned()]),
             font_dirs: Some(vec!["fonts".to_owned(), "vendor/fonts".to_owned()]),
             font_locator: Some(NativeFontLocator::ConfigDirsOnly),
             use_cap_height_to_scale_fallback_fonts: Some(true),
@@ -93645,6 +93693,7 @@ mod tests {
             font_hinting: NativeFontHinting::VerticalSubpixel,
             font_rasterizer: NativeFontRasterizer::FreeType,
             font_shaper: NativeFontShaper::Harfbuzz,
+            harfbuzz_features: vec!["kern".to_owned(), "liga=0".to_owned()],
             font_dirs: vec!["fonts".to_owned(), "vendor/fonts".to_owned()],
             font_locator: Some(NativeFontLocator::ConfigDirsOnly),
             use_cap_height_to_scale_fallback_fonts: true,
@@ -93922,6 +93971,7 @@ mod tests {
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
             font_shaper: DEFAULT_FONT_SHAPER,
+            harfbuzz_features: Vec::new(),
             font_dirs: Vec::new(),
             font_locator: DEFAULT_FONT_LOCATOR,
             use_cap_height_to_scale_fallback_fonts: DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
