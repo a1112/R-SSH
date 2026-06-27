@@ -2602,6 +2602,7 @@ struct NativeEffectiveConfig {
     text_blink_ease_out: NativeEasingFunction,
     text_blink_rapid_ease_in: NativeEasingFunction,
     text_blink_rapid_ease_out: NativeEasingFunction,
+    font: Option<String>,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     cell_widths: Vec<NativeCellWidthOverride>,
@@ -2796,6 +2797,7 @@ struct NativeConfigOverrides {
     text_blink_ease_out: Option<NativeEasingFunction>,
     text_blink_rapid_ease_in: Option<NativeEasingFunction>,
     text_blink_rapid_ease_out: Option<NativeEasingFunction>,
+    font: Option<String>,
     font_size: Option<NativeFontSize>,
     cell_width: Option<NativeCellWidth>,
     cell_widths: Option<Vec<NativeCellWidthOverride>>,
@@ -3195,6 +3197,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     ) {
         overrides.set_environment_variables =
             Some(split_lua_table_environment_from_query(&environment.value)?);
+        parsed = true;
+    }
+    if let Some(font) = lua_config_font_assignment_from_query(config, "font") {
+        overrides.font = Some(font);
         parsed = true;
     }
     if let Some(font_size) = lua_config_f32_assignment_from_query(config, "font_size") {
@@ -5780,6 +5786,35 @@ fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<
         lua_static_string_assignment_value_from_query(source, value)
     })
     .and_then(parse_maybe_quoted_query_text)
+}
+
+#[allow(dead_code)]
+fn lua_config_font_assignment_from_query(source: &str, field: &str) -> Option<String> {
+    lua_config_assignment_from_query(source, field, |value| {
+        lua_static_string_assignment_value_from_query(source, value)
+            .or_else(|| lua_wezterm_font_call_assignment_value_from_query(value))
+    })
+    .and_then(|value| parse_wezterm_font_value(source, value))
+}
+
+fn lua_wezterm_font_call_assignment_value_from_query(query: &str) -> Option<&str> {
+    let query = lua_trim_start_comments(query)?;
+    let call = query.find(".font")?;
+    let mut rest = query.get(call + ".font".len()..)?.trim_start();
+    let mut rest_start = query.len() - rest.len();
+    if let Some(stripped) = rest.strip_prefix('(') {
+        rest = stripped.trim_start();
+        rest_start = query.len() - rest.len();
+    }
+    let quote = rest.find(|character| character == '\'' || character == '"')?;
+    let literal = lua_quoted_string_literal_from_query(rest.get(quote..)?)?;
+    let literal_end = rest_start + quote + literal.len();
+    let mut end = literal_end;
+    let after_literal = lua_trim_start_comments(query.get(literal_end..)?)?;
+    if after_literal.starts_with(')') {
+        end = query.len() - after_literal.len() + ')'.len_utf8();
+    }
+    query.get(..end)
 }
 
 #[allow(dead_code)]
@@ -12628,7 +12663,7 @@ fn native_window_frame_appearance_lua_table_from_query(
             "border_top_color" => &mut appearance.border_top_color,
             "border_bottom_color" => &mut appearance.border_bottom_color,
             "font" => {
-                appearance.font = parse_wezterm_window_frame_font_value(source, value.trim());
+                appearance.font = parse_wezterm_font_value(source, value.trim());
                 parsed = true;
                 continue;
             }
@@ -12657,7 +12692,7 @@ fn native_window_frame_appearance_lua_table_from_query(
     Some(parsed.then_some(appearance))
 }
 
-fn parse_wezterm_window_frame_font_value(source: &str, value: &str) -> Option<String> {
+fn parse_wezterm_font_value(source: &str, value: &str) -> Option<String> {
     lua_static_string_assignment_value_from_query(source, value)
         .and_then(parse_maybe_quoted_query_text)
         .or_else(|| {
@@ -13959,6 +13994,7 @@ struct NativeWindowApp {
     window_level: NativeWindowLevel,
     full_screen: bool,
     window_maximized: bool,
+    font: Option<String>,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     cell_widths: Vec<NativeCellWidthOverride>,
@@ -15432,6 +15468,7 @@ impl NativeWindowApp {
             window_level: NativeWindowLevel::Normal,
             full_screen: false,
             window_maximized: false,
+            font: None,
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             cell_widths: Vec::new(),
@@ -16798,6 +16835,7 @@ impl NativeWindowApp {
         self.configured_dpi = source.configured_dpi;
         self.detected_window_dpi = source.detected_window_dpi;
         self.apply_effective_window_dpi();
+        self.font.clone_from(&source.font);
         self.font_size = source.font_size;
         self.cell_width = source.cell_width;
         self.cell_widths.clone_from(&source.cell_widths);
@@ -25065,6 +25103,7 @@ impl NativeWindowApp {
             text_blink_ease_out: self.text_blink_ease_out,
             text_blink_rapid_ease_in: self.text_blink_rapid_ease_in,
             text_blink_rapid_ease_out: self.text_blink_rapid_ease_out,
+            font: self.font.clone(),
             font_size: self.font_size,
             cell_width: self.cell_width,
             cell_widths: self.cell_widths.clone(),
@@ -25294,6 +25333,7 @@ impl NativeWindowApp {
             overrides.text_blink_rapid_ease_in,
             overrides.text_blink_rapid_ease_out,
         );
+        self.font = overrides.font.clone().filter(|font| !font.is_empty());
         self.font_size = overrides.font_size.unwrap_or(DEFAULT_FONT_SIZE);
         self.cell_width = overrides.cell_width.unwrap_or(DEFAULT_CELL_WIDTH);
         self.cell_widths = overrides.cell_widths.clone().unwrap_or_default();
@@ -63835,6 +63875,7 @@ mod tests {
                 text_blink_ease_out: NativeEasingFunction::Linear,
                 text_blink_rapid_ease_in: NativeEasingFunction::Linear,
                 text_blink_rapid_ease_out: NativeEasingFunction::Linear,
+                font: None,
                 font_size: DEFAULT_FONT_SIZE,
                 cell_width: DEFAULT_CELL_WIDTH,
                 cell_widths: Vec::new(),
@@ -86653,6 +86694,29 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_font_family() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font 'JetBrains Mono'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font config");
+        app.set_config_overrides(overrides);
+
+        let effective = format!("{:?}", app.native_effective_config());
+        assert!(
+            effective.contains("font: Some(\"JetBrains Mono\")"),
+            "effective config should expose WezTerm's configured font family: {effective:?}"
+        );
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_fallback_font_scaling_config() {
         let app = NativeWindowApp::new(None);
         let effective = format!("{:?}", app.native_effective_config());
@@ -94115,6 +94179,7 @@ mod tests {
             text_blink_ease_out: Some(NativeEasingFunction::EaseOut),
             text_blink_rapid_ease_in: Some(NativeEasingFunction::EaseInOut),
             text_blink_rapid_ease_out: Some(NativeEasingFunction::Constant),
+            font: Some("JetBrains Mono".to_owned()),
             font_size: Some(NativeFontSize::from_millipoints(13_500)),
             cell_width: Some(NativeCellWidth::from_per_mille(1_250)),
             cell_widths: Some(vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)]),
@@ -94441,6 +94506,7 @@ mod tests {
             text_blink_ease_out: NativeEasingFunction::EaseOut,
             text_blink_rapid_ease_in: NativeEasingFunction::EaseInOut,
             text_blink_rapid_ease_out: NativeEasingFunction::Constant,
+            font: Some("JetBrains Mono".to_owned()),
             font_size: NativeFontSize::from_millipoints(13_500),
             cell_width: NativeCellWidth::from_per_mille(1_250),
             cell_widths: vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)],
@@ -94727,6 +94793,7 @@ mod tests {
             text_blink_ease_out: NativeEasingFunction::Linear,
             text_blink_rapid_ease_in: NativeEasingFunction::Linear,
             text_blink_rapid_ease_out: NativeEasingFunction::Linear,
+            font: None,
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             cell_widths: Vec::new(),
