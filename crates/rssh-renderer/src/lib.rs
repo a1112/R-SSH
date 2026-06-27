@@ -419,7 +419,29 @@ pub struct RenderBackgroundGradient {
     pub segment: Option<RenderBackgroundGradientSegment>,
     pub preset: Option<RenderBackgroundGradientPreset>,
     pub opacity_alpha: u8,
+    pub hsb: RenderBackgroundGradientHsb,
     pub colors: Vec<[u8; 4]>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderBackgroundGradientHsb {
+    pub hue: u16,
+    pub saturation: u16,
+    pub brightness: u16,
+}
+
+impl RenderBackgroundGradientHsb {
+    pub const IDENTITY: Self = Self {
+        hue: 1_000,
+        saturation: 1_000,
+        brightness: 1_000,
+    };
+
+    const fn is_identity(self) -> bool {
+        self.hue == Self::IDENTITY.hue
+            && self.saturation == Self::IDENTITY.saturation
+            && self.brightness == Self::IDENTITY.brightness
+    }
 }
 
 pub fn background_gradient_color_strings(
@@ -1260,10 +1282,9 @@ fn fill_default_background_gradient(
                 surface.height,
                 noise_amount,
             );
-            let color = background_gradient_color_with_opacity(
-                sampler.color_at(position),
-                gradient.opacity_alpha,
-            );
+            let color =
+                background_gradient_color_with_hsb(sampler.color_at(position), gradient.hsb);
+            let color = background_gradient_color_with_opacity(color, gradient.opacity_alpha);
             let index = ((row * surface.width + column) * 4) as usize;
             if let Some(pixel) = surface.target.get_mut(index..index + 4) {
                 pixel.copy_from_slice(&color);
@@ -1321,11 +1342,90 @@ impl BackgroundGradientSampler {
     }
 }
 
+fn background_gradient_color_with_hsb(
+    mut color: [u8; 4],
+    hsb: RenderBackgroundGradientHsb,
+) -> [u8; 4] {
+    if !hsb.is_identity() {
+        let [red, green, blue] = transform_rgb_hsb(color[0], color[1], color[2], hsb);
+        color[0] = red;
+        color[1] = green;
+        color[2] = blue;
+    }
+    color
+}
+
 fn background_gradient_color_with_opacity(mut color: [u8; 4], opacity_alpha: u8) -> [u8; 4] {
     if opacity_alpha != u8::MAX {
         color[3] = ((u16::from(color[3]) * u16::from(opacity_alpha)) / u16::from(u8::MAX)) as u8;
     }
     color
+}
+
+fn transform_rgb_hsb(red: u8, green: u8, blue: u8, hsb: RenderBackgroundGradientHsb) -> [u8; 3] {
+    let red_channel = red;
+    let green_channel = green;
+    let max_channel = red.max(green).max(blue);
+    let red = f64::from(red) / 255.0;
+    let green = f64::from(green) / 255.0;
+    let blue = f64::from(blue) / 255.0;
+
+    let max = red.max(green).max(blue);
+    let min = red.min(green).min(blue);
+    let delta = max - min;
+    let hue = if delta <= f64::EPSILON {
+        0.0
+    } else if max_channel == red_channel {
+        60.0 * ((green - blue) / delta).rem_euclid(6.0)
+    } else if max_channel == green_channel {
+        60.0 * (((blue - red) / delta) + 2.0)
+    } else {
+        60.0 * (((red - green) / delta) + 4.0)
+    };
+    let saturation = if max <= f64::EPSILON {
+        0.0
+    } else {
+        delta / max
+    };
+    let value = max;
+
+    let hue = (hue * (f64::from(hsb.hue) / 1_000.0)).rem_euclid(360.0);
+    let saturation = (saturation * (f64::from(hsb.saturation) / 1_000.0)).clamp(0.0, 1.0);
+    let value = (value * (f64::from(hsb.brightness) / 1_000.0)).clamp(0.0, 1.0);
+
+    hsv_to_rgb(hue, saturation, value)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn hsv_to_rgb(hue: f64, saturation: f64, value: f64) -> [u8; 3] {
+    let chroma = value * saturation;
+    let hue_sector = hue / 60.0;
+    let x = chroma * (1.0 - (hue_sector.rem_euclid(2.0) - 1.0).abs());
+    let (red, green, blue) = if hue_sector < 1.0 {
+        (chroma, x, 0.0)
+    } else if hue_sector < 2.0 {
+        (x, chroma, 0.0)
+    } else if hue_sector < 3.0 {
+        (0.0, chroma, x)
+    } else if hue_sector < 4.0 {
+        (0.0, x, chroma)
+    } else if hue_sector < 5.0 {
+        (x, 0.0, chroma)
+    } else {
+        (chroma, 0.0, x)
+    };
+    let m = value - chroma;
+
+    [
+        round_rgb_component(red + m),
+        round_rgb_component(green + m),
+        round_rgb_component(blue + m),
+    ]
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn round_rgb_component(component: f64) -> u8 {
+    (component.mul_add(255.0, 1e-9)).round().clamp(0.0, 255.0) as u8
 }
 
 fn segment_colorgrad_gradient(

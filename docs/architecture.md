@@ -161,7 +161,7 @@ keyboard, mouse, paste, resize
   or through top-level static layer tables, with Color sources from inline or
   top-level static source tables plus explicit-color and preset Gradient sources
   mapped onto the same native background color/gradient paths with layer opacity
-  and inline or static-variable layer `hsb` transforms for explicit colors, plus retained platform backdrop settings
+  and inline or static-variable layer `hsb` transforms, plus retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual
   KDE/macOS/Windows backdrop and accent application remains platform-adapter work. It also supports
