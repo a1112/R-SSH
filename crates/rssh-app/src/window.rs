@@ -55069,6 +55069,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_wezterm_background_dds_file_layer() {
+        let image_path = write_test_dds_file("wezterm-background-file-layer.dds");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm DDS background File layer");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
     fn window_app_renders_wezterm_background_pnm_file_layer() {
         let image_path = write_test_ppm_file("wezterm-background-file-layer.ppm");
         let lua_path = lua_string_path(&image_path);
@@ -114803,6 +114839,52 @@ mod tests {
             0xff, 0x00, 0x00,
         ];
         write_test_file(name, RED_TIFF, "TIFF")
+    }
+
+    fn write_test_dds_file(name: &str) -> PathBuf {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"DDS ");
+        for value in [
+            124_u32,
+            0x0008_1007,
+            4,
+            4,
+            8,
+            0,
+            0, // header
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0, // reserved1
+            32,
+            0x0000_0004, // pixel format size, fourcc flag
+        ] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(b"DXT1");
+        for value in [
+            0_u32,
+            0,
+            0,
+            0,
+            0, // RGB bit count and masks
+            0x0000_1000,
+            0,
+            0,
+            0,
+            0, // caps
+        ] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        bytes.extend_from_slice(&[0x00, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        write_test_file(name, &bytes, "DDS")
     }
 
     fn write_test_ppm_file(name: &str) -> PathBuf {
