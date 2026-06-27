@@ -14835,6 +14835,11 @@ fn native_key_assignment_command_from_query(
     if let Some(uri) = open_uri_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::OpenUri(uri));
     }
+    if let Some((text, destination)) =
+        copy_text_to_from_query_with_static_source(static_source, value)
+    {
+        return Some(WindowCommand::CopyTextTo { text, destination });
+    }
     if let Some(value) = send_string_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SendString(value));
     }
@@ -20081,6 +20086,10 @@ impl NativeWindowApp {
             }
             WindowCommand::CopyTo(destination) => {
                 self.copy_selection_to(destination);
+                return Ok(());
+            }
+            WindowCommand::CopyTextTo { text, destination } => {
+                self.write_text_to_copy_destination(&text, destination);
                 return Ok(());
             }
             WindowCommand::Copy => {
@@ -33845,6 +33854,9 @@ fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowC
     if let Some(uri) = open_uri_from_query(query) {
         return Some(WindowCommand::OpenUri(uri));
     }
+    if let Some((text, destination)) = copy_text_to_from_query(query) {
+        return Some(WindowCommand::CopyTextTo { text, destination });
+    }
     if let Some(split_pane) = split_pane_table_action_from_query(query) {
         return Some(WindowCommand::SplitPane(split_pane));
     }
@@ -39217,6 +39229,95 @@ fn complete_selection_or_open_link_destination_from_query_with_static_source(
     let destination = strip_query_prefix_from_any(destination, &["destination=", "destination "])
         .unwrap_or(destination);
     copy_destination_from_query_with_static_source(static_source, destination)
+}
+
+fn copy_text_to_from_query(query: &str) -> Option<(String, WindowCopyDestination)> {
+    copy_text_to_from_query_with_static_source(None, query)
+}
+
+fn copy_text_to_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<(String, WindowCopyDestination)> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
+    if let Some(value) = strip_lua_function_call_from_query(query, "copytextto") {
+        let value = value.trim();
+        if value.starts_with('{') {
+            return copy_text_to_lua_table_from_query_with_static_source(static_source, value);
+        }
+        if static_source.is_some()
+            && let Some(command) =
+                copy_text_to_lua_table_from_query_with_static_source(static_source, value)
+        {
+            return Some(command);
+        }
+    }
+
+    if let Some(value) = strip_query_table_assignment_from_prefix(query, "copytextto=")
+        && value.trim_start().starts_with('{')
+    {
+        return copy_text_to_lua_table_from_query_with_static_source(static_source, value);
+    }
+
+    None
+}
+
+fn copy_text_to_lua_table_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<(String, WindowCopyDestination)> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut text = None;
+    let mut destination = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
+        let name = split_lua_table_key_from_query(name.trim())?;
+        match normalized_action_name_query(&name).as_str() {
+            "text" => {
+                if text.is_some() {
+                    return None;
+                }
+                text = Some(parse_maybe_static_query_text(static_source, value.trim())?);
+            }
+            "destination" => {
+                if destination.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value.trim())?;
+                destination = Some(copy_destination_from_query(&value)?);
+            }
+            _ => return None,
+        }
+    }
+
+    Some((text?, destination?))
 }
 
 fn copy_destination_from_query(destination: &str) -> Option<WindowCopyDestination> {
@@ -45297,6 +45398,11 @@ enum WindowCommand {
     #[allow(dead_code)]
     CopyTo(WindowCopyDestination),
     #[allow(dead_code)]
+    CopyTextTo {
+        text: String,
+        destination: WindowCopyDestination,
+    },
+    #[allow(dead_code)]
     Copy,
     PasteFromClipboard,
     PasteFromPrimarySelection,
@@ -45593,6 +45699,7 @@ impl WindowCommand {
             | Self::CopyTo(WindowCopyDestination::ClipboardAndPrimarySelection) => {
                 "Copy To Clipboard And Primary Selection"
             }
+            Self::CopyTextTo { .. } => "Copy Text To",
             Self::PasteFromClipboard | Self::PasteFrom(WindowPasteSource::Clipboard) => {
                 "Paste From Clipboard"
             }
@@ -45754,6 +45861,7 @@ impl WindowCommand {
             | Self::CopyTo(WindowCopyDestination::ClipboardAndPrimarySelection) => {
                 "Copy To Clipboard And Primary Selection"
             }
+            Self::CopyTextTo { .. } => "Copy Text To",
             Self::PasteFromClipboard | Self::PasteFrom(WindowPasteSource::Clipboard) => {
                 "Paste From Clipboard"
             }
@@ -83988,6 +84096,44 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_copy_text_to_static_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local copied_text = 'literal text'
+            local destination = 'ClipboardAndPrimarySelection'
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.CopyTextTo {
+                  text = copied_text,
+                  destination = destination,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyTextTo static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::CopyTextTo {
+                    text: "literal text".to_owned(),
+                    destination: WindowCopyDestination::ClipboardAndPrimarySelection,
+                },
+            }])
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_open_uri_static_variable() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -110821,6 +110967,77 @@ mod tests {
                 WindowCopyDestination::PrimarySelection
             )]
         );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_copy_text_to_wezterm_action_table_query() {
+        let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.CopyTextTo { text = 'literal text', destination = 'PrimarySelection' }"
+                .to_owned(),
+        );
+
+        let expected = WindowCommand::CopyTextTo {
+            text: "literal text".to_owned(),
+            destination: WindowCopyDestination::PrimarySelection,
+        };
+        assert_eq!(app.command_palette_filtered_commands(), [expected.clone()]);
+        assert!(app.command_palette_execute(expected));
+
+        assert!(clipboard_copied.lock().unwrap().is_empty());
+        assert_eq!(primary_copied.lock().unwrap().as_slice(), ["literal text"]);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_copy_text_to_wezterm_action_table_wrapper_query() {
+        let clipboard_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_clipboard = Arc::clone(&clipboard_copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_clipboard.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action { CopyTextTo = { text = 'literal text', destination = 'ClipboardAndPrimarySelection' } }"
+                .to_owned(),
+        );
+
+        let expected = WindowCommand::CopyTextTo {
+            text: "literal text".to_owned(),
+            destination: WindowCopyDestination::ClipboardAndPrimarySelection,
+        };
+        assert_eq!(app.command_palette_filtered_commands(), [expected.clone()]);
+        assert!(app.command_palette_execute(expected));
+
+        assert_eq!(
+            clipboard_copied.lock().unwrap().as_slice(),
+            ["literal text"]
+        );
+        assert_eq!(primary_copied.lock().unwrap().as_slice(), ["literal text"]);
+        assert!(app.command_palette.is_none());
     }
 
     #[test]

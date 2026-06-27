@@ -1330,7 +1330,12 @@ keyboard, mouse, paste, resize
   `copy to <destination>` and `copyto <destination>` queries plus action-name
   `copytoprimaryselection` and `copytoclipboardandprimaryselection` queries.
   Static `config.keys` action calls resolve top-level string variables for
-  `CopyTo` destinations.
+  `CopyTo` destinations. Native `CopyTextTo { text, destination }` payloads
+  write explicit text to Clipboard, PrimarySelection, or both copy targets
+  without requiring an active selection, including WezTerm-style
+  `wezterm.action.CopyTextTo { text = ..., destination = ... }` and
+  `wezterm.action { CopyTextTo = { ... } }` query/config forms with top-level
+  static string variables for both fields.
   The native platform PrimarySelection backend remains a later
   platform-adapter task.
 - Implemented in v1: command-palette Paste From Clipboard and native
