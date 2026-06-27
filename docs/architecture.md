@@ -163,9 +163,9 @@ keyboard, mouse, paste, resize
   tables plus explicit-color and preset Gradient sources mapped onto the same
   native background color/gradient paths with layer opacity and inline or
   static-variable layer `hsb` transforms. Multi-layer `config.background`
-  stacks with Color layers below a final explicit-color Gradient layer are
-  precomposed into native background color/gradient overrides, plus retained
-  platform backdrop settings
+  stacks with Color layers below a final explicit-color or preset Gradient
+  layer are composed into native background color/gradient overrides, plus
+  retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual
   KDE/macOS/Windows backdrop and accent application remains platform-adapter work. It also supports

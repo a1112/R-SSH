@@ -419,6 +419,7 @@ pub struct RenderBackgroundGradient {
     pub segment: Option<RenderBackgroundGradientSegment>,
     pub preset: Option<RenderBackgroundGradientPreset>,
     pub opacity_alpha: u8,
+    pub blend_with_default_background: bool,
     pub hsb: RenderBackgroundGradientHsb,
     pub colors: Vec<[u8; 4]>,
 }
@@ -1231,6 +1232,9 @@ fn fill_default_background(
     gradient: Option<&RenderBackgroundGradient>,
 ) {
     if let Some(gradient) = gradient {
+        if gradient.blend_with_default_background {
+            surface.fill(color);
+        }
         fill_default_background_gradient(
             surface,
             Rect {
@@ -1253,6 +1257,9 @@ fn fill_default_background_rect(
     gradient: Option<&RenderBackgroundGradient>,
 ) {
     if let Some(gradient) = gradient {
+        if gradient.blend_with_default_background {
+            surface.fill_rect(rect, color);
+        }
         fill_default_background_gradient(surface, rect, gradient);
     } else {
         surface.fill_rect(rect, color);
@@ -1287,10 +1294,43 @@ fn fill_default_background_gradient(
             let color = background_gradient_color_with_opacity(color, gradient.opacity_alpha);
             let index = ((row * surface.width + column) * 4) as usize;
             if let Some(pixel) = surface.target.get_mut(index..index + 4) {
-                pixel.copy_from_slice(&color);
+                if gradient.blend_with_default_background {
+                    let background = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                    pixel.copy_from_slice(&source_over_rgba(background, color));
+                } else {
+                    pixel.copy_from_slice(&color);
+                }
             }
         }
     }
+}
+
+fn source_over_rgba(background: [u8; 4], foreground: [u8; 4]) -> [u8; 4] {
+    let foreground_alpha = u32::from(foreground[3]);
+    let background_alpha = u32::from(background[3]);
+    let inverse_alpha = u32::from(u8::MAX) - foreground_alpha;
+    let alpha =
+        foreground_alpha + background_alpha.saturating_mul(inverse_alpha) / u32::from(u8::MAX);
+    if alpha == 0 {
+        return [0, 0, 0, 0];
+    }
+
+    let channel = |index: usize| {
+        let foreground_weight = u32::from(foreground[index]).saturating_mul(foreground_alpha);
+        let background_weight = u32::from(background[index])
+            .saturating_mul(background_alpha)
+            .saturating_mul(inverse_alpha)
+            / u32::from(u8::MAX);
+        let value = (foreground_weight + background_weight) / alpha;
+        u8::try_from(value).unwrap_or(u8::MAX)
+    };
+
+    [
+        channel(0),
+        channel(1),
+        channel(2),
+        u8::try_from(alpha.min(u32::from(u8::MAX))).unwrap_or(u8::MAX),
+    ]
 }
 
 enum BackgroundGradientSampler {

@@ -1213,6 +1213,7 @@ struct NativeWindowBackgroundGradient {
     segment: Option<NativeWindowBackgroundGradientSegment>,
     preset: Option<NativeWindowBackgroundGradientPreset>,
     opacity_alpha: u8,
+    blend_with_background_color: bool,
     hsb: NativeInactivePaneHsb,
     colors: Vec<Color>,
 }
@@ -1231,6 +1232,7 @@ impl NativeWindowBackgroundGradient {
                 .preset
                 .map(NativeWindowBackgroundGradientPreset::to_render),
             opacity_alpha: self.opacity_alpha,
+            blend_with_default_background: self.blend_with_background_color,
             hsb: RenderBackgroundGradientHsb {
                 hue: self.hsb.hue.0,
                 saturation: self.hsb.saturation.0,
@@ -12613,6 +12615,7 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
         }),
         preset,
         opacity_alpha: u8::MAX,
+        blend_with_background_color: false,
         hsb: native_identity_hsb(),
         colors,
     })
@@ -12780,7 +12783,8 @@ fn compose_lua_background_color_below_gradient(
     mut gradient: NativeWindowBackgroundGradient,
 ) -> Option<NativeWindowBackgroundGradient> {
     if gradient.colors.is_empty() {
-        return None;
+        gradient.blend_with_background_color = true;
+        return Some(gradient);
     }
     gradient.colors = gradient
         .colors
@@ -54111,6 +54115,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(127, 127, 127), Color::Rgb(127, 127, 127)],
             })
@@ -54126,6 +54131,68 @@ mod tests {
                 terminal_origin_y
             ),
             [127, 127, 127, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_color_below_preset_gradient_layer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.background = {
+              {
+                source = { Color = '#000000' },
+              },
+              {
+                source = {
+                  Gradient = {
+                    preset = 'Blues',
+                    noise = 0,
+                  },
+                },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background Color and preset Gradient layers");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: Some(NativeWindowBackgroundGradientPreset::Blues),
+                opacity_alpha: 127,
+                blend_with_background_color: true,
+                hsb: super::native_identity_hsb(),
+                colors: Vec::new(),
+            })
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = FRAME_WIDTH as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, FRAME_HEIGHT as usize - 1),
+            [123, 125, 127, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                width,
+                FRAME_WIDTH as usize - 1,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [3, 23, 53, 255]
         );
     }
 
@@ -54159,6 +54226,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -54214,6 +54282,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -54276,6 +54345,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -54327,6 +54397,7 @@ mod tests {
                 segment: None,
                 preset: Some(NativeWindowBackgroundGradientPreset::Blues),
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: Vec::new(),
             })
@@ -54468,6 +54539,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![
                     Color::Rgb(255, 0, 0),
@@ -54519,6 +54591,7 @@ mod tests {
                 }),
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![
                     Color::Rgb(255, 0, 0),
@@ -54626,6 +54699,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -54663,6 +54737,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(32, 33, 34), Color::Rgb(48, 49, 50)],
             })
@@ -54701,6 +54776,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(64, 65, 66), Color::Rgb(80, 81, 82)],
             })
@@ -89517,6 +89593,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
@@ -89559,6 +89636,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgba(1, 2, 3, 127), Color::Rgba(17, 18, 19, 127)],
             })
@@ -89601,6 +89679,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(16, 32, 48), Color::Rgb(32, 48, 64)],
             })
@@ -96201,6 +96280,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
@@ -96550,6 +96630,7 @@ mod tests {
                 segment: None,
                 preset: None,
                 opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),

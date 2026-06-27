@@ -2518,10 +2518,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   gradient alpha. Layer `hsb` tables apply inline or through top-level static
   table variables to Color sources, explicit Gradient color lists, and preset
   Gradient sources. Multi-layer stacks with one or more Color layers below a
-  final explicit-color Gradient layer now precompose the Color stack into each
-  Gradient stop, preserving source-over alpha semantics for that subset.
-  Multi-layer preset-gradient composition, image sources, alignment/repeat
-  settings, and HSB transforms for image sources remain future parity work.
+  final explicit-color or preset Gradient layer now preserve source-over alpha
+  semantics for that subset. Explicit-color Gradient stacks precompose the
+  Color stack into each Gradient stop; preset Gradient stacks blend the sampled
+  Gradient over the configured background color during rendering. Image
+  sources, alignment/repeat settings, and HSB transforms for image sources
+  remain future parity work.
 - Native config retains WezTerm-style platform backdrop settings:
   `kde_window_background_blur` defaults to `false`,
   `macos_window_background_blur` defaults to `0`, and
