@@ -12644,26 +12644,110 @@ fn native_background_lua_table_from_query(
     max_start: usize,
 ) -> Option<NativeBackgroundLayer> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-    let mut layers = split_lua_table_top_level_fields(table)?
-        .into_iter()
-        .map(str::trim)
-        .filter(|field| !field.is_empty());
-    let layer = layers.next()?;
-    if layers.next().is_some() {
+    let mut layers =
+        native_background_layers_lua_table_from_query(source, table, max_start)?.into_iter();
+    let first = layers.next()?;
+    let Some(second) = layers.next() else {
+        return Some(first);
+    };
+
+    let NativeBackgroundLayer::Color(mut color) = first else {
         return None;
+    };
+    let NativeBackgroundLayer::Color(second) = second else {
+        return None;
+    };
+    color = compose_lua_background_color_layers(color, second);
+    for layer in layers {
+        let NativeBackgroundLayer::Color(layer) = layer else {
+            return None;
+        };
+        color = compose_lua_background_color_layers(color, layer);
     }
 
-    let layer = if layer.starts_with('{') {
-        layer
-    } else if let Some((key, value)) = split_lua_table_assignment_from_field(layer) {
-        split_lua_table_array_index_from_query(key.trim()).filter(|index| *index == 1)?;
-        value.trim()
-    } else {
-        layer
-    };
-    let layer = lua_background_layer_table_from_query(source, layer, max_start)?;
+    Some(NativeBackgroundLayer::Color(color))
+}
 
+fn native_background_layers_lua_table_from_query(
+    source: &str,
+    table: &str,
+    max_start: usize,
+) -> Option<Vec<NativeBackgroundLayer>> {
+    let mut layers = Vec::new();
+    let mut indexed_layers = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !layers.is_empty() || index == 0 || indexed_layers.contains_key(&index) {
+                return None;
+            }
+            indexed_layers.insert(
+                index,
+                native_background_layer_lua_value_from_query(source, value.trim(), max_start)?,
+            );
+            continue;
+        }
+
+        if !indexed_layers.is_empty() {
+            return None;
+        }
+        layers.push(native_background_layer_lua_value_from_query(
+            source, field, max_start,
+        )?);
+    }
+
+    if !indexed_layers.is_empty() {
+        return (1..=indexed_layers.len())
+            .map(|index| indexed_layers.remove(&index))
+            .collect();
+    }
+
+    Some(layers)
+}
+
+fn native_background_layer_lua_value_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<NativeBackgroundLayer> {
+    let layer = lua_background_layer_table_from_query(source, value, max_start)?;
     native_background_layer_lua_table_from_query(source, &layer, max_start)
+}
+
+fn compose_lua_background_color_layers(background: Color, foreground: Color) -> Color {
+    let background = color_to_rgba(background, DEFAULT_RENDER_BACKGROUND_RGBA);
+    let foreground = color_to_rgba(foreground, DEFAULT_RENDER_BACKGROUND_RGBA);
+    let foreground_alpha = u32::from(foreground[3]);
+    let background_alpha = u32::from(background[3]);
+    let inverse_alpha = u32::from(u8::MAX) - foreground_alpha;
+    let alpha =
+        foreground_alpha + background_alpha.saturating_mul(inverse_alpha) / u32::from(u8::MAX);
+    if alpha == 0 {
+        return Color::Rgba(0, 0, 0, 0);
+    }
+
+    let channel = |index: usize| {
+        let foreground_weight = u32::from(foreground[index]).saturating_mul(foreground_alpha);
+        let background_weight = u32::from(background[index])
+            .saturating_mul(background_alpha)
+            .saturating_mul(inverse_alpha)
+            / u32::from(u8::MAX);
+        let value = (foreground_weight + background_weight) / alpha;
+        u8::try_from(value).unwrap_or(u8::MAX)
+    };
+
+    rgba_to_color([
+        channel(0),
+        channel(1),
+        channel(2),
+        u8::try_from(alpha.min(u32::from(u8::MAX))).unwrap_or(u8::MAX),
+    ])
 }
 
 fn lua_background_layer_table_from_query(
@@ -89152,6 +89236,36 @@ mod tests {
         assert_eq!(
             app.native_effective_config().background_color,
             Color::Rgba(10, 20, 30, 127)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_background_color_layers() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.background = {
+              {
+                source = { Color = '#000000' },
+              },
+              {
+                source = { Color = '#ffffff' },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background color layers config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().background_color,
+            Color::Rgb(127, 127, 127)
         );
     }
 
