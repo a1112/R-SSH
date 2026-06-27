@@ -159,7 +159,8 @@ keyboard, mouse, paste, resize
   interpolation/blend/segment controls and colorgrad preset fills for default
   window backgrounds, and single-layer WezTerm `config.background` Color and
   opaque explicit-color Gradient sources mapped onto the same native background
-  color/gradient paths with layer `hsb` transforms, plus retained platform backdrop settings
+  color/gradient paths with inline or static-variable layer `hsb` transforms,
+  plus retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual
   KDE/macOS/Windows backdrop and accent application remains platform-adapter work. It also supports

@@ -12680,7 +12680,7 @@ fn native_background_layer_lua_table_from_query(
                 source_value = Some(value);
             }
             "hsb" => {
-                hsb = native_hsb_lua_table_from_query(source, value)?;
+                hsb = native_hsb_lua_value_from_query(source, value, max_start)?;
             }
             "opacity" => {
                 opacity = parse_maybe_static_query_f64(static_source, value)?;
@@ -12693,6 +12693,26 @@ fn native_background_layer_lua_table_from_query(
     }
 
     native_background_source_lua_table_from_query(static_source, source_value?, hsb, opacity)
+}
+
+fn native_hsb_lua_value_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<NativeInactivePaneHsb> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        return native_hsb_lua_table_from_query(source, value);
+    }
+
+    let variable = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let value =
+        lua_static_table_variable_assignment_before_offset_from_query(source, variable, max_start)?;
+    native_hsb_lua_table_from_query(source, value)
 }
 
 fn native_background_source_lua_table_from_query(
@@ -88988,6 +89008,34 @@ mod tests {
         assert_eq!(
             app.native_effective_config().background_color,
             Color::Rgba(16, 32, 48, 127)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_background_layer_hsb_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local dimmer = { brightness = 0.5 }
+
+            config.background = {
+              {
+                source = { Color = '#204060' },
+                hsb = dimmer,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background layer static hsb config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().background_color,
+            Color::Rgb(16, 32, 48)
         );
     }
 
