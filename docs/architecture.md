@@ -2254,7 +2254,11 @@ keyboard, mouse, paste, resize
   variables), `alphabet`, `label`, `skip_action_on_paste`, and `scope_lines`
   inline or through top-level static string/bool/number variables from static
   WezTerm-style `config.keys`; parenthesized `QuickSelectArgs(quick_opts)` calls
-  also accept top-level static options table variables. It also accepts static
+  also accept top-level static options table variables. Exact WezTerm-style
+  `QuickSelectArgs` Lua table/config forms materialize as native
+  `QuickSelectArgs { patterns, alphabet, label, action, skip_action_on_paste,
+  scope_lines }` payloads, while local `quick select ...` query aliases keep the
+  internal command-palette entry path. It also accepts static
   `QuickSelectArgs.action = wezterm.action_callback(...)` values as
   native-handler placeholders, skips trailing-comma table fields, and resolves
   top-level static action variables for `QuickSelectArgs.action` inside static

@@ -1048,7 +1048,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `action=<action>`, `scope_lines=<n>`, and `scope-lines=<n>` assignment forms plus legacy
   `quickselect ...` aliases, with assignment fields combinable in the same query,
   map to the same implemented `QuickSelectArgs`
-  fields. The native action payload also carries
+  fields. Exact WezTerm-style Lua table/config forms now materialize as the
+  same named native payload instead of the internal command-palette alias. The
+  native action payload also carries
   `QuickSelectArgs { patterns, alphabet, label, action, skip_action_on_paste,
   scope_lines }` directly for command-palette augmentation and later config
   wiring. The default `Ctrl+Shift+Space`
@@ -1681,7 +1683,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables for `skip_action_on_paste` and `scope_lines`, and top-level static
   action variables for `QuickSelectArgs.action` when parsed from static
   WezTerm-style `config.keys`, plus parenthesized calls that pass a top-level
-  static options table variable.
+  static options table variable. These exact WezTerm table/config forms now
+  produce native `QuickSelectArgs { ... }` payloads while legacy
+  command-palette aliases continue through the internal quick-select entry.
 - WezTerm-style pane-selection table actions now accept parenthesized Lua table
   calls such as
   `wezterm.action.PaneSelect({ mode = "SwapWithActive", show_pane_ids = true, alphabet = "12" })`,

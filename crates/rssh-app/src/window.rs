@@ -14804,7 +14804,7 @@ fn native_key_assignment_command_from_query(
         && let Some(options) =
             quick_select_lua_table_from_query_with_static_source(Some(static_source), value)
     {
-        return Some(WindowCommand::QuickSelect(options));
+        return Some(WindowCommand::QuickSelectArgs(options));
     }
     if let Some(options) = pane_select_options_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::PaneSelect(options));
@@ -19749,7 +19749,7 @@ impl NativeWindowApp {
                 self.enter_quick_select_mode_with_options(options);
                 return Ok(());
             }
-            WindowCommand::QuickSelect(options) => {
+            WindowCommand::QuickSelect(options) | WindowCommand::QuickSelectArgs(options) => {
                 self.enter_quick_select_mode_with_options(options);
                 return Ok(());
             }
@@ -33902,13 +33902,15 @@ fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowC
     if search_query_from_query(query).is_some() {
         return Some(WindowCommand::EnterSearch);
     }
+    if let Some(options) = quick_select_lua_table_from_query(query) {
+        return Some(WindowCommand::QuickSelectArgs(options));
+    }
     if quick_select_patterns_from_query(query).is_some()
         || quick_select_pattern_from_query(query).is_some()
         || quick_select_alphabet_from_query(query).is_some()
         || quick_select_label_from_query(query).is_some()
         || quick_select_action_from_query(query).is_some()
         || quick_select_scope_lines_from_query(query).is_some()
-        || quick_select_lua_table_from_query(query).is_some()
     {
         return Some(WindowCommand::EnterQuickSelect);
     }
@@ -35965,7 +35967,7 @@ fn confirmation_nested_command_from_query(query: &str) -> Option<WindowCommand> 
         return Some(WindowCommand::CharSelectArgs(options));
     }
     if let Some(options) = quick_select_lua_table_from_query(query) {
-        return Some(WindowCommand::QuickSelect(options));
+        return Some(WindowCommand::QuickSelectArgs(options));
     }
     if let Some(search_query) = search_query_from_query(query) {
         return Some(WindowCommand::Search(search_query));
@@ -45441,6 +45443,8 @@ enum WindowCommand {
     #[allow(dead_code)]
     QuickSelect(WindowQuickSelectOptions),
     #[allow(dead_code)]
+    QuickSelectArgs(WindowQuickSelectOptions),
+    #[allow(dead_code)]
     PaneSelect(WindowPaneSelectOptions),
     #[allow(dead_code)]
     PromptInputLine(WindowPromptInputLineOptions),
@@ -45873,7 +45877,9 @@ impl WindowCommand {
             Self::PastePrimarySelection => "Paste Primary Selection",
             Self::SendString(_) => "Send String",
             Self::SendKey(_) => "Send Key",
-            Self::QuickSelect(_) | Self::EnterQuickSelect => "Quick Select",
+            Self::QuickSelect(_) | Self::QuickSelectArgs(_) | Self::EnterQuickSelect => {
+                "Quick Select"
+            }
             Self::PaneSelect(_) | Self::EnterPaneSelect => "Pane Select",
             Self::PromptInputLine(_) => "Prompt Input Line",
             Self::InputSelector(_) => "Input Selector",
@@ -66835,15 +66841,21 @@ mod tests {
                 initial_rows: TERMINAL_ROWS,
                 inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
                 command_palette_rows: None,
-                command_palette_font: None,
+                command_palette_font: Some(super::native_font_config(
+                    super::DEFAULT_WINDOW_FRAME_FONT,
+                )),
                 command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
                 command_palette_bg_color: None,
                 command_palette_fg_color: None,
-                char_select_font: None,
+                char_select_font: Some(
+                    super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT,)
+                ),
                 char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
                 char_select_bg_color: None,
                 char_select_fg_color: None,
-                pane_select_font: None,
+                pane_select_font: Some(
+                    super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT,)
+                ),
                 launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
                 quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
                 quick_select_patterns: Vec::new(),
@@ -85171,7 +85183,7 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+Q".to_owned(),
-                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
                     action: Some(WindowQuickSelectAction::OpenUri),
                     skip_action_on_paste: true,
                     scope_lines: Some(2),
@@ -85215,7 +85227,7 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+Q".to_owned(),
-                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
                     patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
                     label: Some("Open ticket".to_owned()),
                     alphabet: Some("12".to_owned()),
@@ -85256,7 +85268,7 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+Q".to_owned(),
-                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
                     patterns: Some(vec!["ticket-[0-9]+".to_owned(), "bug-[A-Z]+".to_owned()]),
                     alphabet: Some("12".to_owned()),
                     ..WindowQuickSelectOptions::default()
@@ -85298,7 +85310,7 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+Q".to_owned(),
-                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
                     patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
                     alphabet: Some("12".to_owned()),
                     label: Some("Open ticket".to_owned()),
@@ -85733,7 +85745,7 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+Q".to_owned(),
-                command: WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
                     patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
                     action: Some(WindowQuickSelectAction::CopyTo(
                         WindowCopyDestination::Clipboard
@@ -98571,15 +98583,15 @@ mod tests {
                 brightness: NativeHsbMultiplier::from_f32(0.6),
             },
             command_palette_rows: Some(12),
-            command_palette_font: None,
+            command_palette_font: Some(super::native_font_config("Monaco")),
             command_palette_font_size: NativeFontSize::from_millipoints(15_500),
             command_palette_bg_color: Some(Color::Rgb(15, 16, 17)),
             command_palette_fg_color: Some(Color::Rgb(18, 19, 20)),
-            char_select_font: None,
+            char_select_font: Some(super::native_font_config("Monaco")),
             char_select_font_size: NativeFontSize::from_millipoints(16_250),
             char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
             char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
-            pane_select_font: None,
+            pane_select_font: Some(super::native_font_config("Monaco")),
             launcher_alphabet: "12".to_owned(),
             quick_select_alphabet: "xy".to_owned(),
             quick_select_patterns: vec!["ticket-[0-9]+".to_owned()],
@@ -98807,15 +98819,15 @@ mod tests {
             initial_rows: TERMINAL_ROWS,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             command_palette_rows: None,
-            command_palette_font: None,
+            command_palette_font: Some(super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT)),
             command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
             command_palette_bg_color: None,
             command_palette_fg_color: None,
-            char_select_font: None,
+            char_select_font: Some(super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT)),
             char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
             char_select_bg_color: None,
             char_select_fg_color: None,
-            pane_select_font: None,
+            pane_select_font: Some(super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT)),
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
@@ -99438,7 +99450,7 @@ mod tests {
         assert_eq!(
             app.command_palette_filtered_commands(),
             vec![WindowCommand::Multiple(vec![
-                WindowCommand::QuickSelect(WindowQuickSelectOptions {
+                WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
                     patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
                     action: Some(WindowQuickSelectAction::OpenUri),
                     ..WindowQuickSelectOptions::default()
@@ -104998,6 +105010,35 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_quick_select_args_as_wezterm_named_command() {
+        let query = "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', alphabet = '12' }";
+        let expected = WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            alphabet: Some("12".to_owned()),
+            ..WindowQuickSelectOptions::default()
+        });
+
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        app.command_palette_execute(expected);
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(quick_select.labels.as_slice(), ["1"]);
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_quick_select_args_wezterm_action_parenthesized_table_query() {
         let query = "wezterm.action.QuickSelectArgs({ pattern = 'ticket-[0-9]+', action = 'open-uri', alphabet = '12', label = 'open ticket', skip_action_on_paste = true, scope_lines = 2 })";
         let expected_options = WindowQuickSelectOptions {
@@ -105020,9 +105061,9 @@ mod tests {
         app.command_palette_set_query(query.to_owned());
         assert_eq!(
             app.command_palette_filtered_commands(),
-            vec![WindowCommand::EnterQuickSelect]
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
         );
-        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
         let quick_select = app.quick_select.as_ref().expect("quick select mode");
         assert_eq!(quick_select.matches.len(), 1);
@@ -105068,9 +105109,9 @@ mod tests {
             app.command_palette_set_query(query.to_owned());
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105124,9 +105165,9 @@ mod tests {
             app.command_palette_set_query(query.to_owned());
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105193,11 +105234,13 @@ mod tests {
 
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::QuickSelectArgs(quick_select_options_from_query(query));
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![expected_command.clone()]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(expected_command);
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105261,11 +105304,13 @@ mod tests {
 
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::QuickSelectArgs(quick_select_options_from_query(query));
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![expected_command.clone()]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(expected_command);
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105322,11 +105367,13 @@ mod tests {
 
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::QuickSelectArgs(quick_select_options_from_query(query));
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![expected_command.clone()]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(expected_command);
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105387,11 +105434,13 @@ mod tests {
 
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::QuickSelectArgs(quick_select_options_from_query(query));
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![expected_command.clone()]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(expected_command);
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105451,11 +105500,13 @@ mod tests {
 
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::QuickSelectArgs(quick_select_options_from_query(query));
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![expected_command.clone()]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(expected_command);
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105508,11 +105559,13 @@ mod tests {
 
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::QuickSelectArgs(quick_select_options_from_query(query));
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![expected_command.clone()]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(expected_command);
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105584,11 +105637,13 @@ mod tests {
 
             app.enter_command_palette_mode();
             app.command_palette_set_query(query.to_owned());
+            let expected_command =
+                WindowCommand::QuickSelectArgs(quick_select_options_from_query(query));
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![expected_command.clone()]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(expected_command);
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105643,9 +105698,9 @@ mod tests {
             app.command_palette_set_query(query.to_owned());
             assert_eq!(
                 app.command_palette_filtered_commands(),
-                vec![WindowCommand::EnterQuickSelect]
+                vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
             );
-            app.command_palette_execute(WindowCommand::EnterQuickSelect);
+            app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
             let quick_select = app.quick_select.as_ref().expect("quick select mode");
             assert_eq!(quick_select.matches.len(), 1);
@@ -105699,9 +105754,9 @@ mod tests {
         app.command_palette_set_query(query.to_owned());
         assert_eq!(
             app.command_palette_filtered_commands(),
-            vec![WindowCommand::EnterQuickSelect]
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
         );
-        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
         let quick_select = app.quick_select.as_ref().expect("quick select mode");
         assert_eq!(quick_select.matches.len(), 1);
@@ -105744,9 +105799,9 @@ mod tests {
         app.command_palette_set_query(query.to_owned());
         assert_eq!(
             app.command_palette_filtered_commands(),
-            vec![WindowCommand::EnterQuickSelect]
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
         );
-        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
         let quick_select = app.quick_select.as_ref().expect("quick select mode");
         assert_eq!(quick_select.matches.len(), 2);
@@ -105780,9 +105835,9 @@ mod tests {
         app.command_palette_set_query(query.to_owned());
         assert_eq!(
             app.command_palette_filtered_commands(),
-            vec![WindowCommand::EnterQuickSelect]
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
         );
-        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
         let quick_select = app.quick_select.as_ref().expect("quick select mode");
         assert_eq!(quick_select.matches.len(), 1);
@@ -105813,9 +105868,9 @@ mod tests {
         app.command_palette_set_query(query.to_owned());
         assert_eq!(
             app.command_palette_filtered_commands(),
-            vec![WindowCommand::EnterQuickSelect]
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
         );
-        app.command_palette_execute(WindowCommand::EnterQuickSelect);
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
 
         let quick_select = app.quick_select.as_ref().expect("quick select mode");
         assert_eq!(quick_select.matches.len(), 1);
