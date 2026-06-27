@@ -3492,6 +3492,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             )?);
         parsed = true;
     }
+    if let Some(background) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "background",
+        )
+    {
+        parsed |= apply_lua_background_table_overrides(
+            config,
+            &background.value,
+            background.max_start,
+            &mut overrides,
+        )?;
+    }
     if let Some(kde_window_background_blur) =
         lua_config_bool_assignment_from_query(config, "kde_window_background_blur")
     {
@@ -12592,6 +12605,160 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
         preset,
         colors,
     })
+}
+
+enum NativeBackgroundLayer {
+    Color(Color),
+    Gradient(NativeWindowBackgroundGradient),
+}
+
+fn apply_lua_background_table_overrides(
+    source: &str,
+    value: &str,
+    max_start: usize,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    match native_background_lua_table_from_query(source, value, max_start)? {
+        NativeBackgroundLayer::Color(color) => overrides.background_color = Some(color),
+        NativeBackgroundLayer::Gradient(gradient) => {
+            overrides.window_background_gradient = Some(gradient);
+        }
+    }
+    Some(true)
+}
+
+fn native_background_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<NativeBackgroundLayer> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut layers = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty());
+    let layer = layers.next()?;
+    if layers.next().is_some() {
+        return None;
+    }
+
+    let layer = if layer.starts_with('{') {
+        layer
+    } else {
+        let (key, value) = split_lua_table_assignment_from_field(layer)?;
+        split_lua_table_array_index_from_query(key.trim()).filter(|index| *index == 1)?;
+        value.trim()
+    };
+
+    native_background_layer_lua_table_from_query(source, layer, max_start)
+}
+
+fn native_background_layer_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<NativeBackgroundLayer> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut source_value = None;
+    let mut opacity = 1.0;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "source" => {
+                if source_value.is_some() {
+                    return None;
+                }
+                source_value = Some(value);
+            }
+            "opacity" => {
+                opacity = parse_maybe_static_query_f64(static_source, value)?;
+                if !opacity.is_finite() || opacity < 0.0 {
+                    return None;
+                }
+            }
+            _ => return None,
+        }
+    }
+
+    native_background_source_lua_table_from_query(static_source, source_value?, opacity)
+}
+
+fn native_background_source_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    opacity: f64,
+) -> Option<NativeBackgroundLayer> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut fields = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty());
+    let field = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+    let (key, value) = split_lua_table_assignment_from_field(field)?;
+    let key = split_lua_table_key_from_query(key.trim())?;
+    match key.as_str() {
+        "Color" => {
+            let color = parse_maybe_static_query_text(static_source, value.trim())?;
+            Some(NativeBackgroundLayer::Color(
+                lua_background_color_with_opacity(lua_color_from_query(&color)?, opacity),
+            ))
+        }
+        "Gradient" => {
+            if opacity_alpha(opacity) != u8::MAX {
+                return None;
+            }
+            let static_source = static_source?;
+            let gradient = lua_background_source_gradient_table_from_query(static_source, value)?;
+            Some(NativeBackgroundLayer::Gradient(
+                native_window_background_gradient_lua_table_from_query(
+                    static_source.source,
+                    &gradient,
+                    static_source.max_start,
+                )?,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn lua_background_source_gradient_table_from_query(
+    static_source: LuaStaticSource<'_>,
+    value: &str,
+) -> Option<String> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        return Some(lua_braced_table_literal_from_query(value)?.to_owned());
+    }
+
+    let variable = lua_identifier_literal_from_query(value)?;
+    lua_static_table_variable_assignment_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+    )
+    .map(str::to_owned)
+}
+
+fn lua_background_color_with_opacity(color: Color, opacity: f64) -> Color {
+    let [red, green, blue, alpha] = color_to_rgba(color, DEFAULT_RENDER_BACKGROUND_RGBA);
+    let opacity = f64::from(alpha) / f64::from(u8::MAX) * opacity.clamp(0.0, 1.0);
+    let alpha = opacity_alpha(opacity);
+    if alpha == u8::MAX {
+        Color::Rgb(red, green, blue)
+    } else {
+        Color::Rgba(red, green, blue, alpha)
+    }
 }
 
 #[allow(dead_code)]
@@ -88736,6 +88903,72 @@ mod tests {
         let cell = snapshot_cell(&snapshot, TAB_BAR_ROWS, 0).expect("visible cell");
 
         assert_eq!(cell.background, Color::Rgba(12, 12, 12, 127));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_background_color_layer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.background = {
+              {
+                source = { Color = '#0a141e' },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background color layer config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().background_color,
+            Color::Rgba(10, 20, 30, 127)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_background_gradient_layer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.background = {
+              {
+                source = {
+                  Gradient = {
+                    orientation = 'Vertical',
+                    colors = { '#010203', '#111213' },
+                  },
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background gradient layer config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: None,
+                segment: None,
+                preset: None,
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
+        );
     }
 
     #[test]

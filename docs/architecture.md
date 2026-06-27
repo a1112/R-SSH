@@ -157,7 +157,9 @@ keyboard, mouse, paste, resize
   terminal background cells, basic `window_background_gradient`
   Horizontal/Vertical/Linear-angle/Radial color-list fills with colorgrad
   interpolation/blend/segment controls and colorgrad preset fills for default
-  window backgrounds, plus retained platform backdrop settings
+  window backgrounds, and single-layer WezTerm `config.background` Color and
+  opaque Gradient sources mapped onto the same native background color/gradient
+  paths, plus retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual
   KDE/macOS/Windows backdrop and accent application remains platform-adapter work. It also supports
