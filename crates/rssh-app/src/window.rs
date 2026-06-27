@@ -2470,6 +2470,7 @@ struct NativeFontAttributes {
     stretch: Option<String>,
     style: Option<String>,
     harfbuzz_features: Vec<String>,
+    assume_emoji_presentation: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -12972,6 +12973,13 @@ fn native_font_attributes_lua_table_from_query(
             }
             "harfbuzz_features" => {
                 attributes.harfbuzz_features = split_lua_table_string_array(value)?;
+            }
+            "assume_emoji_presentation" => {
+                attributes.assume_emoji_presentation = Some(
+                    lua_static_bool_assignment_value_from_query(source, value)?
+                        .parse()
+                        .ok()?,
+                );
             }
             _ => {}
         }
@@ -87166,7 +87174,7 @@ mod tests {
         );
         assert!(
             effective.contains(
-                "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\"), harfbuzz_features: [] }"
+                "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\"), harfbuzz_features: [], assume_emoji_presentation: None }"
             ),
             "effective config should expose WezTerm's configured font attributes: {effective:?}"
         );
@@ -87200,6 +87208,7 @@ mod tests {
                 stretch: None,
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
             }
         );
     }
@@ -87234,6 +87243,7 @@ mod tests {
                 stretch: Some("Condensed".to_owned()),
                 style: Some("Oblique".to_owned()),
                 harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
             }
         );
     }
@@ -87262,6 +87272,33 @@ mod tests {
         assert_eq!(
             effective.font_attributes.harfbuzz_features,
             vec!["liga=0", "calt=0"]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_emoji_presentation_attribute() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font {
+              family = 'Noto Color Emoji',
+              assume_emoji_presentation = true,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font emoji presentation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("Noto Color Emoji"));
+        assert_eq!(
+            effective.font_attributes.assume_emoji_presentation,
+            Some(true)
         );
     }
 
@@ -87382,6 +87419,7 @@ mod tests {
                 stretch: Some("Condensed".to_owned()),
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
             }
         );
     }
@@ -87468,6 +87506,7 @@ mod tests {
                 stretch: Some("Condensed".to_owned()),
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
             }
         );
     }
@@ -94978,6 +95017,7 @@ mod tests {
                 stretch: Some("Expanded".to_owned()),
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
             }),
             font_rules: Some(vec![NativeFontRule {
                 italic: Some(true),
@@ -95319,6 +95359,7 @@ mod tests {
                 stretch: Some("Expanded".to_owned()),
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
             },
             font_rules: vec![NativeFontRule {
                 italic: Some(true),
