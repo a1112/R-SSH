@@ -2450,6 +2450,14 @@ impl NativeTabBarStyle {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct NativeFontRule {
+    italic: Option<bool>,
+    intensity: Option<NativeFormatIntensity>,
+    font: Option<String>,
+    font_fallbacks: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeHorizontalContentAlignment {
     Left,
@@ -2604,6 +2612,7 @@ struct NativeEffectiveConfig {
     text_blink_rapid_ease_out: NativeEasingFunction,
     font: Option<String>,
     font_fallbacks: Vec<String>,
+    font_rules: Vec<NativeFontRule>,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     cell_widths: Vec<NativeCellWidthOverride>,
@@ -2800,6 +2809,7 @@ struct NativeConfigOverrides {
     text_blink_rapid_ease_out: Option<NativeEasingFunction>,
     font: Option<String>,
     font_fallbacks: Option<Vec<String>>,
+    font_rules: Option<Vec<NativeFontRule>>,
     font_size: Option<NativeFontSize>,
     cell_width: Option<NativeCellWidth>,
     cell_widths: Option<Vec<NativeCellWidthOverride>>,
@@ -3205,6 +3215,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         let mut font_families = font_families.into_iter();
         overrides.font = font_families.next();
         overrides.font_fallbacks = Some(font_families.collect());
+        parsed = true;
+    }
+    if let Some(font_rules) = lua_config_font_rules_assignment_from_query(config) {
+        overrides.font_rules = Some(font_rules);
         parsed = true;
     }
     if let Some(font_size) = lua_config_f32_assignment_from_query(config, "font_size") {
@@ -5799,6 +5813,15 @@ fn lua_config_font_assignment_from_query(source: &str, field: &str) -> Option<Ve
             .or_else(|| lua_wezterm_font_call_assignment_value_from_query(value))
     })
     .and_then(|value| parse_wezterm_font_families_value(source, value))
+}
+
+fn lua_config_font_rules_assignment_from_query(source: &str) -> Option<Vec<NativeFontRule>> {
+    lua_config_table_assignment_with_insert_appends_with_max_start_from_query(source, "font_rules")
+        .and_then(|rules| native_font_rules_lua_table_from_query(source, &rules.value))
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(source, "font_rules")
+                .and_then(|rules| native_font_rules_lua_table_from_query(source, rules))
+        })
 }
 
 fn lua_wezterm_font_call_assignment_value_from_query(query: &str) -> Option<&str> {
@@ -12797,6 +12820,65 @@ fn parse_wezterm_font_with_fallback_families_value(
     (!families.is_empty()).then_some(families)
 }
 
+fn native_font_rules_lua_table_from_query(
+    source: &str,
+    value: &str,
+) -> Option<Vec<NativeFontRule>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut rules = Vec::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        rules.push(native_font_rule_lua_table_from_query(source, field)?);
+    }
+
+    (!rules.is_empty()).then_some(rules)
+}
+
+fn native_font_rule_lua_table_from_query(source: &str, value: &str) -> Option<NativeFontRule> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut rule = NativeFontRule::default();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = lua_trim_start_comments(value)?;
+        match key.as_str() {
+            "italic" => {
+                rule.italic = Some(
+                    lua_static_bool_assignment_value_from_query(source, value)?
+                        .parse()
+                        .ok()?,
+                );
+            }
+            "intensity" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                rule.intensity = Some(tab_bar_item_intensity_from_query(&value)?);
+            }
+            "font" => {
+                let families = parse_wezterm_font_families_value(source, value)?;
+                let mut families = families.into_iter();
+                rule.font = families.next();
+                rule.font_fallbacks = families.collect();
+            }
+            _ => {}
+        }
+    }
+
+    rule.font.as_ref()?;
+    Some(rule)
+}
+
 #[allow(dead_code)]
 fn native_hsb_multiplier_from_ratio(ratio: f32) -> Option<NativeHsbMultiplier> {
     native_non_negative_ratio_to_per_mille(ratio).map(NativeHsbMultiplier::from_per_mille)
@@ -14085,6 +14167,7 @@ struct NativeWindowApp {
     window_maximized: bool,
     font: Option<String>,
     font_fallbacks: Vec<String>,
+    font_rules: Vec<NativeFontRule>,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     cell_widths: Vec<NativeCellWidthOverride>,
@@ -15560,6 +15643,7 @@ impl NativeWindowApp {
             window_maximized: false,
             font: None,
             font_fallbacks: Vec::new(),
+            font_rules: Vec::new(),
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             cell_widths: Vec::new(),
@@ -16928,6 +17012,7 @@ impl NativeWindowApp {
         self.apply_effective_window_dpi();
         self.font.clone_from(&source.font);
         self.font_fallbacks.clone_from(&source.font_fallbacks);
+        self.font_rules.clone_from(&source.font_rules);
         self.font_size = source.font_size;
         self.cell_width = source.cell_width;
         self.cell_widths.clone_from(&source.cell_widths);
@@ -25197,6 +25282,7 @@ impl NativeWindowApp {
             text_blink_rapid_ease_out: self.text_blink_rapid_ease_out,
             font: self.font.clone(),
             font_fallbacks: self.font_fallbacks.clone(),
+            font_rules: self.font_rules.clone(),
             font_size: self.font_size,
             cell_width: self.cell_width,
             cell_widths: self.cell_widths.clone(),
@@ -25428,6 +25514,7 @@ impl NativeWindowApp {
         );
         self.font = overrides.font.clone().filter(|font| !font.is_empty());
         self.font_fallbacks = overrides.font_fallbacks.clone().unwrap_or_default();
+        self.font_rules = overrides.font_rules.clone().unwrap_or_default();
         self.font_size = overrides.font_size.unwrap_or(DEFAULT_FONT_SIZE);
         self.cell_width = overrides.cell_width.unwrap_or(DEFAULT_CELL_WIDTH);
         self.cell_widths = overrides.cell_widths.clone().unwrap_or_default();
@@ -51105,10 +51192,10 @@ mod tests {
         NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
         NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
         NativeFontAntialias, NativeFontHinting, NativeFontLocator, NativeFontRasterizer,
-        NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
-        NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeHyperlinkRule,
-        NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
+        NativeFontRule, NativeFontShaper, NativeFontSize, NativeFormatAttribute,
+        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags,
+        NativeFreetypeTarget, NativeHorizontalContentAlignment, NativeHsbMultiplier,
+        NativeHyperlinkRule, NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
         NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
@@ -63971,6 +64058,7 @@ mod tests {
                 text_blink_rapid_ease_out: NativeEasingFunction::Linear,
                 font: None,
                 font_fallbacks: Vec::new(),
+                font_rules: Vec::new(),
                 font_size: DEFAULT_FONT_SIZE,
                 cell_width: DEFAULT_CELL_WIDTH,
                 cell_widths: Vec::new(),
@@ -86870,6 +86958,52 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_font_rules() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_rules = {
+              {
+                italic = true,
+                intensity = 'Bold',
+                font = wezterm.font { family = 'Victor Mono', weight = 'Bold' },
+              },
+              {
+                italic = true,
+                intensity = 'Half',
+                font = wezterm.font_with_fallback { 'Terminus', 'Noto Color Emoji' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font_rules config");
+        app.set_config_overrides(overrides);
+
+        let effective = format!("{:?}", app.native_effective_config());
+        assert!(
+            effective.contains("font_rules: ["),
+            "effective config should expose WezTerm font_rules: {effective:?}"
+        );
+        assert!(
+            effective.contains("italic: Some(true)")
+                && effective.contains("intensity: Some(Bold)")
+                && effective.contains("font: Some(\"Victor Mono\")"),
+            "effective config should expose the bold italic font rule: {effective:?}"
+        );
+        assert!(
+            effective.contains("intensity: Some(Half)")
+                && effective.contains("font: Some(\"Terminus\")")
+                && effective.contains("font_fallbacks: [\"Noto Color Emoji\"]"),
+            "effective config should expose the fallback font rule: {effective:?}"
+        );
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_fallback_font_scaling_config() {
         let app = NativeWindowApp::new(None);
         let effective = format!("{:?}", app.native_effective_config());
@@ -94334,6 +94468,12 @@ mod tests {
             text_blink_rapid_ease_out: Some(NativeEasingFunction::Constant),
             font: Some("JetBrains Mono".to_owned()),
             font_fallbacks: Some(vec!["Noto Color Emoji".to_owned()]),
+            font_rules: Some(vec![NativeFontRule {
+                italic: Some(true),
+                intensity: Some(NativeFormatIntensity::Bold),
+                font: Some("Victor Mono".to_owned()),
+                font_fallbacks: Vec::new(),
+            }]),
             font_size: Some(NativeFontSize::from_millipoints(13_500)),
             cell_width: Some(NativeCellWidth::from_per_mille(1_250)),
             cell_widths: Some(vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)]),
@@ -94662,6 +94802,12 @@ mod tests {
             text_blink_rapid_ease_out: NativeEasingFunction::Constant,
             font: Some("JetBrains Mono".to_owned()),
             font_fallbacks: vec!["Noto Color Emoji".to_owned()],
+            font_rules: vec![NativeFontRule {
+                italic: Some(true),
+                intensity: Some(NativeFormatIntensity::Bold),
+                font: Some("Victor Mono".to_owned()),
+                font_fallbacks: Vec::new(),
+            }],
             font_size: NativeFontSize::from_millipoints(13_500),
             cell_width: NativeCellWidth::from_per_mille(1_250),
             cell_widths: vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)],
@@ -94950,6 +95096,7 @@ mod tests {
             text_blink_rapid_ease_out: NativeEasingFunction::Linear,
             font: None,
             font_fallbacks: Vec::new(),
+            font_rules: Vec::new(),
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             cell_widths: Vec::new(),
