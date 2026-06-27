@@ -29247,7 +29247,11 @@ impl NativeWindowApp {
                 match_type,
             } => {
                 self.enter_search_mode();
-                self.update_search_query_with_type(pattern, SearchDirection::Next, *match_type);
+                self.update_search_query_with_type(
+                    pattern,
+                    self.initial_search_direction(),
+                    *match_type,
+                );
             }
             WindowSearchCommandQuery::CurrentSelectionOrEmptyString => self.enter_search_mode(),
         }
@@ -30388,7 +30392,15 @@ impl NativeWindowApp {
     }
 
     fn update_search_query(&mut self, query: &str) -> bool {
-        self.update_search_query_with_direction(query, SearchDirection::Next)
+        self.update_search_query_with_direction(query, self.initial_search_direction())
+    }
+
+    fn initial_search_direction(&self) -> SearchDirection {
+        if self.copy_mode.is_some() {
+            self.copy_mode_search_direction()
+        } else {
+            SearchDirection::Previous
+        }
     }
 
     fn clear_search_pattern(&mut self) -> bool {
@@ -72253,24 +72265,24 @@ mod tests {
             .unwrap();
 
         assert!(app.update_search_query("foo"));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::ArrowDown), ModifiersState::empty()));
-        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(!snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::ArrowUp), ModifiersState::empty()));
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
-        assert!(!snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
-
-        assert!(app.handle_search_key(&Key::Character("n".into()), ModifiersState::CONTROL));
         assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
         assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
 
-        assert!(app.handle_search_key(&Key::Character("p".into()), ModifiersState::CONTROL));
+        assert!(app.handle_search_key(&Key::Character("n".into()), ModifiersState::CONTROL));
         assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
         assert!(!snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
+
+        assert!(app.handle_search_key(&Key::Character("p".into()), ModifiersState::CONTROL));
+        assert!(!snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
     }
 
     #[test]
@@ -72281,12 +72293,12 @@ mod tests {
             .unwrap();
 
         assert!(app.update_search_query("foo"));
-        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
-        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 2   ");
+        assert!(snapshot_cell(&app.snapshot, 2, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::PageDown), ModifiersState::empty()));
-        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 2   ");
-        assert!(snapshot_cell(&app.snapshot, 1, 0).unwrap().inverse);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
+        assert!(snapshot_cell(&app.snapshot, 0, 0).unwrap().inverse);
 
         assert!(app.handle_search_key(&Key::Named(NamedKey::PageUp), ModifiersState::empty()));
         assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "foo 0   ");
@@ -109022,8 +109034,8 @@ mod tests {
                 "alpha",
                 WindowSearchMatchType::CaseInsensitive,
                 WindowSelection::new(
-                    SelectionCell { row: 0, column: 0 },
-                    SelectionCell { row: 0, column: 4 },
+                    SelectionCell { row: 0, column: 10 },
+                    SelectionCell { row: 0, column: 14 },
                 ),
             ),
         ] {
@@ -109160,6 +109172,30 @@ mod tests {
         assert!(app.command_palette.is_none());
         assert!(app.copy_mode.is_none());
         assert!(app.quick_select.is_none());
+    }
+
+    #[test]
+    fn window_app_search_action_selects_bottom_most_initial_match() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(16, 3));
+        app.handle_pty_output(b"top hit\r\nmiddle\r\nbottom hit")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_execute(WindowCommand::Search(WindowSearchCommandQuery::Pattern {
+            pattern: "hit".to_owned(),
+            match_type: WindowSearchMatchType::CaseSensitive,
+        }));
+
+        let search = app.search.as_ref().expect("search mode should be active");
+        assert_eq!(search.query, "hit");
+        assert_eq!(
+            app.selection,
+            Some(WindowSelection::new(
+                SelectionCell { row: 2, column: 7 },
+                SelectionCell { row: 2, column: 9 },
+            ))
+        );
     }
 
     #[test]

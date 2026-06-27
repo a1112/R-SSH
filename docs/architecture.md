@@ -2174,7 +2174,8 @@ keyboard, mouse, paste, resize
   `search <pattern>`, `search regex <pattern>`,
   `search case-sensitive <pattern>`, and
   `search case-insensitive <pattern>` / `search case insensitive <pattern>`
-  queries open Search with that initial typed pattern using quote-aware parsing.
+  queries open Search with that initial typed pattern using quote-aware parsing
+  and select the bottom-most initial match in the pane.
   WezTerm-style action field names `search casesensitivestring <pattern>` and
   `search caseinsensitivestring <pattern>` dispatch the same typed search
   payloads, and `search current selection or empty string` maps to WezTerm-style
