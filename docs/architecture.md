@@ -172,7 +172,8 @@ keyboard, mouse, paste, resize
   cover-style sizing, Contain sizing, px/percentage/cell width and height,
   Repeat/Mirror/NoRepeat tiling with optional repeat sizes, offsets,
   Left/Center/Right plus Top/Middle/Bottom alignment, source-over opacity, and
-  layer `hsb` transforms, plus
+  layer `hsb` transforms, with File layer `attachment` Fixed/Scroll/Parallax
+  affecting vertical scrollback sampling, plus
   retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual

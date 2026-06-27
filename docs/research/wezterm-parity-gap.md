@@ -2530,8 +2530,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   opacity, layer `hsb` transforms, and default cover-style sizing plus static `Contain`,
   px/percentage/cell `width` and `height`, `repeat_x`/`repeat_y` including
   `Mirror`, optional repeat sizes, offsets, `horizontal_align`, and
-  `vertical_align`. `Attachment` image sources, parallax/scroll behavior, and
-  broader dynamic Lua resolution remain future parity work.
+  `vertical_align`. Static File layers now also parse `attachment = "Fixed"`,
+  `attachment = "Scroll"`, and `attachment = { Parallax = ... }`, with
+  Scroll and Parallax applied to vertical scrollback sampling during render.
+  Broader dynamic Lua resolution and richer background composition remain
+  future parity work.
 - Native config retains WezTerm-style platform backdrop settings:
   `kde_window_background_blur` defaults to `false`,
   `macos_window_background_blur` defaults to `0`, and

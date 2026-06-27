@@ -25,12 +25,13 @@ use rssh_renderer::{
     PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
     RenderBackgroundGradientHsb, RenderBackgroundGradientInterpolation,
     RenderBackgroundGradientOrientation, RenderBackgroundGradientPreset,
-    RenderBackgroundGradientSegment, RenderBackgroundImage, RenderBackgroundImageDimension,
-    RenderBackgroundImageHorizontalAlign, RenderBackgroundImageLength, RenderBackgroundImageRepeat,
-    RenderBackgroundImageVerticalAlign, RenderBackgroundLayer, RenderBoldBrightensAnsiColors,
-    RenderCell, RenderCellColorRole, RenderCursorThickness, RenderGeometry, RenderInlineImage,
-    RenderScrollbarThumbSize, RenderStrikethroughPosition, RenderUnderlinePosition,
-    RenderUnderlineThickness, SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot,
+    RenderBackgroundGradientSegment, RenderBackgroundImage, RenderBackgroundImageAttachment,
+    RenderBackgroundImageDimension, RenderBackgroundImageHorizontalAlign,
+    RenderBackgroundImageLength, RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
+    RenderBackgroundLayer, RenderBoldBrightensAnsiColors, RenderCell, RenderCellColorRole,
+    RenderCursorThickness, RenderGeometry, RenderInlineImage, RenderScrollbarThumbSize,
+    RenderStrikethroughPosition, RenderUnderlinePosition, RenderUnderlineThickness,
+    SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot,
     background_gradient_color_strings, color_to_rgba,
 };
 use rssh_terminal::{
@@ -1257,6 +1258,7 @@ struct NativeWindowBackgroundImage {
     opacity_alpha: u8,
     hsb: NativeInactivePaneHsb,
     animation_speed_millis: u32,
+    attachment: RenderBackgroundImageAttachment,
     layout: NativeWindowBackgroundImageLayout,
 }
 
@@ -1271,6 +1273,7 @@ impl NativeWindowBackgroundImage {
                 brightness: self.hsb.brightness.0,
             },
             animation_speed_millis: self.animation_speed_millis,
+            attachment: self.attachment,
             width: self.layout.width,
             height: self.layout.height,
             repeat_x: self.layout.repeat_x,
@@ -13004,6 +13007,7 @@ fn native_background_layer_lua_table_from_query(
     let mut source_value = None;
     let mut hsb = native_identity_hsb();
     let mut opacity = 1.0;
+    let mut attachment = RenderBackgroundImageAttachment::Fixed;
     let mut image_layout = NativeWindowBackgroundImageLayout::default();
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -13029,6 +13033,10 @@ fn native_background_layer_lua_table_from_query(
                 if !opacity.is_finite() || opacity < 0.0 {
                     return None;
                 }
+            }
+            "attachment" => {
+                attachment =
+                    native_background_image_attachment_lua_value_from_query(static_source, value)?;
             }
             "width" => {
                 image_layout.width =
@@ -13093,6 +13101,7 @@ fn native_background_layer_lua_table_from_query(
         source_value?,
         hsb,
         opacity,
+        attachment,
         image_layout,
     )
 }
@@ -13220,6 +13229,80 @@ fn native_background_image_vertical_align_lua_value_from_query(
     }
 }
 
+fn native_background_image_attachment_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<RenderBackgroundImageAttachment> {
+    if let Some(value) = parse_maybe_static_query_text(static_source, value.trim()) {
+        match value.as_str() {
+            "Fixed" => return Some(RenderBackgroundImageAttachment::Fixed),
+            "Scroll" => return Some(RenderBackgroundImageAttachment::Scroll),
+            _ => {}
+        }
+    }
+
+    let value = lua_background_attachment_table_from_query(static_source, value)?;
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut fields = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .map(str::trim)
+        .filter(|field| !field.is_empty());
+    let field = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+
+    let (key, value) = split_lua_table_assignment_from_field(field)?;
+    let key = split_lua_table_key_from_query(key.trim())?;
+    match key.as_str() {
+        "Parallax" => Some(RenderBackgroundImageAttachment::Parallax {
+            factor_millis: native_background_parallax_factor_lua_value_from_query(
+                static_source,
+                value,
+            )?,
+        }),
+        _ => None,
+    }
+}
+
+fn lua_background_attachment_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        return Some(lua_braced_table_literal_from_query(value)?.to_owned());
+    }
+
+    let static_source = static_source?;
+    let variable = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    lua_static_table_variable_assignment_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+    )
+    .map(str::to_owned)
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn native_background_parallax_factor_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<i32> {
+    let factor = parse_maybe_static_query_f64(static_source, value.trim())?;
+    if !factor.is_finite()
+        || factor < f64::from(i32::MIN) / 1_000.0
+        || factor > f64::from(i32::MAX) / 1_000.0
+    {
+        return None;
+    }
+    Some((factor * 1_000.0).round() as i32)
+}
+
 fn native_hsb_lua_value_from_query(
     source: &str,
     value: &str,
@@ -13245,6 +13328,7 @@ fn native_background_source_lua_table_from_query(
     value: &str,
     hsb: NativeInactivePaneHsb,
     opacity: f64,
+    attachment: RenderBackgroundImageAttachment,
     image_layout: NativeWindowBackgroundImageLayout,
 ) -> Option<NativeBackgroundLayer> {
     let value = lua_background_source_table_from_query(static_source, value)?;
@@ -13312,6 +13396,7 @@ fn native_background_source_lua_table_from_query(
                 opacity_alpha: opacity_alpha(opacity),
                 hsb,
                 animation_speed_millis: file.animation_speed_millis,
+                attachment,
                 layout: image_layout,
             }))
         }
@@ -52432,8 +52517,8 @@ mod tests {
 
     use rssh_pty::PtyExitStatus;
     use rssh_renderer::{
-        RenderGeometry, RenderScrollbarThumbSize, SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot,
-        color_to_rgba,
+        RenderBackgroundImageAttachment, RenderGeometry, RenderScrollbarThumbSize,
+        SCROLLBAR_THUMB_COLOR, TerminalRenderSnapshot, color_to_rgba,
     };
     use rssh_terminal::{Color, CursorShape};
 
@@ -54782,6 +54867,67 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_background_file_layer_attachment_scroll() {
+        let image_path = write_test_png_file("wezterm-background-file-layer-attachment-scroll.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+                attachment = 'Scroll',
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File layer attachment");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_images[0].attachment,
+            RenderBackgroundImageAttachment::Scroll
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_background_file_layer_attachment_parallax() {
+        let image_path =
+            write_test_png_file("wezterm-background-file-layer-attachment-parallax.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+                attachment = {{ Parallax = 0.5 }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File layer parallax attachment");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_images[0].attachment,
+            RenderBackgroundImageAttachment::Parallax { factor_millis: 500 }
         );
 
         let _ = std::fs::remove_file(image_path);

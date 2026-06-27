@@ -80,6 +80,7 @@ pub struct TerminalRenderSnapshot {
     cursor: Option<RenderCursor>,
     cursor_color: Option<Color>,
     inline_images: Vec<RenderInlineImage>,
+    scrollback_offset: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,6 +433,7 @@ pub struct RenderBackgroundImage {
     pub opacity_alpha: u8,
     pub hsb: RenderBackgroundGradientHsb,
     pub animation_speed_millis: u32,
+    pub attachment: RenderBackgroundImageAttachment,
     pub width: RenderBackgroundImageDimension,
     pub height: RenderBackgroundImageDimension,
     pub repeat_x: RenderBackgroundImageRepeat,
@@ -442,6 +444,13 @@ pub struct RenderBackgroundImage {
     pub vertical_offset: RenderBackgroundImageLength,
     pub repeat_x_size: Option<RenderBackgroundImageLength>,
     pub repeat_y_size: Option<RenderBackgroundImageLength>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundImageAttachment {
+    Fixed,
+    Scroll,
+    Parallax { factor_millis: i32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -996,6 +1005,7 @@ impl PixelRenderer {
                 &mut surface,
                 &self.default_background_images,
                 background_rect,
+                snapshot.scrollback_offset(),
                 self.animation_frame,
                 self.animation_elapsed_ms,
                 cell_width,
@@ -1007,6 +1017,7 @@ impl PixelRenderer {
                 &mut surface,
                 &self.default_background_layers,
                 background_rect,
+                snapshot.scrollback_offset(),
                 self.animation_frame,
                 self.animation_elapsed_ms,
                 cell_width,
@@ -1192,6 +1203,7 @@ impl PixelRenderer {
                     &mut surface,
                     &self.default_background_images,
                     rect,
+                    snapshot.scrollback_offset(),
                     self.animation_frame,
                     self.animation_elapsed_ms,
                     geometry.cell_width,
@@ -1203,6 +1215,7 @@ impl PixelRenderer {
                     &mut surface,
                     &self.default_background_layers,
                     rect,
+                    snapshot.scrollback_offset(),
                     self.animation_frame,
                     self.animation_elapsed_ms,
                     geometry.cell_width,
@@ -2021,6 +2034,7 @@ fn render_background_images(
     surface: &mut Surface<'_>,
     images: &[RenderBackgroundImage],
     rect: Rect,
+    scrollback_offset: usize,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
     cell_width: u32,
@@ -2031,6 +2045,7 @@ fn render_background_images(
             surface,
             image,
             rect,
+            scrollback_offset,
             animation_frame,
             animation_elapsed_ms,
             cell_width,
@@ -2043,6 +2058,7 @@ fn render_background_layers(
     surface: &mut Surface<'_>,
     layers: &[RenderBackgroundLayer],
     rect: Rect,
+    scrollback_offset: usize,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
     cell_width: u32,
@@ -2058,6 +2074,7 @@ fn render_background_layers(
                     surface,
                     image,
                     rect,
+                    scrollback_offset,
                     animation_frame,
                     animation_elapsed_ms,
                     cell_width,
@@ -2110,6 +2127,7 @@ fn render_background_image(
     surface: &mut Surface<'_>,
     image: &RenderBackgroundImage,
     rect: Rect,
+    scrollback_offset: usize,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
     cell_width: u32,
@@ -2141,10 +2159,12 @@ fn render_background_image(
     ) else {
         return;
     };
+    let attachment_scroll_y =
+        background_image_attachment_scroll_pixels(image.attachment, scrollback_offset, cell_height);
 
     for target_y in rect.y..max_y {
         let Some(layout_y) = background_image_axis_coordinate(
-            i64::from(target_y) - layout.origin_y,
+            i64::from(target_y) - layout.origin_y + attachment_scroll_y,
             layout.height,
             layout.repeat_height,
             image.repeat_y,
@@ -2274,6 +2294,22 @@ fn background_image_layout(
 
 fn background_image_animation_elapsed_ms(elapsed_ms: u64, speed_millis: u32) -> u64 {
     elapsed_ms.saturating_mul(u64::from(speed_millis)) / 1_000
+}
+
+fn background_image_attachment_scroll_pixels(
+    attachment: RenderBackgroundImageAttachment,
+    scrollback_offset: usize,
+    cell_height: u32,
+) -> i64 {
+    let scroll_pixels = (scrollback_offset as i128).saturating_mul(i128::from(cell_height));
+    let offset = match attachment {
+        RenderBackgroundImageAttachment::Fixed => 0,
+        RenderBackgroundImageAttachment::Scroll => scroll_pixels,
+        RenderBackgroundImageAttachment::Parallax { factor_millis } => {
+            scroll_pixels.saturating_mul(i128::from(factor_millis)) / 1_000
+        }
+    };
+    offset.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
 }
 
 fn background_image_dimension_pixels(
@@ -3576,6 +3612,7 @@ impl TerminalRenderSnapshot {
             cursor,
             cursor_color: None,
             inline_images,
+            scrollback_offset: offset,
         }
     }
 
@@ -3623,6 +3660,7 @@ impl TerminalRenderSnapshot {
             cursor,
             cursor_color: None,
             inline_images: Vec::new(),
+            scrollback_offset: 0,
         }
     }
 
@@ -3645,6 +3683,11 @@ impl TerminalRenderSnapshot {
     #[must_use]
     pub fn inline_images(&self) -> &[RenderInlineImage] {
         &self.inline_images
+    }
+
+    #[must_use]
+    pub const fn scrollback_offset(&self) -> usize {
+        self.scrollback_offset
     }
 
     #[must_use]
@@ -4207,7 +4250,7 @@ mod tests {
 
     use super::{
         DamageRegion, DecodedImage, PixelRenderer, RenderBackgroundGradientHsb,
-        RenderBackgroundImage, RenderBackgroundImageDimension,
+        RenderBackgroundImage, RenderBackgroundImageAttachment, RenderBackgroundImageDimension,
         RenderBackgroundImageHorizontalAlign, RenderBackgroundImageLength,
         RenderBackgroundImageRepeat, RenderBackgroundImageVerticalAlign,
         RenderBoldBrightensAnsiColors, RenderCell, RenderGeometry, RenderInlineImage,
@@ -4227,6 +4270,7 @@ mod tests {
             opacity_alpha: u8::MAX,
             hsb: RenderBackgroundGradientHsb::IDENTITY,
             animation_speed_millis: 1_000,
+            attachment: RenderBackgroundImageAttachment::Fixed,
             width: RenderBackgroundImageDimension::Percent(5_000),
             height: RenderBackgroundImageDimension::Cells(2),
             repeat_x: RenderBackgroundImageRepeat::Repeat,
@@ -4262,6 +4306,7 @@ mod tests {
             opacity_alpha: u8::MAX,
             hsb: RenderBackgroundGradientHsb::IDENTITY,
             animation_speed_millis: 1_000,
+            attachment: RenderBackgroundImageAttachment::Fixed,
             width: RenderBackgroundImageDimension::Contain,
             height: RenderBackgroundImageDimension::Contain,
             repeat_x: RenderBackgroundImageRepeat::NoRepeat,
@@ -4319,6 +4364,7 @@ mod tests {
             opacity_alpha: u8::MAX,
             hsb: RenderBackgroundGradientHsb::IDENTITY,
             animation_speed_millis: 2_000,
+            attachment: RenderBackgroundImageAttachment::Fixed,
             width: RenderBackgroundImageDimension::Cover,
             height: RenderBackgroundImageDimension::Cover,
             repeat_x: RenderBackgroundImageRepeat::Repeat,
@@ -4336,6 +4382,68 @@ mod tests {
 
         assert_eq!(pixel_at(&target, 8, 0, 0), [0, 255, 0, 255]);
         assert_eq!(pixel_at(&target, 8, 7, 7), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_scrolls_background_image_attachment_with_viewport() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 2));
+        terminal.feed(b"\x1b[?25l \r\n \r\n \r\n");
+        let snapshot = TerminalRenderSnapshot::from_terminal_viewport(&terminal, 1);
+        assert_eq!(snapshot.scrollback_offset(), 1);
+        let mut renderer = PixelRenderer::default();
+        renderer.set_default_background_image(Some(RenderBackgroundImage {
+            data: red_green_blue_vertical_png_bytes().to_vec(),
+            opacity_alpha: u8::MAX,
+            hsb: RenderBackgroundGradientHsb::IDENTITY,
+            animation_speed_millis: 1_000,
+            attachment: RenderBackgroundImageAttachment::Scroll,
+            width: RenderBackgroundImageDimension::Pixels(1),
+            height: RenderBackgroundImageDimension::Pixels(3),
+            repeat_x: RenderBackgroundImageRepeat::Repeat,
+            repeat_y: RenderBackgroundImageRepeat::Repeat,
+            horizontal_align: RenderBackgroundImageHorizontalAlign::Left,
+            vertical_align: RenderBackgroundImageVerticalAlign::Top,
+            horizontal_offset: RenderBackgroundImageLength::Pixels(0),
+            vertical_offset: RenderBackgroundImageLength::Pixels(0),
+            repeat_x_size: None,
+            repeat_y_size: None,
+        }));
+        let mut target = vec![0; 4];
+
+        renderer.render(&snapshot, &mut target, 1, 1, 1, 1);
+
+        assert_eq!(pixel_at(&target, 1, 0, 0), [0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn pixel_renderer_applies_background_image_parallax_factor() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 2));
+        terminal.feed(b"\x1b[?25l \r\n \r\n \r\n \r\n");
+        let snapshot = TerminalRenderSnapshot::from_terminal_viewport(&terminal, 2);
+        assert_eq!(snapshot.scrollback_offset(), 2);
+        let mut renderer = PixelRenderer::default();
+        renderer.set_default_background_image(Some(RenderBackgroundImage {
+            data: red_green_blue_vertical_png_bytes().to_vec(),
+            opacity_alpha: u8::MAX,
+            hsb: RenderBackgroundGradientHsb::IDENTITY,
+            animation_speed_millis: 1_000,
+            attachment: RenderBackgroundImageAttachment::Parallax { factor_millis: 500 },
+            width: RenderBackgroundImageDimension::Pixels(1),
+            height: RenderBackgroundImageDimension::Pixels(3),
+            repeat_x: RenderBackgroundImageRepeat::Repeat,
+            repeat_y: RenderBackgroundImageRepeat::Repeat,
+            horizontal_align: RenderBackgroundImageHorizontalAlign::Left,
+            vertical_align: RenderBackgroundImageVerticalAlign::Top,
+            horizontal_offset: RenderBackgroundImageLength::Pixels(0),
+            vertical_offset: RenderBackgroundImageLength::Pixels(0),
+            repeat_x_size: None,
+            repeat_y_size: None,
+        }));
+        let mut target = vec![0; 4];
+
+        renderer.render(&snapshot, &mut target, 1, 1, 1, 1);
+
+        assert_eq!(pixel_at(&target, 1, 0, 0), [0, 255, 0, 255]);
     }
 
     #[test]
@@ -6308,6 +6416,17 @@ mod tests {
             0xf9, 0x04, 0x08, 0x0a, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
             0x01, 0x00, 0x81, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x08, 0x04, 0x00, 0x01, 0x04, 0x04, 0x00, 0x3b,
+        ]
+    }
+
+    fn red_green_blue_vertical_png_bytes() -> &'static [u8] {
+        &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x08, 0x06, 0x00, 0x00,
+            0x00, 0x52, 0xdd, 0x65, 0x82, 0x00, 0x00, 0x00, 0x14, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x46, 0xff, 0x19, 0x18, 0x18, 0xfe, 0xff, 0x07,
+            0x00, 0x29, 0xe5, 0x05, 0xfb, 0x48, 0xb8, 0xae, 0x8a, 0x00, 0x00, 0x00, 0x00, 0x49,
+            0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
         ]
     }
 
