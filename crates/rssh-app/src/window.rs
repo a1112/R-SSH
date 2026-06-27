@@ -69,6 +69,7 @@ const CELL_WIDTH: u32 = 8;
 const CELL_HEIGHT: u32 = 16;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 const DEFAULT_DOMAIN_NAME: &str = "local";
+const DEFAULT_MUX_ENABLE_SSH_AGENT: bool = true;
 const DEFAULT_WORKSPACE_NAME: &str = "default";
 const DEFAULT_AUTOMATICALLY_RELOAD_CONFIG: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES: bool = true;
@@ -2716,6 +2717,8 @@ struct NativeEffectiveConfig {
     log_unknown_escape_sequences: bool,
     warn_about_missing_glyphs: bool,
     default_cwd: Option<String>,
+    default_ssh_auth_sock: Option<String>,
+    mux_enable_ssh_agent: bool,
     set_environment_variables: BTreeMap<String, String>,
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
@@ -2907,6 +2910,8 @@ struct NativeConfigOverrides {
     log_unknown_escape_sequences: Option<bool>,
     warn_about_missing_glyphs: Option<bool>,
     default_cwd: Option<String>,
+    default_ssh_auth_sock: Option<String>,
+    mux_enable_ssh_agent: Option<bool>,
     set_environment_variables: Option<BTreeMap<String, String>>,
     launch_menu: Option<Vec<NativeLaunchMenuItem>>,
     key_map_preference: Option<NativeKeyMapPreference>,
@@ -2997,6 +3002,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(default_cwd) = lua_config_string_assignment_from_query(config, "default_cwd") {
         overrides.default_cwd = Some(non_empty_spawn_command_option_value(&default_cwd).ok()?);
+        parsed = true;
+    }
+    if let Some(default_ssh_auth_sock) =
+        lua_config_string_assignment_from_query(config, "default_ssh_auth_sock")
+    {
+        overrides.default_ssh_auth_sock =
+            Some(non_empty_spawn_command_option_value(&default_ssh_auth_sock).ok()?);
+        parsed = true;
+    }
+    if let Some(mux_enable_ssh_agent) =
+        lua_config_bool_assignment_from_query(config, "mux_enable_ssh_agent")
+    {
+        overrides.mux_enable_ssh_agent = Some(mux_enable_ssh_agent);
         parsed = true;
     }
     if let Some(default_workspace) =
@@ -14103,6 +14121,8 @@ struct NativeWindowApp {
     log_unknown_escape_sequences: bool,
     warn_about_missing_glyphs: bool,
     default_cwd: Option<String>,
+    default_ssh_auth_sock: Option<String>,
+    mux_enable_ssh_agent: bool,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
     key_map_preference: NativeKeyMapPreference,
@@ -15579,6 +15599,8 @@ impl NativeWindowApp {
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
             warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
             default_cwd: None,
+            default_ssh_auth_sock: None,
+            mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
@@ -15924,6 +15946,33 @@ impl NativeWindowApp {
         ) else {
             return;
         };
+        let startup_workspace = self.app_shell.active_workspace().name().to_owned();
+        self.startup_command = command;
+        self.app_shell =
+            app_shell_from_pty_command(&self.startup_command, Some(&startup_workspace));
+    }
+
+    fn apply_startup_default_ssh_auth_sock_before_spawn(
+        &mut self,
+        previous_default_ssh_auth_sock: Option<&str>,
+    ) {
+        if self.session.is_some() || !self.app_shell_is_initial_startup_shape() {
+            return;
+        }
+        let mut command = self.startup_command.clone();
+        if let Some(previous_default_ssh_auth_sock) = previous_default_ssh_auth_sock
+            && command.env_value(SSH_AUTH_SOCK_ENV) == Some(previous_default_ssh_auth_sock)
+        {
+            command = command.without_env(SSH_AUTH_SOCK_ENV);
+        }
+        if self.mux_enable_ssh_agent
+            && let Some(default_ssh_auth_sock) = self
+                .default_ssh_auth_sock
+                .as_deref()
+                .filter(|ssh_auth_sock| !ssh_auth_sock.is_empty())
+        {
+            command = command.with_env(SSH_AUTH_SOCK_ENV, default_ssh_auth_sock);
+        }
         let startup_workspace = self.app_shell.active_workspace().name().to_owned();
         self.startup_command = command;
         self.app_shell =
@@ -16635,6 +16684,10 @@ impl NativeWindowApp {
         detached_app.animation_fps = self.animation_fps;
         detached_app.default_cwd.clone_from(&self.default_cwd);
         detached_app
+            .default_ssh_auth_sock
+            .clone_from(&self.default_ssh_auth_sock);
+        detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
+        detached_app
             .set_environment_variables
             .clone_from(&self.set_environment_variables);
         detached_app.launch_menu.clone_from(&self.launch_menu);
@@ -16880,6 +16933,9 @@ impl NativeWindowApp {
         self.log_unknown_escape_sequences = source.log_unknown_escape_sequences;
         self.warn_about_missing_glyphs = source.warn_about_missing_glyphs;
         self.default_cwd.clone_from(&source.default_cwd);
+        self.default_ssh_auth_sock
+            .clone_from(&source.default_ssh_auth_sock);
+        self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.set_environment_variables
             .clone_from(&source.set_environment_variables);
         self.launch_menu.clone_from(&source.launch_menu);
@@ -17008,13 +17064,30 @@ impl NativeWindowApp {
             pending_window.active_tab_id().get(),
             active_pane.get(),
         );
+        let environment = self.pane_environment_variables();
         Some(pty_command_from_pane_launch_with_term_session_id(
             launch,
             &self.term,
-            &self.set_environment_variables,
+            &environment,
             self.default_cwd.as_deref(),
             &term_session_id,
         ))
+    }
+
+    fn pane_environment_variables(&self) -> BTreeMap<String, String> {
+        let mut environment = self.set_environment_variables.clone();
+        if self.mux_enable_ssh_agent
+            && let Some(default_ssh_auth_sock) = self
+                .default_ssh_auth_sock
+                .as_deref()
+                .filter(|ssh_auth_sock| !ssh_auth_sock.is_empty())
+        {
+            environment.insert(
+                SSH_AUTH_SOCK_ENV.to_owned(),
+                default_ssh_auth_sock.to_owned(),
+            );
+        }
+        environment
     }
 
     fn sync_pane_runtimes(&mut self, previous_active_pane: rssh_core::PaneId) {
@@ -25083,6 +25156,8 @@ impl NativeWindowApp {
             log_unknown_escape_sequences: self.log_unknown_escape_sequences,
             warn_about_missing_glyphs: self.warn_about_missing_glyphs,
             default_cwd: self.default_cwd.clone(),
+            default_ssh_auth_sock: self.default_ssh_auth_sock.clone(),
+            mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             set_environment_variables: self.set_environment_variables.clone(),
             key_map_preference: self.key_map_preference,
             ui_key_cap_rendering: self.ui_key_cap_rendering,
@@ -25452,10 +25527,20 @@ impl NativeWindowApp {
         self.warn_about_missing_glyphs = overrides
             .warn_about_missing_glyphs
             .unwrap_or(DEFAULT_WARN_ABOUT_MISSING_GLYPHS);
+        let previous_default_ssh_auth_sock = self.default_ssh_auth_sock.clone();
         self.default_cwd = overrides.default_cwd;
+        self.default_ssh_auth_sock = overrides
+            .default_ssh_auth_sock
+            .filter(|ssh_auth_sock| !ssh_auth_sock.is_empty());
+        self.mux_enable_ssh_agent = overrides
+            .mux_enable_ssh_agent
+            .unwrap_or(DEFAULT_MUX_ENABLE_SSH_AGENT);
         self.set_environment_variables = overrides.set_environment_variables.unwrap_or_default();
         self.apply_startup_default_workspace_before_spawn();
         self.apply_startup_default_prog_before_spawn();
+        self.apply_startup_default_ssh_auth_sock_before_spawn(
+            previous_default_ssh_auth_sock.as_deref(),
+        );
         self.launch_menu = overrides.launch_menu.unwrap_or_default();
         self.key_map_preference = overrides.key_map_preference.unwrap_or_default();
         self.ui_key_cap_rendering = overrides
@@ -26903,10 +26988,11 @@ impl NativeWindowApp {
             self.app_shell.active_tab_id().get(),
             pane_id.get(),
         );
+        let environment = self.pane_environment_variables();
         let command = pty_command_from_pane_launch_with_term_session_id(
             self.app_shell.active_pane().launch(),
             &self.term,
-            &self.set_environment_variables,
+            &environment,
             self.default_cwd.as_deref(),
             &term_session_id,
         );
@@ -47399,6 +47485,7 @@ struct BadgeInterpolationContext<'a> {
 
 const BADGE_USER_VAR_PREFIX: &str = "\\(user.";
 const PROFILE_NAME_ENV: &str = "RSSH_PROFILE";
+const SSH_AUTH_SOCK_ENV: &str = "SSH_AUTH_SOCK";
 const ITERM2_EFFECTIVE_THEME: &str = "dark";
 const ITERM_MOUSE_REPORT_SIDE_EFFECT: u16 = 8;
 const ITERM_MOUSE_DRAG_SIDE_EFFECT: u16 = 128;
@@ -50574,6 +50661,9 @@ fn app_shell_from_pty_command(
     if let Some(profile_name) = startup_command.env_value(PROFILE_NAME_ENV) {
         launch = launch.with_environment([(PROFILE_NAME_ENV, profile_name)]);
     }
+    if let Some(ssh_auth_sock) = startup_command.env_value(SSH_AUTH_SOCK_ENV) {
+        launch = launch.with_environment([(SSH_AUTH_SOCK_ENV, ssh_auth_sock)]);
+    }
     match startup_workspace {
         Some(workspace) => AppShell::new_with_workspace_name(launch, workspace),
         None => AppShell::new(launch),
@@ -50823,7 +50913,7 @@ mod tests {
         DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
-        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MUX_ENABLE_SSH_AGENT,
         DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
         DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
@@ -57289,6 +57379,97 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_default_ssh_auth_sock_for_startup_command() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.default_ssh_auth_sock = '/tmp/wezterm-agent.sock'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SSH agent config");
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::default_shell());
+
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.startup_command().env_value("SSH_AUTH_SOCK"),
+            Some("/tmp/wezterm-agent.sock")
+        );
+    }
+
+    #[test]
+    fn window_app_respects_wezterm_lua_config_disabled_mux_ssh_agent_for_startup_command() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.default_ssh_auth_sock = '/tmp/wezterm-agent.sock'
+            config.mux_enable_ssh_agent = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SSH agent config");
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::default_shell());
+
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.startup_command().env_value("SSH_AUTH_SOCK"), None);
+    }
+
+    #[test]
+    fn window_app_clears_startup_ssh_auth_sock_when_mux_ssh_agent_is_disabled() {
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::default_shell());
+
+        app.set_config_overrides(NativeConfigOverrides {
+            default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
+            ..NativeConfigOverrides::default()
+        });
+        app.set_config_overrides(NativeConfigOverrides {
+            default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
+            mux_enable_ssh_agent: Some(false),
+            ..NativeConfigOverrides::default()
+        });
+
+        assert_eq!(app.startup_command().env_value("SSH_AUTH_SOCK"), None);
+    }
+
+    #[test]
+    fn window_app_applies_wezterm_default_ssh_auth_sock_to_spawned_window_command() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.default_ssh_auth_sock = '/tmp/wezterm-agent.sock'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SSH agent config");
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(overrides);
+
+        app.dispatch_app_action(AppAction::SpawnWindow {
+            launch: Some(PaneLaunch::local("pwsh").with_args(["-NoLogo"])),
+        })
+        .unwrap();
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("expected pending spawned window");
+
+        assert_eq!(
+            detached_app.startup_command().env_value("SSH_AUTH_SOCK"),
+            Some("/tmp/wezterm-agent.sock")
+        );
+    }
+
+    #[test]
     fn window_app_uses_configured_startup_workspace() {
         let app = NativeWindowApp::new_with_workspace(
             None,
@@ -63664,6 +63845,8 @@ mod tests {
                 log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
                 warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
                 default_cwd: None,
+                default_ssh_auth_sock: None,
+                mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 set_environment_variables: BTreeMap::new(),
                 key_map_preference: NativeKeyMapPreference::Mapped,
                 ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
@@ -94031,6 +94214,8 @@ mod tests {
             log_unknown_escape_sequences: Some(true),
             warn_about_missing_glyphs: Some(false),
             default_cwd: Some("/tmp/default".to_owned()),
+            default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
+            mux_enable_ssh_agent: Some(false),
             set_environment_variables: Some(sample_environment()),
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
@@ -94353,6 +94538,8 @@ mod tests {
             log_unknown_escape_sequences: true,
             warn_about_missing_glyphs: false,
             default_cwd: Some("/tmp/default".to_owned()),
+            default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
+            mux_enable_ssh_agent: false,
             set_environment_variables: sample_environment(),
             key_map_preference: NativeKeyMapPreference::Physical,
             ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
@@ -94545,6 +94732,8 @@ mod tests {
             log_unknown_escape_sequences: DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
             warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
             default_cwd: None,
+            default_ssh_auth_sock: None,
+            mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             set_environment_variables: BTreeMap::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
             ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,

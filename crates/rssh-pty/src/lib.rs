@@ -416,6 +416,12 @@ impl PtyCommand {
     }
 
     #[must_use]
+    pub fn without_env(mut self, key: &str) -> Self {
+        self.env.retain(|(existing_key, _)| existing_key != key);
+        self
+    }
+
+    #[must_use]
     pub fn program(&self) -> &str {
         &self.program
     }
