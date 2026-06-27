@@ -2512,7 +2512,14 @@ const DEFAULT_WINDOW_CONTENT_ALIGNMENT: NativeWindowContentAlignment =
         vertical: NativeVerticalContentAlignment::Top,
     };
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+const DEFAULT_WINDOW_FRAME_FONT: &str = "Roboto";
+
+#[cfg(target_os = "windows")]
+const DEFAULT_WINDOW_FRAME_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(10_000);
+#[cfg(not(target_os = "windows"))]
+const DEFAULT_WINDOW_FRAME_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeWindowFrameAppearance {
     inactive_titlebar_bg: Option<Color>,
     active_titlebar_bg: Option<Color>,
@@ -2534,6 +2541,33 @@ struct NativeWindowFrameAppearance {
     border_bottom_color: Option<Color>,
     font: Option<String>,
     font_size: Option<NativeFontSize>,
+}
+
+impl Default for NativeWindowFrameAppearance {
+    fn default() -> Self {
+        Self {
+            inactive_titlebar_bg: None,
+            active_titlebar_bg: None,
+            inactive_titlebar_fg: None,
+            active_titlebar_fg: None,
+            inactive_titlebar_border_bottom: None,
+            active_titlebar_border_bottom: None,
+            button_fg: None,
+            button_bg: None,
+            button_hover_fg: None,
+            button_hover_bg: None,
+            border_left_width: None,
+            border_right_width: None,
+            border_top_height: None,
+            border_bottom_height: None,
+            border_left_color: None,
+            border_right_color: None,
+            border_top_color: None,
+            border_bottom_color: None,
+            font: Some(DEFAULT_WINDOW_FRAME_FONT.to_owned()),
+            font_size: Some(DEFAULT_WINDOW_FRAME_FONT_SIZE),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86866,6 +86900,21 @@ mod tests {
             effective.font_size,
             Some(NativeFontSize::from_millipoints(13_500))
         );
+    }
+
+    #[test]
+    fn window_app_reports_default_wezterm_window_frame_font() {
+        let effective = NativeWindowApp::new(None)
+            .native_effective_config()
+            .window_frame_appearance;
+        let expected_font_size = if cfg!(target_os = "windows") {
+            NativeFontSize::from_millipoints(10_000)
+        } else {
+            NativeFontSize::from_millipoints(12_000)
+        };
+
+        assert_eq!(effective.font, Some("Roboto".to_owned()));
+        assert_eq!(effective.font_size, Some(expected_font_size));
     }
 
     #[test]
