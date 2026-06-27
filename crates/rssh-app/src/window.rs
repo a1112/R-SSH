@@ -70,6 +70,7 @@ const CELL_HEIGHT: u32 = 16;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 const DEFAULT_DOMAIN_NAME: &str = "local";
 const DEFAULT_MUX_ENABLE_SSH_AGENT: bool = true;
+const DEFAULT_MUX_ENV_REMOVE: &[&str] = &["SSH_AUTH_SOCK", "SSH_CLIENT", "SSH_CONNECTION"];
 const DEFAULT_WORKSPACE_NAME: &str = "default";
 const DEFAULT_AUTOMATICALLY_RELOAD_CONFIG: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES: bool = true;
@@ -2719,6 +2720,7 @@ struct NativeEffectiveConfig {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     mux_enable_ssh_agent: bool,
+    mux_env_remove: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
@@ -2912,6 +2914,7 @@ struct NativeConfigOverrides {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     mux_enable_ssh_agent: Option<bool>,
+    mux_env_remove: Option<Vec<String>>,
     set_environment_variables: Option<BTreeMap<String, String>>,
     launch_menu: Option<Vec<NativeLaunchMenuItem>>,
     key_map_preference: Option<NativeKeyMapPreference>,
@@ -3015,6 +3018,21 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "mux_enable_ssh_agent")
     {
         overrides.mux_enable_ssh_agent = Some(mux_enable_ssh_agent);
+        parsed = true;
+    }
+    if let Some(mux_env_remove) =
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "mux_env_remove",
+        )
+    {
+        overrides.mux_env_remove = Some(split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: mux_env_remove.max_start,
+            }),
+            &mux_env_remove.value,
+        )?);
         parsed = true;
     }
     if let Some(default_workspace) =
@@ -14123,6 +14141,7 @@ struct NativeWindowApp {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     mux_enable_ssh_agent: bool,
+    mux_env_remove: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
     key_map_preference: NativeKeyMapPreference,
@@ -15601,6 +15620,7 @@ impl NativeWindowApp {
             default_cwd: None,
             default_ssh_auth_sock: None,
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+            mux_env_remove: default_mux_env_remove(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
@@ -16687,6 +16707,7 @@ impl NativeWindowApp {
             .default_ssh_auth_sock
             .clone_from(&self.default_ssh_auth_sock);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
+        detached_app.mux_env_remove.clone_from(&self.mux_env_remove);
         detached_app
             .set_environment_variables
             .clone_from(&self.set_environment_variables);
@@ -16936,6 +16957,7 @@ impl NativeWindowApp {
         self.default_ssh_auth_sock
             .clone_from(&source.default_ssh_auth_sock);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
+        self.mux_env_remove.clone_from(&source.mux_env_remove);
         self.set_environment_variables
             .clone_from(&source.set_environment_variables);
         self.launch_menu.clone_from(&source.launch_menu);
@@ -17076,6 +17098,9 @@ impl NativeWindowApp {
 
     fn pane_environment_variables(&self) -> BTreeMap<String, String> {
         let mut environment = self.set_environment_variables.clone();
+        for name in &self.mux_env_remove {
+            environment.remove(name);
+        }
         if self.mux_enable_ssh_agent
             && let Some(default_ssh_auth_sock) = self
                 .default_ssh_auth_sock
@@ -25158,6 +25183,7 @@ impl NativeWindowApp {
             default_cwd: self.default_cwd.clone(),
             default_ssh_auth_sock: self.default_ssh_auth_sock.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
+            mux_env_remove: self.mux_env_remove.clone(),
             set_environment_variables: self.set_environment_variables.clone(),
             key_map_preference: self.key_map_preference,
             ui_key_cap_rendering: self.ui_key_cap_rendering,
@@ -25535,6 +25561,9 @@ impl NativeWindowApp {
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
             .unwrap_or(DEFAULT_MUX_ENABLE_SSH_AGENT);
+        self.mux_env_remove = overrides
+            .mux_env_remove
+            .unwrap_or_else(default_mux_env_remove);
         self.set_environment_variables = overrides.set_environment_variables.unwrap_or_default();
         self.apply_startup_default_workspace_before_spawn();
         self.apply_startup_default_prog_before_spawn();
@@ -50696,6 +50725,13 @@ fn default_domain_from_override(default_domain: Option<String>) -> String {
         .unwrap_or_else(|| DEFAULT_DOMAIN_NAME.to_owned())
 }
 
+fn default_mux_env_remove() -> Vec<String> {
+    DEFAULT_MUX_ENV_REMOVE
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
 fn is_local_domain_name(domain: &str) -> bool {
     domain.eq_ignore_ascii_case(DEFAULT_DOMAIN_NAME)
 }
@@ -50974,7 +51010,7 @@ mod tests {
         WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
-        default_hyperlink_rules, default_integrated_title_buttons,
+        default_hyperlink_rules, default_integrated_title_buttons, default_mux_env_remove,
         default_skip_close_confirmation_for_processes_named, demo_snapshot,
         encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
         encode_window_key_with_kitty_event, encode_window_mouse_event,
@@ -57470,6 +57506,78 @@ mod tests {
     }
 
     #[test]
+    fn window_app_applies_default_wezterm_mux_env_remove_to_spawned_window_command() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.set_environment_variables = {
+              KEEP_ME = '1',
+              SSH_CLIENT = '192.0.2.1 12345 22',
+              SSH_CONNECTION = '192.0.2.1 12345 198.51.100.2 22',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm environment config");
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(overrides);
+
+        app.dispatch_app_action(AppAction::SpawnWindow {
+            launch: Some(PaneLaunch::local("pwsh").with_args(["-NoLogo"])),
+        })
+        .unwrap();
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("expected pending spawned window");
+
+        assert_eq!(
+            detached_app.startup_command().env_value("KEEP_ME"),
+            Some("1")
+        );
+        assert_eq!(detached_app.startup_command().env_value("SSH_CLIENT"), None);
+        assert_eq!(
+            detached_app.startup_command().env_value("SSH_CONNECTION"),
+            None
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_mux_env_remove_override_for_spawned_window_command() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.mux_env_remove = { 'REMOVE_ME' }
+            config.set_environment_variables = {
+              REMOVE_ME = 'gone',
+              SSH_CLIENT = '192.0.2.1 12345 22',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mux_env_remove config");
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(overrides);
+
+        app.dispatch_app_action(AppAction::SpawnWindow {
+            launch: Some(PaneLaunch::local("pwsh").with_args(["-NoLogo"])),
+        })
+        .unwrap();
+        let detached_app = app
+            .take_next_pending_window_app()
+            .expect("expected pending spawned window");
+
+        assert_eq!(detached_app.startup_command().env_value("REMOVE_ME"), None);
+        assert_eq!(
+            detached_app.startup_command().env_value("SSH_CLIENT"),
+            Some("192.0.2.1 12345 22")
+        );
+    }
+
+    #[test]
     fn window_app_uses_configured_startup_workspace() {
         let app = NativeWindowApp::new_with_workspace(
             None,
@@ -63847,6 +63955,7 @@ mod tests {
                 default_cwd: None,
                 default_ssh_auth_sock: None,
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+                mux_env_remove: default_mux_env_remove(),
                 set_environment_variables: BTreeMap::new(),
                 key_map_preference: NativeKeyMapPreference::Mapped,
                 ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
@@ -94216,6 +94325,7 @@ mod tests {
             default_cwd: Some("/tmp/default".to_owned()),
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             mux_enable_ssh_agent: Some(false),
+            mux_env_remove: Some(vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()]),
             set_environment_variables: Some(sample_environment()),
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
@@ -94540,6 +94650,7 @@ mod tests {
             default_cwd: Some("/tmp/default".to_owned()),
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             mux_enable_ssh_agent: false,
+            mux_env_remove: vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()],
             set_environment_variables: sample_environment(),
             key_map_preference: NativeKeyMapPreference::Physical,
             ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
@@ -94734,6 +94845,7 @@ mod tests {
             default_cwd: None,
             default_ssh_auth_sock: None,
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+            mux_env_remove: default_mux_env_remove(),
             set_environment_variables: BTreeMap::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
             ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
