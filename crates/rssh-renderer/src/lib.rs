@@ -430,6 +430,38 @@ pub struct RenderBackgroundImage {
     pub data: Vec<u8>,
     pub opacity_alpha: u8,
     pub hsb: RenderBackgroundGradientHsb,
+    pub width: RenderBackgroundImageDimension,
+    pub height: RenderBackgroundImageDimension,
+    pub repeat_x: RenderBackgroundImageRepeat,
+    pub repeat_y: RenderBackgroundImageRepeat,
+    pub horizontal_align: RenderBackgroundImageHorizontalAlign,
+    pub vertical_align: RenderBackgroundImageVerticalAlign,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundImageDimension {
+    Cover,
+    Pixels(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundImageRepeat {
+    Repeat,
+    NoRepeat,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundImageHorizontalAlign {
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderBackgroundImageVerticalAlign {
+    Top,
+    Middle,
+    Bottom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1930,22 +1962,29 @@ fn render_background_image(
         return;
     }
 
-    let scale = (f64::from(surface.width) / f64::from(decoded.width))
-        .max(f64::from(surface.height) / f64::from(decoded.height));
-    if !scale.is_finite() || scale <= 0.0 {
+    let Some(layout) = background_image_layout(image, &decoded, surface.width, surface.height)
+    else {
         return;
-    }
-    let scaled_width = f64::from(decoded.width) * scale;
-    let scaled_height = f64::from(decoded.height) * scale;
-    let offset_x = (scaled_width - f64::from(surface.width)) / 2.0;
-    let offset_y = (scaled_height - f64::from(surface.height)) / 2.0;
+    };
 
     for target_y in rect.y..max_y {
-        let source_y =
-            (((f64::from(target_y) + offset_y) / scale).floor() as u32).min(decoded.height - 1);
+        let Some(layout_y) = background_image_axis_coordinate(
+            i64::from(target_y) - layout.origin_y,
+            layout.height,
+            image.repeat_y,
+        ) else {
+            continue;
+        };
+        let source_y = layout_y.saturating_mul(decoded.height) / layout.height;
         for target_x in rect.x..max_x {
-            let source_x =
-                (((f64::from(target_x) + offset_x) / scale).floor() as u32).min(decoded.width - 1);
+            let Some(layout_x) = background_image_axis_coordinate(
+                i64::from(target_x) - layout.origin_x,
+                layout.width,
+                image.repeat_x,
+            ) else {
+                continue;
+            };
+            let source_x = layout_x.saturating_mul(decoded.width) / layout.width;
             if let Some(mut pixel) = rgba_pixel(&decoded, source_x, source_y) {
                 pixel = background_gradient_color_with_hsb(pixel, image.hsb);
                 pixel[3] = u8::try_from(
@@ -1963,6 +2002,110 @@ fn render_background_image(
                     background.copy_from_slice(&source_over_rgba(background_pixel, pixel));
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BackgroundImageLayout {
+    origin_x: i64,
+    origin_y: i64,
+    width: u32,
+    height: u32,
+}
+
+fn background_image_layout(
+    image: &RenderBackgroundImage,
+    decoded: &DecodedImage,
+    surface_width: u32,
+    surface_height: u32,
+) -> Option<BackgroundImageLayout> {
+    let (width, height) = match (image.width, image.height) {
+        (
+            RenderBackgroundImageDimension::Pixels(width),
+            RenderBackgroundImageDimension::Pixels(height),
+        ) => (width, height),
+        (RenderBackgroundImageDimension::Cover, RenderBackgroundImageDimension::Cover) => {
+            let scale = (f64::from(surface_width) / f64::from(decoded.width))
+                .max(f64::from(surface_height) / f64::from(decoded.height));
+            if !scale.is_finite() || scale <= 0.0 {
+                return None;
+            }
+            (
+                (f64::from(decoded.width) * scale).ceil() as u32,
+                (f64::from(decoded.height) * scale).ceil() as u32,
+            )
+        }
+        _ => return None,
+    };
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    Some(BackgroundImageLayout {
+        origin_x: background_image_horizontal_align_offset(
+            surface_width,
+            width,
+            image.horizontal_align,
+        ),
+        origin_y: background_image_vertical_align_offset(
+            surface_height,
+            height,
+            image.vertical_align,
+        ),
+        width,
+        height,
+    })
+}
+
+fn background_image_horizontal_align_offset(
+    surface_width: u32,
+    image_width: u32,
+    align: RenderBackgroundImageHorizontalAlign,
+) -> i64 {
+    match align {
+        RenderBackgroundImageHorizontalAlign::Left => 0,
+        RenderBackgroundImageHorizontalAlign::Center => {
+            (i64::from(surface_width) - i64::from(image_width)) / 2
+        }
+        RenderBackgroundImageHorizontalAlign::Right => {
+            i64::from(surface_width) - i64::from(image_width)
+        }
+    }
+}
+
+fn background_image_vertical_align_offset(
+    surface_height: u32,
+    image_height: u32,
+    align: RenderBackgroundImageVerticalAlign,
+) -> i64 {
+    match align {
+        RenderBackgroundImageVerticalAlign::Top => 0,
+        RenderBackgroundImageVerticalAlign::Middle => {
+            (i64::from(surface_height) - i64::from(image_height)) / 2
+        }
+        RenderBackgroundImageVerticalAlign::Bottom => {
+            i64::from(surface_height) - i64::from(image_height)
+        }
+    }
+}
+
+fn background_image_axis_coordinate(
+    relative_coordinate: i64,
+    image_size: u32,
+    repeat: RenderBackgroundImageRepeat,
+) -> Option<u32> {
+    let image_size = i64::from(image_size);
+    match repeat {
+        RenderBackgroundImageRepeat::NoRepeat => {
+            if (0..image_size).contains(&relative_coordinate) {
+                u32::try_from(relative_coordinate).ok()
+            } else {
+                None
+            }
+        }
+        RenderBackgroundImageRepeat::Repeat => {
+            u32::try_from(relative_coordinate.rem_euclid(image_size)).ok()
         }
     }
 }

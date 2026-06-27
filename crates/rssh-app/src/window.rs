@@ -25,8 +25,10 @@ use rssh_renderer::{
     PixelRenderer, RenderBackgroundGradient, RenderBackgroundGradientBlend,
     RenderBackgroundGradientHsb, RenderBackgroundGradientInterpolation,
     RenderBackgroundGradientOrientation, RenderBackgroundGradientPreset,
-    RenderBackgroundGradientSegment, RenderBackgroundImage, RenderBoldBrightensAnsiColors,
-    RenderCell, RenderCellColorRole, RenderCursorThickness, RenderGeometry, RenderInlineImage,
+    RenderBackgroundGradientSegment, RenderBackgroundImage, RenderBackgroundImageDimension,
+    RenderBackgroundImageHorizontalAlign, RenderBackgroundImageRepeat,
+    RenderBackgroundImageVerticalAlign, RenderBoldBrightensAnsiColors, RenderCell,
+    RenderCellColorRole, RenderCursorThickness, RenderGeometry, RenderInlineImage,
     RenderScrollbarThumbSize, RenderStrikethroughPosition, RenderUnderlinePosition,
     RenderUnderlineThickness, SCROLLBAR_WIDTH, ScrollbackScrollbar, TerminalRenderSnapshot,
     background_gradient_color_strings, color_to_rgba,
@@ -1254,6 +1256,7 @@ struct NativeWindowBackgroundImage {
     data: Vec<u8>,
     opacity_alpha: u8,
     hsb: NativeInactivePaneHsb,
+    layout: NativeWindowBackgroundImageLayout,
 }
 
 impl NativeWindowBackgroundImage {
@@ -1266,6 +1269,35 @@ impl NativeWindowBackgroundImage {
                 saturation: self.hsb.saturation.0,
                 brightness: self.hsb.brightness.0,
             },
+            width: self.layout.width,
+            height: self.layout.height,
+            repeat_x: self.layout.repeat_x,
+            repeat_y: self.layout.repeat_y,
+            horizontal_align: self.layout.horizontal_align,
+            vertical_align: self.layout.vertical_align,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeWindowBackgroundImageLayout {
+    width: RenderBackgroundImageDimension,
+    height: RenderBackgroundImageDimension,
+    repeat_x: RenderBackgroundImageRepeat,
+    repeat_y: RenderBackgroundImageRepeat,
+    horizontal_align: RenderBackgroundImageHorizontalAlign,
+    vertical_align: RenderBackgroundImageVerticalAlign,
+}
+
+impl Default for NativeWindowBackgroundImageLayout {
+    fn default() -> Self {
+        Self {
+            width: RenderBackgroundImageDimension::Cover,
+            height: RenderBackgroundImageDimension::Cover,
+            repeat_x: RenderBackgroundImageRepeat::Repeat,
+            repeat_y: RenderBackgroundImageRepeat::Repeat,
+            horizontal_align: RenderBackgroundImageHorizontalAlign::Left,
+            vertical_align: RenderBackgroundImageVerticalAlign::Top,
         }
     }
 }
@@ -12871,6 +12903,7 @@ fn native_background_layer_lua_table_from_query(
     let mut source_value = None;
     let mut hsb = native_identity_hsb();
     let mut opacity = 1.0;
+    let mut image_layout = NativeWindowBackgroundImageLayout::default();
 
     for field in split_lua_table_top_level_fields(table)? {
         let field = field.trim();
@@ -12896,11 +12929,104 @@ fn native_background_layer_lua_table_from_query(
                     return None;
                 }
             }
+            "width" => {
+                image_layout.width =
+                    native_background_image_dimension_lua_value_from_query(static_source, value)?;
+            }
+            "height" => {
+                image_layout.height =
+                    native_background_image_dimension_lua_value_from_query(static_source, value)?;
+            }
+            "repeat_x" => {
+                image_layout.repeat_x =
+                    native_background_image_repeat_lua_value_from_query(static_source, value)?;
+            }
+            "repeat_y" => {
+                image_layout.repeat_y =
+                    native_background_image_repeat_lua_value_from_query(static_source, value)?;
+            }
+            "horizontal_align" => {
+                image_layout.horizontal_align =
+                    native_background_image_horizontal_align_lua_value_from_query(
+                        static_source,
+                        value,
+                    )?;
+            }
+            "vertical_align" => {
+                image_layout.vertical_align =
+                    native_background_image_vertical_align_lua_value_from_query(
+                        static_source,
+                        value,
+                    )?;
+            }
             _ => return None,
         }
     }
 
-    native_background_source_lua_table_from_query(static_source, source_value?, hsb, opacity)
+    native_background_source_lua_table_from_query(
+        static_source,
+        source_value?,
+        hsb,
+        opacity,
+        image_layout,
+    )
+}
+
+fn native_background_image_dimension_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<RenderBackgroundImageDimension> {
+    if let Some(pixels) = parse_maybe_static_query_usize(static_source, value.trim()) {
+        return Some(RenderBackgroundImageDimension::Pixels(
+            u32::try_from(pixels).ok()?,
+        ));
+    }
+
+    let value = parse_maybe_static_query_text(static_source, value.trim())?;
+    match value.as_str() {
+        "Cover" => Some(RenderBackgroundImageDimension::Cover),
+        _ => {
+            let pixels = value.strip_suffix("px").unwrap_or(&value);
+            Some(RenderBackgroundImageDimension::Pixels(
+                pixels.parse::<u32>().ok()?,
+            ))
+        }
+    }
+}
+
+fn native_background_image_repeat_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<RenderBackgroundImageRepeat> {
+    match parse_maybe_static_query_text(static_source, value.trim())?.as_str() {
+        "Repeat" => Some(RenderBackgroundImageRepeat::Repeat),
+        "NoRepeat" => Some(RenderBackgroundImageRepeat::NoRepeat),
+        _ => None,
+    }
+}
+
+fn native_background_image_horizontal_align_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<RenderBackgroundImageHorizontalAlign> {
+    match parse_maybe_static_query_text(static_source, value.trim())?.as_str() {
+        "Left" => Some(RenderBackgroundImageHorizontalAlign::Left),
+        "Center" => Some(RenderBackgroundImageHorizontalAlign::Center),
+        "Right" => Some(RenderBackgroundImageHorizontalAlign::Right),
+        _ => None,
+    }
+}
+
+fn native_background_image_vertical_align_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<RenderBackgroundImageVerticalAlign> {
+    match parse_maybe_static_query_text(static_source, value.trim())?.as_str() {
+        "Top" => Some(RenderBackgroundImageVerticalAlign::Top),
+        "Middle" => Some(RenderBackgroundImageVerticalAlign::Middle),
+        "Bottom" => Some(RenderBackgroundImageVerticalAlign::Bottom),
+        _ => None,
+    }
 }
 
 fn native_hsb_lua_value_from_query(
@@ -12928,6 +13054,7 @@ fn native_background_source_lua_table_from_query(
     value: &str,
     hsb: NativeInactivePaneHsb,
     opacity: f64,
+    image_layout: NativeWindowBackgroundImageLayout,
 ) -> Option<NativeBackgroundLayer> {
     let value = lua_background_source_table_from_query(static_source, value)?;
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -12992,6 +13119,7 @@ fn native_background_source_lua_table_from_query(
                 data,
                 opacity_alpha: opacity_alpha(opacity),
                 hsb,
+                layout: image_layout,
             }))
         }
         _ => None,
@@ -54383,6 +54511,52 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [128, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_file_layer_fixed_layout() {
+        let image_path = write_test_png_file("wezterm-background-file-layer-layout.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+                width = 1,
+                height = 1,
+                repeat_x = 'NoRepeat',
+                repeat_y = 'NoRepeat',
+                horizontal_align = 'Right',
+                vertical_align = 'Bottom',
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File layer fixed layout");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, FRAME_HEIGHT as usize - 1),
+            [12, 12, 12, 255]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                FRAME_WIDTH as usize - 1,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
         );
 
         let _ = std::fs::remove_file(image_path);
