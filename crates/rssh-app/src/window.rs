@@ -1321,6 +1321,7 @@ impl Default for NativeWindowBackgroundImageLayout {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeWindowBackgroundVisualLayer {
+    Color(Color),
     Gradient(NativeWindowBackgroundGradient),
     Image(NativeWindowBackgroundImage),
 }
@@ -1328,6 +1329,9 @@ enum NativeWindowBackgroundVisualLayer {
 impl NativeWindowBackgroundVisualLayer {
     fn to_render(&self) -> RenderBackgroundLayer {
         match self {
+            Self::Color(color) => {
+                RenderBackgroundLayer::Color(color_to_rgba(*color, DEFAULT_RENDER_BACKGROUND_RGBA))
+            }
             Self::Gradient(gradient) => RenderBackgroundLayer::Gradient(gradient.to_render()),
             Self::Image(image) => RenderBackgroundLayer::Image(image.to_render()),
         }
@@ -12776,6 +12780,21 @@ fn apply_lua_background_table_overrides(
             if let Some(gradient) = overrides.window_background_gradient.take() {
                 overrides.window_background_gradient =
                     Some(compose_lua_background_color_over_gradient(gradient, color));
+            } else if let Some(images) = overrides.window_background_images.take() {
+                if images.is_empty() {
+                    overrides.background_color = Some(color);
+                } else {
+                    apply_native_background_visual_layers_override(
+                        images
+                            .into_iter()
+                            .map(NativeWindowBackgroundVisualLayer::Image)
+                            .chain(std::iter::once(NativeWindowBackgroundVisualLayer::Color(
+                                color,
+                            )))
+                            .collect(),
+                        overrides,
+                    );
+                }
             } else {
                 overrides.background_color = Some(color);
             }
@@ -12814,12 +12833,14 @@ fn apply_native_background_visual_layers_override(
 ) {
     overrides.window_background_layers = Some(layers.clone());
     overrides.window_background_gradient = layers.iter().find_map(|layer| match layer {
+        NativeWindowBackgroundVisualLayer::Color(_) => None,
         NativeWindowBackgroundVisualLayer::Gradient(gradient) => Some(gradient.clone()),
         NativeWindowBackgroundVisualLayer::Image(_) => None,
     });
     let images = layers
         .iter()
         .filter_map(|layer| match layer {
+            NativeWindowBackgroundVisualLayer::Color(_) => None,
             NativeWindowBackgroundVisualLayer::Image(image) => Some(image.clone()),
             NativeWindowBackgroundVisualLayer::Gradient(_) => None,
         })
@@ -12863,6 +12884,9 @@ fn native_background_lua_table_from_query(
 
     if visual_layers.len() == 1 {
         match visual_layers.pop()? {
+            NativeWindowBackgroundVisualLayer::Color(color) => {
+                return Some(NativeBackgroundLayer::Color(color));
+            }
             NativeWindowBackgroundVisualLayer::Gradient(gradient) => {
                 return if let Some(color) = color {
                     Some(NativeBackgroundLayer::ColorAndGradient {
@@ -12894,6 +12918,7 @@ fn native_background_lua_table_from_query(
         let images = visual_layers
             .into_iter()
             .filter_map(|layer| match layer {
+                NativeWindowBackgroundVisualLayer::Color(_) => None,
                 NativeWindowBackgroundVisualLayer::Image(image) => Some(image),
                 NativeWindowBackgroundVisualLayer::Gradient(_) => None,
             })
@@ -55226,6 +55251,44 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [69, 6, 6, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_layers_wezterm_background_color_over_legacy_window_background_image() {
+        let image_path = write_test_png_file("wezterm-window-background-image-under-color.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.window_background_image = '{lua_path}'
+            config.background = {{
+              {{
+                source = {{ Color = '#0000ff' }},
+                opacity = 0.5,
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected legacy WezTerm window background image under Color layer config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [128, 0, 127, 255]
         );
 
         let _ = std::fs::remove_file(image_path);

@@ -455,6 +455,7 @@ pub enum RenderBackgroundImageAttachment {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RenderBackgroundLayer {
+    Color([u8; 4]),
     Gradient(RenderBackgroundGradient),
     Image(RenderBackgroundImage),
 }
@@ -838,6 +839,7 @@ impl PixelRenderer {
         self.default_background_layers = layers
             .into_iter()
             .filter(|layer| match layer {
+                RenderBackgroundLayer::Color(color) => color[3] != 0,
                 RenderBackgroundLayer::Gradient(gradient) => {
                     gradient.preset.is_some() || !gradient.colors.is_empty()
                 }
@@ -2066,6 +2068,9 @@ fn render_background_layers(
 ) {
     for layer in layers {
         match layer {
+            RenderBackgroundLayer::Color(color) => {
+                render_background_color_layer(surface, rect, *color);
+            }
             RenderBackgroundLayer::Gradient(gradient) => {
                 render_background_gradient_layer(surface, rect, gradient);
             }
@@ -2080,6 +2085,24 @@ fn render_background_layers(
                     cell_width,
                     cell_height,
                 );
+            }
+        }
+    }
+}
+
+fn render_background_color_layer(surface: &mut Surface<'_>, rect: Rect, color: [u8; 4]) {
+    let max_y = rect.y.saturating_add(rect.height).min(surface.height);
+    let max_x = rect.x.saturating_add(rect.width).min(surface.width);
+    if color[3] == 0 || max_y <= rect.y || max_x <= rect.x {
+        return;
+    }
+
+    for row in rect.y..max_y {
+        for column in rect.x..max_x {
+            let index = ((row * surface.width + column) * 4) as usize;
+            if let Some(pixel) = surface.target.get_mut(index..index + 4) {
+                let background = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                pixel.copy_from_slice(&source_over_rgba(background, color));
             }
         }
     }
