@@ -2482,6 +2482,13 @@ struct NativeFontConfig {
     attributes: NativeFontAttributes,
 }
 
+fn native_font_config(family: &str) -> NativeFontConfig {
+    NativeFontConfig {
+        families: vec![family.to_owned()],
+        attributes: NativeFontAttributes::default(),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeFontRuleBlink {
     None,
@@ -2706,12 +2713,15 @@ struct NativeEffectiveConfig {
     initial_rows: u16,
     inactive_pane_hsb: NativeInactivePaneHsb,
     command_palette_rows: Option<usize>,
+    command_palette_font: Option<NativeFontConfig>,
     command_palette_font_size: NativeFontSize,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_font: Option<NativeFontConfig>,
     char_select_font_size: NativeFontSize,
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
+    pane_select_font: Option<NativeFontConfig>,
     launcher_alphabet: String,
     quick_select_alphabet: String,
     quick_select_patterns: Vec<String>,
@@ -2904,12 +2914,15 @@ struct NativeConfigOverrides {
     initial_rows: Option<u16>,
     inactive_pane_hsb: Option<NativeInactivePaneHsb>,
     command_palette_rows: Option<usize>,
+    command_palette_font: Option<NativeFontConfig>,
     command_palette_font_size: Option<NativeFontSize>,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_font: Option<NativeFontConfig>,
     char_select_font_size: Option<NativeFontSize>,
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
+    pane_select_font: Option<NativeFontConfig>,
     launcher_alphabet: Option<String>,
     quick_select_alphabet: Option<String>,
     quick_select_patterns: Option<Vec<String>>,
@@ -3768,6 +3781,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.command_palette_rows = Some(command_palette_rows);
         parsed = true;
     }
+    if let Some(command_palette_font) =
+        lua_config_font_assignment_from_query(config, "command_palette_font")
+    {
+        overrides.command_palette_font = Some(command_palette_font);
+        parsed = true;
+    }
     if let Some(command_palette_font_size) =
         lua_config_f32_assignment_from_query(config, "command_palette_font_size")
     {
@@ -3801,11 +3820,23 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.char_select_fg_color = Some(lua_opaque_color_from_query(&char_select_fg_color)?);
         parsed = true;
     }
+    if let Some(char_select_font) =
+        lua_config_font_assignment_from_query(config, "char_select_font")
+    {
+        overrides.char_select_font = Some(char_select_font);
+        parsed = true;
+    }
     if let Some(char_select_font_size) =
         lua_config_f32_assignment_from_query(config, "char_select_font_size")
     {
         overrides.char_select_font_size =
             Some(native_font_size_from_points(char_select_font_size)?);
+        parsed = true;
+    }
+    if let Some(pane_select_font) =
+        lua_config_font_assignment_from_query(config, "pane_select_font")
+    {
+        overrides.pane_select_font = Some(pane_select_font);
         parsed = true;
     }
     if let Some(use_cap_height_to_scale_fallback_fonts) =
@@ -12895,12 +12926,47 @@ fn parse_wezterm_font_with_fallback_attributes_value(
     let mut rest = value
         .get(call + ".font_with_fallback".len()..)?
         .trim_start();
-    rest = rest.strip_prefix('(')?.trim_start();
+    let parenthesized = rest.starts_with('(');
+    if let Some(stripped) = rest.strip_prefix('(') {
+        rest = stripped.trim_start();
+    }
     let families = lua_braced_table_literal_from_query(rest)?;
-    let rest = lua_trim_start_comments(rest.get(families.len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
-    let attributes = lua_braced_table_literal_from_query(rest)?;
-    native_font_attributes_lua_table_from_query(source, attributes)
+    if parenthesized
+        && let Some(rest) = lua_trim_start_comments(rest.get(families.len()..)?)
+        && let Some(rest) = rest.strip_prefix(',')
+        && let Some(rest) = lua_trim_start_comments(rest)
+        && let Some(attributes) = lua_braced_table_literal_from_query(rest)
+        && let Some(attributes) = native_font_attributes_lua_table_from_query(source, attributes)
+    {
+        return Some(attributes);
+    }
+    parse_wezterm_font_with_fallback_primary_attributes_value(source, value)
+}
+
+fn parse_wezterm_font_with_fallback_primary_attributes_value(
+    source: &str,
+    value: &str,
+) -> Option<NativeFontAttributes> {
+    let call = value.find(".font_with_fallback")?;
+    let mut rest = value
+        .get(call + ".font_with_fallback".len()..)?
+        .trim_start();
+    if let Some(stripped) = rest.strip_prefix('(') {
+        rest = stripped.trim_start();
+    }
+    let table = lua_braced_table_literal_from_query(rest)?;
+    let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let field = split_lua_table_top_level_fields(table)?
+        .into_iter()
+        .find(|field| !field.trim().is_empty())?;
+    let value = split_lua_table_assignment_from_field(field)
+        .map_or(field, |(_, value)| value)
+        .trim();
+    let table = lua_braced_table_literal_from_query(value)?;
+    if lua_table_field_value_from_query(table, "family")?.is_none() {
+        return None;
+    }
+    native_font_attributes_lua_table_from_query(source, table)
 }
 
 fn wezterm_font_table_literal_from_query(value: &str) -> Option<&str> {
@@ -14543,12 +14609,15 @@ struct NativeWindowApp {
     inactive_pane_hsb: NativeInactivePaneHsb,
     tab_max_width: usize,
     command_palette_rows: Option<usize>,
+    command_palette_font: Option<NativeFontConfig>,
     command_palette_font_size: NativeFontSize,
     command_palette_bg_color: Option<Color>,
     command_palette_fg_color: Option<Color>,
+    char_select_font: Option<NativeFontConfig>,
     char_select_font_size: NativeFontSize,
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
+    pane_select_font: Option<NativeFontConfig>,
     launcher_alphabet: String,
     quick_select_alphabet: String,
     quick_select_patterns: Vec<String>,
@@ -16026,12 +16095,15 @@ impl NativeWindowApp {
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             tab_max_width: DEFAULT_TAB_MAX_WIDTH,
             command_palette_rows: None,
+            command_palette_font: None,
             command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
             command_palette_bg_color: None,
             command_palette_fg_color: None,
+            char_select_font: None,
             char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
             char_select_bg_color: None,
             char_select_fg_color: None,
+            pane_select_font: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
@@ -17087,8 +17159,17 @@ impl NativeWindowApp {
         detached_app.use_cap_height_to_scale_fallback_fonts =
             self.use_cap_height_to_scale_fallback_fonts;
         detached_app.command_palette_rows = self.command_palette_rows;
+        detached_app
+            .command_palette_font
+            .clone_from(&self.command_palette_font);
         detached_app.command_palette_font_size = self.command_palette_font_size;
+        detached_app
+            .char_select_font
+            .clone_from(&self.char_select_font);
         detached_app.char_select_font_size = self.char_select_font_size;
+        detached_app
+            .pane_select_font
+            .clone_from(&self.pane_select_font);
         detached_app
             .launcher_alphabet
             .clone_from(&self.launcher_alphabet);
@@ -17332,12 +17413,16 @@ impl NativeWindowApp {
         self.last_status_update_at = None;
         self.use_cap_height_to_scale_fallback_fonts = source.use_cap_height_to_scale_fallback_fonts;
         self.command_palette_rows = source.command_palette_rows;
+        self.command_palette_font
+            .clone_from(&source.command_palette_font);
         self.command_palette_font_size = source.command_palette_font_size;
         self.command_palette_bg_color = source.command_palette_bg_color;
         self.command_palette_fg_color = source.command_palette_fg_color;
+        self.char_select_font.clone_from(&source.char_select_font);
         self.char_select_font_size = source.char_select_font_size;
         self.char_select_bg_color = source.char_select_bg_color;
         self.char_select_fg_color = source.char_select_fg_color;
+        self.pane_select_font.clone_from(&source.pane_select_font);
         self.launcher_alphabet.clone_from(&source.launcher_alphabet);
         self.quick_select_alphabet
             .clone_from(&source.quick_select_alphabet);
@@ -25597,12 +25682,15 @@ impl NativeWindowApp {
             initial_rows: self.initial_rows,
             inactive_pane_hsb: self.inactive_pane_hsb,
             command_palette_rows: self.command_palette_rows,
+            command_palette_font: self.effective_overlay_font(&self.command_palette_font),
             command_palette_font_size: self.command_palette_font_size,
             command_palette_bg_color: self.command_palette_bg_color,
             command_palette_fg_color: self.command_palette_fg_color,
+            char_select_font: self.effective_overlay_font(&self.char_select_font),
             char_select_font_size: self.char_select_font_size,
             char_select_bg_color: self.char_select_bg_color,
             char_select_fg_color: self.char_select_fg_color,
+            pane_select_font: self.effective_overlay_font(&self.pane_select_font),
             launcher_alphabet: self.launcher_alphabet.clone(),
             quick_select_alphabet: self.quick_select_alphabet.clone(),
             quick_select_patterns: self.quick_select_patterns.clone(),
@@ -25729,6 +25817,15 @@ impl NativeWindowApp {
     fn effective_freetype_load_flags(&self) -> NativeFreetypeLoadFlags {
         self.freetype_load_flags
             .unwrap_or_else(|| default_freetype_load_flags_for_dpi(self.window_dpi))
+    }
+
+    fn effective_overlay_font(&self, font: &Option<NativeFontConfig>) -> Option<NativeFontConfig> {
+        font.clone().or_else(|| {
+            self.window_frame_appearance
+                .font
+                .as_deref()
+                .map(native_font_config)
+        })
     }
 
     #[allow(dead_code)]
@@ -25894,16 +25991,19 @@ impl NativeWindowApp {
             .inactive_pane_hsb
             .unwrap_or(DEFAULT_INACTIVE_PANE_HSB);
         self.command_palette_rows = overrides.command_palette_rows.filter(|rows| *rows > 0);
+        self.command_palette_font = overrides.command_palette_font.clone();
         self.command_palette_font_size = overrides
             .command_palette_font_size
             .unwrap_or(DEFAULT_COMMAND_PALETTE_FONT_SIZE);
         self.command_palette_bg_color = overrides.command_palette_bg_color;
         self.command_palette_fg_color = overrides.command_palette_fg_color;
+        self.char_select_font = overrides.char_select_font.clone();
         self.char_select_font_size = overrides
             .char_select_font_size
             .unwrap_or(DEFAULT_CHAR_SELECT_FONT_SIZE);
         self.char_select_bg_color = overrides.char_select_bg_color;
         self.char_select_fg_color = overrides.char_select_fg_color;
+        self.pane_select_font = overrides.pane_select_font.clone();
         self.launcher_alphabet = overrides
             .launcher_alphabet
             .filter(|alphabet| !alphabet.is_empty())
@@ -64377,12 +64477,15 @@ mod tests {
                 initial_rows: TERMINAL_ROWS,
                 inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
                 command_palette_rows: None,
+                command_palette_font: None,
                 command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
                 command_palette_bg_color: None,
                 command_palette_fg_color: None,
+                char_select_font: None,
                 char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
                 char_select_bg_color: None,
                 char_select_fg_color: None,
+                pane_select_font: None,
                 launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
                 quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
                 quick_select_patterns: Vec::new(),
@@ -86835,6 +86938,100 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_overlay_fonts() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.command_palette_font = wezterm.font_with_fallback {
+              { family = 'Iosevka Term', weight = 'Bold' },
+              'Noto Color Emoji',
+            }
+            config.char_select_font = wezterm.font {
+              family = 'Fira Code',
+              italic = true,
+            }
+            config.pane_select_font = wezterm.font 'JetBrains Mono'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm overlay font config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.command_palette_font,
+            Some(super::NativeFontConfig {
+                families: vec!["Iosevka Term".to_owned(), "Noto Color Emoji".to_owned()],
+                attributes: NativeFontAttributes {
+                    weight: Some("Bold".to_owned()),
+                    stretch: None,
+                    style: None,
+                    harfbuzz_features: Vec::new(),
+                    assume_emoji_presentation: None,
+                    freetype_load_target: None,
+                    freetype_render_target: None,
+                    freetype_load_flags: None,
+                }
+            })
+        );
+        assert_eq!(
+            effective.char_select_font,
+            Some(super::NativeFontConfig {
+                families: vec!["Fira Code".to_owned()],
+                attributes: NativeFontAttributes {
+                    weight: None,
+                    stretch: None,
+                    style: Some("Italic".to_owned()),
+                    harfbuzz_features: Vec::new(),
+                    assume_emoji_presentation: None,
+                    freetype_load_target: None,
+                    freetype_render_target: None,
+                    freetype_load_flags: None,
+                }
+            })
+        );
+        assert_eq!(
+            effective.pane_select_font,
+            Some(super::NativeFontConfig {
+                families: vec!["JetBrains Mono".to_owned()],
+                attributes: NativeFontAttributes::default(),
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_defaults_wezterm_lua_config_overlay_fonts_to_window_frame_font() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_frame = {
+              font = wezterm.font 'Roboto Mono',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window_frame font config");
+        app.set_config_overrides(overrides);
+
+        let expected = Some(super::NativeFontConfig {
+            families: vec!["Roboto Mono".to_owned()],
+            attributes: NativeFontAttributes::default(),
+        });
+        let effective = app.native_effective_config();
+        assert_eq!(effective.command_palette_font, expected);
+        assert_eq!(effective.char_select_font, expected);
+        assert_eq!(effective.pane_select_font, expected);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_palette_and_quick_select_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -95206,12 +95403,15 @@ mod tests {
                 brightness: NativeHsbMultiplier::from_f32(0.6),
             }),
             command_palette_rows: Some(12),
+            command_palette_font: None,
             command_palette_font_size: Some(NativeFontSize::from_millipoints(15_500)),
             command_palette_bg_color: Some(Color::Rgb(15, 16, 17)),
             command_palette_fg_color: Some(Color::Rgb(18, 19, 20)),
+            char_select_font: None,
             char_select_font_size: Some(NativeFontSize::from_millipoints(16_250)),
             char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
             char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
+            pane_select_font: None,
             launcher_alphabet: Some("12".to_owned()),
             quick_select_alphabet: Some("xy".to_owned()),
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
@@ -95550,12 +95750,15 @@ mod tests {
                 brightness: NativeHsbMultiplier::from_f32(0.6),
             },
             command_palette_rows: Some(12),
+            command_palette_font: None,
             command_palette_font_size: NativeFontSize::from_millipoints(15_500),
             command_palette_bg_color: Some(Color::Rgb(15, 16, 17)),
             command_palette_fg_color: Some(Color::Rgb(18, 19, 20)),
+            char_select_font: None,
             char_select_font_size: NativeFontSize::from_millipoints(16_250),
             char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
             char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
+            pane_select_font: None,
             launcher_alphabet: "12".to_owned(),
             quick_select_alphabet: "xy".to_owned(),
             quick_select_patterns: vec!["ticket-[0-9]+".to_owned()],
@@ -95781,12 +95984,15 @@ mod tests {
             initial_rows: TERMINAL_ROWS,
             inactive_pane_hsb: DEFAULT_INACTIVE_PANE_HSB,
             command_palette_rows: None,
+            command_palette_font: None,
             command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
             command_palette_bg_color: None,
             command_palette_fg_color: None,
+            char_select_font: None,
             char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
             char_select_bg_color: None,
             char_select_fg_color: None,
+            pane_select_font: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
