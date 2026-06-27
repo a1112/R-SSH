@@ -54997,6 +54997,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_wezterm_background_ico_file_layer() {
+        let image_path = write_test_ico_file("wezterm-background-file-layer.ico");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm ICO background File layer");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
     fn window_app_renders_wezterm_background_pnm_file_layer() {
         let image_path = write_test_ppm_file("wezterm-background-file-layer.ppm");
         let lua_path = lua_string_path(&image_path);
@@ -114679,11 +114715,15 @@ mod tests {
     }
 
     fn write_test_png_file(name: &str) -> PathBuf {
-        const RED_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
-        let bytes = STANDARD
-            .decode(RED_PNG_BASE64)
-            .expect("embedded PNG should decode");
+        let bytes = red_png_bytes();
         write_test_file(name, &bytes, "PNG")
+    }
+
+    fn red_png_bytes() -> Vec<u8> {
+        const RED_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        STANDARD
+            .decode(RED_PNG_BASE64)
+            .expect("embedded PNG should decode")
     }
 
     fn write_test_bmp_file(name: &str) -> PathBuf {
@@ -114695,6 +114735,21 @@ mod tests {
             0xff, 0x00,
         ];
         write_test_file(name, RED_BMP, "BMP")
+    }
+
+    fn write_test_ico_file(name: &str) -> PathBuf {
+        let png = red_png_bytes();
+        let mut bytes = Vec::with_capacity(22 + png.len());
+        bytes.extend_from_slice(&[0x00, 0x00, 0x01, 0x00, 0x01, 0x00]);
+        bytes.extend_from_slice(&[0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00]);
+        bytes.extend_from_slice(
+            &u32::try_from(png.len())
+                .expect("embedded PNG should fit ICO directory")
+                .to_le_bytes(),
+        );
+        bytes.extend_from_slice(&22_u32.to_le_bytes());
+        bytes.extend_from_slice(&png);
+        write_test_file(name, &bytes, "ICO")
     }
 
     fn write_test_ppm_file(name: &str) -> PathBuf {
