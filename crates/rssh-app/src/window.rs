@@ -2603,6 +2603,7 @@ struct NativeEffectiveConfig {
     text_blink_rapid_ease_in: NativeEasingFunction,
     text_blink_rapid_ease_out: NativeEasingFunction,
     font: Option<String>,
+    font_fallbacks: Vec<String>,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     cell_widths: Vec<NativeCellWidthOverride>,
@@ -2798,6 +2799,7 @@ struct NativeConfigOverrides {
     text_blink_rapid_ease_in: Option<NativeEasingFunction>,
     text_blink_rapid_ease_out: Option<NativeEasingFunction>,
     font: Option<String>,
+    font_fallbacks: Option<Vec<String>>,
     font_size: Option<NativeFontSize>,
     cell_width: Option<NativeCellWidth>,
     cell_widths: Option<Vec<NativeCellWidthOverride>>,
@@ -3199,8 +3201,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(split_lua_table_environment_from_query(&environment.value)?);
         parsed = true;
     }
-    if let Some(font) = lua_config_font_assignment_from_query(config, "font") {
-        overrides.font = Some(font);
+    if let Some(font_families) = lua_config_font_assignment_from_query(config, "font") {
+        let mut font_families = font_families.into_iter();
+        overrides.font = font_families.next();
+        overrides.font_fallbacks = Some(font_families.collect());
         parsed = true;
     }
     if let Some(font_size) = lua_config_f32_assignment_from_query(config, "font_size") {
@@ -5789,17 +5793,31 @@ fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<
 }
 
 #[allow(dead_code)]
-fn lua_config_font_assignment_from_query(source: &str, field: &str) -> Option<String> {
+fn lua_config_font_assignment_from_query(source: &str, field: &str) -> Option<Vec<String>> {
     lua_config_assignment_from_query(source, field, |value| {
         lua_static_string_assignment_value_from_query(source, value)
             .or_else(|| lua_wezterm_font_call_assignment_value_from_query(value))
     })
-    .and_then(|value| parse_wezterm_font_value(source, value))
+    .and_then(|value| parse_wezterm_font_families_value(source, value))
 }
 
 fn lua_wezterm_font_call_assignment_value_from_query(query: &str) -> Option<&str> {
+    lua_wezterm_font_with_fallback_call_assignment_value_from_query(query)
+        .or_else(|| lua_wezterm_font_family_call_assignment_value_from_query(query))
+}
+
+fn lua_wezterm_font_family_call_assignment_value_from_query(query: &str) -> Option<&str> {
     let query = lua_trim_start_comments(query)?;
     let call = query.find(".font")?;
+    if query.get(call..)?.starts_with(".font_with_fallback")
+        || query
+            .get(call + ".font".len()..)?
+            .chars()
+            .next()
+            .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
     let mut rest = query.get(call + ".font".len()..)?.trim_start();
     let mut rest_start = query.len() - rest.len();
     if let Some(stripped) = rest.strip_prefix('(') {
@@ -5815,6 +5833,30 @@ fn lua_wezterm_font_call_assignment_value_from_query(query: &str) -> Option<&str
         end = query.len() - after_literal.len() + ')'.len_utf8();
     }
     query.get(..end)
+}
+
+fn lua_wezterm_font_with_fallback_call_assignment_value_from_query(query: &str) -> Option<&str> {
+    let query = lua_trim_start_comments(query)?;
+    let call = query.find(".font_with_fallback")?;
+    let mut rest = query
+        .get(call + ".font_with_fallback".len()..)?
+        .trim_start();
+    let mut rest_start = query.len() - rest.len();
+    let parenthesized = rest.starts_with('(');
+    if parenthesized {
+        rest = rest.get('('.len_utf8()..)?.trim_start();
+        rest_start = query.len() - rest.len();
+    }
+    let table = lua_braced_table_literal_from_query(rest)?;
+    let table_end = rest_start + table.len();
+    if !parenthesized {
+        return query.get(..table_end);
+    }
+    let after_table = lua_trim_start_comments(query.get(table_end..)?)?;
+    if !after_table.starts_with(')') {
+        return None;
+    }
+    query.get(..query.len() - after_table.len() + ')'.len_utf8())
 }
 
 #[allow(dead_code)]
@@ -12708,6 +12750,53 @@ fn parse_wezterm_font_value(source: &str, value: &str) -> Option<String> {
         })
 }
 
+fn parse_wezterm_font_families_value(source: &str, value: &str) -> Option<Vec<String>> {
+    parse_wezterm_font_with_fallback_families_value(source, value)
+        .or_else(|| parse_wezterm_font_value(source, value).map(|family| vec![family]))
+}
+
+fn parse_wezterm_font_with_fallback_families_value(
+    source: &str,
+    value: &str,
+) -> Option<Vec<String>> {
+    let value = value.trim();
+    let call = value.find(".font_with_fallback")?;
+    let mut rest = value
+        .get(call + ".font_with_fallback".len()..)?
+        .trim_start();
+    if let Some(stripped) = rest.strip_prefix('(') {
+        rest = stripped.trim_start();
+    }
+    let table = lua_braced_table_literal_from_query(rest)?;
+    let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut families = Vec::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some(family) = lua_static_string_assignment_value_from_query(source, field)
+            .and_then(parse_maybe_quoted_query_text)
+        {
+            families.push(family);
+            continue;
+        }
+        let Some(table) = lua_braced_table_literal_from_query(field) else {
+            continue;
+        };
+        let Some(family) = lua_table_field_value_from_query(table, "family")?.and_then(|value| {
+            lua_static_string_assignment_value_from_query(source, value)
+                .and_then(parse_maybe_quoted_query_text)
+        }) else {
+            continue;
+        };
+        families.push(family);
+    }
+
+    (!families.is_empty()).then_some(families)
+}
+
 #[allow(dead_code)]
 fn native_hsb_multiplier_from_ratio(ratio: f32) -> Option<NativeHsbMultiplier> {
     native_non_negative_ratio_to_per_mille(ratio).map(NativeHsbMultiplier::from_per_mille)
@@ -13995,6 +14084,7 @@ struct NativeWindowApp {
     full_screen: bool,
     window_maximized: bool,
     font: Option<String>,
+    font_fallbacks: Vec<String>,
     font_size: NativeFontSize,
     cell_width: NativeCellWidth,
     cell_widths: Vec<NativeCellWidthOverride>,
@@ -15469,6 +15559,7 @@ impl NativeWindowApp {
             full_screen: false,
             window_maximized: false,
             font: None,
+            font_fallbacks: Vec::new(),
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             cell_widths: Vec::new(),
@@ -16836,6 +16927,7 @@ impl NativeWindowApp {
         self.detected_window_dpi = source.detected_window_dpi;
         self.apply_effective_window_dpi();
         self.font.clone_from(&source.font);
+        self.font_fallbacks.clone_from(&source.font_fallbacks);
         self.font_size = source.font_size;
         self.cell_width = source.cell_width;
         self.cell_widths.clone_from(&source.cell_widths);
@@ -25104,6 +25196,7 @@ impl NativeWindowApp {
             text_blink_rapid_ease_in: self.text_blink_rapid_ease_in,
             text_blink_rapid_ease_out: self.text_blink_rapid_ease_out,
             font: self.font.clone(),
+            font_fallbacks: self.font_fallbacks.clone(),
             font_size: self.font_size,
             cell_width: self.cell_width,
             cell_widths: self.cell_widths.clone(),
@@ -25334,6 +25427,7 @@ impl NativeWindowApp {
             overrides.text_blink_rapid_ease_out,
         );
         self.font = overrides.font.clone().filter(|font| !font.is_empty());
+        self.font_fallbacks = overrides.font_fallbacks.clone().unwrap_or_default();
         self.font_size = overrides.font_size.unwrap_or(DEFAULT_FONT_SIZE);
         self.cell_width = overrides.cell_width.unwrap_or(DEFAULT_CELL_WIDTH);
         self.cell_widths = overrides.cell_widths.clone().unwrap_or_default();
@@ -63876,6 +63970,7 @@ mod tests {
                 text_blink_rapid_ease_in: NativeEasingFunction::Linear,
                 text_blink_rapid_ease_out: NativeEasingFunction::Linear,
                 font: None,
+                font_fallbacks: Vec::new(),
                 font_size: DEFAULT_FONT_SIZE,
                 cell_width: DEFAULT_CELL_WIDTH,
                 cell_widths: Vec::new(),
@@ -86717,6 +86812,64 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_font_with_fallback_families() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font_with_fallback { 'JetBrains Mono', 'Noto Color Emoji' }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font fallback config");
+        app.set_config_overrides(overrides);
+
+        let effective = format!("{:?}", app.native_effective_config());
+        assert!(
+            effective.contains("font: Some(\"JetBrains Mono\")"),
+            "effective config should expose the primary WezTerm font family: {effective:?}"
+        );
+        assert!(
+            effective.contains("font_fallbacks: [\"Noto Color Emoji\"]"),
+            "effective config should expose WezTerm fallback font families: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_with_fallback_family_tables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font_with_fallback {
+              { family = 'JetBrains Mono', weight = 'Medium' },
+              { family = 'Terminus', weight = 'Bold' },
+              'Noto Color Emoji',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font fallback config");
+        app.set_config_overrides(overrides);
+
+        let effective = format!("{:?}", app.native_effective_config());
+        assert!(
+            effective.contains("font: Some(\"JetBrains Mono\")"),
+            "effective config should expose the primary expanded WezTerm font family: {effective:?}"
+        );
+        assert!(
+            effective.contains("font_fallbacks: [\"Terminus\", \"Noto Color Emoji\"]"),
+            "effective config should expose expanded WezTerm fallback font families: {effective:?}"
+        );
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_fallback_font_scaling_config() {
         let app = NativeWindowApp::new(None);
         let effective = format!("{:?}", app.native_effective_config());
@@ -94180,6 +94333,7 @@ mod tests {
             text_blink_rapid_ease_in: Some(NativeEasingFunction::EaseInOut),
             text_blink_rapid_ease_out: Some(NativeEasingFunction::Constant),
             font: Some("JetBrains Mono".to_owned()),
+            font_fallbacks: Some(vec!["Noto Color Emoji".to_owned()]),
             font_size: Some(NativeFontSize::from_millipoints(13_500)),
             cell_width: Some(NativeCellWidth::from_per_mille(1_250)),
             cell_widths: Some(vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)]),
@@ -94507,6 +94661,7 @@ mod tests {
             text_blink_rapid_ease_in: NativeEasingFunction::EaseInOut,
             text_blink_rapid_ease_out: NativeEasingFunction::Constant,
             font: Some("JetBrains Mono".to_owned()),
+            font_fallbacks: vec!["Noto Color Emoji".to_owned()],
             font_size: NativeFontSize::from_millipoints(13_500),
             cell_width: NativeCellWidth::from_per_mille(1_250),
             cell_widths: vec![NativeCellWidthOverride::new(0xe000, 0xf8ff, 2)],
@@ -94794,6 +94949,7 @@ mod tests {
             text_blink_rapid_ease_in: NativeEasingFunction::Linear,
             text_blink_rapid_ease_out: NativeEasingFunction::Linear,
             font: None,
+            font_fallbacks: Vec::new(),
             font_size: DEFAULT_FONT_SIZE,
             cell_width: DEFAULT_CELL_WIDTH,
             cell_widths: Vec::new(),
