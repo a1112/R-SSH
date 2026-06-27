@@ -164,9 +164,10 @@ keyboard, mouse, paste, resize
   native background color/gradient paths with layer opacity and inline or
   static-variable layer `hsb` transforms. Multi-layer `config.background`
   stacks with Color layers below a final explicit-color or preset Gradient
-  layer are composed into native background color/gradient overrides, and File
-  image layer stacks, including Color-below-File and multiple File layers,
-  render through the native background image path using WezTerm's default
+  layer are composed into native background color/gradient overrides, and
+  static ordered Gradient/File visual layer stacks, including Color-below-File,
+  multiple File layers, and Gradient-over-File, render through the native
+  background layer path using WezTerm's default
   cover-style sizing, Contain sizing, px/percentage/cell width and height,
   Repeat/Mirror/NoRepeat tiling with optional repeat sizes, offsets,
   Left/Center/Right plus Top/Middle/Bottom alignment, source-over opacity, and

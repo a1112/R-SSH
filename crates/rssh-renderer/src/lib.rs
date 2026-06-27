@@ -259,6 +259,7 @@ pub struct PixelRenderer {
     default_background: [u8; 4],
     default_background_gradient: Option<RenderBackgroundGradient>,
     default_background_images: Vec<RenderBackgroundImage>,
+    default_background_layers: Vec<RenderBackgroundLayer>,
     default_cursor_color: [u8; 4],
     default_cursor_border: Option<[u8; 4]>,
     default_cursor_foreground: Option<[u8; 4]>,
@@ -442,6 +443,12 @@ pub struct RenderBackgroundImage {
     pub repeat_y_size: Option<RenderBackgroundImageLength>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderBackgroundLayer {
+    Gradient(RenderBackgroundGradient),
+    Image(RenderBackgroundImage),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderBackgroundImageDimension {
     Cover,
@@ -545,6 +552,7 @@ impl PixelRenderer {
             default_background: default_background(),
             default_background_gradient: None,
             default_background_images: Vec::new(),
+            default_background_layers: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -574,6 +582,7 @@ impl PixelRenderer {
             default_background: default_background(),
             default_background_gradient: None,
             default_background_images: Vec::new(),
+            default_background_layers: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -815,6 +824,18 @@ impl PixelRenderer {
             .collect();
     }
 
+    pub fn set_default_background_layers(&mut self, layers: Vec<RenderBackgroundLayer>) {
+        self.default_background_layers = layers
+            .into_iter()
+            .filter(|layer| match layer {
+                RenderBackgroundLayer::Gradient(gradient) => {
+                    gradient.preset.is_some() || !gradient.colors.is_empty()
+                }
+                RenderBackgroundLayer::Image(image) => !image.data.is_empty(),
+            })
+            .collect();
+    }
+
     pub fn set_default_foreground(&mut self, foreground: [u8; 4]) {
         self.default_foreground = foreground;
     }
@@ -851,6 +872,7 @@ impl PixelRenderer {
             default_background: default_background(),
             default_background_gradient: None,
             default_background_images: Vec::new(),
+            default_background_layers: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -894,6 +916,7 @@ impl PixelRenderer {
             default_background: default_background(),
             default_background_gradient: None,
             default_background_images: Vec::new(),
+            default_background_layers: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -923,6 +946,7 @@ impl PixelRenderer {
             default_background: default_background(),
             default_background_gradient: None,
             default_background_images: Vec::new(),
+            default_background_layers: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -955,25 +979,39 @@ impl PixelRenderer {
             height: target_height,
         };
 
-        fill_default_background(
-            &mut surface,
-            self.default_background,
-            self.default_background_gradient.as_ref(),
-        );
-        render_background_images(
-            &mut surface,
-            &self.default_background_images,
-            Rect {
-                x: 0,
-                y: 0,
-                width: target_width,
-                height: target_height,
-            },
-            self.animation_frame,
-            self.animation_elapsed_ms,
-            cell_width,
-            cell_height,
-        );
+        let background_rect = Rect {
+            x: 0,
+            y: 0,
+            width: target_width,
+            height: target_height,
+        };
+        if self.default_background_layers.is_empty() {
+            fill_default_background(
+                &mut surface,
+                self.default_background,
+                self.default_background_gradient.as_ref(),
+            );
+            render_background_images(
+                &mut surface,
+                &self.default_background_images,
+                background_rect,
+                self.animation_frame,
+                self.animation_elapsed_ms,
+                cell_width,
+                cell_height,
+            );
+        } else {
+            surface.fill(self.default_background);
+            render_background_layers(
+                &mut surface,
+                &self.default_background_layers,
+                background_rect,
+                self.animation_frame,
+                self.animation_elapsed_ms,
+                cell_width,
+                cell_height,
+            );
+        }
 
         render_inline_images_in_z_order(
             &mut surface,
@@ -1142,21 +1180,34 @@ impl PixelRenderer {
 
         for region in damage.iter().copied().filter(|region| !region.is_empty()) {
             let rect = damage_rect(region, geometry.cell_width, geometry.cell_height);
-            fill_default_background_rect(
-                &mut surface,
-                rect,
-                self.default_background,
-                self.default_background_gradient.as_ref(),
-            );
-            render_background_images(
-                &mut surface,
-                &self.default_background_images,
-                rect,
-                self.animation_frame,
-                self.animation_elapsed_ms,
-                geometry.cell_width,
-                geometry.cell_height,
-            );
+            if self.default_background_layers.is_empty() {
+                fill_default_background_rect(
+                    &mut surface,
+                    rect,
+                    self.default_background,
+                    self.default_background_gradient.as_ref(),
+                );
+                render_background_images(
+                    &mut surface,
+                    &self.default_background_images,
+                    rect,
+                    self.animation_frame,
+                    self.animation_elapsed_ms,
+                    geometry.cell_width,
+                    geometry.cell_height,
+                );
+            } else {
+                surface.fill_rect(rect, self.default_background);
+                render_background_layers(
+                    &mut surface,
+                    &self.default_background_layers,
+                    rect,
+                    self.animation_frame,
+                    self.animation_elapsed_ms,
+                    geometry.cell_width,
+                    geometry.cell_height,
+                );
+            }
         }
 
         let damaged_cells = snapshot
@@ -1984,6 +2035,73 @@ fn render_background_images(
             cell_width,
             cell_height,
         );
+    }
+}
+
+fn render_background_layers(
+    surface: &mut Surface<'_>,
+    layers: &[RenderBackgroundLayer],
+    rect: Rect,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+    cell_width: u32,
+    cell_height: u32,
+) {
+    for layer in layers {
+        match layer {
+            RenderBackgroundLayer::Gradient(gradient) => {
+                render_background_gradient_layer(surface, rect, gradient);
+            }
+            RenderBackgroundLayer::Image(image) => {
+                render_background_image(
+                    surface,
+                    image,
+                    rect,
+                    animation_frame,
+                    animation_elapsed_ms,
+                    cell_width,
+                    cell_height,
+                );
+            }
+        }
+    }
+}
+
+fn render_background_gradient_layer(
+    surface: &mut Surface<'_>,
+    rect: Rect,
+    gradient: &RenderBackgroundGradient,
+) {
+    let max_y = rect.y.saturating_add(rect.height).min(surface.height);
+    let max_x = rect.x.saturating_add(rect.width).min(surface.width);
+    if max_y <= rect.y || max_x <= rect.x {
+        return;
+    }
+
+    let sampler = BackgroundGradientSampler::from_gradient(gradient);
+    let noise_amount = background_gradient_noise_amount(gradient);
+    for row in rect.y..max_y {
+        for column in rect.x..max_x {
+            let position = background_gradient_position_at(
+                gradient,
+                column,
+                row,
+                surface.width,
+                surface.height,
+                noise_amount,
+            );
+            let color =
+                background_gradient_color_with_hsb(sampler.color_at(position), gradient.hsb);
+            let color = background_gradient_color_with_opacity(color, gradient.opacity_alpha);
+            if color[3] == 0 {
+                continue;
+            }
+            let index = ((row * surface.width + column) * 4) as usize;
+            if let Some(pixel) = surface.target.get_mut(index..index + 4) {
+                let background = [pixel[0], pixel[1], pixel[2], pixel[3]];
+                pixel.copy_from_slice(&source_over_rgba(background, color));
+            }
+        }
     }
 }
 
