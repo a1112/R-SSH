@@ -258,7 +258,7 @@ pub struct PixelRenderer {
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     default_background_gradient: Option<RenderBackgroundGradient>,
-    default_background_image: Option<RenderBackgroundImage>,
+    default_background_images: Vec<RenderBackgroundImage>,
     default_cursor_color: [u8; 4],
     default_cursor_border: Option<[u8; 4]>,
     default_cursor_foreground: Option<[u8; 4]>,
@@ -544,7 +544,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
-            default_background_image: None,
+            default_background_images: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -573,7 +573,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
-            default_background_image: None,
+            default_background_images: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -805,7 +805,14 @@ impl PixelRenderer {
     }
 
     pub fn set_default_background_image(&mut self, image: Option<RenderBackgroundImage>) {
-        self.default_background_image = image.filter(|image| !image.data.is_empty());
+        self.set_default_background_images(image.into_iter().collect());
+    }
+
+    pub fn set_default_background_images(&mut self, images: Vec<RenderBackgroundImage>) {
+        self.default_background_images = images
+            .into_iter()
+            .filter(|image| !image.data.is_empty())
+            .collect();
     }
 
     pub fn set_default_foreground(&mut self, foreground: [u8; 4]) {
@@ -843,7 +850,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
-            default_background_image: None,
+            default_background_images: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -886,7 +893,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
-            default_background_image: None,
+            default_background_images: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -915,7 +922,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
-            default_background_image: None,
+            default_background_images: Vec::new(),
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -953,9 +960,9 @@ impl PixelRenderer {
             self.default_background,
             self.default_background_gradient.as_ref(),
         );
-        render_background_image(
+        render_background_images(
             &mut surface,
-            self.default_background_image.as_ref(),
+            &self.default_background_images,
             Rect {
                 x: 0,
                 y: 0,
@@ -1141,9 +1148,9 @@ impl PixelRenderer {
                 self.default_background,
                 self.default_background_gradient.as_ref(),
             );
-            render_background_image(
+            render_background_images(
                 &mut surface,
-                self.default_background_image.as_ref(),
+                &self.default_background_images,
                 rect,
                 self.animation_frame,
                 self.animation_elapsed_ms,
@@ -1958,18 +1965,37 @@ fn render_inline_image(
     }
 }
 
-fn render_background_image(
+fn render_background_images(
     surface: &mut Surface<'_>,
-    image: Option<&RenderBackgroundImage>,
+    images: &[RenderBackgroundImage],
     rect: Rect,
     animation_frame: usize,
     animation_elapsed_ms: Option<u64>,
     cell_width: u32,
     cell_height: u32,
 ) {
-    let Some(image) = image else {
-        return;
-    };
+    for image in images {
+        render_background_image(
+            surface,
+            image,
+            rect,
+            animation_frame,
+            animation_elapsed_ms,
+            cell_width,
+            cell_height,
+        );
+    }
+}
+
+fn render_background_image(
+    surface: &mut Surface<'_>,
+    image: &RenderBackgroundImage,
+    rect: Rect,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+    cell_width: u32,
+    cell_height: u32,
+) {
     let Some(decoded) = decode_image_rgba(&image.data, animation_frame, animation_elapsed_ms)
     else {
         return;

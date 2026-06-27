@@ -2767,7 +2767,7 @@ struct NativeEffectiveConfig {
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
-    window_background_image: Option<NativeWindowBackgroundImage>,
+    window_background_images: Vec<NativeWindowBackgroundImage>,
     kde_window_background_blur: bool,
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
@@ -2969,7 +2969,7 @@ struct NativeConfigOverrides {
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
-    window_background_image: Option<NativeWindowBackgroundImage>,
+    window_background_images: Option<Vec<NativeWindowBackgroundImage>>,
     kde_window_background_blur: Option<bool>,
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
@@ -12693,13 +12693,14 @@ enum NativeBackgroundLayer {
     Color(Color),
     Gradient(NativeWindowBackgroundGradient),
     Image(NativeWindowBackgroundImage),
+    Images(Vec<NativeWindowBackgroundImage>),
     ColorAndGradient {
         color: Color,
         gradient: NativeWindowBackgroundGradient,
     },
-    ColorAndImage {
+    ColorAndImages {
         color: Color,
-        image: NativeWindowBackgroundImage,
+        images: Vec<NativeWindowBackgroundImage>,
     },
 }
 
@@ -12715,15 +12716,18 @@ fn apply_lua_background_table_overrides(
             overrides.window_background_gradient = Some(gradient);
         }
         NativeBackgroundLayer::Image(image) => {
-            overrides.window_background_image = Some(image);
+            overrides.window_background_images = Some(vec![image]);
+        }
+        NativeBackgroundLayer::Images(images) => {
+            overrides.window_background_images = Some(images);
         }
         NativeBackgroundLayer::ColorAndGradient { color, gradient } => {
             overrides.background_color = Some(color);
             overrides.window_background_gradient = Some(gradient);
         }
-        NativeBackgroundLayer::ColorAndImage { color, image } => {
+        NativeBackgroundLayer::ColorAndImages { color, images } => {
             overrides.background_color = Some(color);
-            overrides.window_background_image = Some(image);
+            overrides.window_background_images = Some(images);
         }
     }
     Some(true)
@@ -12735,56 +12739,52 @@ fn native_background_lua_table_from_query(
     max_start: usize,
 ) -> Option<NativeBackgroundLayer> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
-    let mut layers =
-        native_background_layers_lua_table_from_query(source, table, max_start)?.into_iter();
-    let first = layers.next()?;
-    let Some(second) = layers.next() else {
-        return Some(first);
-    };
-
-    let NativeBackgroundLayer::Color(mut color) = first else {
-        return None;
-    };
+    let layers = native_background_layers_lua_table_from_query(source, table, max_start)?;
+    let mut color = None;
     let mut gradient = None;
-    let mut image = None;
-    match second {
-        NativeBackgroundLayer::Color(second) => {
-            color = compose_lua_background_color_layers(color, second);
-        }
-        NativeBackgroundLayer::Gradient(second) => {
-            gradient = Some(compose_lua_background_color_below_gradient(color, second)?);
-        }
-        NativeBackgroundLayer::Image(second) => {
-            image = Some(second);
-        }
-        NativeBackgroundLayer::ColorAndGradient { .. }
-        | NativeBackgroundLayer::ColorAndImage { .. } => return None,
-    }
+    let mut images = Vec::new();
     for layer in layers {
         match layer {
-            NativeBackgroundLayer::Color(layer) if gradient.is_none() && image.is_none() => {
-                color = compose_lua_background_color_layers(color, layer);
+            NativeBackgroundLayer::Color(layer) if gradient.is_none() && images.is_empty() => {
+                color = Some(match color {
+                    Some(color) => compose_lua_background_color_layers(color, layer),
+                    None => layer,
+                });
             }
-            NativeBackgroundLayer::Gradient(layer) if gradient.is_none() && image.is_none() => {
-                gradient = Some(compose_lua_background_color_below_gradient(color, layer)?);
+            NativeBackgroundLayer::Gradient(layer) if gradient.is_none() && images.is_empty() => {
+                gradient = Some(match color {
+                    Some(color) => compose_lua_background_color_below_gradient(color, layer)?,
+                    None => layer,
+                });
             }
-            NativeBackgroundLayer::Image(layer) if gradient.is_none() && image.is_none() => {
-                image = Some(layer);
+            NativeBackgroundLayer::Image(layer) if gradient.is_none() => {
+                images.push(layer);
             }
             NativeBackgroundLayer::Color(_)
             | NativeBackgroundLayer::Gradient(_)
             | NativeBackgroundLayer::Image(_)
+            | NativeBackgroundLayer::Images(_)
             | NativeBackgroundLayer::ColorAndGradient { .. }
-            | NativeBackgroundLayer::ColorAndImage { .. } => return None,
+            | NativeBackgroundLayer::ColorAndImages { .. } => return None,
         }
     }
 
     if let Some(gradient) = gradient {
-        Some(NativeBackgroundLayer::ColorAndGradient { color, gradient })
-    } else if let Some(image) = image {
-        Some(NativeBackgroundLayer::ColorAndImage { color, image })
-    } else {
+        if let Some(color) = color {
+            Some(NativeBackgroundLayer::ColorAndGradient { color, gradient })
+        } else {
+            Some(NativeBackgroundLayer::Gradient(gradient))
+        }
+    } else if !images.is_empty() {
+        if let Some(color) = color {
+            Some(NativeBackgroundLayer::ColorAndImages { color, images })
+        } else {
+            Some(NativeBackgroundLayer::Images(images))
+        }
+    } else if let Some(color) = color {
         Some(NativeBackgroundLayer::Color(color))
+    } else {
+        None
     }
 }
 
@@ -15295,7 +15295,7 @@ struct NativeWindowApp {
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
-    window_background_image: Option<NativeWindowBackgroundImage>,
+    window_background_images: Vec<NativeWindowBackgroundImage>,
     kde_window_background_blur: bool,
     macos_window_background_blur: u32,
     win32_system_backdrop: NativeWin32SystemBackdrop,
@@ -16782,7 +16782,7 @@ impl NativeWindowApp {
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
             window_background_gradient: None,
-            window_background_image: None,
+            window_background_images: Vec::new(),
             kde_window_background_blur: DEFAULT_KDE_WINDOW_BACKGROUND_BLUR,
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
@@ -17846,7 +17846,7 @@ impl NativeWindowApp {
         detached_app.text_background_opacity = self.text_background_opacity;
         detached_app.window_background_opacity = self.window_background_opacity;
         detached_app.window_background_gradient = self.window_background_gradient.clone();
-        detached_app.window_background_image = self.window_background_image.clone();
+        detached_app.window_background_images = self.window_background_images.clone();
         detached_app.kde_window_background_blur = self.kde_window_background_blur;
         detached_app.macos_window_background_blur = self.macos_window_background_blur;
         detached_app.win32_system_backdrop = self.win32_system_backdrop;
@@ -17900,11 +17900,12 @@ impl NativeWindowApp {
                 .as_ref()
                 .map(NativeWindowBackgroundGradient::to_render),
         );
-        detached_app.renderer.set_default_background_image(
+        detached_app.renderer.set_default_background_images(
             detached_app
-                .window_background_image
-                .as_ref()
-                .map(NativeWindowBackgroundImage::to_render),
+                .window_background_images
+                .iter()
+                .map(NativeWindowBackgroundImage::to_render)
+                .collect(),
         );
         detached_app.ansi_palette = self.ansi_palette;
         detached_app
@@ -18093,7 +18094,7 @@ impl NativeWindowApp {
         self.text_background_opacity = source.text_background_opacity;
         self.window_background_opacity = source.window_background_opacity;
         self.window_background_gradient = source.window_background_gradient.clone();
-        self.window_background_image = source.window_background_image.clone();
+        self.window_background_images = source.window_background_images.clone();
         self.kde_window_background_blur = source.kde_window_background_blur;
         self.macos_window_background_blur = source.macos_window_background_blur;
         self.win32_system_backdrop = source.win32_system_backdrop;
@@ -18173,10 +18174,11 @@ impl NativeWindowApp {
                 .as_ref()
                 .map(NativeWindowBackgroundGradient::to_render),
         );
-        self.renderer.set_default_background_image(
-            self.window_background_image
-                .as_ref()
-                .map(NativeWindowBackgroundImage::to_render),
+        self.renderer.set_default_background_images(
+            self.window_background_images
+                .iter()
+                .map(NativeWindowBackgroundImage::to_render)
+                .collect(),
         );
         self.ansi_palette = source.ansi_palette;
         self.renderer
@@ -26373,7 +26375,7 @@ impl NativeWindowApp {
             text_background_opacity: self.text_background_opacity,
             window_background_opacity: self.window_background_opacity,
             window_background_gradient: self.window_background_gradient.clone(),
-            window_background_image: self.window_background_image.clone(),
+            window_background_images: self.window_background_images.clone(),
             kde_window_background_blur: self.kde_window_background_blur,
             macos_window_background_blur: self.macos_window_background_blur,
             win32_system_backdrop: self.win32_system_backdrop,
@@ -26646,11 +26648,15 @@ impl NativeWindowApp {
                 .as_ref()
                 .map(NativeWindowBackgroundGradient::to_render),
         );
-        self.window_background_image = overrides.window_background_image.clone();
-        self.renderer.set_default_background_image(
-            self.window_background_image
-                .as_ref()
-                .map(NativeWindowBackgroundImage::to_render),
+        self.window_background_images = overrides
+            .window_background_images
+            .clone()
+            .unwrap_or_default();
+        self.renderer.set_default_background_images(
+            self.window_background_images
+                .iter()
+                .map(NativeWindowBackgroundImage::to_render)
+                .collect(),
         );
         self.kde_window_background_blur = overrides
             .kde_window_background_blur
@@ -54582,6 +54588,50 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_wezterm_background_stacked_file_layers() {
+        let image_path = write_test_png_file("wezterm-background-stacked-file-layers.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ Color = '#000000' }},
+              }},
+              {{
+                source = {{ File = '{lua_path}' }},
+                opacity = 0.5,
+              }},
+              {{
+                source = {{ File = '{lua_path}' }},
+                opacity = 0.5,
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm stacked File background layers");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [190, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
     fn window_app_renders_wezterm_background_file_layer_hsb() {
         let image_path = write_test_png_file("wezterm-background-file-layer-hsb.png");
         let lua_path = lua_string_path(&image_path);
@@ -65681,7 +65731,7 @@ mod tests {
                 text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
                 window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
                 window_background_gradient: None,
-                window_background_image: None,
+                window_background_images: Vec::new(),
                 kde_window_background_blur: false,
                 macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
                 win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
@@ -96860,7 +96910,7 @@ mod tests {
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
-            window_background_image: None,
+            window_background_images: None,
             kde_window_background_blur: Some(true),
             macos_window_background_blur: Some(20),
             win32_system_backdrop: Some(NativeWin32SystemBackdrop::Mica),
@@ -97211,7 +97261,7 @@ mod tests {
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
-            window_background_image: None,
+            window_background_images: Vec::new(),
             kde_window_background_blur: true,
             macos_window_background_blur: 20,
             win32_system_backdrop: NativeWin32SystemBackdrop::Mica,
@@ -97492,7 +97542,7 @@ mod tests {
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
             window_background_gradient: None,
-            window_background_image: None,
+            window_background_images: Vec::new(),
             kde_window_background_blur: false,
             macos_window_background_blur: DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,

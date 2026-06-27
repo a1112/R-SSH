@@ -2521,15 +2521,16 @@ what remains before WezTerm-style parity in key UX/composition areas.
   final explicit-color or preset Gradient layer now preserve source-over alpha
   semantics for that subset. Explicit-color Gradient stacks precompose the
   Color stack into each Gradient stop; preset Gradient stacks blend the sampled
-  Gradient over the configured background color during rendering. Single
-  `source = { File = ... }` image layers and Color-below-File stacks now load
-  static PNG/JPEG/GIF bytes and render through the native background image path
-  with source-over layer opacity, layer `hsb` transforms, and default
-  cover-style sizing plus static `Contain`, px/percentage/cell `width` and
-  `height`, `repeat_x`/`repeat_y` including `Mirror`, optional repeat sizes,
-  offsets, `horizontal_align`, and `vertical_align`. Richer multi-layer image
-  composition, `Attachment` image sources, parallax/scroll behavior, and
-  broader dynamic Lua resolution remain future parity work.
+  Gradient over the configured background color during rendering. File image
+  layer stacks, including single `source = { File = ... }`, Color-below-File,
+  and multiple File layers, now load static PNG/JPEG/GIF bytes and render
+  through the native background image path with source-over layer opacity,
+  layer `hsb` transforms, and default cover-style sizing plus static
+  `Contain`, px/percentage/cell `width` and `height`, `repeat_x`/`repeat_y`
+  including `Mirror`, optional repeat sizes, offsets, `horizontal_align`, and
+  `vertical_align`. Mixed image/Gradient stacks, `Attachment` image sources,
+  parallax/scroll behavior, and broader dynamic Lua resolution remain future
+  parity work.
 - Native config retains WezTerm-style platform backdrop settings:
   `kde_window_background_blur` defaults to `false`,
   `macos_window_background_blur` defaults to `0`, and
