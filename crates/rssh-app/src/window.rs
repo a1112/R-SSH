@@ -54961,6 +54961,78 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_wezterm_background_bmp_file_layer() {
+        let image_path = write_test_bmp_file("wezterm-background-file-layer.bmp");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm BMP background File layer");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_pnm_file_layer() {
+        let image_path = write_test_ppm_file("wezterm-background-file-layer.ppm");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm PNM background File layer");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
     fn window_app_renders_wezterm_background_file_layer_table_path() {
         let image_path = write_test_png_file("wezterm-background-file-layer-table-path.png");
         let lua_path = lua_string_path(&image_path);
@@ -114536,15 +114608,35 @@ mod tests {
 
     fn write_test_png_file(name: &str) -> PathBuf {
         const RED_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+        let bytes = STANDARD
+            .decode(RED_PNG_BASE64)
+            .expect("embedded PNG should decode");
+        write_test_file(name, &bytes, "PNG")
+    }
+
+    fn write_test_bmp_file(name: &str) -> PathBuf {
+        const RED_BMP: &[u8] = &[
+            0x42, 0x4d, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00,
+            0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x13, 0x0b, 0x00, 0x00,
+            0x13, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xff, 0x00,
+        ];
+        write_test_file(name, RED_BMP, "BMP")
+    }
+
+    fn write_test_ppm_file(name: &str) -> PathBuf {
+        const RED_PPM: &[u8] = b"P6\n1 1\n255\n\xff\x00\x00";
+        write_test_file(name, RED_PPM, "PPM")
+    }
+
+    fn write_test_file(name: &str, bytes: &[u8], format_name: &str) -> PathBuf {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be after epoch")
             .as_nanos();
         let path = std::env::temp_dir().join(format!("rssh-{unique}-{name}"));
-        let bytes = STANDARD
-            .decode(RED_PNG_BASE64)
-            .expect("embedded PNG should decode");
-        std::fs::write(&path, bytes).expect("write test PNG");
+        std::fs::write(&path, bytes).unwrap_or_else(|_| panic!("write test {format_name}"));
         path
     }
 
