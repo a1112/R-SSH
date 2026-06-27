@@ -5882,9 +5882,22 @@ fn lua_wezterm_font_family_call_assignment_value_from_query(query: &str) -> Opti
     }
     let mut rest = query.get(call + ".font".len()..)?.trim_start();
     let mut rest_start = query.len() - rest.len();
-    if let Some(stripped) = rest.strip_prefix('(') {
+    let parenthesized = rest.starts_with('(');
+    if parenthesized {
+        let stripped = rest.get('('.len_utf8()..)?;
         rest = stripped.trim_start();
         rest_start = query.len() - rest.len();
+    }
+    if let Some(table) = lua_braced_table_literal_from_query(rest) {
+        let table_end = rest_start + table.len();
+        if !parenthesized {
+            return query.get(..table_end);
+        }
+        let after_table = lua_trim_start_comments(query.get(table_end..)?)?;
+        if !after_table.starts_with(')') {
+            return None;
+        }
+        return query.get(..query.len() - after_table.len() + ')'.len_utf8());
     }
     let quote = rest.find(|character| character == '\'' || character == '"')?;
     let literal = lua_quoted_string_literal_from_query(rest.get(quote..)?)?;
@@ -12806,6 +12819,7 @@ fn native_window_frame_appearance_lua_table_from_query(
 fn parse_wezterm_font_value(source: &str, value: &str) -> Option<String> {
     lua_static_string_assignment_value_from_query(source, value)
         .and_then(parse_maybe_quoted_query_text)
+        .or_else(|| parse_wezterm_font_table_family_value(source, value))
         .or_else(|| {
             let value = value.trim();
             let call = value.find(".font")?;
@@ -12817,6 +12831,14 @@ fn parse_wezterm_font_value(source: &str, value: &str) -> Option<String> {
             let literal = lua_quoted_string_literal_from_query(rest.get(quote..)?)?;
             parse_lua_quoted_query_text(literal)
         })
+}
+
+fn parse_wezterm_font_table_family_value(source: &str, value: &str) -> Option<String> {
+    let table = wezterm_font_table_literal_from_query(value)?;
+    lua_table_field_value_from_query(table, "family")?.and_then(|value| {
+        lua_static_string_assignment_value_from_query(source, value)
+            .and_then(parse_maybe_quoted_query_text)
+    })
 }
 
 fn parse_wezterm_font_families_value(source: &str, value: &str) -> Option<Vec<String>> {
@@ -12833,6 +12855,9 @@ fn parse_wezterm_font_config_value(source: &str, value: &str) -> Option<NativeFo
 
 fn parse_wezterm_font_attributes_value(source: &str, value: &str) -> Option<NativeFontAttributes> {
     let value = value.trim();
+    if let Some(table) = wezterm_font_table_literal_from_query(value) {
+        return native_font_attributes_lua_table_from_query(source, table);
+    }
     let call = value.find(".font")?;
     if value.get(call..)?.starts_with(".font_with_fallback") {
         return None;
@@ -12844,6 +12869,25 @@ fn parse_wezterm_font_attributes_value(source: &str, value: &str) -> Option<Nati
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     let table = lua_braced_table_literal_from_query(rest)?;
     native_font_attributes_lua_table_from_query(source, table)
+}
+
+fn wezterm_font_table_literal_from_query(value: &str) -> Option<&str> {
+    let value = value.trim();
+    let call = value.find(".font")?;
+    if value.get(call..)?.starts_with(".font_with_fallback")
+        || value
+            .get(call + ".font".len()..)?
+            .chars()
+            .next()
+            .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let mut rest = value.get(call + ".font".len()..)?.trim_start();
+    if let Some(stripped) = rest.strip_prefix('(') {
+        rest = stripped.trim_start();
+    }
+    lua_braced_table_literal_from_query(rest)
 }
 
 fn native_font_attributes_lua_table_from_query(
@@ -87077,6 +87121,39 @@ mod tests {
                 "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\") }"
             ),
             "effective config should expose WezTerm's configured font attributes: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_table_attributes() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font {
+              weight = 'DemiBold',
+              family = 'Iosevka Term',
+              stretch = 'Condensed',
+              style = 'Oblique',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected expanded WezTerm font config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("Iosevka Term"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("DemiBold".to_owned()),
+                stretch: Some("Condensed".to_owned()),
+                style: Some("Oblique".to_owned()),
+            }
         );
     }
 
