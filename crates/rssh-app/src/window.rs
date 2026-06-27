@@ -2454,8 +2454,31 @@ impl NativeTabBarStyle {
 struct NativeFontRule {
     italic: Option<bool>,
     intensity: Option<NativeFormatIntensity>,
+    underline: Option<NativeFormatUnderline>,
+    blink: Option<NativeFontRuleBlink>,
+    reverse: Option<bool>,
+    strikethrough: Option<bool>,
+    invisible: Option<bool>,
     font: Option<String>,
     font_fallbacks: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeFontRuleBlink {
+    None,
+    Slow,
+    Rapid,
+}
+
+impl NativeFontRuleBlink {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "None" => Some(Self::None),
+            "Slow" => Some(Self::Slow),
+            "Rapid" => Some(Self::Rapid),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12864,6 +12887,37 @@ fn native_font_rule_lua_table_from_query(source: &str, value: &str) -> Option<Na
                 let value = lua_static_string_assignment_value_from_query(source, value)
                     .and_then(parse_maybe_quoted_query_text)?;
                 rule.intensity = Some(tab_bar_item_intensity_from_query(&value)?);
+            }
+            "underline" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                rule.underline = Some(native_format_underline_from_query(&value)?);
+            }
+            "blink" => {
+                let value = lua_static_string_assignment_value_from_query(source, value)
+                    .and_then(parse_maybe_quoted_query_text)?;
+                rule.blink = Some(NativeFontRuleBlink::parse(&value)?);
+            }
+            "reverse" => {
+                rule.reverse = Some(
+                    lua_static_bool_assignment_value_from_query(source, value)?
+                        .parse()
+                        .ok()?,
+                );
+            }
+            "strikethrough" => {
+                rule.strikethrough = Some(
+                    lua_static_bool_assignment_value_from_query(source, value)?
+                        .parse()
+                        .ok()?,
+                );
+            }
+            "invisible" => {
+                rule.invisible = Some(
+                    lua_static_bool_assignment_value_from_query(source, value)?
+                        .parse()
+                        .ok()?,
+                );
             }
             "font" => {
                 let families = parse_wezterm_font_families_value(source, value)?;
@@ -87004,6 +87058,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_font_rule_matchers() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_rules = {
+              {
+                underline = 'Curly',
+                blink = 'Rapid',
+                reverse = true,
+                strikethrough = true,
+                invisible = true,
+                font = wezterm.font 'Victor Mono',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font_rules matcher config");
+        app.set_config_overrides(overrides);
+
+        let effective = format!("{:?}", app.native_effective_config());
+        assert!(
+            effective.contains("underline: Some(Curly)")
+                && effective.contains("blink: Some(Rapid)")
+                && effective.contains("reverse: Some(true)")
+                && effective.contains("strikethrough: Some(true)")
+                && effective.contains("invisible: Some(true)"),
+            "effective config should expose WezTerm font rule matchers: {effective:?}"
+        );
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_fallback_font_scaling_config() {
         let app = NativeWindowApp::new(None);
         let effective = format!("{:?}", app.native_effective_config());
@@ -94473,6 +94563,7 @@ mod tests {
                 intensity: Some(NativeFormatIntensity::Bold),
                 font: Some("Victor Mono".to_owned()),
                 font_fallbacks: Vec::new(),
+                ..NativeFontRule::default()
             }]),
             font_size: Some(NativeFontSize::from_millipoints(13_500)),
             cell_width: Some(NativeCellWidth::from_per_mille(1_250)),
@@ -94807,6 +94898,7 @@ mod tests {
                 intensity: Some(NativeFormatIntensity::Bold),
                 font: Some("Victor Mono".to_owned()),
                 font_fallbacks: Vec::new(),
+                ..NativeFontRule::default()
             }],
             font_size: NativeFontSize::from_millipoints(13_500),
             cell_width: NativeCellWidth::from_per_mille(1_250),
