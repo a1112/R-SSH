@@ -1256,6 +1256,7 @@ struct NativeWindowBackgroundImage {
     data: Vec<u8>,
     opacity_alpha: u8,
     hsb: NativeInactivePaneHsb,
+    animation_speed_millis: u32,
     layout: NativeWindowBackgroundImageLayout,
 }
 
@@ -1269,6 +1270,7 @@ impl NativeWindowBackgroundImage {
                 saturation: self.hsb.saturation.0,
                 brightness: self.hsb.brightness.0,
             },
+            animation_speed_millis: self.animation_speed_millis,
             width: self.layout.width,
             height: self.layout.height,
             repeat_x: self.layout.repeat_x,
@@ -13302,17 +13304,104 @@ fn native_background_source_lua_table_from_query(
             Some(NativeBackgroundLayer::Gradient(gradient))
         }
         "File" => {
-            let path = parse_maybe_static_query_text(static_source, value.trim())?;
-            let data = fs::read(Path::new(&path)).ok()?;
+            let file =
+                native_background_file_source_lua_value_from_query(static_source, value.trim())?;
+            let data = fs::read(Path::new(&file.path)).ok()?;
             Some(NativeBackgroundLayer::Image(NativeWindowBackgroundImage {
                 data,
                 opacity_alpha: opacity_alpha(opacity),
                 hsb,
+                animation_speed_millis: file.animation_speed_millis,
                 layout: image_layout,
             }))
         }
         _ => None,
     }
+}
+
+struct NativeBackgroundFileSource {
+    path: String,
+    animation_speed_millis: u32,
+}
+
+fn native_background_file_source_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeBackgroundFileSource> {
+    if !value.trim().starts_with('{')
+        && let Some(path) = parse_maybe_static_query_text(static_source, value.trim())
+    {
+        return Some(NativeBackgroundFileSource {
+            path,
+            animation_speed_millis: 1_000,
+        });
+    }
+
+    let value = lua_background_source_file_table_from_query(static_source, value)?;
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut path = None;
+    let mut animation_speed_millis = 1_000;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        match key.as_str() {
+            "path" => {
+                if path.is_some() {
+                    return None;
+                }
+                path = Some(parse_maybe_static_query_text(static_source, value.trim())?);
+            }
+            "speed" => {
+                animation_speed_millis =
+                    native_background_file_speed_lua_value_from_query(static_source, value)?;
+            }
+            _ => return None,
+        }
+    }
+
+    Some(NativeBackgroundFileSource {
+        path: path?,
+        animation_speed_millis,
+    })
+}
+
+fn lua_background_source_file_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    let value = value.trim();
+    if value.starts_with('{') {
+        return Some(lua_braced_table_literal_from_query(value)?.to_owned());
+    }
+
+    let static_source = static_source?;
+    let variable = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    lua_static_table_variable_assignment_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+    )
+    .map(str::to_owned)
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn native_background_file_speed_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<u32> {
+    let speed = parse_maybe_static_query_f64(static_source, value.trim())?;
+    if !speed.is_finite() || speed < 0.0 || speed > f64::from(u32::MAX) / 1_000.0 {
+        return None;
+    }
+    Some((speed * 1_000.0).round() as u32)
 }
 
 fn lua_background_source_table_from_query(
@@ -54645,6 +54734,42 @@ mod tests {
             "##
         ))
         .expect("expected WezTerm background File layer");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_file_layer_table_path() {
+        let image_path = write_test_png_file("wezterm-background-file-layer-table-path.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = {{ path = '{lua_path}', speed = 0.2 }} }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File table path layer");
         app.set_config_overrides(overrides);
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 

@@ -2524,9 +2524,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Gradient over the configured background color during rendering. File image
   layer stacks, including single `source = { File = ... }`, Color-below-File,
   multiple File layers, and static ordered Gradient/File mixes such as
-  Gradient-over-File, now load static PNG/JPEG/GIF bytes and render through
-  the native background layer path with source-over layer opacity, layer `hsb`
-  transforms, and default cover-style sizing plus static `Contain`,
+  Gradient-over-File, now load static PNG/JPEG/GIF bytes from string File
+  sources or File source tables with `path` plus animated image `speed`, and
+  render through the native background layer path with source-over layer
+  opacity, layer `hsb` transforms, and default cover-style sizing plus static `Contain`,
   px/percentage/cell `width` and `height`, `repeat_x`/`repeat_y` including
   `Mirror`, optional repeat sizes, offsets, `horizontal_align`, and
   `vertical_align`. `Attachment` image sources, parallax/scroll behavior, and

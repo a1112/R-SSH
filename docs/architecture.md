@@ -167,7 +167,8 @@ keyboard, mouse, paste, resize
   layer are composed into native background color/gradient overrides, and
   static ordered Gradient/File visual layer stacks, including Color-below-File,
   multiple File layers, and Gradient-over-File, render through the native
-  background layer path using WezTerm's default
+  background layer path from string File sources or File source tables with
+  `path` and animated image `speed`, using WezTerm's default
   cover-style sizing, Contain sizing, px/percentage/cell width and height,
   Repeat/Mirror/NoRepeat tiling with optional repeat sizes, offsets,
   Left/Center/Right plus Top/Middle/Bottom alignment, source-over opacity, and

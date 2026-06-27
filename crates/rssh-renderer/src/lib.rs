@@ -431,6 +431,7 @@ pub struct RenderBackgroundImage {
     pub data: Vec<u8>,
     pub opacity_alpha: u8,
     pub hsb: RenderBackgroundGradientHsb,
+    pub animation_speed_millis: u32,
     pub width: RenderBackgroundImageDimension,
     pub height: RenderBackgroundImageDimension,
     pub repeat_x: RenderBackgroundImageRepeat,
@@ -2114,6 +2115,9 @@ fn render_background_image(
     cell_width: u32,
     cell_height: u32,
 ) {
+    let animation_elapsed_ms = animation_elapsed_ms.map(|elapsed_ms| {
+        background_image_animation_elapsed_ms(elapsed_ms, image.animation_speed_millis)
+    });
     let Some(decoded) = decode_image_rgba(&image.data, animation_frame, animation_elapsed_ms)
     else {
         return;
@@ -2266,6 +2270,10 @@ fn background_image_layout(
         repeat_width,
         repeat_height,
     })
+}
+
+fn background_image_animation_elapsed_ms(elapsed_ms: u64, speed_millis: u32) -> u64 {
+    elapsed_ms.saturating_mul(u64::from(speed_millis)) / 1_000
 }
 
 fn background_image_dimension_pixels(
@@ -4218,6 +4226,7 @@ mod tests {
             data: Vec::new(),
             opacity_alpha: u8::MAX,
             hsb: RenderBackgroundGradientHsb::IDENTITY,
+            animation_speed_millis: 1_000,
             width: RenderBackgroundImageDimension::Percent(5_000),
             height: RenderBackgroundImageDimension::Cells(2),
             repeat_x: RenderBackgroundImageRepeat::Repeat,
@@ -4252,6 +4261,7 @@ mod tests {
             data: Vec::new(),
             opacity_alpha: u8::MAX,
             hsb: RenderBackgroundGradientHsb::IDENTITY,
+            animation_speed_millis: 1_000,
             width: RenderBackgroundImageDimension::Contain,
             height: RenderBackgroundImageDimension::Contain,
             repeat_x: RenderBackgroundImageRepeat::NoRepeat,
@@ -4296,6 +4306,36 @@ mod tests {
             background_image_axis_coordinate(3, 2, 2, RenderBackgroundImageRepeat::Mirror),
             Some(0)
         );
+    }
+
+    #[test]
+    fn pixel_renderer_applies_background_image_animation_speed() {
+        let mut terminal = Terminal::new(TerminalSize::new(1, 1));
+        terminal.feed(b"\x1b[?25l");
+        let snapshot = TerminalRenderSnapshot::from_terminal(&terminal);
+        let mut renderer = PixelRenderer::with_animation_elapsed_ms(60);
+        renderer.set_default_background_image(Some(RenderBackgroundImage {
+            data: red_green_gif_bytes().to_vec(),
+            opacity_alpha: u8::MAX,
+            hsb: RenderBackgroundGradientHsb::IDENTITY,
+            animation_speed_millis: 2_000,
+            width: RenderBackgroundImageDimension::Cover,
+            height: RenderBackgroundImageDimension::Cover,
+            repeat_x: RenderBackgroundImageRepeat::Repeat,
+            repeat_y: RenderBackgroundImageRepeat::Repeat,
+            horizontal_align: RenderBackgroundImageHorizontalAlign::Left,
+            vertical_align: RenderBackgroundImageVerticalAlign::Top,
+            horizontal_offset: RenderBackgroundImageLength::Pixels(0),
+            vertical_offset: RenderBackgroundImageLength::Pixels(0),
+            repeat_x_size: None,
+            repeat_y_size: None,
+        }));
+        let mut target = vec![0; 8 * 8 * 4];
+
+        renderer.render(&snapshot, &mut target, 8, 8, 8, 8);
+
+        assert_eq!(pixel_at(&target, 8, 0, 0), [0, 255, 0, 255]);
+        assert_eq!(pixel_at(&target, 8, 7, 7), [0, 255, 0, 255]);
     }
 
     #[test]
@@ -6256,6 +6296,19 @@ mod tests {
     fn feed_red_green_inline_gif(terminal: &mut Terminal, params: &str) {
         const RED_GREEN_GIF_BASE64: &str = "R0lGODlhAQABAIEAAP8AAAAAAAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQICgAAACwAAAAAAQABAAAIBAABBAQAIfkECAoAAAAsAAAAAAEAAQCBAP8AAAAAAAAAAAAACAQAAQQEADs=";
         feed_inline_image(terminal, params, RED_GREEN_GIF_BASE64);
+    }
+
+    fn red_green_gif_bytes() -> &'static [u8] {
+        &[
+            0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x81, 0x00, 0x00, 0xff,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x21, 0xff, 0x0b,
+            0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2e, 0x30, 0x03, 0x01, 0x00,
+            0x00, 0x00, 0x21, 0xf9, 0x04, 0x08, 0x0a, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00,
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x08, 0x04, 0x00, 0x01, 0x04, 0x04, 0x00, 0x21,
+            0xf9, 0x04, 0x08, 0x0a, 0x00, 0x00, 0x00, 0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x01, 0x00, 0x81, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x08, 0x04, 0x00, 0x01, 0x04, 0x04, 0x00, 0x3b,
+        ]
     }
 
     fn feed_red_kitty_rgb_image(terminal: &mut Terminal) {
