@@ -12738,7 +12738,14 @@ fn apply_lua_background_table_overrides(
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     match native_background_lua_table_from_query(source, value, max_start)? {
-        NativeBackgroundLayer::Color(color) => overrides.background_color = Some(color),
+        NativeBackgroundLayer::Color(color) => {
+            if let Some(gradient) = overrides.window_background_gradient.take() {
+                overrides.window_background_gradient =
+                    Some(compose_lua_background_color_over_gradient(gradient, color));
+            } else {
+                overrides.background_color = Some(color);
+            }
+        }
         NativeBackgroundLayer::Gradient(gradient) => {
             overrides.window_background_gradient = Some(gradient);
         }
@@ -12976,6 +12983,21 @@ fn compose_lua_background_color_below_gradient(
         .map(|gradient_color| compose_lua_background_color_layers(color, gradient_color))
         .collect();
     Some(gradient)
+}
+
+fn compose_lua_background_color_over_gradient(
+    mut gradient: NativeWindowBackgroundGradient,
+    color: Color,
+) -> NativeWindowBackgroundGradient {
+    if gradient.colors.is_empty() {
+        return gradient;
+    }
+    gradient.colors = gradient
+        .colors
+        .into_iter()
+        .map(|gradient_color| compose_lua_background_color_layers(gradient_color, color))
+        .collect();
+    gradient
 }
 
 fn lua_background_layer_table_from_query(
@@ -54735,6 +54757,47 @@ mod tests {
                 terminal_origin_y
             ),
             [127, 127, 127, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_prepends_window_background_gradient_before_background_layers() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.window_background_gradient = {
+              orientation = 'Horizontal',
+              colors = { '#ff0000', '#ff0000' },
+              noise = 0,
+            }
+
+            config.background = {
+              {
+                source = { Color = '#0000ff' },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background layers with prepended gradient");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                terminal_origin_y
+            ),
+            [128, 0, 127, 255]
         );
     }
 

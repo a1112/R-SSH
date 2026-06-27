@@ -2521,7 +2521,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   final explicit-color or preset Gradient layer now preserve source-over alpha
   semantics for that subset. Explicit-color Gradient stacks precompose the
   Color stack into each Gradient stop; preset Gradient stacks blend the sampled
-  Gradient over the configured background color during rendering. File image
+  Gradient over the configured background color during rendering. Explicit
+  color-list `window_background_gradient` values are also treated as WezTerm's
+  implicit prepended background layer when followed by a Color-only
+  `config.background` stack, precomposing that Color layer into each Gradient
+  stop. File image
   layer stacks, including single `source = { File = ... }`, Color-below-File,
   multiple File layers, and static ordered Gradient/File mixes such as
   Gradient-over-File, now load static PNG/JPEG/GIF bytes from string File
