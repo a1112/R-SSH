@@ -2461,6 +2461,7 @@ struct NativeFontRule {
     invisible: Option<bool>,
     font: Option<String>,
     font_fallbacks: Vec<String>,
+    font_attributes: NativeFontAttributes,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -13052,10 +13053,11 @@ fn native_font_rule_lua_table_from_query(source: &str, value: &str) -> Option<Na
                 );
             }
             "font" => {
-                let families = parse_wezterm_font_families_value(source, value)?;
-                let mut families = families.into_iter();
+                let font_config = parse_wezterm_font_config_value(source, value)?;
+                let mut families = font_config.families.into_iter();
                 rule.font = families.next();
                 rule.font_fallbacks = families.collect();
+                rule.font_attributes = font_config.attributes;
             }
             _ => {}
         }
@@ -87284,6 +87286,45 @@ mod tests {
                 && effective.contains("font: Some(\"Terminus\")")
                 && effective.contains("font_fallbacks: [\"Noto Color Emoji\"]"),
             "effective config should expose the fallback font rule: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_rule_font_attributes() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_rules = {
+              {
+                italic = true,
+                intensity = 'Bold',
+                font = wezterm.font {
+                  family = 'Victor Mono',
+                  weight = 'Bold',
+                  stretch = 'Condensed',
+                  style = 'Italic',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font_rule font attributes config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font_rules[0].font.as_deref(), Some("Victor Mono"));
+        assert_eq!(
+            effective.font_rules[0].font_attributes,
+            NativeFontAttributes {
+                weight: Some("Bold".to_owned()),
+                stretch: Some("Condensed".to_owned()),
+                style: Some("Italic".to_owned()),
+            }
         );
     }
 
