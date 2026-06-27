@@ -418,6 +418,7 @@ pub struct RenderBackgroundGradient {
     pub noise: Option<usize>,
     pub segment: Option<RenderBackgroundGradientSegment>,
     pub preset: Option<RenderBackgroundGradientPreset>,
+    pub opacity_alpha: u8,
     pub colors: Vec<[u8; 4]>,
 }
 
@@ -1259,7 +1260,10 @@ fn fill_default_background_gradient(
                 surface.height,
                 noise_amount,
             );
-            let color = sampler.color_at(position);
+            let color = background_gradient_color_with_opacity(
+                sampler.color_at(position),
+                gradient.opacity_alpha,
+            );
             let index = ((row * surface.width + column) * 4) as usize;
             if let Some(pixel) = surface.target.get_mut(index..index + 4) {
                 pixel.copy_from_slice(&color);
@@ -1315,6 +1319,13 @@ impl BackgroundGradientSampler {
             Self::Gradient(gradient) => gradient.at(position).to_rgba8(),
         }
     }
+}
+
+fn background_gradient_color_with_opacity(mut color: [u8; 4], opacity_alpha: u8) -> [u8; 4] {
+    if opacity_alpha != u8::MAX {
+        color[3] = ((u16::from(color[3]) * u16::from(opacity_alpha)) / u16::from(u8::MAX)) as u8;
+    }
+    color
 }
 
 fn segment_colorgrad_gradient(

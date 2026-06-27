@@ -1211,6 +1211,7 @@ struct NativeWindowBackgroundGradient {
     noise: Option<usize>,
     segment: Option<NativeWindowBackgroundGradientSegment>,
     preset: Option<NativeWindowBackgroundGradientPreset>,
+    opacity_alpha: u8,
     colors: Vec<Color>,
 }
 
@@ -1227,6 +1228,7 @@ impl NativeWindowBackgroundGradient {
             preset: self
                 .preset
                 .map(NativeWindowBackgroundGradientPreset::to_render),
+            opacity_alpha: self.opacity_alpha,
             colors: self
                 .colors
                 .iter()
@@ -12603,6 +12605,7 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
             smoothness_millis: segment_smoothness_millis,
         }),
         preset,
+        opacity_alpha: u8::MAX,
         colors,
     })
 }
@@ -12773,7 +12776,8 @@ fn native_background_source_lua_table_from_query(
                 &gradient,
                 static_source.max_start,
             )?;
-            if hsb != native_identity_hsb() || opacity_alpha(opacity) != u8::MAX {
+            let opacity_alpha = opacity_alpha(opacity);
+            if hsb != native_identity_hsb() {
                 if gradient.colors.is_empty() {
                     return None;
                 }
@@ -12782,6 +12786,16 @@ fn native_background_source_lua_table_from_query(
                     .into_iter()
                     .map(|color| lua_background_color_with_hsb_and_opacity(color, hsb, opacity))
                     .collect();
+            } else if opacity_alpha != u8::MAX {
+                if gradient.colors.is_empty() {
+                    gradient.opacity_alpha = opacity_alpha;
+                } else {
+                    gradient.colors = gradient
+                        .colors
+                        .into_iter()
+                        .map(|color| lua_background_color_with_hsb_and_opacity(color, hsb, opacity))
+                        .collect();
+                }
             }
             Some(NativeBackgroundLayer::Gradient(gradient))
         }
@@ -53948,6 +53962,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -54001,6 +54016,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -54061,6 +54077,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -54110,6 +54127,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: Some(NativeWindowBackgroundGradientPreset::Blues),
+                opacity_alpha: u8::MAX,
                 colors: Vec::new(),
             })
         );
@@ -54128,6 +54146,50 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [8, 48, 107, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_preset_gradient_layer_opacity() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.background = {
+              {
+                source = {
+                  Gradient = {
+                    preset = 'Blues',
+                    noise = 0,
+                  },
+                },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background preset gradient layer opacity config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let width = FRAME_WIDTH as usize;
+        assert_eq!(
+            frame_pixel_at(&frame, width, 0, FRAME_HEIGHT as usize - 1),
+            [247, 251, 255, 127]
+        );
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                width,
+                FRAME_WIDTH as usize - 1,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [8, 48, 107, 127]
         );
     }
 
@@ -54161,6 +54223,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![
                     Color::Rgb(255, 0, 0),
                     Color::Rgb(0, 255, 0),
@@ -54210,6 +54273,7 @@ mod tests {
                     smoothness_millis: 0,
                 }),
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![
                     Color::Rgb(255, 0, 0),
                     Color::Rgb(0, 255, 0),
@@ -54315,6 +54379,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -54350,6 +54415,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(32, 33, 34), Color::Rgb(48, 49, 50)],
             })
         );
@@ -54386,6 +54452,7 @@ mod tests {
                 noise: Some(0),
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(64, 65, 66), Color::Rgb(80, 81, 82)],
             })
         );
@@ -89170,6 +89237,7 @@ mod tests {
                 noise: None,
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
@@ -89210,6 +89278,7 @@ mod tests {
                 noise: None,
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgba(1, 2, 3, 127), Color::Rgba(17, 18, 19, 127)],
             })
         );
@@ -89250,6 +89319,7 @@ mod tests {
                 noise: None,
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(16, 32, 48), Color::Rgb(32, 48, 64)],
             })
         );
@@ -95848,6 +95918,7 @@ mod tests {
                 noise: None,
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
             kde_window_background_blur: Some(true),
@@ -96195,6 +96266,7 @@ mod tests {
                 noise: None,
                 segment: None,
                 preset: None,
+                opacity_alpha: u8::MAX,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             }),
             kde_window_background_blur: true,
