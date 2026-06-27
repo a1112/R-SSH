@@ -106,6 +106,7 @@ const DEFAULT_ENABLE_WAYLAND: bool = true;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
 const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
 const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
+const DEFAULT_PANE_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(36_000);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
@@ -2825,6 +2826,9 @@ struct NativeEffectiveConfig {
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
     pane_select_font: Option<NativeFontConfig>,
+    pane_select_font_size: NativeFontSize,
+    pane_select_bg_color: Option<Color>,
+    pane_select_fg_color: Option<Color>,
     launcher_alphabet: String,
     quick_select_alphabet: String,
     quick_select_patterns: Vec<String>,
@@ -3028,6 +3032,9 @@ struct NativeConfigOverrides {
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
     pane_select_font: Option<NativeFontConfig>,
+    pane_select_font_size: Option<NativeFontSize>,
+    pane_select_bg_color: Option<Color>,
+    pane_select_fg_color: Option<Color>,
     launcher_alphabet: Option<String>,
     quick_select_alphabet: Option<String>,
     quick_select_patterns: Option<Vec<String>>,
@@ -3989,6 +3996,25 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_font_assignment_from_query(config, "pane_select_font")
     {
         overrides.pane_select_font = Some(pane_select_font);
+        parsed = true;
+    }
+    if let Some(pane_select_font_size) =
+        lua_config_f32_assignment_from_query(config, "pane_select_font_size")
+    {
+        overrides.pane_select_font_size =
+            Some(native_font_size_from_points(pane_select_font_size)?);
+        parsed = true;
+    }
+    if let Some(pane_select_bg_color) =
+        lua_config_string_assignment_from_query(config, "pane_select_bg_color")
+    {
+        overrides.pane_select_bg_color = Some(lua_opaque_color_from_query(&pane_select_bg_color)?);
+        parsed = true;
+    }
+    if let Some(pane_select_fg_color) =
+        lua_config_string_assignment_from_query(config, "pane_select_fg_color")
+    {
+        overrides.pane_select_fg_color = Some(lua_opaque_color_from_query(&pane_select_fg_color)?);
         parsed = true;
     }
     if let Some(use_cap_height_to_scale_fallback_fonts) =
@@ -15671,6 +15697,9 @@ struct NativeWindowApp {
     char_select_bg_color: Option<Color>,
     char_select_fg_color: Option<Color>,
     pane_select_font: Option<NativeFontConfig>,
+    pane_select_font_size: NativeFontSize,
+    pane_select_bg_color: Option<Color>,
+    pane_select_fg_color: Option<Color>,
     launcher_alphabet: String,
     quick_select_alphabet: String,
     quick_select_patterns: Vec<String>,
@@ -17159,6 +17188,9 @@ impl NativeWindowApp {
             char_select_bg_color: None,
             char_select_fg_color: None,
             pane_select_font: None,
+            pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
+            pane_select_bg_color: None,
+            pane_select_fg_color: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
@@ -18227,6 +18259,9 @@ impl NativeWindowApp {
         detached_app
             .pane_select_font
             .clone_from(&self.pane_select_font);
+        detached_app.pane_select_font_size = self.pane_select_font_size;
+        detached_app.pane_select_bg_color = self.pane_select_bg_color;
+        detached_app.pane_select_fg_color = self.pane_select_fg_color;
         detached_app
             .launcher_alphabet
             .clone_from(&self.launcher_alphabet);
@@ -18496,6 +18531,9 @@ impl NativeWindowApp {
         self.char_select_bg_color = source.char_select_bg_color;
         self.char_select_fg_color = source.char_select_fg_color;
         self.pane_select_font.clone_from(&source.pane_select_font);
+        self.pane_select_font_size = source.pane_select_font_size;
+        self.pane_select_bg_color = source.pane_select_bg_color;
+        self.pane_select_fg_color = source.pane_select_fg_color;
         self.launcher_alphabet.clone_from(&source.launcher_alphabet);
         self.quick_select_alphabet
             .clone_from(&source.quick_select_alphabet);
@@ -24906,6 +24944,10 @@ impl NativeWindowApp {
             return Vec::new();
         };
 
+        let foreground = self.pane_select_fg_color.unwrap_or(Color::Rgb(12, 12, 14));
+        let background = self
+            .pane_select_bg_color
+            .unwrap_or(Color::Rgb(255, 209, 102));
         let mut cells = Vec::new();
         for label in &pane_select.labels {
             let Some(rect) = layout
@@ -24937,12 +24979,7 @@ impl NativeWindowApp {
                     break;
                 }
                 cells.push(ui_render_cell(
-                    row,
-                    column,
-                    ch,
-                    Color::Rgb(12, 12, 14),
-                    Color::Rgb(255, 209, 102),
-                    true,
+                    row, column, ch, foreground, background, true,
                 ));
             }
         }
@@ -26786,6 +26823,9 @@ impl NativeWindowApp {
             char_select_bg_color: self.char_select_bg_color,
             char_select_fg_color: self.char_select_fg_color,
             pane_select_font: self.effective_overlay_font(&self.pane_select_font),
+            pane_select_font_size: self.pane_select_font_size,
+            pane_select_bg_color: self.pane_select_bg_color,
+            pane_select_fg_color: self.pane_select_fg_color,
             launcher_alphabet: self.launcher_alphabet.clone(),
             quick_select_alphabet: self.quick_select_alphabet.clone(),
             quick_select_patterns: self.quick_select_patterns.clone(),
@@ -27119,6 +27159,11 @@ impl NativeWindowApp {
         self.char_select_bg_color = overrides.char_select_bg_color;
         self.char_select_fg_color = overrides.char_select_fg_color;
         self.pane_select_font = overrides.pane_select_font.clone();
+        self.pane_select_font_size = overrides
+            .pane_select_font_size
+            .unwrap_or(DEFAULT_PANE_SELECT_FONT_SIZE);
+        self.pane_select_bg_color = overrides.pane_select_bg_color;
+        self.pane_select_fg_color = overrides.pane_select_fg_color;
         self.launcher_alphabet = overrides
             .launcher_alphabet
             .filter(|alphabet| !alphabet.is_empty())
@@ -52800,8 +52845,9 @@ mod tests {
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
         DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MUX_ENABLE_SSH_AGENT,
-        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PREFER_EGL,
-        DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
         DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
@@ -66856,6 +66902,9 @@ mod tests {
                 pane_select_font: Some(
                     super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT,)
                 ),
+                pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
+                pane_select_bg_color: None,
+                pane_select_fg_color: None,
                 launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
                 quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
                 quick_select_patterns: Vec::new(),
@@ -68269,6 +68318,32 @@ mod tests {
 
         assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS + 2, 4), Some('a'));
         assert_eq!(snapshot_char(&snapshot, TAB_BAR_ROWS + 2, 15), Some('s'));
+    }
+
+    #[test]
+    fn window_pane_select_renders_configured_overlay_colors() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            pane_select_bg_color: Some(Color::Rgb(11, 22, 33)),
+            pane_select_fg_color: Some(Color::Rgb(44, 55, 66)),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(20, 4));
+        app.refresh_snapshot();
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_pane_select_mode();
+
+        let snapshot = app.render_snapshot();
+        let label_cell =
+            snapshot_cell(&snapshot, TAB_BAR_ROWS + 2, 4).expect("expected pane-select label cell");
+        assert_eq!(label_cell.foreground, Color::Rgb(44, 55, 66));
+        assert_eq!(label_cell.background, Color::Rgb(11, 22, 33));
     }
 
     #[test]
@@ -89435,6 +89510,10 @@ mod tests {
             effective.contains("char_select_font_size: NativeFontSize { millipoints: 14000 }"),
             "effective config should expose WezTerm's char_select_font_size default: {effective:?}"
         );
+        assert!(
+            effective.contains("pane_select_font_size: NativeFontSize { millipoints: 36000 }"),
+            "effective config should expose WezTerm's pane_select_font_size default: {effective:?}"
+        );
     }
 
     #[test]
@@ -89446,6 +89525,7 @@ mod tests {
 
             config.command_palette_font_size = 15.5
             config.char_select_font_size = 16.25
+            config.pane_select_font_size = 36.5
 
             return config
             "#,
@@ -89461,6 +89541,37 @@ mod tests {
         assert_eq!(
             effective.char_select_font_size,
             NativeFontSize::from_millipoints(16_250)
+        );
+        assert_eq!(
+            effective.pane_select_font_size,
+            NativeFontSize::from_millipoints(36_500)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_pane_select_overlay_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.pane_select_bg_color = '#112233'
+            config.pane_select_fg_color = '#445566'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm pane-select overlay color config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.pane_select_bg_color,
+            Some(Color::Rgb(0x11, 0x22, 0x33))
+        );
+        assert_eq!(
+            effective.pane_select_fg_color,
+            Some(Color::Rgb(0x44, 0x55, 0x66))
         );
     }
 
@@ -98240,6 +98351,9 @@ mod tests {
             char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
             char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
             pane_select_font: None,
+            pane_select_font_size: Some(NativeFontSize::from_millipoints(36_500)),
+            pane_select_bg_color: Some(Color::Rgb(27, 28, 29)),
+            pane_select_fg_color: Some(Color::Rgb(30, 31, 32)),
             launcher_alphabet: Some("12".to_owned()),
             quick_select_alphabet: Some("xy".to_owned()),
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
@@ -98592,6 +98706,9 @@ mod tests {
             char_select_bg_color: Some(Color::Rgb(21, 22, 23)),
             char_select_fg_color: Some(Color::Rgb(24, 25, 26)),
             pane_select_font: Some(super::native_font_config("Monaco")),
+            pane_select_font_size: NativeFontSize::from_millipoints(36_500),
+            pane_select_bg_color: Some(Color::Rgb(27, 28, 29)),
+            pane_select_fg_color: Some(Color::Rgb(30, 31, 32)),
             launcher_alphabet: "12".to_owned(),
             quick_select_alphabet: "xy".to_owned(),
             quick_select_patterns: vec!["ticket-[0-9]+".to_owned()],
@@ -98828,6 +98945,9 @@ mod tests {
             char_select_bg_color: None,
             char_select_fg_color: None,
             pane_select_font: Some(super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT)),
+            pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
+            pane_select_bg_color: None,
+            pane_select_fg_color: None,
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
