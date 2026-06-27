@@ -205,6 +205,8 @@ const DEFAULT_SKIP_CLOSE_CONFIRMATION_FOR_PROCESSES_NAMED: &[&str] = &[
 ];
 const DEFAULT_ENABLE_TAB_BAR: bool = true;
 const DEFAULT_ENABLE_SCROLL_BAR: bool = false;
+const DEFAULT_MIN_SCROLL_BAR_HEIGHT: Option<NativeScrollBarHeight> =
+    Some(NativeScrollBarHeight::CellFractionPerMille(500));
 const DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB: bool = false;
 const DEFAULT_USE_FANCY_TAB_BAR: bool = true;
 const DEFAULT_UNZOOM_ON_SWITCH_PANE: bool = true;
@@ -17300,7 +17302,7 @@ impl NativeWindowApp {
             bypass_mouse_reporting_modifiers: DEFAULT_BYPASS_MOUSE_REPORTING_MODIFIERS,
             enable_scroll_bar: DEFAULT_ENABLE_SCROLL_BAR,
             scrollback_lines: DEFAULT_SCROLLBACK_LIMIT,
-            min_scroll_bar_height: None,
+            min_scroll_bar_height: DEFAULT_MIN_SCROLL_BAR_HEIGHT,
             enable_tab_bar: DEFAULT_ENABLE_TAB_BAR,
             hide_tab_bar_if_only_one_tab: DEFAULT_HIDE_TAB_BAR_IF_ONLY_ONE_TAB,
             use_fancy_tab_bar: DEFAULT_USE_FANCY_TAB_BAR,
@@ -27433,7 +27435,9 @@ impl NativeWindowApp {
             .scrollback_lines
             .unwrap_or(DEFAULT_SCROLLBACK_LIMIT);
         self.apply_scrollback_limit_to_runtimes();
-        self.min_scroll_bar_height = overrides.min_scroll_bar_height;
+        self.min_scroll_bar_height = overrides
+            .min_scroll_bar_height
+            .or(DEFAULT_MIN_SCROLL_BAR_HEIGHT);
         self.reload_configuration();
         self.apply_window_title();
     }
@@ -52877,13 +52881,13 @@ mod tests {
         DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
         DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
-        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MUX_ENABLE_SSH_AGENT,
-        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY,
-        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
+        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR,
+        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
@@ -59886,6 +59890,30 @@ mod tests {
         assert_eq!(
             scrollbar.min_thumb_height,
             Some(RenderScrollbarThumbSize::Pixels(12))
+        );
+    }
+
+    #[test]
+    fn window_app_reports_default_wezterm_min_scroll_bar_height() {
+        let mut app = NativeWindowApp::new(None);
+
+        assert_eq!(
+            app.native_effective_config().min_scroll_bar_height,
+            Some(NativeScrollBarHeight::CellFractionPerMille(500))
+        );
+
+        app.set_config_overrides(NativeConfigOverrides {
+            enable_scroll_bar: Some(true),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+
+        let scrollbar = app.scrollback_scrollbar().expect("scrollbar");
+        assert_eq!(
+            scrollbar.min_thumb_height,
+            Some(RenderScrollbarThumbSize::CellFractionPerMille(500))
         );
     }
 
@@ -67038,7 +67066,7 @@ mod tests {
                 bypass_mouse_reporting_modifiers: ModifiersState::SHIFT,
                 enable_scroll_bar: false,
                 scrollback_lines: DEFAULT_SCROLLBACK_LIMIT,
-                min_scroll_bar_height: None,
+                min_scroll_bar_height: DEFAULT_MIN_SCROLL_BAR_HEIGHT,
                 enable_tab_bar: true,
                 hide_tab_bar_if_only_one_tab: false,
                 use_fancy_tab_bar: super::DEFAULT_USE_FANCY_TAB_BAR,
@@ -99105,7 +99133,7 @@ mod tests {
             bypass_mouse_reporting_modifiers: ModifiersState::SHIFT,
             enable_scroll_bar: false,
             scrollback_lines: DEFAULT_SCROLLBACK_LIMIT,
-            min_scroll_bar_height: None,
+            min_scroll_bar_height: Some(NativeScrollBarHeight::CellFractionPerMille(500)),
             enable_tab_bar: true,
             hide_tab_bar_if_only_one_tab: false,
             use_fancy_tab_bar: super::DEFAULT_USE_FANCY_TAB_BAR,

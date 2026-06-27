@@ -2819,10 +2819,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
 - Native `enable_scroll_bar` defaults to false. When true, the scrollback
   scrollbar renders and accepts click/drag input; when false, scrollback remains
   wheel/command driven without the scrollbar affordance. The thumb minimum
-  defaults to WezTerm's `min_scroll_bar_height = "0.5cell"` behavior, and
-  native px, DPI-scaled pt, cell, and percent unit overrides are applied to
-  scrollbar rendering and hit-testing. Static Lua `enable_scroll_bar` and
-  `min_scroll_bar_height` assignments parse into the same override path.
+  retains WezTerm's `min_scroll_bar_height = "0.5cell"` default in effective
+  config, and native px, DPI-scaled pt, cell, and percent unit overrides are
+  applied to scrollbar rendering and hit-testing. Static Lua
+  `enable_scroll_bar` and `min_scroll_bar_height` assignments parse into the
+  same override path.
 - Native `alternate_buffer_wheel_scroll_speed` defaults to WezTerm's `3`.
   In alternate screen with mouse reporting disabled, vertical wheel input
   writes repeated Up/Down arrow-key sequences to the active PTY instead of

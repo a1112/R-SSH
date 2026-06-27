@@ -1736,6 +1736,10 @@ keyboard, mouse, paste, resize
   WezTerm's `3`; when the active pane is in the alternate screen and mouse
   reporting is disabled, vertical wheel input writes repeated Up/Down arrow-key
   sequences to the PTY instead of moving scrollback.
+- Implemented in v1: native `enable_scroll_bar` defaults to false, while
+  `min_scroll_bar_height` retains WezTerm's `"0.5cell"` default in effective
+  config and applies px, point, cell, and percent overrides to scrollbar
+  rendering and hit-testing when the scrollbar is enabled.
 - Implemented in v1: native `scrollback_lines` defaults to WezTerm's `3500`
   retained lines. Config overrides update active and inactive pane runtimes,
   apply to new pane/window runtimes, and prune retained history immediately when
