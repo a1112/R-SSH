@@ -12873,8 +12873,10 @@ fn native_background_lua_table_from_query(
             NativeBackgroundLayer::Image(layer) => {
                 visual_layers.push(NativeWindowBackgroundVisualLayer::Image(layer));
             }
-            NativeBackgroundLayer::Color(_)
-            | NativeBackgroundLayer::Images(_)
+            NativeBackgroundLayer::Color(layer) => {
+                visual_layers.push(NativeWindowBackgroundVisualLayer::Color(layer));
+            }
+            NativeBackgroundLayer::Images(_)
             | NativeBackgroundLayer::VisualLayers(_)
             | NativeBackgroundLayer::ColorAndGradient { .. }
             | NativeBackgroundLayer::ColorAndImages { .. }
@@ -55180,6 +55182,46 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [255, 127, 127, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_color_over_file_layer() {
+        let image_path = write_test_png_file("wezterm-background-file-color-layer.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+              }},
+              {{
+                source = {{ Color = '#0000ff' }},
+                opacity = 0.5,
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File and Color layers");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [128, 0, 127, 255]
         );
 
         let _ = std::fs::remove_file(image_path);

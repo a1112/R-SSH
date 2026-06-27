@@ -172,9 +172,9 @@ keyboard, mouse, paste, resize
   and can serve as WezTerm's implicit prepended layer below a following
   Color-only `config.background` stack, and
   static ordered Gradient/File visual layer stacks, including Color-below-File,
-  multiple File layers, and Gradient-over-File, render through the native
-  background layer path from string File sources or File source tables with
-  `path` and animated image `speed`, using WezTerm's default
+  Color-over-File, multiple File layers, and Gradient-over-File, render through
+  the native background layer path from string File sources or File source
+  tables with `path` and animated image `speed`, using WezTerm's default
   cover-style sizing, Contain sizing, px/percentage/cell width and height,
   Repeat/Mirror/NoRepeat tiling with optional repeat sizes, offsets,
   Left/Center/Right plus Top/Middle/Bottom alignment, source-over opacity, and
