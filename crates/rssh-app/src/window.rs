@@ -2469,6 +2469,7 @@ struct NativeFontAttributes {
     weight: Option<String>,
     stretch: Option<String>,
     style: Option<String>,
+    harfbuzz_features: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -12968,6 +12969,9 @@ fn native_font_attributes_lua_table_from_query(
                 {
                     attributes.style = Some("Italic".to_owned());
                 }
+            }
+            "harfbuzz_features" => {
+                attributes.harfbuzz_features = split_lua_table_string_array(value)?;
             }
             _ => {}
         }
@@ -87162,7 +87166,7 @@ mod tests {
         );
         assert!(
             effective.contains(
-                "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\") }"
+                "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\"), harfbuzz_features: [] }"
             ),
             "effective config should expose WezTerm's configured font attributes: {effective:?}"
         );
@@ -87195,6 +87199,7 @@ mod tests {
                 weight: Some("Bold".to_owned()),
                 stretch: None,
                 style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
             }
         );
     }
@@ -87228,7 +87233,35 @@ mod tests {
                 weight: Some("DemiBold".to_owned()),
                 stretch: Some("Condensed".to_owned()),
                 style: Some("Oblique".to_owned()),
+                harfbuzz_features: Vec::new(),
             }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_harfbuzz_features_attribute() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font {
+              family = 'Iosevka Term',
+              harfbuzz_features = { 'liga=0', 'calt=0' },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font harfbuzz features config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("Iosevka Term"));
+        assert_eq!(
+            effective.font_attributes.harfbuzz_features,
+            vec!["liga=0", "calt=0"]
         );
     }
 
@@ -87242,7 +87275,7 @@ mod tests {
 
             config.font = wezterm.font('Iosevka Term', {
               weight = 'Bold',
-              harfbuzz_features = { 'liga=0', 'calt=0' },
+              synthesize_styled_fonts = false,
             })
 
             return config
@@ -87348,6 +87381,7 @@ mod tests {
                 weight: Some("DemiBold".to_owned()),
                 stretch: Some("Condensed".to_owned()),
                 style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
             }
         );
     }
@@ -87433,6 +87467,7 @@ mod tests {
                 weight: Some("Bold".to_owned()),
                 stretch: Some("Condensed".to_owned()),
                 style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
             }
         );
     }
@@ -94942,6 +94977,7 @@ mod tests {
                 weight: Some("Bold".to_owned()),
                 stretch: Some("Expanded".to_owned()),
                 style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
             }),
             font_rules: Some(vec![NativeFontRule {
                 italic: Some(true),
@@ -95282,6 +95318,7 @@ mod tests {
                 weight: Some("Bold".to_owned()),
                 stretch: Some("Expanded".to_owned()),
                 style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
             },
             font_rules: vec![NativeFontRule {
                 italic: Some(true),
