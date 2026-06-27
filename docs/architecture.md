@@ -157,8 +157,9 @@ keyboard, mouse, paste, resize
   terminal background cells, basic `window_background_gradient`
   Horizontal/Vertical/Linear-angle/Radial color-list fills with colorgrad
   interpolation/blend/segment controls and colorgrad preset fills for default
-  window backgrounds, and single-layer WezTerm `config.background` Color and
-  opaque explicit-color Gradient sources mapped onto the same native background
+  window backgrounds, and single-layer WezTerm `config.background` Color
+  sources from inline or top-level static source tables plus opaque
+  explicit-color Gradient sources mapped onto the same native background
   color/gradient paths with inline or static-variable layer `hsb` transforms,
   plus retained platform backdrop settings
   `kde_window_background_blur`, `macos_window_background_blur`,
