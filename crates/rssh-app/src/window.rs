@@ -12647,6 +12647,10 @@ enum NativeBackgroundLayer {
         color: Color,
         gradient: NativeWindowBackgroundGradient,
     },
+    ColorAndImage {
+        color: Color,
+        image: NativeWindowBackgroundImage,
+    },
 }
 
 fn apply_lua_background_table_overrides(
@@ -12666,6 +12670,10 @@ fn apply_lua_background_table_overrides(
         NativeBackgroundLayer::ColorAndGradient { color, gradient } => {
             overrides.background_color = Some(color);
             overrides.window_background_gradient = Some(gradient);
+        }
+        NativeBackgroundLayer::ColorAndImage { color, image } => {
+            overrides.background_color = Some(color);
+            overrides.window_background_image = Some(image);
         }
     }
     Some(true)
@@ -12688,6 +12696,7 @@ fn native_background_lua_table_from_query(
         return None;
     };
     let mut gradient = None;
+    let mut image = None;
     match second {
         NativeBackgroundLayer::Color(second) => {
             color = compose_lua_background_color_layers(color, second);
@@ -12695,26 +12704,35 @@ fn native_background_lua_table_from_query(
         NativeBackgroundLayer::Gradient(second) => {
             gradient = Some(compose_lua_background_color_below_gradient(color, second)?);
         }
-        NativeBackgroundLayer::Image(_) => return None,
-        NativeBackgroundLayer::ColorAndGradient { .. } => return None,
+        NativeBackgroundLayer::Image(second) => {
+            image = Some(second);
+        }
+        NativeBackgroundLayer::ColorAndGradient { .. }
+        | NativeBackgroundLayer::ColorAndImage { .. } => return None,
     }
     for layer in layers {
         match layer {
-            NativeBackgroundLayer::Color(layer) if gradient.is_none() => {
+            NativeBackgroundLayer::Color(layer) if gradient.is_none() && image.is_none() => {
                 color = compose_lua_background_color_layers(color, layer);
             }
-            NativeBackgroundLayer::Gradient(layer) if gradient.is_none() => {
+            NativeBackgroundLayer::Gradient(layer) if gradient.is_none() && image.is_none() => {
                 gradient = Some(compose_lua_background_color_below_gradient(color, layer)?);
+            }
+            NativeBackgroundLayer::Image(layer) if gradient.is_none() && image.is_none() => {
+                image = Some(layer);
             }
             NativeBackgroundLayer::Color(_)
             | NativeBackgroundLayer::Gradient(_)
             | NativeBackgroundLayer::Image(_)
-            | NativeBackgroundLayer::ColorAndGradient { .. } => return None,
+            | NativeBackgroundLayer::ColorAndGradient { .. }
+            | NativeBackgroundLayer::ColorAndImage { .. } => return None,
         }
     }
 
     if let Some(gradient) = gradient {
         Some(NativeBackgroundLayer::ColorAndGradient { color, gradient })
+    } else if let Some(image) = image {
+        Some(NativeBackgroundLayer::ColorAndImage { color, image })
     } else {
         Some(NativeBackgroundLayer::Color(color))
     }
@@ -54284,6 +54302,46 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_color_below_file_layer() {
+        let image_path = write_test_png_file("wezterm-background-color-file-layer.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ Color = '#000000' }},
+              }},
+              {{
+                source = {{ File = '{lua_path}' }},
+                opacity = 0.5,
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background Color and File layers");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [127, 0, 0, 255]
         );
 
         let _ = std::fs::remove_file(image_path);

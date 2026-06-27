@@ -2522,11 +2522,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   semantics for that subset. Explicit-color Gradient stacks precompose the
   Color stack into each Gradient stop; preset Gradient stacks blend the sampled
   Gradient over the configured background color during rendering. Single
-  `source = { File = ... }` image layers now load static PNG/JPEG/GIF bytes and
-  render through the native background image path with layer opacity and default
-  cover-style sizing. Multi-layer image composition, `Attachment` image sources,
-  alignment/repeat settings, and HSB transforms for image sources remain future
-  parity work.
+  `source = { File = ... }` image layers and Color-below-File stacks now load
+  static PNG/JPEG/GIF bytes and render through the native background image path
+  with source-over layer opacity and default cover-style sizing. Richer
+  multi-layer image composition, `Attachment` image sources, alignment/repeat
+  settings, and HSB transforms for image sources remain future parity work.
 - Native config retains WezTerm-style platform backdrop settings:
   `kde_window_background_blur` defaults to `false`,
   `macos_window_background_blur` defaults to `0`, and

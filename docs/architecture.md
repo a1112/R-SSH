@@ -165,9 +165,10 @@ keyboard, mouse, paste, resize
   static-variable layer `hsb` transforms. Multi-layer `config.background`
   stacks with Color layers below a final explicit-color or preset Gradient
   layer are composed into native background color/gradient overrides, and
-  single `source = { File = ... }` image layers render through the native
-  background image path using WezTerm's default cover-style sizing, plus retained
-  platform backdrop settings
+  single `source = { File = ... }` image layers plus Color-below-File stacks
+  render through the native background image path using WezTerm's default
+  cover-style sizing and source-over opacity, plus retained platform backdrop
+  settings
   `kde_window_background_blur`, `macos_window_background_blur`,
   `win32_system_backdrop`, and `win32_acrylic_accent_color`; actual
   KDE/macOS/Windows backdrop and accent application remains platform-adapter work. It also supports
