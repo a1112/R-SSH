@@ -3579,6 +3579,40 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         )?);
         parsed = true;
     }
+    let window_background_image_hsb = if let Some(window_background_image_hsb) =
+        lua_config_table_or_static_variable_assignment_from_query(
+            config,
+            "window_background_image_hsb",
+        ) {
+        parsed = true;
+        Some(native_hsb_lua_table_from_query(
+            config,
+            window_background_image_hsb,
+        )?)
+    } else {
+        None
+    };
+    if let Some(window_background_image) =
+        lua_config_string_assignment_from_query(config, "window_background_image")
+    {
+        let data = fs::read(Path::new(&window_background_image)).ok()?;
+        overrides.window_background_images = Some(vec![NativeWindowBackgroundImage {
+            data,
+            opacity_alpha: overrides
+                .window_background_opacity
+                .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY)
+                .as_alpha(),
+            hsb: window_background_image_hsb.unwrap_or_else(native_identity_hsb),
+            animation_speed_millis: 1_000,
+            attachment: RenderBackgroundImageAttachment::Fixed,
+            layout: NativeWindowBackgroundImageLayout {
+                width: RenderBackgroundImageDimension::Percent(10_000),
+                height: RenderBackgroundImageDimension::Percent(10_000),
+                ..NativeWindowBackgroundImageLayout::default()
+            },
+        }]);
+        parsed = true;
+    }
     if let Some(window_background_gradient) =
         lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
             config,
@@ -55158,6 +55192,40 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [128, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_legacy_window_background_image_layer() {
+        let image_path = write_test_png_file("wezterm-window-background-image.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.window_background_image = '{lua_path}'
+            config.window_background_image_hsb = {{ brightness = 0.5 }}
+            config.window_background_opacity = 0.5
+
+            return config
+            "##
+        ))
+        .expect("expected legacy WezTerm window background image config");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [69, 6, 6, 255]
         );
 
         let _ = std::fs::remove_file(image_path);

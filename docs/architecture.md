@@ -167,7 +167,9 @@ keyboard, mouse, paste, resize
   layer are composed into native background color/gradient overrides, explicit
   color-list `window_background_gradient` values can be treated as WezTerm's
   implicit prepended layer below a following Color-only `config.background`
-  stack, and
+  stack, legacy `window_background_image` files render as 100%-sized background
+  image layers with `window_background_image_hsb` and `window_background_opacity`,
+  and
   static ordered Gradient/File visual layer stacks, including Color-below-File,
   multiple File layers, and Gradient-over-File, render through the native
   background layer path from string File sources or File source tables with
