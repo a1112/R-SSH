@@ -1673,7 +1673,11 @@ keyboard, mouse, paste, resize
   under the mouse is opened through the same open-uri hook. Structured
   `completeselection`, `openlinkatmousecursor`, and
   `completeselectionoropenlinkatmousecursor` action-name queries resolve to the
-  same native behavior. Native
+  same native behavior. Native `OpenUri(uri)` payloads and structured
+  `open uri <uri>`/`openuri <uri>` queries dispatch an explicit URI through the
+  same open-uri hook and default opener, including WezTerm-style
+  `wezterm.action.OpenUri('<uri>')` and
+  `wezterm.action { OpenUri = '<uri>' }` Lua action query forms. Native
   `CompleteSelectionTo(destination)` and
   `CompleteSelectionOrOpenLinkAtMouseCursorTo(destination)` payloads complete
   active selections into a specific implemented copy destination, with quoted or

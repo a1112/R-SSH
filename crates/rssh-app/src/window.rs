@@ -14832,6 +14832,9 @@ fn native_key_assignment_command_from_query(
     if let Some(event) = emit_event_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::EmitEvent(event));
     }
+    if let Some(uri) = open_uri_from_query_with_static_source(static_source, value) {
+        return Some(WindowCommand::OpenUri(uri));
+    }
     if let Some(value) = send_string_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::SendString(value));
     }
@@ -20058,6 +20061,10 @@ impl NativeWindowApp {
             }
             WindowCommand::OpenLinkAtMouseCursor => {
                 self.open_link_at_mouse_cursor();
+                return Ok(());
+            }
+            WindowCommand::OpenUri(uri) => {
+                self.open_uri(&uri);
                 return Ok(());
             }
             WindowCommand::CopyToClipboard => {
@@ -33835,6 +33842,9 @@ fn command_palette_structured_query_command_inner(query: &str) -> Option<WindowC
     if let Some(command) = mouse_selection_command_from_query(query) {
         return Some(command);
     }
+    if let Some(uri) = open_uri_from_query(query) {
+        return Some(WindowCommand::OpenUri(uri));
+    }
     if let Some(split_pane) = split_pane_table_action_from_query(query) {
         return Some(WindowCommand::SplitPane(split_pane));
     }
@@ -36220,6 +36230,31 @@ fn emit_event_lua_table_from_query(
     }
 
     event
+}
+
+fn open_uri_from_query(query: &str) -> Option<String> {
+    open_uri_from_query_with_static_source(None, query)
+}
+
+fn open_uri_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &str,
+) -> Option<String> {
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
+
+    let uri = strip_lua_function_call_from_query(query, "openuri").or_else(|| {
+        strip_query_prefix_from_any(query, &["open uri=", "open uri ", "openuri=", "openuri "])
+    })?;
+    let uri = strip_query_prefix_from_any(uri, &["uri=", "uri ", "url=", "url "]).unwrap_or(uri);
+    parse_maybe_static_query_text(static_source, uri)
 }
 
 fn send_string_from_query(query: &str) -> Option<String> {
@@ -45254,6 +45289,8 @@ enum WindowCommand {
     #[allow(dead_code)]
     CompleteSelectionOrOpenLinkAtMouseCursorTo(WindowCopyDestination),
     OpenLinkAtMouseCursor,
+    #[allow(dead_code)]
+    OpenUri(String),
     CopyToClipboard,
     CopyToPrimarySelection,
     CopyToClipboardAndPrimarySelection,
@@ -45545,6 +45582,7 @@ impl WindowCommand {
                 "Complete Selection Or Open Link At Mouse Cursor"
             }
             Self::OpenLinkAtMouseCursor => "Open Link At Mouse Cursor",
+            Self::OpenUri(_) => "Open URI",
             Self::CopyToClipboard | Self::CopyTo(WindowCopyDestination::Clipboard) => {
                 "Copy To Clipboard"
             }
@@ -45705,6 +45743,7 @@ impl WindowCommand {
                 "Complete Selection Or Open Link At Mouse Cursor"
             }
             Self::OpenLinkAtMouseCursor => "Open Link At Mouse Cursor",
+            Self::OpenUri(_) => "Open URI",
             Self::CopyToClipboard | Self::CopyTo(WindowCopyDestination::Clipboard) => {
                 "Copy To Clipboard"
             }
@@ -72074,6 +72113,94 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_open_uri_wezterm_action_function_call_query() {
+        let open_uris = Arc::new(Mutex::new(Vec::new()));
+        let recorded_uri = Arc::clone(&open_uris);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.open_uri_handler = Box::new(move |event| {
+            recorded_uri.lock().unwrap().push(event.clone());
+            true
+        });
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.OpenUri('https://example.com/docs')".to_owned(),
+        );
+
+        let expected = WindowCommand::OpenUri("https://example.com/docs".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        assert!(app.command_palette_execute(expected));
+
+        assert_eq!(
+            open_uris.lock().unwrap().as_slice(),
+            [NativeWindowOpenUri {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+                uri: "https://example.com/docs".to_owned(),
+            }]
+        );
+        assert_eq!(
+            opened.lock().unwrap().as_slice(),
+            ["https://example.com/docs"]
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_open_uri_wezterm_action_table_wrapper_query() {
+        let open_uris = Arc::new(Mutex::new(Vec::new()));
+        let recorded_uri = Arc::clone(&open_uris);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.open_uri_handler = Box::new(move |event| {
+            recorded_uri.lock().unwrap().push(event.clone());
+            true
+        });
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action { OpenUri = 'https://example.com/table' }".to_owned(),
+        );
+
+        let expected = WindowCommand::OpenUri("https://example.com/table".to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+        assert!(app.command_palette_execute(expected));
+
+        assert_eq!(
+            open_uris.lock().unwrap().as_slice(),
+            [NativeWindowOpenUri {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+                uri: "https://example.com/table".to_owned(),
+            }]
+        );
+        assert_eq!(
+            opened.lock().unwrap().as_slice(),
+            ["https://example.com/table"]
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_search_finds_matches_in_scrollback() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(6, 2));
@@ -83856,6 +83983,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+C".to_owned(),
                 command: WindowCommand::CopyTo(WindowCopyDestination::PrimarySelection),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_open_uri_static_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local docs = 'https://example.com/docs'
+
+            config.keys = {
+              {
+                key = 'O',
+                mods = 'CTRL|SHIFT',
+                action = act.OpenUri(docs),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm OpenUri static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+O".to_owned(),
+                command: WindowCommand::OpenUri("https://example.com/docs".to_owned()),
             }])
         );
     }
@@ -110070,6 +110228,29 @@ mod tests {
     }
 
     #[test]
+    fn window_app_dispatches_palette_scroll_by_line_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+        assert_eq!(app.runtime.terminal().scrollback().len(), 3);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action { ScrollByLine = -2 }".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ScrollByLine(-2)]
+        );
+
+        app.command_palette_execute(WindowCommand::ScrollByLine(-2));
+
+        assert_eq!(app.scrollback_offset, 2);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('b'));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
     fn window_app_dispatches_palette_scroll_by_page_query() {
         let mut app = NativeWindowApp::new(None);
         app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
@@ -110175,6 +110356,30 @@ mod tests {
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action.ScrollByPage(-0.5)".to_owned());
+
+        let expected = WindowCommand::ScrollByPage(WindowScrollByPageAmount::from_per_mille(-500));
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        assert_eq!(app.scrollback_offset, 1);
+        assert_eq!(snapshot_char(&app.snapshot, 0, 0), Some('c'));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_scroll_by_page_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee")
+            .unwrap();
+        assert_eq!(app.runtime.terminal().scrollback().len(), 3);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action { ScrollByPage = -0.5 }".to_owned());
 
         let expected = WindowCommand::ScrollByPage(WindowScrollByPageAmount::from_per_mille(-500));
         assert_eq!(
@@ -110301,6 +110506,31 @@ mod tests {
 
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action.ScrollToPrompt(-2)".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ScrollToPrompt(-2)]
+        );
+
+        app.command_palette_execute(WindowCommand::ScrollToPrompt(-2));
+
+        assert_eq!(app.scrollback_offset, 4);
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 8), "> one   ");
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_scroll_to_prompt_wezterm_action_table_wrapper_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(8, 2));
+        app.handle_pty_output(
+            b"\x1b]133;A\x07> one\r\nout1\r\n\x1b]133;A\x07> two\r\nout2\r\n\x1b]133;A\x07> three\r\nlive",
+        )
+        .unwrap();
+        assert_eq!(app.runtime.terminal().semantic_prompt_rows(), &[0, 2, 4]);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("wezterm.action { ScrollToPrompt = -2 }".to_owned());
 
         assert_eq!(
             app.command_palette_filtered_commands(),
