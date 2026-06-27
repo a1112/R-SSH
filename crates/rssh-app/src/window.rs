@@ -2571,6 +2571,13 @@ impl Default for NativeWindowFrameAppearance {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeHyperlinkRule {
+    regex: String,
+    format: String,
+    highlight: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
     dpi: u32,
@@ -2654,6 +2661,7 @@ struct NativeEffectiveConfig {
     quick_select_patterns: Vec<String>,
     disable_default_quick_select_patterns: bool,
     quick_select_remove_styling: bool,
+    hyperlink_rules: Vec<NativeHyperlinkRule>,
     copy_mode_active_highlight_bg: Option<NativeColorSpec>,
     copy_mode_active_highlight_fg: Option<NativeColorSpec>,
     copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
@@ -2844,6 +2852,7 @@ struct NativeConfigOverrides {
     quick_select_patterns: Option<Vec<String>>,
     disable_default_quick_select_patterns: Option<bool>,
     quick_select_remove_styling: Option<bool>,
+    hyperlink_rules: Option<Vec<NativeHyperlinkRule>>,
     copy_mode_active_highlight_bg: Option<NativeColorSpec>,
     copy_mode_active_highlight_fg: Option<NativeColorSpec>,
     copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
@@ -3741,6 +3750,19 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "quick_select_remove_styling")
     {
         overrides.quick_select_remove_styling = Some(quick_select_remove_styling);
+        parsed = true;
+    }
+    if let Some(hyperlink_rules) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "hyperlink_rules",
+        )
+    {
+        overrides.hyperlink_rules = Some(native_hyperlink_rules_lua_table_from_query(
+            config,
+            &hyperlink_rules.value,
+            hyperlink_rules.max_start,
+        )?);
         parsed = true;
     }
     if let Some(selection_word_boundary) =
@@ -12083,6 +12105,103 @@ fn lua_unsigned_u32_value_from_query(value: &str) -> Option<u32> {
 }
 
 #[allow(dead_code)]
+fn native_hyperlink_rules_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeHyperlinkRule>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut rules = Vec::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let entry =
+            split_lua_table_assignment_from_field(field).map_or(field, |(_, value)| value.trim());
+        rules.push(native_hyperlink_rule_lua_table_from_query(
+            source, entry, max_start,
+        )?);
+    }
+
+    Some(rules)
+}
+
+fn native_hyperlink_rule_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<NativeHyperlinkRule> {
+    let resolved_value;
+    let value = if value.trim_start().starts_with('{') {
+        value
+    } else {
+        resolved_value = lua_table_insert_value_table_string_from_query(source, value, max_start)?;
+        resolved_value.as_str()
+    };
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut regex = None;
+    let mut format = None;
+    let mut highlight = 0usize;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "regex" => {
+                regex = Some(lua_static_string_value_before_offset(
+                    source, value, max_start,
+                )?)
+            }
+            "format" => {
+                format = Some(lua_static_string_value_before_offset(
+                    source, value, max_start,
+                )?)
+            }
+            "highlight" => {
+                let value = lua_static_number_assignment_value_before_offset_from_query(
+                    source,
+                    value,
+                    max_start,
+                    lua_unsigned_integer_literal_from_query,
+                )?;
+                highlight = value.parse().ok()?;
+            }
+            _ => {}
+        }
+    }
+
+    Some(NativeHyperlinkRule {
+        regex: regex?,
+        format: format?,
+        highlight,
+    })
+}
+
+fn lua_static_string_value_before_offset(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<String> {
+    if let Some(value) = lua_quoted_string_literal_from_query(value)
+        .or_else(|| lua_long_bracket_literal_from_query(value))
+    {
+        return parse_maybe_quoted_query_text(value);
+    }
+
+    lua_static_string_assignment_value_before_offset_from_query(source, value, max_start)
+        .and_then(parse_maybe_quoted_query_text)
+}
+
+#[allow(dead_code)]
 fn native_line_height_from_ratio(ratio: f32) -> Option<NativeLineHeight> {
     native_ratio_to_per_mille(ratio).map(NativeLineHeight::from_per_mille)
 }
@@ -13929,6 +14048,7 @@ struct NativeWindowApp {
     quick_select_patterns: Vec<String>,
     disable_default_quick_select_patterns: bool,
     quick_select_remove_styling: bool,
+    hyperlink_rules: Vec<NativeHyperlinkRule>,
     copy_mode_active_highlight_bg: Option<NativeColorSpec>,
     copy_mode_active_highlight_fg: Option<NativeColorSpec>,
     copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
@@ -15404,6 +15524,7 @@ impl NativeWindowApp {
             quick_select_patterns: Vec::new(),
             disable_default_quick_select_patterns: false,
             quick_select_remove_styling: false,
+            hyperlink_rules: default_hyperlink_rules(),
             copy_mode_active_highlight_bg: None,
             copy_mode_active_highlight_fg: None,
             copy_mode_inactive_highlight_bg: None,
@@ -16672,6 +16793,7 @@ impl NativeWindowApp {
             .clone_from(&source.quick_select_patterns);
         self.disable_default_quick_select_patterns = source.disable_default_quick_select_patterns;
         self.quick_select_remove_styling = source.quick_select_remove_styling;
+        self.hyperlink_rules.clone_from(&source.hyperlink_rules);
         self.copy_mode_active_highlight_bg = source.copy_mode_active_highlight_bg;
         self.copy_mode_active_highlight_fg = source.copy_mode_active_highlight_fg;
         self.copy_mode_inactive_highlight_bg = source.copy_mode_inactive_highlight_bg;
@@ -22577,6 +22699,7 @@ impl NativeWindowApp {
                 rows,
                 columns,
             );
+            let snapshot = hyperlink_rules_snapshot(snapshot, &self.hyperlink_rules);
             return snapshot
                 .with_row_offset(self.terminal_frame_row_offset())
                 .with_overlay_cells(self.pane_badge_cells(&layout))
@@ -22626,6 +22749,7 @@ impl NativeWindowApp {
                 rect.rows,
                 rect.columns,
             );
+            pane_snapshot = hyperlink_rules_snapshot(pane_snapshot, &self.hyperlink_rules);
             pane_snapshot =
                 pane_snapshot.with_viewport(rect.row, rect.column, rect.rows, rect.columns);
             snapshot = Some(match snapshot {
@@ -22651,7 +22775,9 @@ impl NativeWindowApp {
                     self.ansi_palette,
                     self.indexed_palette,
                 );
-                self.apply_compose_cursor_to_snapshot(self.app_shell.active_pane_id(), snapshot)
+                let snapshot = self
+                    .apply_compose_cursor_to_snapshot(self.app_shell.active_pane_id(), snapshot);
+                hyperlink_rules_snapshot(snapshot, &self.hyperlink_rules)
                     .with_row_offset(self.terminal_frame_row_offset())
             })
             .with_overlay_cells(self.pane_separator_cells(&layout))
@@ -24902,6 +25028,7 @@ impl NativeWindowApp {
             quick_select_patterns: self.quick_select_patterns.clone(),
             disable_default_quick_select_patterns: self.disable_default_quick_select_patterns,
             quick_select_remove_styling: self.quick_select_remove_styling,
+            hyperlink_rules: self.hyperlink_rules.clone(),
             copy_mode_active_highlight_bg: self.copy_mode_active_highlight_bg,
             copy_mode_active_highlight_fg: self.copy_mode_active_highlight_fg,
             copy_mode_inactive_highlight_bg: self.copy_mode_inactive_highlight_bg,
@@ -25208,6 +25335,10 @@ impl NativeWindowApp {
             .disable_default_quick_select_patterns
             .unwrap_or(false);
         self.quick_select_remove_styling = overrides.quick_select_remove_styling.unwrap_or(false);
+        self.hyperlink_rules = overrides
+            .hyperlink_rules
+            .clone()
+            .unwrap_or_else(default_hyperlink_rules);
         self.copy_mode_active_highlight_bg = overrides.copy_mode_active_highlight_bg;
         self.copy_mode_active_highlight_fg = overrides.copy_mode_active_highlight_fg;
         self.copy_mode_inactive_highlight_bg = overrides.copy_mode_inactive_highlight_bg;
@@ -26214,13 +26345,23 @@ impl NativeWindowApp {
     }
 
     fn hyperlink_at_mouse_position(&self) -> Option<String> {
-        let PaneMouseCell { column, row, .. } = self.mouse_cell_for_active_pane()?;
-        self.snapshot
+        let mouse_cell = self.mouse_cell_for_active_pane()?;
+        let snapshot = self.pane_snapshot(mouse_cell.pane_id)?;
+        if let Some(hyperlink) = snapshot
             .cells()
             .iter()
-            .find(|cell| cell.row == row && cell.column == column)?
-            .hyperlink
-            .clone()
+            .find(|cell| cell.row == mouse_cell.row && cell.column == mouse_cell.column)
+            .and_then(|cell| cell.hyperlink.clone())
+        {
+            return Some(hyperlink);
+        }
+
+        hyperlink_rule_at_cell(
+            snapshot,
+            mouse_cell.row,
+            mouse_cell.column,
+            &self.hyperlink_rules,
+        )
     }
 
     fn update_selection_from_mouse_position(&mut self) -> bool {
@@ -45174,6 +45315,41 @@ const QUICK_SELECT_PATTERNS: &[WindowQuickSelectPattern] = &[
     WindowQuickSelectPattern::whole(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
 ];
 
+fn default_hyperlink_rules() -> Vec<NativeHyperlinkRule> {
+    vec![
+        NativeHyperlinkRule {
+            regex: r"\((\w+://\S+)\)".to_owned(),
+            format: "$1".to_owned(),
+            highlight: 1,
+        },
+        NativeHyperlinkRule {
+            regex: r"\[(\w+://\S+)\]".to_owned(),
+            format: "$1".to_owned(),
+            highlight: 1,
+        },
+        NativeHyperlinkRule {
+            regex: r"\{(\w+://\S+)\}".to_owned(),
+            format: "$1".to_owned(),
+            highlight: 1,
+        },
+        NativeHyperlinkRule {
+            regex: r"<(\w+://\S+)>".to_owned(),
+            format: "$1".to_owned(),
+            highlight: 1,
+        },
+        NativeHyperlinkRule {
+            regex: r"\b\w+://\S+[)/a-zA-Z0-9-]+".to_owned(),
+            format: "$0".to_owned(),
+            highlight: 0,
+        },
+        NativeHyperlinkRule {
+            regex: r"\b\w+@[\w-]+(\.[\w-]+)+\b".to_owned(),
+            format: "mailto:$0".to_owned(),
+            highlight: 0,
+        },
+    ]
+}
+
 #[derive(Clone, Copy)]
 struct WindowQuickSelectPattern {
     regex: &'static str,
@@ -46183,6 +46359,155 @@ fn quick_select_remove_styling_snapshot(
         cell.hyperlink = None;
         cell
     })
+}
+
+fn hyperlink_rules_snapshot(
+    snapshot: TerminalRenderSnapshot,
+    rules: &[NativeHyperlinkRule],
+) -> TerminalRenderSnapshot {
+    if rules.is_empty() {
+        return snapshot;
+    }
+
+    let hyperlinks = hyperlink_rule_cell_links(snapshot.cells(), rules);
+    if hyperlinks.is_empty() {
+        return snapshot;
+    }
+
+    snapshot.with_cells_mapped(|mut cell| {
+        if cell.hyperlink.is_none()
+            && let Some(hyperlink) = hyperlinks.get(&(cell.row, cell.column))
+        {
+            cell.hyperlink = Some(hyperlink.clone());
+        }
+        cell
+    })
+}
+
+fn hyperlink_rule_at_cell(
+    snapshot: &TerminalRenderSnapshot,
+    row: u16,
+    column: u16,
+    rules: &[NativeHyperlinkRule],
+) -> Option<String> {
+    hyperlink_rule_cell_links(snapshot.cells(), rules).remove(&(row, column))
+}
+
+fn hyperlink_rule_cell_links(
+    cells: &[RenderCell],
+    rules: &[NativeHyperlinkRule],
+) -> HashMap<(u16, u16), String> {
+    if cells.is_empty() || rules.is_empty() {
+        return HashMap::new();
+    }
+
+    let mut cells_by_row: BTreeMap<u16, Vec<&RenderCell>> = BTreeMap::new();
+    for cell in cells {
+        cells_by_row.entry(cell.row).or_default().push(cell);
+    }
+
+    let mut links = HashMap::new();
+    for row_cells in cells_by_row.values_mut() {
+        row_cells.sort_by_key(|cell| cell.column);
+        apply_hyperlink_rules_to_row(row_cells, rules, &mut links);
+    }
+
+    links
+}
+
+fn apply_hyperlink_rules_to_row(
+    row_cells: &[&RenderCell],
+    rules: &[NativeHyperlinkRule],
+    links: &mut HashMap<(u16, u16), String>,
+) {
+    let Some(row) = row_cells.first().map(|cell| cell.row) else {
+        return;
+    };
+    let mut text = String::new();
+    let mut byte_to_cell = Vec::new();
+    let mut next_column = 0u16;
+    let mut existing_hyperlinks = HashSet::new();
+
+    for cell in row_cells {
+        while next_column < cell.column {
+            byte_to_cell.push(None);
+            text.push(' ');
+            next_column = next_column.saturating_add(1);
+        }
+        for _ in 0..cell.ch.len_utf8() {
+            byte_to_cell.push(Some((row, cell.column)));
+        }
+        text.push(cell.ch);
+        if cell.hyperlink.is_some() {
+            existing_hyperlinks.insert((row, cell.column));
+        }
+        next_column = cell.column.saturating_add(1);
+    }
+
+    for rule in rules {
+        let Ok(regex) = regex::Regex::new(&rule.regex) else {
+            continue;
+        };
+        for captures in regex.captures_iter(&text) {
+            let Some(full_match) = captures.get(0) else {
+                continue;
+            };
+            if full_match.start() == full_match.end() {
+                continue;
+            }
+            let Some(highlight) = captures.get(rule.highlight).or_else(|| captures.get(0)) else {
+                continue;
+            };
+            if highlight.start() == highlight.end() {
+                continue;
+            }
+            let hyperlink = hyperlink_rule_format_uri(&rule.format, &captures);
+            if hyperlink.is_empty() || !hyperlink.contains(':') {
+                continue;
+            }
+            for byte_index in highlight.start()..highlight.end() {
+                let Some(Some(position)) = byte_to_cell.get(byte_index).copied() else {
+                    continue;
+                };
+                if existing_hyperlinks.contains(&position) {
+                    continue;
+                }
+                links.entry(position).or_insert_with(|| hyperlink.clone());
+            }
+        }
+    }
+}
+
+fn hyperlink_rule_format_uri(format: &str, captures: &regex::Captures<'_>) -> String {
+    let mut uri = String::new();
+    let mut chars = format.char_indices().peekable();
+
+    while let Some((_, character)) = chars.next() {
+        if character != '$' {
+            uri.push(character);
+            continue;
+        }
+
+        let mut capture = String::new();
+        while let Some((_, next)) = chars.peek().copied() {
+            if !next.is_ascii_digit() {
+                break;
+            }
+            capture.push(next);
+            chars.next();
+        }
+        if capture.is_empty() {
+            uri.push('$');
+            continue;
+        }
+        if let Ok(index) = capture.parse::<usize>()
+            && let Some(matched) = captures.get(index)
+        {
+            uri.push_str(matched.as_str());
+        }
+    }
+
+    uri
 }
 
 fn text_background_opacity_snapshot(
@@ -50522,26 +50847,27 @@ mod tests {
         NativeFontAntialias, NativeFontHinting, NativeFontLocator, NativeFontRasterizer,
         NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
         NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeImePreeditRendering,
-        NativeInactivePaneHsb, NativeInputSelector, NativeIntegratedTitleButton,
-        NativeIntegratedTitleButtonAlignment, NativeIntegratedTitleButtonColor,
-        NativeIntegratedTitleButtonStyle, NativeKeyMapPreference, NativeLaunchMenuCommand,
-        NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight, NativeMouseAssignmentAltScreen,
-        NativeMouseAssignmentButton, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
-        NativeNotificationHandling, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeRenderFrontEnd, NativeScrollBarHeight, NativeSquareGlyphOverflow,
-        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeUiKeyCapRendering,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUserKeyAssignment,
-        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
-        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
-        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
-        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
-        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
-        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeHyperlinkRule,
+        NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
+        NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
+        NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
+        NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
+        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
+        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
+        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
+        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
+        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
+        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
+        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
@@ -50558,8 +50884,9 @@ mod tests {
         WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
-        default_integrated_title_buttons, default_skip_close_confirmation_for_processes_named,
-        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
+        default_hyperlink_rules, default_integrated_title_buttons,
+        default_skip_close_confirmation_for_processes_named, demo_snapshot,
+        encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
         encode_window_key_with_kitty_event, encode_window_mouse_event,
         encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
@@ -63282,6 +63609,7 @@ mod tests {
                 quick_select_patterns: Vec::new(),
                 disable_default_quick_select_patterns: false,
                 quick_select_remove_styling: false,
+                hyperlink_rules: default_hyperlink_rules(),
                 copy_mode_active_highlight_bg: None,
                 copy_mode_active_highlight_fg: None,
                 copy_mode_inactive_highlight_bg: None,
@@ -67955,6 +68283,87 @@ mod tests {
         assert_eq!(opened.lock().unwrap().as_slice(), ["https://example.com"]);
         assert!(app.selection.is_none());
         assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_ctrl_click_opens_default_hyperlink_rule_url() {
+        let open_uris = Arc::new(Mutex::new(Vec::new()));
+        let recorded_uri = Arc::clone(&open_uris);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.open_uri_handler = Box::new(move |event| {
+            recorded_uri.lock().unwrap().push(event.clone());
+            true
+        });
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
+        app.handle_pty_output(b"visit https://example.com/path")
+            .unwrap();
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH * 8),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
+        assert_eq!(
+            open_uris.lock().unwrap().as_slice(),
+            [NativeWindowOpenUri {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+                uri: "https://example.com/path".to_owned(),
+            }]
+        );
+        assert_eq!(
+            opened.lock().unwrap().as_slice(),
+            ["https://example.com/path"]
+        );
+        assert!(app.selection.is_none());
+        assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_hyperlink_rules_override_defaults_and_format_captures() {
+        let mut app = NativeWindowApp::new(None);
+        app.set_config_overrides(NativeConfigOverrides {
+            hyperlink_rules: Some(vec![NativeHyperlinkRule {
+                regex: r"\bT(\d+)\b".to_owned(),
+                format: "https://tickets.example/$1".to_owned(),
+                highlight: 1,
+            }]),
+            ..NativeConfigOverrides::default()
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(40, 1));
+        app.handle_pty_output(b"https://example.test T123").unwrap();
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_cursor_moved(PhysicalPosition::new(
+            0.0,
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert_eq!(app.hyperlink_at_mouse_position(), None);
+
+        app.handle_cursor_moved(PhysicalPosition::new(
+            f64::from(CELL_WIDTH * 22),
+            f64::from(tab_bar_pixel_height()),
+        ))
+        .unwrap();
+        assert_eq!(
+            app.hyperlink_at_mouse_position().as_deref(),
+            Some("https://tickets.example/123")
+        );
     }
 
     #[test]
@@ -85734,6 +86143,53 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_hyperlink_rules() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local ticket_regex = [[\bT(\d+)\b]]
+            local ticket_format = 'https://tickets.example/$1'
+            local digit_capture = 1
+            local email_rule = {
+              regex = [[\bops@[\w-]+(\.[\w-]+)+\b]],
+              format = 'mailto:$0',
+            }
+
+            config.hyperlink_rules = {
+              {
+                regex = ticket_regex,
+                format = ticket_format,
+                highlight = digit_capture,
+              },
+            }
+            table.insert(config.hyperlink_rules, email_rule)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm hyperlink_rules config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.hyperlink_rules,
+            vec![
+                NativeHyperlinkRule {
+                    regex: r"\bT(\d+)\b".to_owned(),
+                    format: "https://tickets.example/$1".to_owned(),
+                    highlight: 1,
+                },
+                NativeHyperlinkRule {
+                    regex: r"\bops@[\w-]+(\.[\w-]+)+\b".to_owned(),
+                    format: "mailto:$0".to_owned(),
+                    highlight: 0,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_copy_mode_and_quick_select_colors() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -93488,6 +93944,11 @@ mod tests {
             quick_select_patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
             disable_default_quick_select_patterns: Some(true),
             quick_select_remove_styling: Some(true),
+            hyperlink_rules: Some(vec![NativeHyperlinkRule {
+                regex: r"\bT(\d+)\b".to_owned(),
+                format: "https://tickets.example/$1".to_owned(),
+                highlight: 1,
+            }]),
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(21, 22, 23))),
             copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
             copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(24, 25, 26))),
@@ -93805,6 +94266,11 @@ mod tests {
             quick_select_patterns: vec!["ticket-[0-9]+".to_owned()],
             disable_default_quick_select_patterns: true,
             quick_select_remove_styling: true,
+            hyperlink_rules: vec![NativeHyperlinkRule {
+                regex: r"\bT(\d+)\b".to_owned(),
+                format: "https://tickets.example/$1".to_owned(),
+                highlight: 1,
+            }],
             copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(21, 22, 23))),
             copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
             copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(24, 25, 26))),
@@ -94024,6 +94490,7 @@ mod tests {
             quick_select_patterns: Vec::new(),
             disable_default_quick_select_patterns: false,
             quick_select_remove_styling: false,
+            hyperlink_rules: default_hyperlink_rules(),
             copy_mode_active_highlight_bg: None,
             copy_mode_active_highlight_fg: None,
             copy_mode_inactive_highlight_bg: None,
