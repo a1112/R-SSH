@@ -12766,9 +12766,6 @@ fn native_background_source_lua_table_from_query(
             ))
         }
         "Gradient" => {
-            if opacity_alpha(opacity) != u8::MAX {
-                return None;
-            }
             let static_source = static_source?;
             let gradient = lua_background_source_gradient_table_from_query(static_source, value)?;
             let mut gradient = native_window_background_gradient_lua_table_from_query(
@@ -12776,14 +12773,14 @@ fn native_background_source_lua_table_from_query(
                 &gradient,
                 static_source.max_start,
             )?;
-            if hsb != native_identity_hsb() {
+            if hsb != native_identity_hsb() || opacity_alpha(opacity) != u8::MAX {
                 if gradient.colors.is_empty() {
                     return None;
                 }
                 gradient.colors = gradient
                     .colors
                     .into_iter()
-                    .map(|color| hsb_color(color, DEFAULT_RENDER_BACKGROUND_RGBA, hsb))
+                    .map(|color| lua_background_color_with_hsb_and_opacity(color, hsb, opacity))
                     .collect();
             }
             Some(NativeBackgroundLayer::Gradient(gradient))
@@ -89174,6 +89171,46 @@ mod tests {
                 segment: None,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_background_gradient_layer_opacity() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.background = {
+              {
+                source = {
+                  Gradient = {
+                    orientation = 'Vertical',
+                    colors = { '#010203', '#111213' },
+                  },
+                },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background gradient layer opacity config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: None,
+                segment: None,
+                preset: None,
+                colors: vec![Color::Rgba(1, 2, 3, 127), Color::Rgba(17, 18, 19, 127)],
             })
         );
     }
