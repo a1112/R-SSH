@@ -429,6 +429,7 @@ pub struct RenderBackgroundGradient {
 pub struct RenderBackgroundImage {
     pub data: Vec<u8>,
     pub opacity_alpha: u8,
+    pub hsb: RenderBackgroundGradientHsb,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1946,6 +1947,7 @@ fn render_background_image(
             let source_x =
                 (((f64::from(target_x) + offset_x) / scale).floor() as u32).min(decoded.width - 1);
             if let Some(mut pixel) = rgba_pixel(&decoded, source_x, source_y) {
+                pixel = background_gradient_color_with_hsb(pixel, image.hsb);
                 pixel[3] = u8::try_from(
                     u16::from(pixel[3]).saturating_mul(u16::from(image.opacity_alpha))
                         / u16::from(u8::MAX),

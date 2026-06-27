@@ -1253,6 +1253,7 @@ impl NativeWindowBackgroundGradient {
 struct NativeWindowBackgroundImage {
     data: Vec<u8>,
     opacity_alpha: u8,
+    hsb: NativeInactivePaneHsb,
 }
 
 impl NativeWindowBackgroundImage {
@@ -1260,6 +1261,11 @@ impl NativeWindowBackgroundImage {
         RenderBackgroundImage {
             data: self.data.clone(),
             opacity_alpha: self.opacity_alpha,
+            hsb: RenderBackgroundGradientHsb {
+                hue: self.hsb.hue.0,
+                saturation: self.hsb.saturation.0,
+                brightness: self.hsb.brightness.0,
+            },
         }
     }
 }
@@ -12980,14 +12986,12 @@ fn native_background_source_lua_table_from_query(
             Some(NativeBackgroundLayer::Gradient(gradient))
         }
         "File" => {
-            if hsb != native_identity_hsb() {
-                return None;
-            }
             let path = parse_maybe_static_query_text(static_source, value.trim())?;
             let data = fs::read(Path::new(&path)).ok()?;
             Some(NativeBackgroundLayer::Image(NativeWindowBackgroundImage {
                 data,
                 opacity_alpha: opacity_alpha(opacity),
+                hsb,
             }))
         }
         _ => None,
@@ -54342,6 +54346,43 @@ mod tests {
                 FRAME_HEIGHT as usize - 1
             ),
             [127, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_file_layer_hsb() {
+        let image_path = write_test_png_file("wezterm-background-file-layer-hsb.png");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+                hsb = {{ brightness = 0.5 }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm background File layer hsb");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [128, 0, 0, 255]
         );
 
         let _ = std::fs::remove_file(image_path);
