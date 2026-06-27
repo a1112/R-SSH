@@ -12953,6 +12953,22 @@ fn native_font_attributes_lua_table_from_query(
                         .and_then(parse_maybe_quoted_query_text)?,
                 );
             }
+            "bold" => {
+                if lua_static_bool_assignment_value_from_query(source, value)?
+                    .parse()
+                    .ok()?
+                {
+                    attributes.weight = Some("Bold".to_owned());
+                }
+            }
+            "italic" => {
+                if lua_static_bool_assignment_value_from_query(source, value)?
+                    .parse()
+                    .ok()?
+                {
+                    attributes.style = Some("Italic".to_owned());
+                }
+            }
             _ => {}
         }
     }
@@ -87149,6 +87165,37 @@ mod tests {
                 "font_attributes: NativeFontAttributes { weight: Some(\"Bold\"), stretch: Some(\"Expanded\"), style: Some(\"Italic\") }"
             ),
             "effective config should expose WezTerm's configured font attributes: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_legacy_bold_italic_attributes() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font('Iosevka Term', {
+              bold = true,
+              italic = true,
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm legacy font attributes config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("Iosevka Term"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("Bold".to_owned()),
+                stretch: None,
+                style: Some("Italic".to_owned()),
+            }
         );
     }
 
