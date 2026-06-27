@@ -12621,6 +12621,10 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
 enum NativeBackgroundLayer {
     Color(Color),
     Gradient(NativeWindowBackgroundGradient),
+    ColorAndGradient {
+        color: Color,
+        gradient: NativeWindowBackgroundGradient,
+    },
 }
 
 fn apply_lua_background_table_overrides(
@@ -12632,6 +12636,10 @@ fn apply_lua_background_table_overrides(
     match native_background_lua_table_from_query(source, value, max_start)? {
         NativeBackgroundLayer::Color(color) => overrides.background_color = Some(color),
         NativeBackgroundLayer::Gradient(gradient) => {
+            overrides.window_background_gradient = Some(gradient);
+        }
+        NativeBackgroundLayer::ColorAndGradient { color, gradient } => {
+            overrides.background_color = Some(color);
             overrides.window_background_gradient = Some(gradient);
         }
     }
@@ -12654,18 +12662,35 @@ fn native_background_lua_table_from_query(
     let NativeBackgroundLayer::Color(mut color) = first else {
         return None;
     };
-    let NativeBackgroundLayer::Color(second) = second else {
-        return None;
-    };
-    color = compose_lua_background_color_layers(color, second);
+    let mut gradient = None;
+    match second {
+        NativeBackgroundLayer::Color(second) => {
+            color = compose_lua_background_color_layers(color, second);
+        }
+        NativeBackgroundLayer::Gradient(second) => {
+            gradient = Some(compose_lua_background_color_below_gradient(color, second)?);
+        }
+        NativeBackgroundLayer::ColorAndGradient { .. } => return None,
+    }
     for layer in layers {
-        let NativeBackgroundLayer::Color(layer) = layer else {
-            return None;
-        };
-        color = compose_lua_background_color_layers(color, layer);
+        match layer {
+            NativeBackgroundLayer::Color(layer) if gradient.is_none() => {
+                color = compose_lua_background_color_layers(color, layer);
+            }
+            NativeBackgroundLayer::Gradient(layer) if gradient.is_none() => {
+                gradient = Some(compose_lua_background_color_below_gradient(color, layer)?);
+            }
+            NativeBackgroundLayer::Color(_)
+            | NativeBackgroundLayer::Gradient(_)
+            | NativeBackgroundLayer::ColorAndGradient { .. } => return None,
+        }
     }
 
-    Some(NativeBackgroundLayer::Color(color))
+    if let Some(gradient) = gradient {
+        Some(NativeBackgroundLayer::ColorAndGradient { color, gradient })
+    } else {
+        Some(NativeBackgroundLayer::Color(color))
+    }
 }
 
 fn native_background_layers_lua_table_from_query(
@@ -12748,6 +12773,21 @@ fn compose_lua_background_color_layers(background: Color, foreground: Color) -> 
         channel(2),
         u8::try_from(alpha.min(u32::from(u8::MAX))).unwrap_or(u8::MAX),
     ])
+}
+
+fn compose_lua_background_color_below_gradient(
+    color: Color,
+    mut gradient: NativeWindowBackgroundGradient,
+) -> Option<NativeWindowBackgroundGradient> {
+    if gradient.colors.is_empty() {
+        return None;
+    }
+    gradient.colors = gradient
+        .colors
+        .into_iter()
+        .map(|gradient_color| compose_lua_background_color_layers(color, gradient_color))
+        .collect();
+    Some(gradient)
 }
 
 fn lua_background_layer_table_from_query(
@@ -54024,6 +54064,68 @@ mod tests {
                 terminal_origin_y
             ),
             [1, 2, 3, 255]
+        );
+    }
+
+    #[test]
+    fn window_app_renders_wezterm_background_color_below_gradient_layer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+
+            config.background = {
+              {
+                source = { Color = '#000000' },
+              },
+              {
+                source = {
+                  Gradient = {
+                    orientation = 'Horizontal',
+                    colors = { '#ffffff', '#ffffff' },
+                    noise = 0,
+                  },
+                },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background Color and Gradient layers");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(
+            app.native_effective_config().background_color,
+            Color::Rgb(0, 0, 0)
+        );
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(127, 127, 127), Color::Rgb(127, 127, 127)],
+            })
+        );
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+
+        let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                terminal_origin_y
+            ),
+            [127, 127, 127, 255]
         );
     }
 

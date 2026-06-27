@@ -2517,9 +2517,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   into the native window background gradient path with layer opacity applied to
   gradient alpha. Layer `hsb` tables apply inline or through top-level static
   table variables to Color sources, explicit Gradient color lists, and preset
-  Gradient sources. Multi-layer image/gradient composition, image sources,
-  alignment/repeat settings, and HSB transforms for image sources remain future
-  parity work.
+  Gradient sources. Multi-layer stacks with one or more Color layers below a
+  final explicit-color Gradient layer now precompose the Color stack into each
+  Gradient stop, preserving source-over alpha semantics for that subset.
+  Multi-layer preset-gradient composition, image sources, alignment/repeat
+  settings, and HSB transforms for image sources remain future parity work.
 - Native config retains WezTerm-style platform backdrop settings:
   `kde_window_background_blur` defaults to `false`,
   `macos_window_background_blur` defaults to `0`, and
