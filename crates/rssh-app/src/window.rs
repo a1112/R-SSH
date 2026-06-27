@@ -5935,7 +5935,13 @@ fn lua_wezterm_font_with_fallback_call_assignment_value_from_query(query: &str) 
     if !parenthesized {
         return query.get(..table_end);
     }
-    let after_table = lua_trim_start_comments(query.get(table_end..)?)?;
+    let mut after_table = lua_trim_start_comments(query.get(table_end..)?)?;
+    if let Some(after_comma) = after_table.strip_prefix(',') {
+        let attributes = lua_trim_start_comments(after_comma)?;
+        let table = lua_braced_table_literal_from_query(attributes)?;
+        let end = query.len() - attributes.len() + table.len();
+        after_table = lua_trim_start_comments(query.get(end..)?)?;
+    }
     if !after_table.starts_with(')') {
         return None;
     }
@@ -12856,6 +12862,9 @@ fn parse_wezterm_font_config_value(source: &str, value: &str) -> Option<NativeFo
 
 fn parse_wezterm_font_attributes_value(source: &str, value: &str) -> Option<NativeFontAttributes> {
     let value = value.trim();
+    if let Some(attributes) = parse_wezterm_font_with_fallback_attributes_value(source, value) {
+        return Some(attributes);
+    }
     if let Some(table) = wezterm_font_table_literal_from_query(value) {
         return native_font_attributes_lua_table_from_query(source, table);
     }
@@ -12870,6 +12879,23 @@ fn parse_wezterm_font_attributes_value(source: &str, value: &str) -> Option<Nati
     let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
     let table = lua_braced_table_literal_from_query(rest)?;
     native_font_attributes_lua_table_from_query(source, table)
+}
+
+fn parse_wezterm_font_with_fallback_attributes_value(
+    source: &str,
+    value: &str,
+) -> Option<NativeFontAttributes> {
+    let value = value.trim();
+    let call = value.find(".font_with_fallback")?;
+    let mut rest = value
+        .get(call + ".font_with_fallback".len()..)?
+        .trim_start();
+    rest = rest.strip_prefix('(')?.trim_start();
+    let families = lua_braced_table_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(families.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(',')?)?;
+    let attributes = lua_braced_table_literal_from_query(rest)?;
+    native_font_attributes_lua_table_from_query(source, attributes)
 }
 
 fn wezterm_font_table_literal_from_query(value: &str) -> Option<&str> {
@@ -87240,6 +87266,42 @@ mod tests {
         assert!(
             effective.contains("font_fallbacks: [\"Terminus\", \"Noto Color Emoji\"]"),
             "effective config should expose expanded WezTerm fallback font families: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_with_fallback_attributes() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm.font_with_fallback(
+              { 'JetBrains Mono', 'Noto Color Emoji' },
+              {
+                weight = 'DemiBold',
+                stretch = 'Condensed',
+                style = 'Italic',
+              }
+            )
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font fallback attributes config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(effective.font_fallbacks, vec!["Noto Color Emoji"]);
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("DemiBold".to_owned()),
+                stretch: Some("Condensed".to_owned()),
+                style: Some("Italic".to_owned()),
+            }
         );
     }
 
