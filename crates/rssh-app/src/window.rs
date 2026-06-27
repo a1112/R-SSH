@@ -12661,6 +12661,7 @@ fn native_background_layer_lua_table_from_query(
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let static_source = Some(LuaStaticSource { source, max_start });
     let mut source_value = None;
+    let mut hsb = native_identity_hsb();
     let mut opacity = 1.0;
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -12678,6 +12679,9 @@ fn native_background_layer_lua_table_from_query(
                 }
                 source_value = Some(value);
             }
+            "hsb" => {
+                hsb = native_hsb_lua_table_from_query(source, value)?;
+            }
             "opacity" => {
                 opacity = parse_maybe_static_query_f64(static_source, value)?;
                 if !opacity.is_finite() || opacity < 0.0 {
@@ -12688,12 +12692,13 @@ fn native_background_layer_lua_table_from_query(
         }
     }
 
-    native_background_source_lua_table_from_query(static_source, source_value?, opacity)
+    native_background_source_lua_table_from_query(static_source, source_value?, hsb, opacity)
 }
 
 fn native_background_source_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
+    hsb: NativeInactivePaneHsb,
     opacity: f64,
 ) -> Option<NativeBackgroundLayer> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -12711,7 +12716,11 @@ fn native_background_source_lua_table_from_query(
         "Color" => {
             let color = parse_maybe_static_query_text(static_source, value.trim())?;
             Some(NativeBackgroundLayer::Color(
-                lua_background_color_with_opacity(lua_color_from_query(&color)?, opacity),
+                lua_background_color_with_hsb_and_opacity(
+                    lua_color_from_query(&color)?,
+                    hsb,
+                    opacity,
+                ),
             ))
         }
         "Gradient" => {
@@ -12720,15 +12729,32 @@ fn native_background_source_lua_table_from_query(
             }
             let static_source = static_source?;
             let gradient = lua_background_source_gradient_table_from_query(static_source, value)?;
-            Some(NativeBackgroundLayer::Gradient(
-                native_window_background_gradient_lua_table_from_query(
-                    static_source.source,
-                    &gradient,
-                    static_source.max_start,
-                )?,
-            ))
+            let mut gradient = native_window_background_gradient_lua_table_from_query(
+                static_source.source,
+                &gradient,
+                static_source.max_start,
+            )?;
+            if hsb != native_identity_hsb() {
+                if gradient.colors.is_empty() {
+                    return None;
+                }
+                gradient.colors = gradient
+                    .colors
+                    .into_iter()
+                    .map(|color| hsb_color(color, DEFAULT_RENDER_BACKGROUND_RGBA, hsb))
+                    .collect();
+            }
+            Some(NativeBackgroundLayer::Gradient(gradient))
         }
         _ => None,
+    }
+}
+
+fn native_identity_hsb() -> NativeInactivePaneHsb {
+    NativeInactivePaneHsb {
+        hue: NativeHsbMultiplier::ONE,
+        saturation: NativeHsbMultiplier::ONE,
+        brightness: NativeHsbMultiplier::ONE,
     }
 }
 
@@ -12750,7 +12776,12 @@ fn lua_background_source_gradient_table_from_query(
     .map(str::to_owned)
 }
 
-fn lua_background_color_with_opacity(color: Color, opacity: f64) -> Color {
+fn lua_background_color_with_hsb_and_opacity(
+    color: Color,
+    hsb: NativeInactivePaneHsb,
+    opacity: f64,
+) -> Color {
+    let color = hsb_color(color, DEFAULT_RENDER_BACKGROUND_RGBA, hsb);
     let [red, green, blue, alpha] = color_to_rgba(color, DEFAULT_RENDER_BACKGROUND_RGBA);
     let opacity = f64::from(alpha) / f64::from(u8::MAX) * opacity.clamp(0.0, 1.0);
     let alpha = opacity_alpha(opacity);
@@ -88933,6 +88964,34 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_background_color_layer_hsb() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.background = {
+              {
+                source = { Color = '#204060' },
+                hsb = { brightness = 0.5 },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background color layer hsb config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().background_color,
+            Color::Rgba(16, 32, 48, 127)
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_background_gradient_layer() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -88967,6 +89026,46 @@ mod tests {
                 segment: None,
                 preset: None,
                 colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_background_gradient_layer_hsb() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.background = {
+              {
+                source = {
+                  Gradient = {
+                    orientation = 'Vertical',
+                    colors = { '#204060', '#406080' },
+                  },
+                },
+                hsb = { brightness = 0.5 },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm background gradient layer hsb config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Vertical,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: None,
+                segment: None,
+                preset: None,
+                colors: vec![Color::Rgb(16, 32, 48), Color::Rgb(32, 48, 64)],
             })
         );
     }
