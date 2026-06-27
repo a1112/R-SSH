@@ -55033,6 +55033,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_renders_wezterm_background_tiff_file_layer() {
+        let image_path = write_test_tiff_file("wezterm-background-file-layer.tiff");
+        let lua_path = lua_string_path(&image_path);
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local config = {{}}
+
+            config.background = {{
+              {{
+                source = {{ File = '{lua_path}' }},
+              }},
+            }}
+
+            return config
+            "##
+        ))
+        .expect("expected WezTerm TIFF background File layer");
+        app.set_config_overrides(overrides);
+        let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
+
+        assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
+        assert_eq!(
+            frame_pixel_at(
+                &frame,
+                FRAME_WIDTH as usize,
+                CELL_WIDTH as usize,
+                FRAME_HEIGHT as usize - 1
+            ),
+            [255, 0, 0, 255]
+        );
+
+        let _ = std::fs::remove_file(image_path);
+    }
+
+    #[test]
     fn window_app_renders_wezterm_background_pnm_file_layer() {
         let image_path = write_test_ppm_file("wezterm-background-file-layer.ppm");
         let lua_path = lua_string_path(&image_path);
@@ -114750,6 +114786,23 @@ mod tests {
         bytes.extend_from_slice(&22_u32.to_le_bytes());
         bytes.extend_from_slice(&png);
         write_test_file(name, &bytes, "ICO")
+    }
+
+    fn write_test_tiff_file(name: &str) -> PathBuf {
+        const RED_TIFF: &[u8] = &[
+            0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x01, 0x04, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0x04, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x01, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00,
+            0x86, 0x00, 0x00, 0x00, 0x03, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x06, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
+            0x11, 0x01, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x8c, 0x00, 0x00, 0x00, 0x15, 0x01,
+            0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x16, 0x01, 0x04, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x17, 0x01, 0x04, 0x00, 0x01, 0x00,
+            0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x1c, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00,
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x08, 0x00, 0x08, 0x00,
+            0xff, 0x00, 0x00,
+        ];
+        write_test_file(name, RED_TIFF, "TIFF")
     }
 
     fn write_test_ppm_file(name: &str) -> PathBuf {
