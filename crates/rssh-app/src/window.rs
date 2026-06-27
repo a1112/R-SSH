@@ -105,8 +105,14 @@ const DEFAULT_PREFER_EGL: bool = true;
 const DEFAULT_ENABLE_WAYLAND: bool = true;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
 const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
-const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
+const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(18_000);
 const DEFAULT_PANE_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(36_000);
+const DEFAULT_COMMAND_PALETTE_FG_COLOR: Color = Color::Rgb(191, 191, 191);
+const DEFAULT_COMMAND_PALETTE_BG_COLOR: Color = Color::Rgb(0x33, 0x33, 0x33);
+const DEFAULT_CHAR_SELECT_FG_COLOR: Color = Color::Rgb(191, 191, 191);
+const DEFAULT_CHAR_SELECT_BG_COLOR: Color = Color::Rgb(0x33, 0x33, 0x33);
+const DEFAULT_PANE_SELECT_FG_COLOR: Color = Color::Rgb(191, 191, 191);
+const DEFAULT_PANE_SELECT_BG_COLOR: Color = Color::Rgba(0, 0, 0, 127);
 const DEFAULT_CELL_WIDTH: NativeCellWidth = NativeCellWidth::from_per_mille(1_000);
 const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1_000);
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
@@ -3956,27 +3962,25 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     if let Some(command_palette_bg_color) =
         lua_config_string_assignment_from_query(config, "command_palette_bg_color")
     {
-        overrides.command_palette_bg_color =
-            Some(lua_opaque_color_from_query(&command_palette_bg_color)?);
+        overrides.command_palette_bg_color = Some(lua_color_from_query(&command_palette_bg_color)?);
         parsed = true;
     }
     if let Some(command_palette_fg_color) =
         lua_config_string_assignment_from_query(config, "command_palette_fg_color")
     {
-        overrides.command_palette_fg_color =
-            Some(lua_opaque_color_from_query(&command_palette_fg_color)?);
+        overrides.command_palette_fg_color = Some(lua_color_from_query(&command_palette_fg_color)?);
         parsed = true;
     }
     if let Some(char_select_bg_color) =
         lua_config_string_assignment_from_query(config, "char_select_bg_color")
     {
-        overrides.char_select_bg_color = Some(lua_opaque_color_from_query(&char_select_bg_color)?);
+        overrides.char_select_bg_color = Some(lua_color_from_query(&char_select_bg_color)?);
         parsed = true;
     }
     if let Some(char_select_fg_color) =
         lua_config_string_assignment_from_query(config, "char_select_fg_color")
     {
-        overrides.char_select_fg_color = Some(lua_opaque_color_from_query(&char_select_fg_color)?);
+        overrides.char_select_fg_color = Some(lua_color_from_query(&char_select_fg_color)?);
         parsed = true;
     }
     if let Some(char_select_font) =
@@ -4008,13 +4012,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     if let Some(pane_select_bg_color) =
         lua_config_string_assignment_from_query(config, "pane_select_bg_color")
     {
-        overrides.pane_select_bg_color = Some(lua_opaque_color_from_query(&pane_select_bg_color)?);
+        overrides.pane_select_bg_color = Some(lua_color_from_query(&pane_select_bg_color)?);
         parsed = true;
     }
     if let Some(pane_select_fg_color) =
         lua_config_string_assignment_from_query(config, "pane_select_fg_color")
     {
-        overrides.pane_select_fg_color = Some(lua_opaque_color_from_query(&pane_select_fg_color)?);
+        overrides.pane_select_fg_color = Some(lua_color_from_query(&pane_select_fg_color)?);
         parsed = true;
     }
     if let Some(use_cap_height_to_scale_fallback_fonts) =
@@ -17181,16 +17185,16 @@ impl NativeWindowApp {
             command_palette_rows: None,
             command_palette_font: None,
             command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-            command_palette_bg_color: None,
-            command_palette_fg_color: None,
+            command_palette_bg_color: Some(DEFAULT_COMMAND_PALETTE_BG_COLOR),
+            command_palette_fg_color: Some(DEFAULT_COMMAND_PALETTE_FG_COLOR),
             char_select_font: None,
             char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
-            char_select_bg_color: None,
-            char_select_fg_color: None,
+            char_select_bg_color: Some(DEFAULT_CHAR_SELECT_BG_COLOR),
+            char_select_fg_color: Some(DEFAULT_CHAR_SELECT_FG_COLOR),
             pane_select_font: None,
             pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
-            pane_select_bg_color: None,
-            pane_select_fg_color: None,
+            pane_select_bg_color: Some(DEFAULT_PANE_SELECT_BG_COLOR),
+            pane_select_fg_color: Some(DEFAULT_PANE_SELECT_FG_COLOR),
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),
@@ -24944,10 +24948,12 @@ impl NativeWindowApp {
             return Vec::new();
         };
 
-        let foreground = self.pane_select_fg_color.unwrap_or(Color::Rgb(12, 12, 14));
+        let foreground = self
+            .pane_select_fg_color
+            .unwrap_or(DEFAULT_PANE_SELECT_FG_COLOR);
         let background = self
             .pane_select_bg_color
-            .unwrap_or(Color::Rgb(255, 209, 102));
+            .unwrap_or(DEFAULT_PANE_SELECT_BG_COLOR);
         let mut cells = Vec::new();
         for label in &pane_select.labels {
             let Some(rect) = layout
@@ -25290,13 +25296,13 @@ impl NativeWindowApp {
                 Color::Rgb(18, 18, 22)
             } else {
                 self.command_palette_fg_color
-                    .unwrap_or(Color::Rgb(228, 228, 228))
+                    .unwrap_or(DEFAULT_COMMAND_PALETTE_FG_COLOR)
             };
             let background = if is_selected {
                 Color::Rgb(255, 209, 102)
             } else {
                 self.command_palette_bg_color
-                    .unwrap_or(Color::Rgb(38, 40, 48))
+                    .unwrap_or(DEFAULT_COMMAND_PALETTE_BG_COLOR)
             };
 
             let row_start = cells.len();
@@ -25400,13 +25406,13 @@ impl NativeWindowApp {
                 Color::Rgb(18, 18, 22)
             } else {
                 self.command_palette_fg_color
-                    .unwrap_or(Color::Rgb(228, 228, 228))
+                    .unwrap_or(DEFAULT_COMMAND_PALETTE_FG_COLOR)
             };
             let background = if is_selected {
                 Color::Rgb(255, 209, 102)
             } else {
                 self.command_palette_bg_color
-                    .unwrap_or(Color::Rgb(38, 40, 48))
+                    .unwrap_or(DEFAULT_COMMAND_PALETTE_BG_COLOR)
             };
 
             let row_start = cells.len();
@@ -25503,12 +25509,13 @@ impl NativeWindowApp {
                 Color::Rgb(18, 18, 22)
             } else {
                 self.char_select_fg_color
-                    .unwrap_or(Color::Rgb(226, 234, 255))
+                    .unwrap_or(DEFAULT_CHAR_SELECT_FG_COLOR)
             };
             let background = if is_selected {
                 Color::Rgb(255, 209, 102)
             } else {
-                self.char_select_bg_color.unwrap_or(Color::Rgb(24, 32, 48))
+                self.char_select_bg_color
+                    .unwrap_or(DEFAULT_CHAR_SELECT_BG_COLOR)
             };
             let row_start = cells.len();
             for column in 0..size.columns {
@@ -27150,20 +27157,44 @@ impl NativeWindowApp {
         self.command_palette_font_size = overrides
             .command_palette_font_size
             .unwrap_or(DEFAULT_COMMAND_PALETTE_FONT_SIZE);
-        self.command_palette_bg_color = overrides.command_palette_bg_color;
-        self.command_palette_fg_color = overrides.command_palette_fg_color;
+        self.command_palette_bg_color = Some(
+            overrides
+                .command_palette_bg_color
+                .unwrap_or(DEFAULT_COMMAND_PALETTE_BG_COLOR),
+        );
+        self.command_palette_fg_color = Some(
+            overrides
+                .command_palette_fg_color
+                .unwrap_or(DEFAULT_COMMAND_PALETTE_FG_COLOR),
+        );
         self.char_select_font = overrides.char_select_font.clone();
         self.char_select_font_size = overrides
             .char_select_font_size
             .unwrap_or(DEFAULT_CHAR_SELECT_FONT_SIZE);
-        self.char_select_bg_color = overrides.char_select_bg_color;
-        self.char_select_fg_color = overrides.char_select_fg_color;
+        self.char_select_bg_color = Some(
+            overrides
+                .char_select_bg_color
+                .unwrap_or(DEFAULT_CHAR_SELECT_BG_COLOR),
+        );
+        self.char_select_fg_color = Some(
+            overrides
+                .char_select_fg_color
+                .unwrap_or(DEFAULT_CHAR_SELECT_FG_COLOR),
+        );
         self.pane_select_font = overrides.pane_select_font.clone();
         self.pane_select_font_size = overrides
             .pane_select_font_size
             .unwrap_or(DEFAULT_PANE_SELECT_FONT_SIZE);
-        self.pane_select_bg_color = overrides.pane_select_bg_color;
-        self.pane_select_fg_color = overrides.pane_select_fg_color;
+        self.pane_select_bg_color = Some(
+            overrides
+                .pane_select_bg_color
+                .unwrap_or(DEFAULT_PANE_SELECT_BG_COLOR),
+        );
+        self.pane_select_fg_color = Some(
+            overrides
+                .pane_select_fg_color
+                .unwrap_or(DEFAULT_PANE_SELECT_FG_COLOR),
+        );
         self.launcher_alphabet = overrides
             .launcher_alphabet
             .filter(|alphabet| !alphabet.is_empty())
@@ -52829,8 +52860,10 @@ mod tests {
         DEFAULT_ANSI_PALETTE_COLORS, DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
         DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR,
         DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS, DEFAULT_CANONICALIZE_PASTED_NEWLINES,
-        DEFAULT_CELL_WIDTH, DEFAULT_CHAR_SELECT_FONT_SIZE, DEFAULT_CHECK_FOR_UPDATES,
-        DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS, DEFAULT_COMMAND_PALETTE_FONT_SIZE,
+        DEFAULT_CELL_WIDTH, DEFAULT_CHAR_SELECT_BG_COLOR, DEFAULT_CHAR_SELECT_FG_COLOR,
+        DEFAULT_CHAR_SELECT_FONT_SIZE, DEFAULT_CHECK_FOR_UPDATES,
+        DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS, DEFAULT_COMMAND_PALETTE_BG_COLOR,
+        DEFAULT_COMMAND_PALETTE_FG_COLOR, DEFAULT_COMMAND_PALETTE_FONT_SIZE,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
         DEFAULT_DETECT_PASSWORD_INPUT, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
@@ -52846,10 +52879,11 @@ mod tests {
         DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
         DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MUX_ENABLE_SSH_AGENT,
         DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
-        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY,
+        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
@@ -66891,20 +66925,20 @@ mod tests {
                     super::DEFAULT_WINDOW_FRAME_FONT,
                 )),
                 command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-                command_palette_bg_color: None,
-                command_palette_fg_color: None,
+                command_palette_bg_color: Some(DEFAULT_COMMAND_PALETTE_BG_COLOR),
+                command_palette_fg_color: Some(DEFAULT_COMMAND_PALETTE_FG_COLOR),
                 char_select_font: Some(
                     super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT,)
                 ),
                 char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
-                char_select_bg_color: None,
-                char_select_fg_color: None,
+                char_select_bg_color: Some(DEFAULT_CHAR_SELECT_BG_COLOR),
+                char_select_fg_color: Some(DEFAULT_CHAR_SELECT_FG_COLOR),
                 pane_select_font: Some(
                     super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT,)
                 ),
                 pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
-                pane_select_bg_color: None,
-                pane_select_fg_color: None,
+                pane_select_bg_color: Some(DEFAULT_PANE_SELECT_BG_COLOR),
+                pane_select_fg_color: Some(DEFAULT_PANE_SELECT_FG_COLOR),
                 launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
                 quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
                 quick_select_patterns: Vec::new(),
@@ -67649,8 +67683,8 @@ mod tests {
             local wezterm = require 'wezterm'
             local config = {}
 
-            config.command_palette_bg_color = '#010203'
-            config.command_palette_fg_color = '#040506'
+            config.command_palette_bg_color = 'rgba(1,2,3,0.5)'
+            config.command_palette_fg_color = 'rgba(4,5,6,0.5)'
 
             return config
             "##,
@@ -67663,8 +67697,8 @@ mod tests {
         let second_row = snapshot_cell(&snapshot, TAB_BAR_ROWS + 1, 0)
             .expect("expected second command palette row");
 
-        assert_eq!(second_row.background, rssh_terminal::Color::Rgb(1, 2, 3));
-        assert_eq!(second_row.foreground, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert_eq!(second_row.background, Color::Rgba(1, 2, 3, 127));
+        assert_eq!(second_row.foreground, Color::Rgba(4, 5, 6, 127));
     }
 
     #[test]
@@ -89498,21 +89532,45 @@ mod tests {
     }
 
     #[test]
-    fn window_app_reports_default_wezterm_overlay_font_sizes() {
+    fn window_app_reports_default_wezterm_overlay_config() {
         let app = NativeWindowApp::new(None);
-        let effective = format!("{:?}", app.native_effective_config());
+        let effective = app.native_effective_config();
 
-        assert!(
-            effective.contains("command_palette_font_size: NativeFontSize { millipoints: 14000 }"),
-            "effective config should expose WezTerm's command_palette_font_size default: {effective:?}"
+        assert_eq!(
+            effective.command_palette_font_size,
+            NativeFontSize::from_millipoints(14_000)
         );
-        assert!(
-            effective.contains("char_select_font_size: NativeFontSize { millipoints: 14000 }"),
-            "effective config should expose WezTerm's char_select_font_size default: {effective:?}"
+        assert_eq!(
+            effective.char_select_font_size,
+            NativeFontSize::from_millipoints(18_000)
         );
-        assert!(
-            effective.contains("pane_select_font_size: NativeFontSize { millipoints: 36000 }"),
-            "effective config should expose WezTerm's pane_select_font_size default: {effective:?}"
+        assert_eq!(
+            effective.pane_select_font_size,
+            NativeFontSize::from_millipoints(36_000)
+        );
+        assert_eq!(
+            effective.command_palette_fg_color,
+            Some(Color::Rgb(191, 191, 191))
+        );
+        assert_eq!(
+            effective.command_palette_bg_color,
+            Some(Color::Rgb(0x33, 0x33, 0x33))
+        );
+        assert_eq!(
+            effective.char_select_fg_color,
+            Some(Color::Rgb(191, 191, 191))
+        );
+        assert_eq!(
+            effective.char_select_bg_color,
+            Some(Color::Rgb(0x33, 0x33, 0x33))
+        );
+        assert_eq!(
+            effective.pane_select_fg_color,
+            Some(Color::Rgb(191, 191, 191))
+        );
+        assert_eq!(
+            effective.pane_select_bg_color,
+            Some(Color::Rgba(0, 0, 0, 127))
         );
     }
 
@@ -89555,7 +89613,7 @@ mod tests {
             r#"
             local config = {}
 
-            config.pane_select_bg_color = '#112233'
+            config.pane_select_bg_color = 'rgba(17,34,51,0.5)'
             config.pane_select_fg_color = '#445566'
 
             return config
@@ -89567,7 +89625,7 @@ mod tests {
         let effective = app.native_effective_config();
         assert_eq!(
             effective.pane_select_bg_color,
-            Some(Color::Rgb(0x11, 0x22, 0x33))
+            Some(Color::Rgba(0x11, 0x22, 0x33, 127))
         );
         assert_eq!(
             effective.pane_select_fg_color,
@@ -96738,8 +96796,8 @@ mod tests {
             local wezterm = require 'wezterm'
             local config = {}
 
-            config.char_select_bg_color = '#070809'
-            config.char_select_fg_color = '#0a0b0c'
+            config.char_select_bg_color = 'rgba(7,8,9,0.5)'
+            config.char_select_fg_color = 'rgba(10,11,12,0.5)'
 
             return config
             "##,
@@ -96755,8 +96813,8 @@ mod tests {
         let second_row =
             snapshot_cell(&snapshot, TAB_BAR_ROWS + 1, 0).expect("expected second char select row");
 
-        assert_eq!(second_row.background, rssh_terminal::Color::Rgb(7, 8, 9));
-        assert_eq!(second_row.foreground, rssh_terminal::Color::Rgb(10, 11, 12));
+        assert_eq!(second_row.background, Color::Rgba(7, 8, 9, 127));
+        assert_eq!(second_row.foreground, Color::Rgba(10, 11, 12, 127));
     }
 
     #[test]
@@ -98938,16 +98996,16 @@ mod tests {
             command_palette_rows: None,
             command_palette_font: Some(super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT)),
             command_palette_font_size: DEFAULT_COMMAND_PALETTE_FONT_SIZE,
-            command_palette_bg_color: None,
-            command_palette_fg_color: None,
+            command_palette_bg_color: Some(DEFAULT_COMMAND_PALETTE_BG_COLOR),
+            command_palette_fg_color: Some(DEFAULT_COMMAND_PALETTE_FG_COLOR),
             char_select_font: Some(super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT)),
             char_select_font_size: DEFAULT_CHAR_SELECT_FONT_SIZE,
-            char_select_bg_color: None,
-            char_select_fg_color: None,
+            char_select_bg_color: Some(DEFAULT_CHAR_SELECT_BG_COLOR),
+            char_select_fg_color: Some(DEFAULT_CHAR_SELECT_FG_COLOR),
             pane_select_font: Some(super::native_font_config(super::DEFAULT_WINDOW_FRAME_FONT)),
             pane_select_font_size: DEFAULT_PANE_SELECT_FONT_SIZE,
-            pane_select_bg_color: None,
-            pane_select_fg_color: None,
+            pane_select_bg_color: Some(DEFAULT_PANE_SELECT_BG_COLOR),
+            pane_select_fg_color: Some(DEFAULT_PANE_SELECT_FG_COLOR),
             launcher_alphabet: DEFAULT_LAUNCHER_ALPHABET.to_owned(),
             quick_select_alphabet: DEFAULT_QUICK_SELECT_ALPHABET.to_owned(),
             quick_select_patterns: Vec::new(),

@@ -375,8 +375,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   for name/codepoint matches, RecentlyUsed entries, and initial built-in
   category candidates including NerdFonts private-use glyphs, with normal
   candidate rows honoring WezTerm-style `char_select_bg_color` and
-  `char_select_fg_color`; `char_select_font_size` is retained in the native
-  effective config; typed fuzzy queries and hex codepoint input also
+  `char_select_fg_color`, including the upstream default colors and configured
+  RGBA alpha; `char_select_font_size` uses WezTerm's current 18pt default in
+  the native effective config; typed fuzzy queries and hex codepoint input also
   match the built-in NerdFonts names. Static WezTerm-style Lua
   `config.char_select_bg_color`, `config.char_select_fg_color`, and
   `config.char_select_font_size` snippets now parse into the same native
@@ -999,6 +1000,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style `command_palette_rows` effective-config value; when unset, the
   visible row count is derived from terminal height. Normal candidate rows honor
   WezTerm-style `command_palette_bg_color` and `command_palette_fg_color`,
+  including the upstream default colors and configured RGBA alpha,
   while `command_palette_font_size` is retained in effective config.
   Static WezTerm-style Lua `config.command_palette_rows`,
   `config.command_palette_font_size`, `config.command_palette_bg_color`,
@@ -2731,9 +2733,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   to normal command-palette candidate rows; top-level
   `char_select_font_size` parses into native/effective config, while
   `char_select_bg_color`/`char_select_fg_color` parse and apply to normal Char
-  Select candidate rows; top-level `pane_select_font_size` parses into
-  native/effective config, while `pane_select_bg_color`/`pane_select_fg_color`
-  parse and apply to pane-select labels;
+  Select candidate rows, preserving configured RGBA alpha; top-level
+  `pane_select_font_size` parses into native/effective config, while
+  `pane_select_bg_color`/`pane_select_fg_color` parse and apply to pane-select
+  labels with the upstream default colors;
   copy-mode/quick-select/input-selector/launcher label `Color`/`AnsiColor`
   tables also parse into native/effective config, and copy-mode
   active/inactive highlight plus quick-select label/match colors apply to
@@ -2909,9 +2912,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `pane select activate alphabet <chars>` plus action-name `paneselect ...`
   aliases cover the native Activate plus per-action alphabet subset, and
   action-name `enterpaneselect` queries dispatch the default Activate entry.
-  Pane labels honor `pane_select_bg_color`/`pane_select_fg_color`, while
-  `pane_select_font_size` is retained in the native effective config for
-  broader overlay parity.
+  Pane labels honor `pane_select_bg_color`/`pane_select_fg_color`, including the
+  upstream 50% alpha black background default, while `pane_select_font_size` is
+  retained with WezTerm's 36pt default in the native effective config.
   Selecting a label focuses that pane, and `Esc`/`Ctrl+g` exits without changing
   focus.
 - Pane-select show-pane-ids mode is exposed through command-palette `Pane Select

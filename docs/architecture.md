@@ -704,7 +704,9 @@ keyboard, mouse, paste, resize
   command-palette queries `pane select alphabet <chars>` and
   `pane select activate alphabet <chars>` plus action-name `paneselect ...`
   aliases for the native Activate plus per-action alphabet subset, and supports
-  `Esc`/`Ctrl+g` cancellation.
+  `Esc`/`Ctrl+g` cancellation. Pane labels honor WezTerm's
+  `pane_select_bg_color`/`pane_select_fg_color` defaults plus configured RGBA
+  alpha, and `pane_select_font_size` is retained in effective config.
 - Completed in v1: `Pane Select Show Pane IDs` exposes a native
   `show_pane_ids=true` subset by rendering pane-select labels as
   `label:pane_id` while retaining default Activate behavior, and the
@@ -1018,6 +1020,9 @@ keyboard, mouse, paste, resize
   group when present, surfaces the current text input, renders a visible
   candidate overlay for name/codepoint matches, RecentlyUsed entries, and
   initial built-in category candidates including NerdFonts private-use glyphs;
+  normal rows honor WezTerm's `char_select_bg_color`/`char_select_fg_color`
+  defaults plus configured RGBA alpha, and `char_select_font_size` uses
+  WezTerm's current 18pt default in effective config;
   typed fuzzy queries and hex codepoint input also match the built-in NerdFonts
   names. ArrowUp/ArrowDown moves the selected candidate before Enter acceptance
   while scrolling the overlay past the first visible rows.
@@ -1088,9 +1093,11 @@ keyboard, mouse, paste, resize
   [args...]` query subsets route explicit launch commands through the same
   app-shell actions. The native command palette renders a visible candidate
   overlay whose row count honors `command_palette_rows`, falling back to a
-  terminal-height-based default when unset. Executed command labels update
-  command-palette frecency in memory and persist it to a JSON state file so
-  later app instances can promote frequently and recently used entries.
+  terminal-height-based default when unset, and normal rows honor WezTerm's
+  `command_palette_bg_color`/`command_palette_fg_color` defaults plus
+  configured RGBA alpha. Executed command labels update command-palette frecency
+  in memory and persist it to a JSON state file so later app instances can
+  promote frequently and recently used entries.
 - Implemented in v1: command-palette `ReloadConfiguration` and the default
   `Ctrl+Shift+R` shortcut dispatch a typed native `window-config-reloaded` hook
   with the window id and active pane id. Action-name `reloadconfiguration`
