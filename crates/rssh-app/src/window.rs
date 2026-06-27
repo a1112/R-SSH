@@ -22523,16 +22523,17 @@ impl NativeWindowApp {
                 rows,
                 columns,
             );
-            return snapshot
-                .with_row_offset(self.terminal_frame_row_offset())
-                .with_overlay_cells(self.pane_badge_cells(&layout))
-                .with_overlay_cells(self.pane_select_cells(&layout))
-                .with_overlay_cells(self.ime_preedit_cells(&layout))
-                .with_overlay_cells(self.tab_bar_cells())
-                .with_overlay_cells(self.quick_select_cells())
-                .with_overlay_cells(self.tab_navigator_cells())
-                .with_overlay_cells(self.command_palette_cells())
-                .with_overlay_cells(self.input_selector_cells())
+        return snapshot
+            .with_row_offset(self.terminal_frame_row_offset())
+            .with_overlay_cells(self.pane_badge_cells(&layout))
+            .with_overlay_cells(self.pane_select_cells(&layout))
+            .with_overlay_cells(self.ime_preedit_cells(&layout))
+            .with_overlay_cells(self.window_frame_border_cells())
+            .with_overlay_cells(self.tab_bar_cells())
+            .with_overlay_cells(self.quick_select_cells())
+            .with_overlay_cells(self.tab_navigator_cells())
+            .with_overlay_cells(self.command_palette_cells())
+            .with_overlay_cells(self.input_selector_cells())
                 .with_overlay_cells(self.char_select_cells())
                 .with_overlay_cells(self.debug_overlay_cells());
         }
@@ -22603,6 +22604,7 @@ impl NativeWindowApp {
             .with_overlay_cells(self.pane_badge_cells(&layout))
             .with_overlay_cells(self.pane_select_cells(&layout))
             .with_overlay_cells(self.ime_preedit_cells(&layout))
+            .with_overlay_cells(self.window_frame_border_cells())
             .with_overlay_cells(self.tab_bar_cells())
             .with_overlay_cells(self.quick_select_cells())
             .with_overlay_cells(self.tab_navigator_cells())
@@ -23740,13 +23742,10 @@ impl NativeWindowApp {
         }
 
         let columns = self.runtime.terminal().grid().size().columns;
-        let background = self
-            .tab_bar_background_color
-            .unwrap_or(Color::Rgb(34, 34, 38));
+        let background = self.window_frame_title_bar_background_color();
+        let tab_bar_foreground = self.window_frame_title_bar_foreground_color();
         let mut cells = (0..columns)
-            .map(|column| {
-                tab_bar_render_cell(column, ' ', Color::Rgb(198, 198, 198), background, false)
-            })
+            .map(|column| tab_bar_render_cell(column, ' ', tab_bar_foreground, background, false))
             .collect::<Vec<_>>();
 
         let hover_column = self.tab_bar_hover_column();
@@ -23769,7 +23768,7 @@ impl NativeWindowApp {
             &mut cells,
             &mut column,
             &self.tab_bar_workspace_label(),
-            Color::Rgb(228, 228, 228),
+            tab_bar_foreground,
             Color::Rgb(18, 18, 22),
             true,
         );
@@ -23778,7 +23777,7 @@ impl NativeWindowApp {
                 &mut cells,
                 &mut column,
                 &format!("{} ", self.left_status),
-                tab_bar_segment_style(Color::Rgb(202, 232, 255), Color::Rgb(18, 18, 22), false),
+                tab_bar_segment_style(tab_bar_foreground, Color::Rgb(18, 18, 22), false),
             );
         }
 
@@ -23962,7 +23961,7 @@ impl NativeWindowApp {
             write_right_aligned_tab_bar_segment_with_reserved(
                 &mut cells,
                 &self.right_status,
-                tab_bar_segment_style(Color::Rgb(202, 232, 255), Color::Rgb(18, 18, 22), false),
+                tab_bar_segment_style(tab_bar_foreground, Color::Rgb(18, 18, 22), false),
                 right_integrated_title_buttons_width,
             );
         }
@@ -23987,6 +23986,223 @@ impl NativeWindowApp {
         let row = self.tab_bar_frame_row();
         for cell in &mut cells {
             cell.row = row;
+        }
+
+        cells
+    }
+
+    fn window_frame_title_bar_background_color(&self) -> Color {
+        let default = self.tab_bar_background_color.unwrap_or(Color::Rgb(34, 34, 38));
+        if self.window_focused {
+            self.window_frame_appearance
+                .active_titlebar_bg
+                .unwrap_or(default)
+        } else {
+            self.window_frame_appearance
+                .inactive_titlebar_bg
+                .unwrap_or(default)
+        }
+    }
+
+    fn window_frame_title_bar_foreground_color(&self) -> Color {
+        let default = Color::Rgb(228, 228, 228);
+        if self.window_focused {
+            self.window_frame_appearance
+                .active_titlebar_fg
+                .unwrap_or(default)
+        } else {
+            self.window_frame_appearance
+                .inactive_titlebar_fg
+                .unwrap_or(default)
+        }
+    }
+
+    fn window_frame_title_bar_border_bottom_color(&self) -> Color {
+        let fallback = self.window_frame_title_bar_background_color();
+        let active = self.window_frame_appearance.active_titlebar_border_bottom;
+        let inactive = self.window_frame_appearance.inactive_titlebar_border_bottom;
+        if self.window_focused {
+            active.unwrap_or(fallback)
+        } else {
+            inactive.unwrap_or(fallback)
+        }
+    }
+
+    fn window_frame_border_color(
+        &self,
+        active: Option<Color>,
+        inactive: Option<Color>,
+        fallback: Color,
+    ) -> Color {
+        if self.window_focused {
+            active.unwrap_or(fallback)
+        } else {
+            inactive.unwrap_or(fallback)
+        }
+    }
+
+    fn window_frame_border_cells(&self) -> Vec<RenderCell> {
+        let size = self.runtime.terminal().grid().size();
+        if size.rows == 0 || size.columns == 0 {
+            return Vec::new();
+        }
+
+        let columns = size.columns;
+        let rows = size.rows;
+        let cell_width = self.cell_width();
+        let cell_height = self.cell_height();
+        let terminal_width = u32::from(columns).saturating_mul(cell_width);
+        let terminal_height = u32::from(rows).saturating_mul(cell_height);
+
+        let left_width = self
+            .window_frame_appearance
+            .border_left_width
+            .map(|width| {
+                padding_dimension_to_cells(
+                    width,
+                    cell_width,
+                    terminal_width,
+                    self.window_dpi,
+                )
+            })
+            .unwrap_or(0)
+            .min(columns);
+        let right_width = self
+            .window_frame_appearance
+            .border_right_width
+            .map(|width| {
+                padding_dimension_to_cells(
+                    width,
+                    cell_width,
+                    terminal_width,
+                    self.window_dpi,
+                )
+            })
+            .unwrap_or(0)
+            .min(columns);
+        let top_height = self
+            .window_frame_appearance
+            .border_top_height
+            .map(|height| {
+                padding_dimension_to_cells(
+                    height,
+                    cell_height,
+                    terminal_height,
+                    self.window_dpi,
+                )
+            })
+            .unwrap_or(0)
+            .min(rows);
+        let bottom_height = self
+            .window_frame_appearance
+            .border_bottom_height
+            .map(|height| {
+                padding_dimension_to_cells(
+                    height,
+                    cell_height,
+                    terminal_height,
+                    self.window_dpi,
+                )
+            })
+            .unwrap_or(0)
+            .min(rows);
+
+        if left_width == 0 && right_width == 0 && top_height == 0 && bottom_height == 0 {
+            return Vec::new();
+        }
+
+        let content_row_start = self.terminal_frame_row_offset();
+        let content_row_end = content_row_start.saturating_add(rows);
+        let border_background = self.window_frame_title_bar_background_color();
+        let border_default_foreground = self.window_frame_title_bar_foreground_color();
+        let left_color = self.window_frame_border_color(
+            self.window_frame_appearance.border_left_color,
+            self.window_frame_appearance.border_left_color,
+            border_background,
+        );
+        let right_color = self.window_frame_border_color(
+            self.window_frame_appearance.border_right_color,
+            self.window_frame_appearance.border_right_color,
+            border_background,
+        );
+        let top_color = self.window_frame_border_color(
+            self.window_frame_appearance.border_top_color,
+            self.window_frame_appearance.border_top_color,
+            border_background,
+        );
+        let bottom_color = self.window_frame_border_color(
+            self.window_frame_appearance.border_bottom_color,
+            self.window_frame_appearance.border_bottom_color,
+            self.window_frame_title_bar_border_bottom_color(),
+        );
+
+        let mut cells = Vec::new();
+        let top_rows = (0..top_height).map(|offset| content_row_start.saturating_add(offset));
+        let bottom_start = content_row_start
+            .saturating_add(rows.saturating_sub(bottom_height))
+            .min(content_row_end);
+        let bottom_rows = (bottom_start..content_row_end);
+
+        if top_height > 0 {
+            for row in top_rows {
+                for column in 0..columns {
+                    cells.push(ui_render_cell(
+                        row,
+                        column,
+                        ' ',
+                        top_color,
+                        top_color,
+                        true,
+                    ));
+                }
+            }
+        }
+
+        if bottom_height > 0 && !bottom_rows.is_empty() {
+            for row in bottom_rows {
+                for column in 0..columns {
+                    cells.push(ui_render_cell(
+                        row,
+                        column,
+                        ' ',
+                        border_default_foreground,
+                        bottom_color,
+                        true,
+                    ));
+                }
+            }
+        }
+
+        if left_width > 0 {
+            let left_end = left_width.min(columns);
+            for row in content_row_start..content_row_end {
+                for column in 0..left_end {
+                    cells.push(ui_render_cell(
+                        row,
+                        column,
+                        ' ',
+                        left_color,
+                        left_color,
+                        true,
+                    ));
+                }
+            }
+        }
+
+        if right_width > 0 {
+            let right_start = columns.saturating_sub(right_width.min(columns));
+            for row in content_row_start..content_row_end {
+                for column in right_start..columns {
+                    cells.push(ui_render_cell(
+                        row,
+                        column,
+                        ' ',
+                        right_color,
+                        right_color,
+                        true,
+                    ));
+                }
+            }
         }
 
         cells
@@ -62132,6 +62348,73 @@ mod tests {
 
         assert_eq!(hovered_cell.foreground, Color::Rgb(67, 68, 69));
         assert_eq!(hovered_cell.background, Color::Rgb(89, 90, 91));
+    }
+
+    #[test]
+    fn window_app_applies_window_frame_titlebar_and_borders_to_render_snapshot() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime
+            .resize(rssh_core::TerminalSize::new(12, 4))
+            .expect("expected resize");
+        app.set_config_overrides(NativeConfigOverrides {
+            hide_tab_bar_if_only_one_tab: Some(false),
+            window_frame_appearance: Some(NativeWindowFrameAppearance {
+                active_titlebar_bg: Some(Color::Rgb(10, 20, 30)),
+                inactive_titlebar_bg: Some(Color::Rgb(40, 50, 60)),
+                active_titlebar_fg: Some(Color::Rgb(70, 80, 90)),
+                inactive_titlebar_fg: Some(Color::Rgb(100, 110, 120)),
+                inactive_titlebar_border_bottom: Some(Color::Rgb(30, 30, 30)),
+                active_titlebar_border_bottom: Some(Color::Rgb(31, 32, 33)),
+                border_left_width: Some(NativeWindowPaddingDimension::Pixels(1)),
+                border_right_width: Some(NativeWindowPaddingDimension::Pixels(1)),
+                border_bottom_height: Some(NativeWindowPaddingDimension::Pixels(1)),
+                border_left_color: Some(Color::Rgb(11, 21, 31)),
+                border_right_color: Some(Color::Rgb(12, 22, 32)),
+                ..NativeWindowFrameAppearance::default()
+            }),
+            ..NativeConfigOverrides::default()
+        });
+
+        let active_snapshot = app.render_snapshot();
+        let active_tab_label = snapshot_row_text(&active_snapshot, 0, 12).find("ws:")
+            .expect("expected tab label");
+        let active_title_bar_cell = snapshot_cell(
+            &active_snapshot,
+            0,
+            u16::try_from(active_tab_label).unwrap_or(0),
+        )
+        .expect("expected active title cell");
+        assert_eq!(active_title_bar_cell.background, Color::Rgb(10, 20, 30));
+        assert_eq!(active_title_bar_cell.foreground, Color::Rgb(70, 80, 90));
+        assert_eq!(
+            snapshot_cell(&active_snapshot, 1, 0).expect("expected left border cell").background,
+            Color::Rgb(11, 21, 31)
+        );
+        assert_eq!(
+            snapshot_cell(&active_snapshot, 1, 11).expect("expected right border cell").background,
+            Color::Rgb(12, 22, 32)
+        );
+        assert_eq!(
+            snapshot_cell(&active_snapshot, 4, 1).expect("expected bottom border cell").background,
+            Color::Rgb(31, 32, 33)
+        );
+
+        app.handle_focus_changed(false).unwrap();
+        let inactive_snapshot = app.render_snapshot();
+        let inactive_tab_label = snapshot_row_text(&inactive_snapshot, 0, 12).find("ws:")
+            .expect("expected tab label");
+        let inactive_title_bar_cell = snapshot_cell(
+            &inactive_snapshot,
+            0,
+            u16::try_from(inactive_tab_label).unwrap_or(0),
+        )
+        .expect("expected inactive title cell");
+        assert_eq!(inactive_title_bar_cell.background, Color::Rgb(40, 50, 60));
+        assert_eq!(inactive_title_bar_cell.foreground, Color::Rgb(100, 110, 120));
+        assert_eq!(
+            snapshot_cell(&inactive_snapshot, 4, 1).expect("expected bottom border cell").background,
+            Color::Rgb(30, 30, 30)
+        );
     }
 
     #[test]
