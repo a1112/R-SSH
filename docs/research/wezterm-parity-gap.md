@@ -2521,9 +2521,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   final explicit-color or preset Gradient layer now preserve source-over alpha
   semantics for that subset. Explicit-color Gradient stacks precompose the
   Color stack into each Gradient stop; preset Gradient stacks blend the sampled
-  Gradient over the configured background color during rendering. Image
-  sources, alignment/repeat settings, and HSB transforms for image sources
-  remain future parity work.
+  Gradient over the configured background color during rendering. Single
+  `source = { File = ... }` image layers now load static PNG/JPEG/GIF bytes and
+  render through the native background image path with layer opacity and default
+  cover-style sizing. Multi-layer image composition, `Attachment` image sources,
+  alignment/repeat settings, and HSB transforms for image sources remain future
+  parity work.
 - Native config retains WezTerm-style platform backdrop settings:
   `kde_window_background_blur` defaults to `false`,
   `macos_window_background_blur` defaults to `0`, and

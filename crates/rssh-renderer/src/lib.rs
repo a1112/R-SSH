@@ -258,6 +258,7 @@ pub struct PixelRenderer {
     default_foreground: [u8; 4],
     default_background: [u8; 4],
     default_background_gradient: Option<RenderBackgroundGradient>,
+    default_background_image: Option<RenderBackgroundImage>,
     default_cursor_color: [u8; 4],
     default_cursor_border: Option<[u8; 4]>,
     default_cursor_foreground: Option<[u8; 4]>,
@@ -424,6 +425,12 @@ pub struct RenderBackgroundGradient {
     pub colors: Vec<[u8; 4]>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderBackgroundImage {
+    pub data: Vec<u8>,
+    pub opacity_alpha: u8,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderBackgroundGradientHsb {
     pub hue: u16,
@@ -489,6 +496,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
+            default_background_image: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -517,6 +525,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
+            default_background_image: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -747,6 +756,10 @@ impl PixelRenderer {
             gradient.filter(|gradient| gradient.preset.is_some() || !gradient.colors.is_empty());
     }
 
+    pub fn set_default_background_image(&mut self, image: Option<RenderBackgroundImage>) {
+        self.default_background_image = image.filter(|image| !image.data.is_empty());
+    }
+
     pub fn set_default_foreground(&mut self, foreground: [u8; 4]) {
         self.default_foreground = foreground;
     }
@@ -782,6 +795,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
+            default_background_image: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -824,6 +838,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
+            default_background_image: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -852,6 +867,7 @@ impl PixelRenderer {
             default_foreground: default_foreground(),
             default_background: default_background(),
             default_background_gradient: None,
+            default_background_image: None,
             default_cursor_color: default_foreground(),
             default_cursor_border: None,
             default_cursor_foreground: None,
@@ -888,6 +904,18 @@ impl PixelRenderer {
             &mut surface,
             self.default_background,
             self.default_background_gradient.as_ref(),
+        );
+        render_background_image(
+            &mut surface,
+            self.default_background_image.as_ref(),
+            Rect {
+                x: 0,
+                y: 0,
+                width: target_width,
+                height: target_height,
+            },
+            self.animation_frame,
+            self.animation_elapsed_ms,
         );
 
         render_inline_images_in_z_order(
@@ -1056,11 +1084,19 @@ impl PixelRenderer {
         };
 
         for region in damage.iter().copied().filter(|region| !region.is_empty()) {
+            let rect = damage_rect(region, geometry.cell_width, geometry.cell_height);
             fill_default_background_rect(
                 &mut surface,
-                damage_rect(region, geometry.cell_width, geometry.cell_height),
+                rect,
                 self.default_background,
                 self.default_background_gradient.as_ref(),
+            );
+            render_background_image(
+                &mut surface,
+                self.default_background_image.as_ref(),
+                rect,
+                self.animation_frame,
+                self.animation_elapsed_ms,
             );
         }
 
@@ -1865,6 +1901,65 @@ fn render_inline_image(
                     continue;
                 }
                 surface.put_pixel(rect.x + target_x, rect.y + target_y, pixel);
+            }
+        }
+    }
+}
+
+fn render_background_image(
+    surface: &mut Surface<'_>,
+    image: Option<&RenderBackgroundImage>,
+    rect: Rect,
+    animation_frame: usize,
+    animation_elapsed_ms: Option<u64>,
+) {
+    let Some(image) = image else {
+        return;
+    };
+    let Some(decoded) = decode_image_rgba(&image.data, animation_frame, animation_elapsed_ms)
+    else {
+        return;
+    };
+    if decoded.width == 0 || decoded.height == 0 {
+        return;
+    }
+    let max_y = rect.y.saturating_add(rect.height).min(surface.height);
+    let max_x = rect.x.saturating_add(rect.width).min(surface.width);
+    if max_y <= rect.y || max_x <= rect.x || surface.width == 0 || surface.height == 0 {
+        return;
+    }
+
+    let scale = (f64::from(surface.width) / f64::from(decoded.width))
+        .max(f64::from(surface.height) / f64::from(decoded.height));
+    if !scale.is_finite() || scale <= 0.0 {
+        return;
+    }
+    let scaled_width = f64::from(decoded.width) * scale;
+    let scaled_height = f64::from(decoded.height) * scale;
+    let offset_x = (scaled_width - f64::from(surface.width)) / 2.0;
+    let offset_y = (scaled_height - f64::from(surface.height)) / 2.0;
+
+    for target_y in rect.y..max_y {
+        let source_y =
+            (((f64::from(target_y) + offset_y) / scale).floor() as u32).min(decoded.height - 1);
+        for target_x in rect.x..max_x {
+            let source_x =
+                (((f64::from(target_x) + offset_x) / scale).floor() as u32).min(decoded.width - 1);
+            if let Some(mut pixel) = rgba_pixel(&decoded, source_x, source_y) {
+                pixel[3] = u8::try_from(
+                    u16::from(pixel[3]).saturating_mul(u16::from(image.opacity_alpha))
+                        / u16::from(u8::MAX),
+                )
+                .unwrap_or(u8::MAX);
+                if pixel[3] == 0 {
+                    continue;
+                }
+                let index = ((target_y * surface.width + target_x) * 4) as usize;
+                if let Some(background) = surface.target.get_mut(index..index + 4) {
+                    let background_pixel =
+                        [background[0], background[1], background[2], background[3]];
+                    background.copy_from_slice(&source_over_rgba(background_pixel, pixel));
+                }
             }
         }
     }
