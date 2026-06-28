@@ -3282,6 +3282,7 @@ struct NativeEffectiveConfig {
     dpi: u32,
     dpi_by_screen: BTreeMap<String, u32>,
     tab_max_width: usize,
+    status_update_interval: u64,
     status_update_interval_ms: u64,
     max_fps: usize,
     animation_fps: usize,
@@ -3299,10 +3300,13 @@ struct NativeEffectiveConfig {
     line_quad_cache_size: usize,
     line_to_ele_shape_cache_size: usize,
     glyph_cache_image_cache_size: usize,
+    cursor_blink_rate: u64,
     cursor_blink_rate_ms: u64,
     cursor_blink_ease_in: NativeEasingFunction,
     cursor_blink_ease_out: NativeEasingFunction,
+    text_blink_rate: u64,
     text_blink_rate_ms: u64,
+    text_blink_rate_rapid: u64,
     text_blink_rate_rapid_ms: u64,
     text_blink_ease_in: NativeEasingFunction,
     text_blink_ease_out: NativeEasingFunction,
@@ -29470,6 +29474,8 @@ impl NativeWindowApp {
             dpi: self.window_dpi,
             dpi_by_screen: self.dpi_by_screen.clone(),
             tab_max_width: self.tab_max_width,
+            status_update_interval: u64::try_from(self.status_update_interval.as_millis())
+                .unwrap_or(u64::MAX),
             status_update_interval_ms: u64::try_from(self.status_update_interval.as_millis())
                 .unwrap_or(u64::MAX),
             max_fps: self.max_fps,
@@ -29488,11 +29494,16 @@ impl NativeWindowApp {
             line_quad_cache_size: self.line_quad_cache_size,
             line_to_ele_shape_cache_size: self.line_to_ele_shape_cache_size,
             glyph_cache_image_cache_size: self.glyph_cache_image_cache_size,
+            cursor_blink_rate: u64::try_from(self.cursor_blink_rate.as_millis())
+                .unwrap_or(u64::MAX),
             cursor_blink_rate_ms: u64::try_from(self.cursor_blink_rate.as_millis())
                 .unwrap_or(u64::MAX),
             cursor_blink_ease_in: self.cursor_blink_ease_in,
             cursor_blink_ease_out: self.cursor_blink_ease_out,
+            text_blink_rate: u64::try_from(self.text_blink_rate.as_millis()).unwrap_or(u64::MAX),
             text_blink_rate_ms: u64::try_from(self.text_blink_rate.as_millis()).unwrap_or(u64::MAX),
+            text_blink_rate_rapid: u64::try_from(self.text_blink_rate_rapid.as_millis())
+                .unwrap_or(u64::MAX),
             text_blink_rate_rapid_ms: u64::try_from(self.text_blink_rate_rapid.as_millis())
                 .unwrap_or(u64::MAX),
             text_blink_ease_in: self.text_blink_ease_in,
@@ -70073,6 +70084,7 @@ mod tests {
                 dpi: super::DEFAULT_WINDOW_DPI,
                 dpi_by_screen: BTreeMap::new(),
                 tab_max_width: 28,
+                status_update_interval: 1_250,
                 status_update_interval_ms: 1_250,
                 max_fps: DEFAULT_MAX_FPS,
                 animation_fps: DEFAULT_ANIMATION_FPS,
@@ -70090,10 +70102,13 @@ mod tests {
                 line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
                 line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
                 glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
+                cursor_blink_rate: 800,
                 cursor_blink_rate_ms: 800,
                 cursor_blink_ease_in: NativeEasingFunction::Linear,
                 cursor_blink_ease_out: NativeEasingFunction::Linear,
+                text_blink_rate: 500,
                 text_blink_rate_ms: 500,
+                text_blink_rate_rapid: 250,
                 text_blink_rate_rapid_ms: 250,
                 text_blink_ease_in: NativeEasingFunction::Linear,
                 text_blink_ease_out: NativeEasingFunction::Linear,
@@ -93418,6 +93433,7 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        assert_eq!(effective.status_update_interval, 250);
         assert_eq!(effective.status_update_interval_ms, 250);
         assert_eq!(effective.command_palette_rows, Some(3));
         assert_eq!(effective.launcher_alphabet, "ab");
@@ -95200,6 +95216,7 @@ mod tests {
         assert_eq!(effective.initial_cols, 100);
         assert_eq!(effective.initial_rows, 30);
         assert!(!effective.adjust_window_size_when_changing_font_size);
+        assert_eq!(effective.cursor_blink_rate, 375);
         assert_eq!(effective.cursor_blink_rate_ms, 375);
         assert_eq!(effective.cursor_blink_ease_in, NativeEasingFunction::EaseIn);
         assert_eq!(
@@ -96232,7 +96249,9 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        assert_eq!(effective.text_blink_rate, 600);
         assert_eq!(effective.text_blink_rate_ms, 600);
+        assert_eq!(effective.text_blink_rate_rapid, 150);
         assert_eq!(effective.text_blink_rate_rapid_ms, 150);
         assert_eq!(effective.text_blink_ease_in, NativeEasingFunction::EaseIn);
         assert_eq!(effective.text_blink_ease_out, NativeEasingFunction::EaseOut);
@@ -103100,6 +103119,7 @@ mod tests {
                 ("HDMI".to_owned(), 96),
             ]),
             tab_max_width: 32,
+            status_update_interval: 250,
             status_update_interval_ms: 250,
             max_fps: 144,
             animation_fps: 24,
@@ -103125,10 +103145,13 @@ mod tests {
             line_quad_cache_size: 768,
             line_to_ele_shape_cache_size: 1_536,
             glyph_cache_image_cache_size: 128,
+            cursor_blink_rate: 375,
             cursor_blink_rate_ms: 375,
             cursor_blink_ease_in: NativeEasingFunction::EaseIn,
             cursor_blink_ease_out: NativeEasingFunction::EaseOut,
+            text_blink_rate: 525,
             text_blink_rate_ms: 525,
+            text_blink_rate_rapid: 175,
             text_blink_rate_rapid_ms: 175,
             text_blink_ease_in: NativeEasingFunction::EaseIn,
             text_blink_ease_out: NativeEasingFunction::EaseOut,
@@ -103570,6 +103593,7 @@ mod tests {
             dpi: super::DEFAULT_WINDOW_DPI,
             dpi_by_screen: BTreeMap::new(),
             tab_max_width: 16,
+            status_update_interval: 1_000,
             status_update_interval_ms: 1_000,
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
@@ -103587,10 +103611,13 @@ mod tests {
             line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
             line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
             glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
+            cursor_blink_rate: 800,
             cursor_blink_rate_ms: 800,
             cursor_blink_ease_in: NativeEasingFunction::Linear,
             cursor_blink_ease_out: NativeEasingFunction::Linear,
+            text_blink_rate: 500,
             text_blink_rate_ms: 500,
+            text_blink_rate_rapid: 250,
             text_blink_rate_rapid_ms: 250,
             text_blink_ease_in: NativeEasingFunction::Linear,
             text_blink_ease_out: NativeEasingFunction::Linear,

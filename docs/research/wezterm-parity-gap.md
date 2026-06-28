@@ -2247,6 +2247,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `integrated_title_button_color`, `integrated_title_button_style`, `colors.foreground`, `colors.background`, `colors.ansi`, `colors.brights`, `colors.indexed`, `colors.selection_fg`, `colors.selection_bg`, `colors.cursor_bg`, `colors.cursor_border`, `colors.cursor_fg`, `colors.compose_cursor`, `config.color_scheme`, `config.color_schemes`, `config.color_scheme_dirs`, plus
   `window_close_confirmation` and
   `skip_close_confirmation_for_processes_named`.
+  Effective config snapshots expose WezTerm's `status_update_interval`,
+  `cursor_blink_rate`, `text_blink_rate`, and `text_blink_rate_rapid` field
+  names alongside the internal `_ms` aliases.
   Supported repeated direct field assignments and whole-table assignments on
   the returned static config use the latest static value by source order, and
   duplicate fields inside static config table constructors use the later entry.
