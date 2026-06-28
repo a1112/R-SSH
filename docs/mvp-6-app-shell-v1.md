@@ -1609,9 +1609,11 @@ runtime storage for tabs and split panes.
   status layout from visible text, and right-aligns right status at the window
   edge, clipping over-wide right status from the left. Native
   `set_left_status` and `set_right_status` methods update the same tab-bar
-  state directly. Lua-configurable `status_update_interval` plus Lua
-  `window:set_left_status` / `set_right_status` wiring remain later parity
-  work.
+  state directly. Lua-configurable `status_update_interval` plus static
+  `wezterm.on('update-status', ...)` and deprecated `update-right-status`
+  literal `window:set_left_status(...)` / `set_right_status(...)` setters map
+  into the same status state. Arbitrary Lua callbacks and `wezterm.format`
+  composition remain later parity work.
 - `rssh-app` dispatches a typed native-window `new-tab-button-click` hook for
   Left/Right/Middle clicks on the tab bar `+` button, carrying the window id
   and active pane id. Left click carries the default `NewTab` action in the

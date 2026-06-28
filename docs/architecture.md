@@ -1801,9 +1801,10 @@ keyboard, mouse, paste, resize
   Native `set_left_status` and `set_right_status` methods update the same
   tab-bar state directly. Lua-configurable `status_update_interval` parses into
   the same native update interval path, and a static
-  `wezterm.on('update-status', function(window, pane) ... end)` subset maps
-  literal `window:set_left_status(...)` and `window:set_right_status(...)`
-  calls onto that status state. Arbitrary Lua status callbacks,
+  `wezterm.on('update-status', function(window, pane) ... end)` and deprecated
+  `update-right-status` static subsets map literal
+  `window:set_left_status(...)` and `window:set_right_status(...)` calls onto
+  that status state. Arbitrary Lua status callbacks,
   `wezterm.format` composition, and broader window status API wiring remain
   future parity work.
 - Implemented in v1: the tab bar `+` button dispatches a typed

@@ -5736,7 +5736,7 @@ fn lua_static_wezterm_status_update_event_from_statement(
     let rest = lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
-    if event_name != "update-status" {
+    if !matches!(event_name.as_str(), "update-status" | "update-right-status") {
         return None;
     }
     let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
@@ -67000,6 +67000,31 @@ mod tests {
             "tab bar was {tab_bar:?}"
         );
         assert!(tab_bar.ends_with("RIGHT-LUA"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_right_status_event_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-right-status', function(window, pane)
+              window:set_right_status('RIGHT-LEGACY-LUA')
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm update-right-status event status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.ends_with("RIGHT-LEGACY-LUA"),
+            "tab bar was {tab_bar:?}"
+        );
     }
 
     #[test]
