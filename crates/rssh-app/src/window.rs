@@ -2965,6 +2965,92 @@ struct NativeTlsClientDomain {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
+struct NativeResolvedPalette {
+    foreground: Color,
+    background: Color,
+    cursor_fg: Option<Color>,
+    cursor_bg: Color,
+    cursor_border: Option<Color>,
+    selection_fg: Option<Option<Color>>,
+    selection_bg: Option<Color>,
+    ansi: [Color; 8],
+    brights: [Color; 8],
+    indexed: [Option<Color>; 256],
+    tab_bar_background: Option<Color>,
+    tab_bar_inactive_tab_edge: Option<Color>,
+    tab_bar_active_tab: NativeTabBarItemColors,
+    tab_bar_inactive_tab: NativeTabBarItemColors,
+    tab_bar_inactive_tab_hover: NativeTabBarItemColors,
+    tab_bar_new_tab: NativeTabBarItemColors,
+    tab_bar_new_tab_hover: NativeTabBarItemColors,
+    scrollbar_thumb: Option<Color>,
+    split: Option<Color>,
+    visual_bell: Option<Color>,
+    compose_cursor: Option<Color>,
+    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
+    quick_select_label_fg: Option<NativeColorSpec>,
+    quick_select_label_bg: Option<NativeColorSpec>,
+    quick_select_match_fg: Option<NativeColorSpec>,
+    quick_select_match_bg: Option<NativeColorSpec>,
+    input_selector_label_fg: Option<NativeColorSpec>,
+    input_selector_label_bg: Option<NativeColorSpec>,
+    launcher_label_fg: Option<NativeColorSpec>,
+    launcher_label_bg: Option<NativeColorSpec>,
+}
+
+impl Default for NativeResolvedPalette {
+    fn default() -> Self {
+        let (ansi, brights) = native_split_ansi_palette(DEFAULT_ANSI_PALETTE_COLORS);
+        Self {
+            foreground: DEFAULT_FOREGROUND_COLOR,
+            background: DEFAULT_BACKGROUND_COLOR,
+            cursor_fg: None,
+            cursor_bg: DEFAULT_CURSOR_BG_COLOR,
+            cursor_border: None,
+            selection_fg: None,
+            selection_bg: None,
+            ansi,
+            brights,
+            indexed: [None; 256],
+            tab_bar_background: None,
+            tab_bar_inactive_tab_edge: None,
+            tab_bar_active_tab: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab_hover: NativeTabBarItemColors::default(),
+            tab_bar_new_tab: NativeTabBarItemColors::default(),
+            tab_bar_new_tab_hover: NativeTabBarItemColors::default(),
+            scrollbar_thumb: None,
+            split: None,
+            visual_bell: None,
+            compose_cursor: None,
+            copy_mode_active_highlight_fg: None,
+            copy_mode_active_highlight_bg: None,
+            copy_mode_inactive_highlight_fg: None,
+            copy_mode_inactive_highlight_bg: None,
+            quick_select_label_fg: None,
+            quick_select_label_bg: None,
+            quick_select_match_fg: None,
+            quick_select_match_bg: None,
+            input_selector_label_fg: None,
+            input_selector_label_bg: None,
+            launcher_label_fg: None,
+            launcher_label_bg: None,
+        }
+    }
+}
+
+fn native_split_ansi_palette(palette: [Color; 16]) -> ([Color; 8], [Color; 8]) {
+    (
+        std::array::from_fn(|index| palette[index]),
+        std::array::from_fn(|index| palette[index + 8]),
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
     dpi: u32,
     dpi_by_screen: BTreeMap<String, u32>,
@@ -3092,6 +3178,7 @@ struct NativeEffectiveConfig {
     visual_bell: NativeVisualBell,
     color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
+    resolved_palette: NativeResolvedPalette,
     foreground_color: Color,
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
@@ -28920,6 +29007,46 @@ impl NativeWindowApp {
         (self.tab_title_formatter)(&second_pass).or_else(|| default_title.map(NativeTabTitle::Text))
     }
 
+    fn native_resolved_palette(&self) -> NativeResolvedPalette {
+        let (ansi, brights) =
+            native_split_ansi_palette(self.ansi_palette.unwrap_or(DEFAULT_ANSI_PALETTE_COLORS));
+        NativeResolvedPalette {
+            foreground: self.foreground_color,
+            background: self.background_color,
+            cursor_fg: self.cursor_fg_color,
+            cursor_bg: self.cursor_bg_color,
+            cursor_border: self.cursor_border_color,
+            selection_fg: self.selection_fg_color,
+            selection_bg: self.selection_bg_color,
+            ansi,
+            brights,
+            indexed: self.indexed_palette.unwrap_or([None; 256]),
+            tab_bar_background: self.tab_bar_background_color,
+            tab_bar_inactive_tab_edge: self.tab_bar_inactive_tab_edge_color,
+            tab_bar_active_tab: self.tab_bar_active_tab_colors,
+            tab_bar_inactive_tab: self.tab_bar_inactive_tab_colors,
+            tab_bar_inactive_tab_hover: self.tab_bar_inactive_tab_hover_colors,
+            tab_bar_new_tab: self.tab_bar_new_tab_colors,
+            tab_bar_new_tab_hover: self.tab_bar_new_tab_hover_colors,
+            scrollbar_thumb: self.scrollbar_thumb_color,
+            split: self.split_color,
+            visual_bell: self.visual_bell_color,
+            compose_cursor: self.compose_cursor_color,
+            copy_mode_active_highlight_fg: self.copy_mode_active_highlight_fg,
+            copy_mode_active_highlight_bg: self.copy_mode_active_highlight_bg,
+            copy_mode_inactive_highlight_fg: self.copy_mode_inactive_highlight_fg,
+            copy_mode_inactive_highlight_bg: self.copy_mode_inactive_highlight_bg,
+            quick_select_label_fg: self.quick_select_label_fg,
+            quick_select_label_bg: self.quick_select_label_bg,
+            quick_select_match_fg: self.quick_select_match_fg,
+            quick_select_match_bg: self.quick_select_match_bg,
+            input_selector_label_fg: self.input_selector_label_fg,
+            input_selector_label_bg: self.input_selector_label_bg,
+            launcher_label_fg: self.launcher_label_fg,
+            launcher_label_bg: self.launcher_label_bg,
+        }
+    }
+
     fn native_effective_config(&self) -> NativeEffectiveConfig {
         NativeEffectiveConfig {
             dpi: self.window_dpi,
@@ -29051,6 +29178,7 @@ impl NativeWindowApp {
             visual_bell: self.visual_bell,
             color_scheme: self.color_scheme.clone(),
             color_scheme_dirs: self.color_scheme_dirs.clone(),
+            resolved_palette: self.native_resolved_palette(),
             foreground_color: self.foreground_color,
             background_color: self.background_color,
             ansi_palette: self.ansi_palette,
@@ -55417,22 +55545,22 @@ mod tests {
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
         NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
         NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight, NativeSerialDomain,
-        NativeShellAssumption, NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain,
-        NativeSshMultiplexing, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeTlsClientDomain, NativeTlsServerDomain, NativeUiKeyCapRendering,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUnixDomain,
-        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
-        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
-        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
-        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeResolvedPalette,
+        NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
+        NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain, NativeSshMultiplexing,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeTlsClientDomain,
+        NativeTlsServerDomain, NativeUiKeyCapRendering, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUnixDomain, NativeUserKeyAssignment,
+        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
+        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
+        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
+        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
+        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
+        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
@@ -59205,6 +59333,13 @@ mod tests {
             effective.indexed_palette.expect("expected indexed palette")[136],
             Some(Color::Rgb(7, 8, 9))
         );
+
+        let resolved = effective.resolved_palette;
+        assert_eq!(resolved.foreground, Color::Rgb(1, 2, 3));
+        assert_eq!(resolved.background, Color::Rgb(4, 5, 6));
+        assert_eq!(resolved.ansi[1], Color::Rgb(17, 18, 19));
+        assert_eq!(resolved.brights[1], Color::Rgb(41, 42, 43));
+        assert_eq!(resolved.indexed[136], Some(Color::Rgb(7, 8, 9)));
     }
 
     #[test]
@@ -69615,6 +69750,7 @@ mod tests {
                 visual_bell: NativeVisualBell::default(),
                 color_scheme: None,
                 color_scheme_dirs: Vec::new(),
+                resolved_palette: NativeResolvedPalette::default(),
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
                 ansi_palette: None,
@@ -101872,6 +102008,67 @@ mod tests {
         palette
     }
 
+    fn sample_resolved_palette() -> NativeResolvedPalette {
+        let (ansi, brights) = super::native_split_ansi_palette(sample_ansi_palette());
+        NativeResolvedPalette {
+            foreground: Color::Rgb(7, 8, 9),
+            background: Color::Rgb(4, 5, 6),
+            cursor_fg: Some(Color::Rgb(13, 14, 15)),
+            cursor_bg: Color::Rgb(10, 11, 12),
+            cursor_border: Some(Color::Rgb(16, 17, 18)),
+            selection_fg: Some(Some(Color::Rgb(61, 62, 63))),
+            selection_bg: Some(Color::Rgb(71, 72, 73)),
+            ansi,
+            brights,
+            indexed: sample_indexed_palette(),
+            tab_bar_background: Some(Color::Rgb(25, 26, 27)),
+            tab_bar_inactive_tab_edge: Some(Color::Rgb(27, 28, 29)),
+            tab_bar_active_tab: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(28, 29, 30)),
+                bg_color: Some(Color::Rgb(31, 32, 33)),
+                ..Default::default()
+            },
+            tab_bar_inactive_tab: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(34, 35, 36)),
+                bg_color: Some(Color::Rgb(37, 38, 39)),
+                ..Default::default()
+            },
+            tab_bar_inactive_tab_hover: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(46, 47, 48)),
+                bg_color: Some(Color::Rgb(49, 50, 51)),
+                ..Default::default()
+            },
+            tab_bar_new_tab: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(40, 41, 42)),
+                bg_color: Some(Color::Rgb(43, 44, 45)),
+                ..Default::default()
+            },
+            tab_bar_new_tab_hover: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(52, 53, 54)),
+                bg_color: Some(Color::Rgb(55, 56, 57)),
+                ..Default::default()
+            },
+            scrollbar_thumb: Some(Color::Rgb(22, 23, 24)),
+            split: Some(Color::Rgb(19, 20, 21)),
+            visual_bell: Some(Color::Rgb(1, 2, 3)),
+            compose_cursor: Some(Color::Rgb(22, 23, 24)),
+            copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(21, 22, 23))),
+            copy_mode_inactive_highlight_fg: Some(NativeColorSpec::AnsiColor(
+                NativeAnsiColor::White,
+            )),
+            copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(24, 25, 26))),
+            quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(30, 31, 32))),
+            quick_select_label_bg: Some(NativeColorSpec::Color(Color::Rgb(27, 28, 29))),
+            quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(33, 34, 35))),
+            quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            input_selector_label_fg: Some(NativeColorSpec::Color(Color::Rgb(37, 38, 39))),
+            input_selector_label_bg: Some(NativeColorSpec::Color(Color::Rgb(34, 35, 36))),
+            launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(40, 41, 42))),
+            launcher_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+        }
+    }
+
     fn sample_native_config_overrides() -> NativeConfigOverrides {
         NativeConfigOverrides {
             dpi: Some(144),
@@ -102585,6 +102782,7 @@ mod tests {
             },
             color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: vec!["colors".to_owned(), "more-colors".to_owned()],
+            resolved_palette: sample_resolved_palette(),
             foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
             ansi_palette: Some(sample_ansi_palette()),
@@ -102969,6 +103167,7 @@ mod tests {
             visual_bell: NativeVisualBell::default(),
             color_scheme: None,
             color_scheme_dirs: Vec::new(),
+            resolved_palette: NativeResolvedPalette::default(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
