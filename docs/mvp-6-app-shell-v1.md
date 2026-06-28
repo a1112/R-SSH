@@ -1588,9 +1588,9 @@ runtime storage for tabs and split panes.
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`, and
   `show_tabs_in_tab_bar`. Static
   `wezterm.on('format-tab-title', function(...) return ... end)` string and
-  inline or callback-local static FormatItem table returns map onto the same
-  tab-title override path; arbitrary Lua callbacks and the full Lua config
-  object remain later parity work.
+  inline, callback-local, or top-level static FormatItem table returns map onto
+  the same tab-title override path; arbitrary Lua callbacks and the full Lua
+  config object remain later parity work.
 - `rssh-app` dispatches a typed native-window `format-window-title` hook after
   computing the default title. The event carries the default title, active tab
   id, active pane id, tab count, active-tab pane count, and the active
