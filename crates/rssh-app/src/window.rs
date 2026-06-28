@@ -103,6 +103,9 @@ const DEFAULT_WEBGPU_POWER_PREFERENCE: NativeWebGpuPowerPreference =
 const DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER: bool = false;
 const DEFAULT_PREFER_EGL: bool = true;
 const DEFAULT_ENABLE_WAYLAND: bool = true;
+const DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER: bool = false;
+const DEFAULT_USE_BOX_MODEL_RENDER: bool = false;
+const DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING: bool = false;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
 const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
 const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(18_000);
@@ -2771,6 +2774,9 @@ struct NativeEffectiveConfig {
     webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
     prefer_egl: bool,
     enable_wayland: bool,
+    enable_zwlr_output_manager: bool,
+    use_box_model_render: bool,
+    experimental_pixel_positioning: bool,
     cursor_blink_rate_ms: u64,
     cursor_blink_ease_in: NativeEasingFunction,
     cursor_blink_ease_out: NativeEasingFunction,
@@ -2986,6 +2992,9 @@ struct NativeConfigOverrides {
     webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
     prefer_egl: Option<bool>,
     enable_wayland: Option<bool>,
+    enable_zwlr_output_manager: Option<bool>,
+    use_box_model_render: Option<bool>,
+    experimental_pixel_positioning: Option<bool>,
     cursor_blink_rate_ms: Option<u64>,
     cursor_blink_ease_in: Option<NativeEasingFunction>,
     cursor_blink_ease_out: Option<NativeEasingFunction>,
@@ -3993,6 +4002,24 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(enable_wayland) = lua_config_bool_assignment_from_query(config, "enable_wayland") {
         overrides.enable_wayland = Some(enable_wayland);
+        parsed = true;
+    }
+    if let Some(enable_zwlr_output_manager) =
+        lua_config_bool_assignment_from_query(config, "enable_zwlr_output_manager")
+    {
+        overrides.enable_zwlr_output_manager = Some(enable_zwlr_output_manager);
+        parsed = true;
+    }
+    if let Some(use_box_model_render) =
+        lua_config_bool_assignment_from_query(config, "use_box_model_render")
+    {
+        overrides.use_box_model_render = Some(use_box_model_render);
+        parsed = true;
+    }
+    if let Some(experimental_pixel_positioning) =
+        lua_config_bool_assignment_from_query(config, "experimental_pixel_positioning")
+    {
+        overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
         parsed = true;
     }
     if let Some(command_palette_rows) =
@@ -15932,6 +15959,9 @@ struct NativeWindowApp {
     webgpu_preferred_adapter: Option<NativeWebGpuPreferredAdapter>,
     prefer_egl: bool,
     enable_wayland: bool,
+    enable_zwlr_output_manager: bool,
+    use_box_model_render: bool,
+    experimental_pixel_positioning: bool,
     last_status_update_at: Option<Instant>,
     cursor_blink_rate: Duration,
     cursor_blink_ease_in: NativeEasingFunction,
@@ -17436,6 +17466,9 @@ impl NativeWindowApp {
             webgpu_preferred_adapter: None,
             prefer_egl: DEFAULT_PREFER_EGL,
             enable_wayland: DEFAULT_ENABLE_WAYLAND,
+            enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
+            use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
+            experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
             last_status_update_at: None,
             cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
             cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
@@ -18635,6 +18668,9 @@ impl NativeWindowApp {
             .clone_from(&source.webgpu_preferred_adapter);
         self.prefer_egl = source.prefer_egl;
         self.enable_wayland = source.enable_wayland;
+        self.enable_zwlr_output_manager = source.enable_zwlr_output_manager;
+        self.use_box_model_render = source.use_box_model_render;
+        self.experimental_pixel_positioning = source.experimental_pixel_positioning;
         self.last_status_update_at = None;
         self.use_cap_height_to_scale_fallback_fonts = source.use_cap_height_to_scale_fallback_fonts;
         self.command_palette_rows = source.command_palette_rows;
@@ -26881,6 +26917,9 @@ impl NativeWindowApp {
             webgpu_preferred_adapter: self.webgpu_preferred_adapter.clone(),
             prefer_egl: self.prefer_egl,
             enable_wayland: self.enable_wayland,
+            enable_zwlr_output_manager: self.enable_zwlr_output_manager,
+            use_box_model_render: self.use_box_model_render,
+            experimental_pixel_positioning: self.experimental_pixel_positioning,
             cursor_blink_rate_ms: u64::try_from(self.cursor_blink_rate.as_millis())
                 .unwrap_or(u64::MAX),
             cursor_blink_ease_in: self.cursor_blink_ease_in,
@@ -27138,6 +27177,15 @@ impl NativeWindowApp {
         self.webgpu_preferred_adapter = overrides.webgpu_preferred_adapter.clone();
         self.prefer_egl = overrides.prefer_egl.unwrap_or(DEFAULT_PREFER_EGL);
         self.enable_wayland = overrides.enable_wayland.unwrap_or(DEFAULT_ENABLE_WAYLAND);
+        self.enable_zwlr_output_manager = overrides
+            .enable_zwlr_output_manager
+            .unwrap_or(DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER);
+        self.use_box_model_render = overrides
+            .use_box_model_render
+            .unwrap_or(DEFAULT_USE_BOX_MODEL_RENDER);
+        self.experimental_pixel_positioning = overrides
+            .experimental_pixel_positioning
+            .unwrap_or(DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING);
         self.apply_cursor_blink_overrides(
             overrides.cursor_blink_rate_ms,
             overrides.cursor_blink_ease_in,
@@ -53058,9 +53106,10 @@ mod tests {
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
         DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
         DEFAULT_ENABLE_KITTY_GRAPHICS, DEFAULT_ENABLE_KITTY_KEYBOARD,
-        DEFAULT_ENABLE_TITLE_REPORTING, DEFAULT_ENABLE_WAYLAND, DEFAULT_ENQ_ANSWERBACK,
-        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_COLR_RASTERIZER, DEFAULT_FONT_HINTING,
-        DEFAULT_FONT_LOCATOR, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
+        DEFAULT_ENABLE_TITLE_REPORTING, DEFAULT_ENABLE_WAYLAND, DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
+        DEFAULT_ENQ_ANSWERBACK, DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING, DEFAULT_FONT_ANTIALIAS,
+        DEFAULT_FONT_COLR_RASTERIZER, DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR,
+        DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
         DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IGNORE_SVG_FONTS,
@@ -53080,7 +53129,7 @@ mod tests {
         DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE, DEFAULT_STRIKETHROUGH_POSITION,
         DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
         DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR, DEFAULT_UNDERLINE_POSITION,
-        DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
+        DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION, DEFAULT_USE_BOX_MODEL_RENDER,
         DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_DEAD_KEYS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
@@ -67172,6 +67221,9 @@ mod tests {
                 webgpu_preferred_adapter: None,
                 prefer_egl: DEFAULT_PREFER_EGL,
                 enable_wayland: DEFAULT_ENABLE_WAYLAND,
+                enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
+                use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
+                experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
                 cursor_blink_rate_ms: 800,
                 cursor_blink_ease_in: NativeEasingFunction::Linear,
                 cursor_blink_ease_out: NativeEasingFunction::Linear,
@@ -89677,6 +89729,9 @@ mod tests {
         assert_eq!(effective.webgpu_preferred_adapter, None);
         assert!(effective.prefer_egl);
         assert!(effective.enable_wayland);
+        assert!(!effective.enable_zwlr_output_manager);
+        assert!(!effective.use_box_model_render);
+        assert!(!effective.experimental_pixel_positioning);
     }
 
     #[test]
@@ -89745,6 +89800,9 @@ mod tests {
             }
             config.prefer_egl = false
             config.enable_wayland = false
+            config.enable_zwlr_output_manager = true
+            config.use_box_model_render = true
+            config.experimental_pixel_positioning = true
 
             return config
             "#,
@@ -89773,6 +89831,9 @@ mod tests {
         );
         assert!(!effective.prefer_egl);
         assert!(!effective.enable_wayland);
+        assert!(effective.enable_zwlr_output_manager);
+        assert!(effective.use_box_model_render);
+        assert!(effective.experimental_pixel_positioning);
     }
 
     #[test]
@@ -98663,6 +98724,9 @@ mod tests {
             }),
             prefer_egl: Some(false),
             enable_wayland: Some(false),
+            enable_zwlr_output_manager: Some(true),
+            use_box_model_render: Some(true),
+            experimental_pixel_positioning: Some(true),
             cursor_blink_rate_ms: Some(375),
             cursor_blink_ease_in: Some(NativeEasingFunction::EaseIn),
             cursor_blink_ease_out: Some(NativeEasingFunction::EaseOut),
@@ -99028,6 +99092,9 @@ mod tests {
             }),
             prefer_egl: false,
             enable_wayland: false,
+            enable_zwlr_output_manager: true,
+            use_box_model_render: true,
+            experimental_pixel_positioning: true,
             cursor_blink_rate_ms: 375,
             cursor_blink_ease_in: NativeEasingFunction::EaseIn,
             cursor_blink_ease_out: NativeEasingFunction::EaseOut,
@@ -99353,6 +99420,9 @@ mod tests {
             webgpu_preferred_adapter: None,
             prefer_egl: DEFAULT_PREFER_EGL,
             enable_wayland: DEFAULT_ENABLE_WAYLAND,
+            enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
+            use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
+            experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
             cursor_blink_rate_ms: 800,
             cursor_blink_ease_in: NativeEasingFunction::Linear,
             cursor_blink_ease_out: NativeEasingFunction::Linear,

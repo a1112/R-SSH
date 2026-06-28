@@ -1123,7 +1123,9 @@ keyboard, mouse, paste, resize
   per-window overrides for implemented effective-config fields (`dpi`, `tab_max_width`,
   `status_update_interval`, `max_fps`, `animation_fps`, `front_end`,
   `webgpu_power_preference`, `webgpu_force_fallback_adapter`,
-  `webgpu_preferred_adapter`, `prefer_egl`, `enable_wayland`, `cursor_blink_rate`, `cursor_blink_ease_in`,
+  `webgpu_preferred_adapter`, `prefer_egl`, `enable_wayland`,
+  `enable_zwlr_output_manager`, `use_box_model_render`,
+  `experimental_pixel_positioning`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`,
@@ -1209,9 +1211,12 @@ keyboard, mouse, paste, resize
   top-level static string/integer variables, plus top-level
   `config[static_name].backend`/`device`/`device_type`/`driver`/
   `driver_info`/`name`/`vendor` mutations where `static_name` resolves to
-  `webgpu_preferred_adapter`, and
-  `prefer_egl`/`enable_wayland` with `true`; actual renderer front-end, WebGPU
-  adapter, EGL, and Wayland/X11 startup selection remain future parity work.
+  `webgpu_preferred_adapter`, `prefer_egl`/`enable_wayland` with `true`, and
+  `enable_zwlr_output_manager`, `use_box_model_render`, and
+  `experimental_pixel_positioning` with `false`; actual renderer front-end,
+  WebGPU adapter, EGL, box-model render path, pixel-positioning behavior,
+  zwlr output-manager integration, and Wayland/X11 startup selection remain
+  future parity work.
   `use_resize_increments` is
   stored with WezTerm's default `false`, parses inline or through top-level
   static bool variables, and is included in effective config snapshots; when
