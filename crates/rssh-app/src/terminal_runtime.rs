@@ -28,6 +28,7 @@ pub struct TerminalRuntime {
     enable_kitty_keyboard: bool,
     enable_checksum_rectangular_area: bool,
     enable_title_reporting: bool,
+    enq_answerback: String,
     allow_win32_input_mode: bool,
     clipboard_tracker: TerminalClipboardTracker,
     notification_tracker: TerminalNotificationTracker,
@@ -67,6 +68,7 @@ impl TerminalRuntime {
             enable_kitty_keyboard: false,
             enable_checksum_rectangular_area: false,
             enable_title_reporting: false,
+            enq_answerback: String::new(),
             allow_win32_input_mode: true,
             clipboard_tracker: TerminalClipboardTracker::default(),
             notification_tracker: TerminalNotificationTracker::default(),
@@ -122,6 +124,11 @@ impl TerminalRuntime {
                 }
                 FilteredOutputEvent::ResponseBytes(bytes) => {
                     responses.push(bytes);
+                }
+                FilteredOutputEvent::Enq => {
+                    if !self.enq_answerback.is_empty() {
+                        responses.push(self.enq_answerback.as_bytes().to_vec());
+                    }
                 }
                 FilteredOutputEvent::SynchronizedOutputMode { bytes, enabled } => {
                     self.mode_tracker.process_without_emitting(&bytes);
@@ -272,6 +279,10 @@ impl TerminalRuntime {
         self.enable_title_reporting = enabled;
     }
 
+    pub(crate) fn set_enq_answerback(&mut self, answerback: impl Into<String>) {
+        self.enq_answerback = answerback.into();
+    }
+
     pub(crate) fn set_allow_win32_input_mode(&mut self, allowed: bool) {
         self.allow_win32_input_mode = allowed;
         self.mode_tracker.set_allow_win32_input_mode(allowed);
@@ -310,6 +321,7 @@ enum FilteredOutputEvent {
     Display(Vec<u8>),
     Response(TerminalResponse),
     ResponseBytes(Vec<u8>),
+    Enq,
     SynchronizedOutputMode { bytes: Vec<u8>, enabled: bool },
     KittyKeyboardMode { bytes: Vec<u8> },
     KeyModifierOptions { bytes: Vec<u8> },
@@ -556,6 +568,7 @@ impl TerminalOutputFilter {
                 MatchedTerminalEventKind::Response(response) => {
                     Some(self.filtered_response(response))
                 }
+                MatchedTerminalEventKind::Enq => Some(FilteredOutputEvent::Enq),
                 MatchedTerminalEventKind::SynchronizedOutputMode { enabled } => {
                     Some(FilteredOutputEvent::SynchronizedOutputMode {
                         bytes: self.pending[index..consumed_end].to_vec(),
@@ -605,6 +618,15 @@ impl TerminalOutputFilter {
         let response = self
             .find_next_response()
             .map(|(index, response)| (index, response.into()));
+        let enq = find_enq_control(&self.pending).map(|control| {
+            (
+                control.index,
+                MatchedTerminalEvent {
+                    consumed: control.consumed,
+                    event: MatchedTerminalEventKind::Enq,
+                },
+            )
+        });
         let synchronized_output = find_synchronized_output_mode_sequence(&self.pending).map(
             |SynchronizedOutputModeSequence {
                  index,
@@ -678,6 +700,7 @@ impl TerminalOutputFilter {
 
         response
             .into_iter()
+            .chain(enq)
             .chain(synchronized_output)
             .chain(kitty_keyboard_mode)
             .chain(key_modifier_options)
@@ -934,6 +957,7 @@ struct MatchedTerminalEvent {
 
 enum MatchedTerminalEventKind {
     Response(TerminalResponse),
+    Enq,
     SynchronizedOutputMode { enabled: bool },
     KittyKeyboardMode,
     KeyModifierOptions,
@@ -1352,6 +1376,16 @@ const OSC_START_PREFIXES: &[(&[u8], usize)] = &[
 struct StControl {
     index: usize,
     consumed: usize,
+}
+
+fn find_enq_control(bytes: &[u8]) -> Option<StControl> {
+    bytes
+        .iter()
+        .enumerate()
+        .find_map(|(index, byte)| {
+            (*byte == 0x05 && !is_inside_osc_or_st_control_string(bytes, index)).then_some(index)
+        })
+        .map(|index| StControl { index, consumed: 1 })
 }
 
 fn find_st_control(bytes: &[u8]) -> Option<StControl> {
@@ -4190,6 +4224,32 @@ mod tests {
         assert!(text.contains("before middleafter"));
         assert!(!text.contains("[20t"));
         assert!(!text.contains("[21t"));
+    }
+
+    #[test]
+    fn answers_enq_with_configured_answerback() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        runtime.set_enq_answerback("rssh");
+
+        let output = runtime.feed_pty_output_with_display(b"before\x05after");
+
+        assert_eq!(output.responses, vec![b"rssh".to_vec()]);
+        assert_eq!(output.display, b"beforeafter");
+        assert!(terminal_text(&runtime).contains("beforeafter"));
+    }
+
+    #[test]
+    fn ignores_enq_inside_osc_control_string() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(20, 2));
+        runtime.set_enq_answerback("rssh");
+
+        let first = runtime.feed_pty_output_with_display(b"before\x1b]0;op\x05");
+        let second = runtime.feed_pty_output_with_display(b"s\x07after\x05");
+
+        assert!(first.responses.is_empty());
+        assert_eq!(second.responses, vec![b"rssh".to_vec()]);
+        assert_eq!(first.display, b"before");
+        assert_eq!(second.display, b"after");
     }
 
     #[test]

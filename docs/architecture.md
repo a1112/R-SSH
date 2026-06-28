@@ -328,7 +328,10 @@ keyboard, mouse, paste, resize
   DCS checksum responses for visible terminal cells when enabled. Native
   `enable_title_reporting` defaults to false, consumes window-title reports
   without replying by default, and replies to `CSI 21t` with a WezTerm-style Sun
-  window-title OSC when enabled. Native `allow_win32_input_mode` defaults to true, tracks ConPTY
+  window-title OSC when enabled. Native `enq_answerback` defaults to an empty
+  string and, when configured, replies to top-level ENQ (`0x05`) controls with
+  that answerback while ignoring ENQ bytes inside OSC/DCS strings. Native
+  `allow_win32_input_mode` defaults to true, tracks ConPTY
   `CSI ? 9001 h/l` mode requests, and makes native-window and local console
   input emit Win32 key records for that mode before CSI-u/kitty encoding.
   Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
@@ -1136,7 +1139,7 @@ keyboard, mouse, paste, resize
   `char_select_bg_color`, `char_select_fg_color`, `pane_select_font_size`,
   `pane_select_bg_color`, `pane_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
-  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`,
@@ -1531,7 +1534,7 @@ keyboard, mouse, paste, resize
   `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`,
   `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`,
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
-  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
+  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`,
   `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
@@ -1636,7 +1639,7 @@ keyboard, mouse, paste, resize
   `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`,
   `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`,
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
-  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`,
+  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`,
   `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`,
   `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`,
@@ -2060,6 +2063,10 @@ keyboard, mouse, paste, resize
   WezTerm-style UTF-8 C1 DCS (`U+0090`) wrappers for DECRQSS and XTGETTCAP,
   protect UTF-8 C1 DCS payloads from nested query matching, and retain legacy
   raw C1 DCS/ST compatibility.
+- Implemented in v1: native `enq_answerback` defaults to WezTerm's empty
+  string, static Lua `config.enq_answerback` parses into the runtime override
+  path, and top-level ENQ (`0x05`) controls reply with the configured bytes
+  while ENQ bytes inside OSC/DCS control strings do not answer.
 - Implemented in v1: XTGETTCAP replies expose the remaining official WezTerm
   boolean names (`am`, `bce`, `ccc`, `hs`, `mc5i`, `mir`, `msgr`, `npc`, `Su`,
   `xenl`) plus `flash`, printer (`mc0`/`mc4`/`mc5`), memory-lock

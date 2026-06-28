@@ -178,6 +178,7 @@ const DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS: NativeBoldBrightensAnsiColors =
 const DEFAULT_WINDOW_DPI: u32 = 96;
 const DEFAULT_TAB_MAX_WIDTH: usize = 16;
 const DEFAULT_TERM: &str = "xterm-256color";
+const DEFAULT_ENQ_ANSWERBACK: &str = "";
 const DEFAULT_SHOW_CLOSE_TAB_BUTTON_IN_TABS: bool = true;
 const DEFAULT_SHOW_NEW_TAB_BUTTON_IN_TAB_BAR: bool = true;
 const DEFAULT_SHOW_TAB_INDEX_IN_TAB_BAR: bool = true;
@@ -2861,6 +2862,7 @@ struct NativeEffectiveConfig {
     launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: String,
     term: String,
+    enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
     color_scheme_dirs: Vec<String>,
@@ -3071,6 +3073,7 @@ struct NativeConfigOverrides {
     launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: Option<String>,
     term: Option<String>,
+    enq_answerback: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
     visual_bell: Option<NativeVisualBell>,
     color_scheme_dirs: Option<Vec<String>>,
@@ -4102,6 +4105,11 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.selection_word_boundary =
             Some(non_empty_spawn_command_option_value(&selection_word_boundary).ok()?);
+        parsed = true;
+    }
+    if let Some(enq_answerback) = lua_config_string_assignment_from_query(config, "enq_answerback")
+    {
+        overrides.enq_answerback = Some(enq_answerback);
         parsed = true;
     }
     if let Some(canonicalize_pasted_newlines) =
@@ -15760,6 +15768,7 @@ struct NativeWindowApp {
     launcher_label_fg: Option<NativeColorSpec>,
     selection_word_boundary: String,
     term: String,
+    enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
     color_scheme_dirs: Vec<String>,
@@ -17255,6 +17264,7 @@ impl NativeWindowApp {
             launcher_label_fg: None,
             selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
             term: DEFAULT_TERM.to_owned(),
+            enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
             audible_bell: DEFAULT_AUDIBLE_BELL,
             visual_bell: NativeVisualBell::default(),
             color_scheme_dirs: Vec::new(),
@@ -18320,6 +18330,7 @@ impl NativeWindowApp {
             .selection_word_boundary
             .clone_from(&self.selection_word_boundary);
         detached_app.term.clone_from(&self.term);
+        detached_app.enq_answerback.clone_from(&self.enq_answerback);
         detached_app.audible_bell = self.audible_bell;
         detached_app.visual_bell = self.visual_bell;
         detached_app.foreground_color = self.foreground_color;
@@ -18608,6 +18619,7 @@ impl NativeWindowApp {
         self.selection_word_boundary
             .clone_from(&source.selection_word_boundary);
         self.term.clone_from(&source.term);
+        self.enq_answerback.clone_from(&source.enq_answerback);
         self.audible_bell = source.audible_bell;
         self.visual_bell = source.visual_bell;
         self.color_scheme_dirs.clone_from(&source.color_scheme_dirs);
@@ -18906,6 +18918,7 @@ impl NativeWindowApp {
 
         let mut replacement_runtime = TerminalRuntime::new(size);
         replacement_runtime.set_terminal_name(self.term.clone());
+        replacement_runtime.set_enq_answerback(self.enq_answerback.clone());
         replacement_runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
         replacement_runtime
             .set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
@@ -18941,6 +18954,7 @@ impl NativeWindowApp {
         let size = self.runtime.terminal().grid().size();
         let mut runtime = TerminalRuntime::new(size);
         runtime.set_terminal_name(self.term.clone());
+        runtime.set_enq_answerback(self.enq_answerback.clone());
         runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
         runtime.set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
         runtime.set_enable_title_reporting(self.enable_title_reporting);
@@ -26911,6 +26925,7 @@ impl NativeWindowApp {
             launcher_label_fg: self.launcher_label_fg,
             selection_word_boundary: self.selection_word_boundary.clone(),
             term: self.term.clone(),
+            enq_answerback: self.enq_answerback.clone(),
             audible_bell: self.audible_bell,
             visual_bell: self.visual_bell,
             color_scheme_dirs: self.color_scheme_dirs.clone(),
@@ -27295,7 +27310,10 @@ impl NativeWindowApp {
             .selection_word_boundary
             .unwrap_or_else(|| DEFAULT_SELECTION_WORD_BOUNDARY.to_owned());
         self.term = overrides.term.unwrap_or_else(|| DEFAULT_TERM.to_owned());
-        self.apply_terminal_name_config_to_runtimes();
+        self.enq_answerback = overrides
+            .enq_answerback
+            .unwrap_or_else(|| DEFAULT_ENQ_ANSWERBACK.to_owned());
+        self.apply_terminal_identity_config_to_runtimes();
         self.audible_bell = overrides.audible_bell.unwrap_or(DEFAULT_AUDIBLE_BELL);
         self.visual_bell = overrides.visual_bell.unwrap_or_default();
         self.color_scheme_dirs = overrides.color_scheme_dirs.clone().unwrap_or_default();
@@ -27628,10 +27646,14 @@ impl NativeWindowApp {
             .collect()
     }
 
-    fn apply_terminal_name_config_to_runtimes(&mut self) {
+    fn apply_terminal_identity_config_to_runtimes(&mut self) {
         self.runtime.set_terminal_name(self.term.clone());
+        self.runtime.set_enq_answerback(self.enq_answerback.clone());
         for runtime in self.pane_runtimes.values_mut() {
             runtime.runtime.set_terminal_name(self.term.clone());
+            runtime
+                .runtime
+                .set_enq_answerback(self.enq_answerback.clone());
         }
     }
 
@@ -28907,6 +28929,7 @@ impl NativeWindowApp {
         let runtime_size = self.runtime.terminal().grid().size();
         let mut runtime = TerminalRuntime::new(runtime_size);
         runtime.set_terminal_name(self.term.clone());
+        runtime.set_enq_answerback(self.enq_answerback.clone());
         runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
         runtime.set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
         runtime.set_enable_title_reporting(self.enable_title_reporting);
@@ -52964,23 +52987,23 @@ mod tests {
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
         DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
         DEFAULT_ENABLE_KITTY_GRAPHICS, DEFAULT_ENABLE_KITTY_KEYBOARD,
-        DEFAULT_ENABLE_TITLE_REPORTING, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
-        DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER,
-        DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR,
-        DEFAULT_FOREGROUND_TEXT_HSB, DEFAULT_FREETYPE_LOAD_TARGET,
-        DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
-        DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB,
-        DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT, DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
-        DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
-        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
-        DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
-        DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT, DEFAULT_MUX_ENABLE_SSH_AGENT,
-        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY,
-        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_ENABLE_TITLE_REPORTING, DEFAULT_ENABLE_WAYLAND, DEFAULT_ENQ_ANSWERBACK,
+        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR,
+        DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
+        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
+        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+        DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
+        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
+        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
+        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR,
+        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
@@ -59962,6 +59985,32 @@ mod tests {
             .unwrap();
 
         assert_eq!(written.lock().unwrap().as_slice(), b"\x1b]lops\x1b\\");
+        let snapshot = app.render_snapshot();
+        assert!(
+            snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS).contains("beforeafter")
+        );
+    }
+
+    #[test]
+    fn window_app_honors_wezterm_enq_answerback() {
+        let mut app = NativeWindowApp::new(None);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.enq_answerback = 'rssh'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ENQ answerback config");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"before\x05after").unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"rssh");
         let snapshot = app.render_snapshot();
         assert!(
             snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS).contains("beforeafter")
@@ -67155,6 +67204,7 @@ mod tests {
                 launcher_label_fg: None,
                 selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
                 term: "xterm-256color".to_owned(),
+                enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
                 audible_bell: NativeAudibleBell::SystemBeep,
                 visual_bell: NativeVisualBell::default(),
                 color_scheme_dirs: Vec::new(),
@@ -98682,6 +98732,7 @@ mod tests {
             launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(40, 41, 42))),
             selection_word_boundary: Some(" :".to_owned()),
             term: Some("wezterm".to_owned()),
+            enq_answerback: Some("rssh".to_owned()),
             audible_bell: Some(NativeAudibleBell::Disabled),
             visual_bell: Some(NativeVisualBell {
                 fade_in_duration_ms: 10,
@@ -99041,6 +99092,7 @@ mod tests {
             launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(40, 41, 42))),
             selection_word_boundary: " :".to_owned(),
             term: "wezterm".to_owned(),
+            enq_answerback: "rssh".to_owned(),
             audible_bell: NativeAudibleBell::Disabled,
             visual_bell: NativeVisualBell {
                 fade_in_duration_ms: 10,
@@ -99278,6 +99330,7 @@ mod tests {
             launcher_label_fg: None,
             selection_word_boundary: DEFAULT_SELECTION_WORD_BOUNDARY.to_owned(),
             term: "xterm-256color".to_owned(),
+            enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
             audible_bell: NativeAudibleBell::SystemBeep,
             visual_bell: NativeVisualBell::default(),
             color_scheme_dirs: Vec::new(),
