@@ -213,6 +213,7 @@ const DEFAULT_UNZOOM_ON_SWITCH_PANE: bool = true;
 const DEFAULT_TAB_BAR_AT_BOTTOM: bool = false;
 const DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED: bool = false;
 const DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT: bool = true;
+const DEFAULT_ENABLE_KITTY_GRAPHICS: bool = true;
 const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
@@ -2905,6 +2906,7 @@ struct NativeEffectiveConfig {
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
+    enable_kitty_graphics: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
@@ -3113,6 +3115,7 @@ struct NativeConfigOverrides {
     key_map_preference: Option<NativeKeyMapPreference>,
     ui_key_cap_rendering: Option<NativeUiKeyCapRendering>,
     swap_backspace_and_delete: Option<bool>,
+    enable_kitty_graphics: Option<bool>,
     enable_csi_u_key_encoding: Option<bool>,
     enable_kitty_keyboard: Option<bool>,
     allow_win32_input_mode: Option<bool>,
@@ -4135,6 +4138,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "swap_backspace_and_delete")
     {
         overrides.swap_backspace_and_delete = Some(swap_backspace_and_delete);
+        parsed = true;
+    }
+    if let Some(enable_kitty_graphics) =
+        lua_config_bool_assignment_from_query(config, "enable_kitty_graphics")
+    {
+        overrides.enable_kitty_graphics = Some(enable_kitty_graphics);
         parsed = true;
     }
     if let Some(enable_csi_u_key_encoding) =
@@ -15781,6 +15790,7 @@ struct NativeWindowApp {
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
+    enable_kitty_graphics: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
@@ -17273,6 +17283,7 @@ impl NativeWindowApp {
             key_map_preference: NativeKeyMapPreference::Mapped,
             ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
+            enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
@@ -18391,6 +18402,7 @@ impl NativeWindowApp {
         detached_app.key_map_preference = self.key_map_preference;
         detached_app.ui_key_cap_rendering = self.ui_key_cap_rendering;
         detached_app.swap_backspace_and_delete = self.swap_backspace_and_delete;
+        detached_app.enable_kitty_graphics = self.enable_kitty_graphics;
         detached_app.enable_csi_u_key_encoding = self.enable_csi_u_key_encoding;
         detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
         detached_app.allow_win32_input_mode = self.allow_win32_input_mode;
@@ -18665,6 +18677,7 @@ impl NativeWindowApp {
         self.key_map_preference = source.key_map_preference;
         self.ui_key_cap_rendering = source.ui_key_cap_rendering;
         self.swap_backspace_and_delete = source.swap_backspace_and_delete;
+        self.enable_kitty_graphics = source.enable_kitty_graphics;
         self.enable_csi_u_key_encoding = source.enable_csi_u_key_encoding;
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
@@ -18867,6 +18880,7 @@ impl NativeWindowApp {
 
         let mut replacement_runtime = TerminalRuntime::new(size);
         replacement_runtime.set_terminal_name(self.term.clone());
+        replacement_runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
         replacement_runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         replacement_runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
         replacement_runtime.set_treat_east_asian_ambiguous_width_as_wide(
@@ -18898,6 +18912,7 @@ impl NativeWindowApp {
         let size = self.runtime.terminal().grid().size();
         let mut runtime = TerminalRuntime::new(size);
         runtime.set_terminal_name(self.term.clone());
+        runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
         runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
@@ -26912,6 +26927,7 @@ impl NativeWindowApp {
             key_map_preference: self.key_map_preference,
             ui_key_cap_rendering: self.ui_key_cap_rendering,
             swap_backspace_and_delete: self.swap_backspace_and_delete,
+            enable_kitty_graphics: self.enable_kitty_graphics,
             enable_csi_u_key_encoding: self.enable_csi_u_key_encoding,
             enable_kitty_keyboard: self.enable_kitty_keyboard,
             allow_win32_input_mode: self.allow_win32_input_mode,
@@ -27366,6 +27382,9 @@ impl NativeWindowApp {
             .ui_key_cap_rendering
             .unwrap_or(DEFAULT_UI_KEY_CAP_RENDERING);
         self.swap_backspace_and_delete = overrides.swap_backspace_and_delete.unwrap_or(false);
+        self.enable_kitty_graphics = overrides
+            .enable_kitty_graphics
+            .unwrap_or(DEFAULT_ENABLE_KITTY_GRAPHICS);
         self.enable_csi_u_key_encoding = overrides
             .enable_csi_u_key_encoding
             .unwrap_or(DEFAULT_ENABLE_CSI_U_KEY_ENCODING);
@@ -27498,10 +27517,15 @@ impl NativeWindowApp {
 
     fn apply_keyboard_protocol_config_to_runtimes(&mut self) {
         self.runtime
+            .set_enable_kitty_graphics(self.enable_kitty_graphics);
+        self.runtime
             .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         self.runtime
             .set_allow_win32_input_mode(self.allow_win32_input_mode);
         for runtime in self.pane_runtimes.values_mut() {
+            runtime
+                .runtime
+                .set_enable_kitty_graphics(self.enable_kitty_graphics);
             runtime
                 .runtime
                 .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
@@ -28834,6 +28858,7 @@ impl NativeWindowApp {
         let runtime_size = self.runtime.terminal().grid().size();
         let mut runtime = TerminalRuntime::new(runtime_size);
         runtime.set_terminal_name(self.term.clone());
+        runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
         runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
@@ -52886,23 +52911,24 @@ mod tests {
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
         DEFAULT_DETECT_PASSWORD_INPUT, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
-        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND,
-        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR,
-        DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
-        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
-        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
-        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
-        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
-        DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
-        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
-        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
-        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
-        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR,
-        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
-        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_GRAPHICS,
+        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
+        DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER,
+        DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR,
+        DEFAULT_FOREGROUND_TEXT_HSB, DEFAULT_FREETYPE_LOAD_TARGET,
+        DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
+        DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB,
+        DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT, DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
+        DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
+        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
+        DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+        DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT, DEFAULT_MUX_ENABLE_SSH_AGENT,
+        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY,
+        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
@@ -59813,6 +59839,30 @@ mod tests {
             frame_pixel_at(&frame, FRAME_WIDTH as usize, 0, terminal_origin_y),
             [0, 255, 0, 255]
         );
+    }
+
+    #[test]
+    fn window_app_honors_wezterm_enable_kitty_graphics_false() {
+        let mut app = NativeWindowApp::new(None);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.enable_kitty_graphics = false
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm enable_kitty_graphics config");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"\x1b_Ga=q,i=31,t=d,f=24,s=1,v=1;/wAA\x1b\\")
+            .unwrap();
+
+        assert!(written.lock().unwrap().is_empty());
+        assert!(app.render_snapshot().inline_images().is_empty());
     }
 
     #[test]
@@ -67049,6 +67099,7 @@ mod tests {
                 key_map_preference: NativeKeyMapPreference::Mapped,
                 ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
                 swap_backspace_and_delete: false,
+                enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
                 enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
@@ -88204,6 +88255,7 @@ mod tests {
 
             config.key_map_preference = 'Physical'
             config.swap_backspace_and_delete = true
+            config.enable_kitty_graphics = false
             config.enable_csi_u_key_encoding = true
             config.enable_kitty_keyboard = true
             config.allow_win32_input_mode = false
@@ -88223,6 +88275,7 @@ mod tests {
             NativeKeyMapPreference::Physical
         );
         assert!(effective.swap_backspace_and_delete);
+        assert!(!effective.enable_kitty_graphics);
         assert!(effective.enable_csi_u_key_encoding);
         assert!(effective.enable_kitty_keyboard);
         assert!(!effective.allow_win32_input_mode);
@@ -98593,6 +98646,7 @@ mod tests {
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
             swap_backspace_and_delete: Some(true),
+            enable_kitty_graphics: Some(false),
             enable_csi_u_key_encoding: Some(true),
             enable_kitty_keyboard: Some(true),
             allow_win32_input_mode: Some(false),
@@ -98949,6 +99003,7 @@ mod tests {
             key_map_preference: NativeKeyMapPreference::Physical,
             ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
             swap_backspace_and_delete: true,
+            enable_kitty_graphics: false,
             enable_csi_u_key_encoding: true,
             enable_kitty_keyboard: true,
             allow_win32_input_mode: false,
@@ -99157,6 +99212,7 @@ mod tests {
             key_map_preference: NativeKeyMapPreference::Mapped,
             ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
+            enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,

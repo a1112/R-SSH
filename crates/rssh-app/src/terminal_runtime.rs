@@ -249,6 +249,10 @@ impl TerminalRuntime {
         }
     }
 
+    pub(crate) fn set_enable_kitty_graphics(&mut self, enabled: bool) {
+        self.terminal.set_enable_kitty_graphics(enabled);
+    }
+
     pub(crate) fn set_allow_win32_input_mode(&mut self, allowed: bool) {
         self.allow_win32_input_mode = allowed;
         self.mode_tracker.set_allow_win32_input_mode(allowed);

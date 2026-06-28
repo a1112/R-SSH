@@ -443,6 +443,7 @@ pub struct Terminal {
     last_kitty_placeholder: Option<LastKittyPlaceholder>,
     kitty_placeholder_cells: HashMap<(usize, u16), LastKittyPlaceholder>,
     next_kitty_image_id: u32,
+    enable_kitty_graphics: bool,
     semantic_prompt_rows: Vec<usize>,
     semantic_command_exits: Vec<SemanticCommandExit>,
     cursor_row: u16,
@@ -578,6 +579,7 @@ impl Terminal {
             last_kitty_placeholder: None,
             kitty_placeholder_cells: HashMap::new(),
             next_kitty_image_id: 1,
+            enable_kitty_graphics: true,
             semantic_prompt_rows: Vec::new(),
             semantic_command_exits: Vec::new(),
             cursor_row: 0,
@@ -625,6 +627,13 @@ impl Terminal {
 
     pub fn set_cell_width_overrides(&mut self, overrides: Vec<CellWidthOverride>) {
         self.cell_width_overrides = overrides;
+    }
+
+    pub fn set_enable_kitty_graphics(&mut self, enabled: bool) {
+        self.enable_kitty_graphics = enabled;
+        if !enabled {
+            self.pending_kitty_graphics = None;
+        }
     }
 
     pub fn feed(&mut self, bytes: &[u8]) {
@@ -1206,6 +1215,11 @@ impl Terminal {
     }
 
     fn apply_kitty_graphics(&mut self, graphics: &str) {
+        if !self.enable_kitty_graphics {
+            self.pending_kitty_graphics = None;
+            return;
+        }
+
         let (control, encoded_data) = graphics.split_once(';').unwrap_or((graphics, ""));
         let params = parse_kitty_graphics_params(control);
         if params.image_id.is_some() && params.image_number.is_some() {
