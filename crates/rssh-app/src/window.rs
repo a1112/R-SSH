@@ -3151,6 +3151,7 @@ struct NativeEffectiveConfig {
     mux_env_remove: Vec<String>,
     tiling_desktop_environments: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
+    launch_menu: Vec<NativeLaunchMenuItem>,
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
@@ -29105,6 +29106,7 @@ impl NativeWindowApp {
             mux_env_remove: self.mux_env_remove.clone(),
             tiling_desktop_environments: self.tiling_desktop_environments.clone(),
             set_environment_variables: self.set_environment_variables.clone(),
+            launch_menu: self.launch_menu.clone(),
             key_map_preference: self.key_map_preference,
             ui_key_cap_rendering: self.ui_key_cap_rendering,
             swap_backspace_and_delete: self.swap_backspace_and_delete,
@@ -69665,6 +69667,7 @@ mod tests {
                 mux_env_remove: default_mux_env_remove(),
                 tiling_desktop_environments: default_tiling_desktop_environments(),
                 set_environment_variables: BTreeMap::new(),
+                launch_menu: Vec::new(),
                 key_map_preference: NativeKeyMapPreference::Mapped,
                 ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
                 swap_backspace_and_delete: false,
@@ -96548,6 +96551,13 @@ mod tests {
         .expect("expected WezTerm launch_menu config");
         app.set_config_overrides(overrides);
 
+        let effective_launch_menu = app.native_effective_config().launch_menu;
+        assert_eq!(effective_launch_menu.len(), 1);
+        assert_eq!(
+            effective_launch_menu[0].label.as_deref(),
+            Some("System Monitor")
+        );
+
         assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
             WindowShowLauncherArgs {
                 flags: WindowShowLauncherFlags::launch_menu_items(),
@@ -102668,6 +102678,17 @@ mod tests {
             mux_env_remove: vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()],
             tiling_desktop_environments: vec!["X11 i3".to_owned(), "Wayland Sway".to_owned()],
             set_environment_variables: sample_environment(),
+            launch_menu: vec![NativeLaunchMenuItem {
+                label: Some("Top".to_owned()),
+                command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
+                    program: "top".to_owned(),
+                    args: vec!["-H".to_owned()],
+                    cwd: Some("/tmp/default".to_owned()),
+                    environment: sample_environment(),
+                    domain: None,
+                    window_position: None,
+                }),
+            }],
             key_map_preference: NativeKeyMapPreference::Physical,
             ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
             swap_backspace_and_delete: true,
@@ -102919,6 +102940,7 @@ mod tests {
             mux_env_remove: default_mux_env_remove(),
             tiling_desktop_environments: default_tiling_desktop_environments(),
             set_environment_variables: BTreeMap::new(),
+            launch_menu: Vec::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
             ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
