@@ -623,9 +623,11 @@ keyboard, mouse, paste, resize
   variables, with `description`/`prompt` also accepting top-level static
   `wezterm.format` text variables and parenthesized calls accepting top-level
   static options table variables. Static
-  `action = wezterm.action_callback(...)` fields and top-level static callback
-  variables are accepted as native-handler placeholders; styled prompt-line rendering and actual Lua
-  callback wiring remain future parity work.
+  `action = wezterm.action_callback(...)` fields, top-level static callback
+  variables, and callbacks built from top-level static
+  `wezterm.action_callback` aliases are accepted as native-handler
+  placeholders; styled prompt-line rendering and actual Lua callback wiring
+  remain future parity work.
 - Completed in v1: a native WezTerm-style `InputSelector` action payload carries
   `title`, `choices`, optional `alphabet`, optional `description`, optional
   `fuzzy_description`, and `fuzzy`; it opens a modal selector with default-mode
@@ -651,8 +653,10 @@ keyboard, mouse, paste, resize
   inline or through a top-level static bool variable. Parenthesized
   `InputSelector(input_opts)` calls also accept top-level static options table
   variables. Static
-  `action = wezterm.action_callback(...)` fields and top-level static callback variables
-  are accepted as native-handler placeholders.
+  `action = wezterm.action_callback(...)` fields, top-level static callback
+  variables, and callbacks built from top-level static
+  `wezterm.action_callback` aliases are accepted as native-handler
+  placeholders.
   Duplicate `fuzzy` fields are rejected instead of silently overriding them;
   actual Lua `wezterm.action_callback` wiring remains future parity work.
 - Completed in v1: a native WezTerm-style `Confirmation` action payload carries
