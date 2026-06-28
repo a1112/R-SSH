@@ -2838,6 +2838,19 @@ struct NativeSerialDomain {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeExecDomainLabel {
+    Value(String),
+    Function(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeExecDomain {
+    name: String,
+    fixup_command: String,
+    label: Option<NativeExecDomainLabel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
     dpi: u32,
@@ -3006,6 +3019,7 @@ struct NativeEffectiveConfig {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     daemon_options: NativeDaemonOptions,
+    exec_domains: Vec<NativeExecDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -3248,6 +3262,7 @@ struct NativeConfigOverrides {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     daemon_options: Option<NativeDaemonOptions>,
+    exec_domains: Option<Vec<NativeExecDomain>>,
     serial_ports: Option<Vec<NativeSerialDomain>>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
@@ -3429,6 +3444,29 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         })
     {
         overrides.daemon_options = Some(daemon_options);
+        parsed = true;
+    }
+    if let Some(exec_domains) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "exec_domains",
+        )
+        .and_then(|exec_domains| {
+            native_exec_domains_lua_table_from_query(
+                config,
+                &exec_domains.value,
+                exec_domains.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "exec_domains")
+                .and_then(|exec_domains| {
+                    let max_start = lua_source_slice_start_offset(config, exec_domains)?;
+                    native_exec_domains_lua_table_from_query(config, exec_domains, max_start)
+                })
+        })
+    {
+        overrides.exec_domains = Some(exec_domains);
         parsed = true;
     }
     if let Some(serial_ports) =
@@ -12835,6 +12873,185 @@ fn native_dpi_by_screen_lua_table_from_query(
 }
 
 #[allow(dead_code)]
+fn native_exec_domains_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeExecDomain>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut domains = Vec::new();
+    let mut indexed_domains = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !domains.is_empty() || index == 0 || indexed_domains.contains_key(&index) {
+                return None;
+            }
+            indexed_domains.insert(
+                index,
+                native_exec_domain_lua_value_from_query(static_source, value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_domains.is_empty() {
+            return None;
+        }
+        domains.push(native_exec_domain_lua_value_from_query(
+            static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_domains.is_empty() {
+        return (1..=indexed_domains.len())
+            .map(|index| indexed_domains.remove(&index))
+            .collect();
+    }
+
+    Some(domains)
+}
+
+#[allow(dead_code)]
+fn native_exec_domain_lua_value_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeExecDomain> {
+    let value = value.trim();
+    if let Some(domain) = native_exec_domain_function_from_query(static_source, value) {
+        return Some(domain);
+    }
+    if value.starts_with('{') {
+        return native_exec_domain_lua_table_from_query(static_source, value);
+    }
+
+    let static_source = static_source?;
+    let expression = lua_static_expression_assignment_value_before_offset_from_query(
+        static_source.source,
+        value,
+        static_source.max_start,
+    )?;
+    native_exec_domain_lua_value_from_query(Some(static_source), expression)
+}
+
+#[allow(dead_code)]
+fn native_exec_domain_function_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeExecDomain> {
+    let body = strip_lua_function_call_from_query(value, "wezterm.exec_domain")
+        .or_else(|| strip_lua_function_call_from_query(value, "exec_domain"))?;
+    let args = split_lua_top_level_arguments(body)?;
+    if !(2..=3).contains(&args.len()) {
+        return None;
+    }
+
+    let name = parse_maybe_static_query_text(static_source, args[0].trim())?;
+    let name = non_empty_spawn_command_option_value(&name).ok()?;
+    if !native_lua_function_expression_from_query(args[1]) {
+        return None;
+    }
+    let label = if let Some(label) = args.get(2) {
+        Some(native_exec_domain_label_from_query(
+            static_source,
+            &name,
+            label.trim(),
+        )?)
+    } else {
+        None
+    };
+
+    Some(NativeExecDomain {
+        fixup_command: format!("exec-domain-{name}"),
+        name,
+        label,
+    })
+}
+
+#[allow(dead_code)]
+fn native_exec_domain_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeExecDomain> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut name = None;
+    let mut fixup_command = None;
+    let mut label = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        if key.eq_ignore_ascii_case("name") {
+            if name.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            name = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("fixup_command") {
+            if fixup_command.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            fixup_command = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("label") {
+            if label.is_some() {
+                return None;
+            }
+            let current_name = name.as_deref().unwrap_or_default();
+            label = Some(native_exec_domain_label_from_query(
+                static_source,
+                current_name,
+                value,
+            )?);
+        } else {
+            return None;
+        }
+    }
+
+    Some(NativeExecDomain {
+        name: name?,
+        fixup_command: fixup_command?,
+        label,
+    })
+}
+
+#[allow(dead_code)]
+fn native_exec_domain_label_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    name: &str,
+    value: &str,
+) -> Option<NativeExecDomainLabel> {
+    if native_lua_function_expression_from_query(value) {
+        return Some(NativeExecDomainLabel::Function(format!(
+            "exec-domain-{name}-label"
+        )));
+    }
+
+    let value = parse_maybe_static_query_text(static_source, value)?;
+    Some(NativeExecDomainLabel::Value(
+        non_empty_spawn_command_option_value(&value).ok()?,
+    ))
+}
+
+#[allow(dead_code)]
+fn native_lua_function_expression_from_query(value: &str) -> bool {
+    let value = value.trim_start();
+    lua_source_keyword_at(value, 0, "function")
+}
+
+#[allow(dead_code)]
 fn native_serial_ports_lua_table_from_query(
     source: &str,
     value: &str,
@@ -16390,6 +16607,7 @@ struct NativeWindowApp {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     daemon_options: NativeDaemonOptions,
+    exec_domains: Vec<NativeExecDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -17917,6 +18135,7 @@ impl NativeWindowApp {
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
             daemon_options: NativeDaemonOptions::default(),
+            exec_domains: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
@@ -19073,6 +19292,7 @@ impl NativeWindowApp {
             .default_mux_server_domain
             .clone_from(&self.default_mux_server_domain);
         detached_app.daemon_options.clone_from(&self.daemon_options);
+        detached_app.exec_domains.clone_from(&self.exec_domains);
         detached_app.serial_ports.clone_from(&self.serial_ports);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
         detached_app.ssh_backend = self.ssh_backend;
@@ -19390,6 +19610,7 @@ impl NativeWindowApp {
         self.default_mux_server_domain
             .clone_from(&source.default_mux_server_domain);
         self.daemon_options.clone_from(&source.daemon_options);
+        self.exec_domains.clone_from(&source.exec_domains);
         self.serial_ports.clone_from(&source.serial_ports);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.ssh_backend = source.ssh_backend;
@@ -27685,6 +27906,7 @@ impl NativeWindowApp {
             default_ssh_auth_sock: self.default_ssh_auth_sock.clone(),
             default_mux_server_domain: self.default_mux_server_domain.clone(),
             daemon_options: self.daemon_options.clone(),
+            exec_domains: self.exec_domains.clone(),
             serial_ports: self.serial_ports.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             ssh_backend: self.ssh_backend,
@@ -28193,6 +28415,7 @@ impl NativeWindowApp {
             .default_mux_server_domain
             .filter(|default_mux_server_domain| !default_mux_server_domain.is_empty());
         self.daemon_options = overrides.daemon_options.clone().unwrap_or_default();
+        self.exec_domains = overrides.exec_domains.clone().unwrap_or_default();
         self.serial_ports = overrides.serial_ports.clone().unwrap_or_default();
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
@@ -42891,6 +43114,116 @@ fn split_lua_table_top_level_fields(table: &str) -> Option<Vec<&str>> {
     Some(fields)
 }
 
+fn split_lua_top_level_arguments(arguments: &str) -> Option<Vec<&str>> {
+    let mut values = Vec::new();
+    let mut table_depth = 0u32;
+    let mut paren_depth = 0u32;
+    let mut bracket_depth = 0u32;
+    let mut lua_block_depth = 0usize;
+    let mut quote = None;
+    let mut start = 0usize;
+    let mut escape = false;
+    let mut long_bracket_end = None;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+
+    for (index, character) in arguments.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+        if let Some(quoted) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == quoted {
+                quote = None;
+            }
+            continue;
+        }
+        if arguments[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&arguments[index + 2..])
+            {
+                let content_and_rest = &arguments[index + 2 + content_start..];
+                let close_index = content_and_rest.find(&closing)?;
+                block_comment_end = Some(index + 2 + content_start + close_index + closing.len());
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&arguments[index..])
+                {
+                    let content_and_rest = &arguments[index + content_start..];
+                    let close_index = content_and_rest.find(&closing)?;
+                    long_bracket_end = Some(index + content_start + close_index + closing.len());
+                } else {
+                    bracket_depth = bracket_depth.saturating_add(1);
+                }
+            }
+            ']' => bracket_depth = bracket_depth.checked_sub(1)?,
+            '{' => table_depth = table_depth.saturating_add(1),
+            '}' => table_depth = table_depth.checked_sub(1)?,
+            '(' => paren_depth = paren_depth.saturating_add(1),
+            ')' => paren_depth = paren_depth.checked_sub(1)?,
+            ',' if table_depth == 0
+                && paren_depth == 0
+                && bracket_depth == 0
+                && lua_block_depth == 0 =>
+            {
+                values.push(&arguments[start..index]);
+                start = index + character.len_utf8();
+            }
+            _ => {}
+        }
+
+        if lua_source_keyword_at(arguments, index, "function")
+            || lua_source_keyword_at(arguments, index, "then")
+            || lua_source_keyword_at(arguments, index, "do")
+            || lua_source_keyword_at(arguments, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(arguments, index, "end")
+            || lua_source_keyword_at(arguments, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+        }
+    }
+
+    if quote.is_some()
+        || table_depth != 0
+        || paren_depth != 0
+        || bracket_depth != 0
+        || lua_block_depth != 0
+    {
+        return None;
+    }
+    values.push(&arguments[start..]);
+    Some(values)
+}
+
 fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     let mut depth = 0u32;
     let mut paren_depth = 0u32;
@@ -53851,13 +54184,14 @@ mod tests {
         NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
         NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
         NativeCursorStyle, NativeCursorThickness, NativeDaemonOptions, NativeDisplayPixelGeometry,
-        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontAttributes, NativeFontHinting,
-        NativeFontLocator, NativeFontRasterizer, NativeFontRule, NativeFontShaper, NativeFontSize,
-        NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
-        NativeFreetypeLoadFlags, NativeFreetypeTarget, NativeHorizontalContentAlignment,
-        NativeHsbMultiplier, NativeHyperlinkRule, NativeImePreeditRendering, NativeInactivePaneHsb,
-        NativeInputSelector, NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
+        NativeEasingFunction, NativeEffectiveConfig, NativeExecDomain, NativeExecDomainLabel,
+        NativeExitBehavior, NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontAttributes,
+        NativeFontHinting, NativeFontLocator, NativeFontRasterizer, NativeFontRule,
+        NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
+        NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
+        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeHyperlinkRule,
+        NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
+        NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
         NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
@@ -68094,6 +68428,7 @@ mod tests {
                 default_ssh_auth_sock: None,
                 default_mux_server_domain: None,
                 daemon_options: NativeDaemonOptions::default(),
+                exec_domains: Vec::new(),
                 serial_ports: Vec::new(),
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 ssh_backend: NativeSshBackend::LibSsh,
@@ -92202,6 +92537,58 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_exec_domains_config() {
+        let app = NativeWindowApp::new(None);
+
+        assert!(app.native_effective_config().exec_domains.is_empty());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_exec_domains() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.exec_domains = {
+              wezterm.exec_domain('build', function(cmd)
+                return cmd
+              end, 'Build Host'),
+              wezterm.exec_domain('deploy', function(cmd)
+                table.insert(cmd.args, '--deploy')
+                return cmd
+              end, function(domain)
+                return 'Deploy ' .. domain
+              end),
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm exec_domains config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().exec_domains,
+            vec![
+                NativeExecDomain {
+                    name: "build".to_owned(),
+                    fixup_command: "exec-domain-build".to_owned(),
+                    label: Some(NativeExecDomainLabel::Value("Build Host".to_owned())),
+                },
+                NativeExecDomain {
+                    name: "deploy".to_owned(),
+                    fixup_command: "exec-domain-deploy".to_owned(),
+                    label: Some(NativeExecDomainLabel::Function(
+                        "exec-domain-deploy-label".to_owned(),
+                    )),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn window_app_configured_dpi_overrides_detected_scale_factor() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(2.0);
@@ -100117,6 +100504,11 @@ mod tests {
                 stdout: Some("logs/wezterm.out".to_owned()),
                 stderr: Some("logs/wezterm.err".to_owned()),
             }),
+            exec_domains: Some(vec![NativeExecDomain {
+                name: "ops".to_owned(),
+                fixup_command: "exec-domain-ops".to_owned(),
+                label: Some(NativeExecDomainLabel::Value("Ops".to_owned())),
+            }]),
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -100519,6 +100911,11 @@ mod tests {
                 stdout: Some("logs/wezterm.out".to_owned()),
                 stderr: Some("logs/wezterm.err".to_owned()),
             },
+            exec_domains: vec![NativeExecDomain {
+                name: "ops".to_owned(),
+                fixup_command: "exec-domain-ops".to_owned(),
+                label: Some(NativeExecDomainLabel::Value("Ops".to_owned())),
+            }],
             serial_ports: vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -100766,6 +101163,7 @@ mod tests {
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
             daemon_options: NativeDaemonOptions::default(),
+            exec_domains: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
