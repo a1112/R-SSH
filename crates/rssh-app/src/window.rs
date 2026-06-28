@@ -3766,6 +3766,7 @@ struct NativeConfigOverrides {
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
     mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
+    lua_tab_title: Option<String>,
     lua_window_title: Option<String>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     scroll_to_bottom_on_input: Option<bool>,
@@ -3818,6 +3819,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_static_wezterm_string_return_event_from_query(config, "format-window-title")
     {
         overrides.lua_window_title = Some(window_title);
+        parsed = true;
+    }
+    if let Some(tab_title) =
+        lua_static_wezterm_string_return_event_from_query(config, "format-tab-title")
+    {
+        overrides.lua_tab_title = Some(tab_title);
         parsed = true;
     }
 
@@ -18695,6 +18702,7 @@ struct NativeWindowApp {
     latest_notification: Option<TerminalNotification>,
     left_status: String,
     right_status: String,
+    lua_tab_title: Option<String>,
     lua_window_title: Option<String>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     status_update_interval: Duration,
@@ -20241,6 +20249,7 @@ impl NativeWindowApp {
             latest_notification: None,
             left_status: String::new(),
             right_status: String::new(),
+            lua_tab_title: None,
             lua_window_title: None,
             lua_update_status: None,
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
@@ -21499,6 +21508,7 @@ impl NativeWindowApp {
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
+        self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
         self.max_fps = source.max_fps;
@@ -29780,7 +29790,9 @@ impl NativeWindowApp {
             self.tab_title_second_pass_max_width(),
         );
 
-        (self.tab_title_formatter)(&second_pass).or_else(|| default_title.map(NativeTabTitle::Text))
+        (self.tab_title_formatter)(&second_pass)
+            .or_else(|| self.lua_tab_title.clone().map(NativeTabTitle::Text))
+            .or_else(|| default_title.map(NativeTabTitle::Text))
     }
 
     fn native_resolved_palette(&self) -> NativeResolvedPalette {
@@ -30128,6 +30140,7 @@ impl NativeWindowApp {
         self.apply_effective_window_dpi();
         self.tab_max_width = overrides.tab_max_width.unwrap_or(DEFAULT_TAB_MAX_WIDTH);
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
+        self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
         self.max_fps = overrides
@@ -68515,6 +68528,31 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_string_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'STATIC LUA TAB'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title event string return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("STATIC LUA TAB"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
     fn window_app_tab_title_formatter_receives_tab_and_pane_information_snapshot() {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&seen);
@@ -103561,6 +103599,7 @@ mod tests {
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
+            lua_tab_title: Some("Lua Tab".to_owned()),
             lua_window_title: Some("Lua Title".to_owned()),
             lua_update_status: Some(NativeWindowStatusUpdate {
                 left_status: Some("LEFT".to_owned()),

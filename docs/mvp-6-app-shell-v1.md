@@ -1586,8 +1586,11 @@ runtime storage for tabs and split panes.
   `skip_close_confirmation_for_processes_named`,
   `show_close_tab_button_in_tabs`,
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`, and
-  `show_tabs_in_tab_bar`; Lua event wiring plus the full Lua config
-  object remain later parity work.
+  `show_tabs_in_tab_bar`. Static
+  `wezterm.on('format-tab-title', function(...) return 'title' end)` string
+  returns map onto the same tab-title override path; arbitrary Lua callbacks,
+  Lua FormatItem tables, and the full Lua config object remain later parity
+  work.
 - `rssh-app` dispatches a typed native-window `format-window-title` hook after
   computing the default title. The event carries the default title, active tab
   id, active pane id, tab count, active-tab pane count, and the active
