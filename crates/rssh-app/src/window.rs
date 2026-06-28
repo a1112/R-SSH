@@ -240,6 +240,8 @@ const DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED: bool = true;
 const DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE: bool = false;
 const DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC: bool = false;
 const DEFAULT_UNICODE_VERSION: u32 = 9;
+const DEFAULT_BIDI_ENABLED: bool = false;
+const DEFAULT_BIDI_DIRECTION: NativeBidiDirection = NativeBidiDirection::LeftToRight;
 const DEFAULT_USE_IME: bool = true;
 const DEFAULT_USE_DEAD_KEYS: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
@@ -693,6 +695,27 @@ impl NativeImePreeditRendering {
         match value {
             "Builtin" => Some(Self::Builtin),
             "System" => Some(Self::System),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeBidiDirection {
+    LeftToRight,
+    RightToLeft,
+    AutoLeftToRight,
+    AutoRightToLeft,
+}
+
+impl NativeBidiDirection {
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "LeftToRight" => Some(Self::LeftToRight),
+            "RightToLeft" => Some(Self::RightToLeft),
+            "AutoLeftToRight" => Some(Self::AutoLeftToRight),
+            "AutoRightToLeft" => Some(Self::AutoRightToLeft),
             _ => None,
         }
     }
@@ -2954,6 +2977,8 @@ struct NativeEffectiveConfig {
     treat_east_asian_ambiguous_width_as_wide: bool,
     normalize_output_to_unicode_nfc: bool,
     unicode_version: u32,
+    bidi_enabled: bool,
+    bidi_direction: NativeBidiDirection,
     use_ime: bool,
     use_dead_keys: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
@@ -3182,6 +3207,8 @@ struct NativeConfigOverrides {
     treat_east_asian_ambiguous_width_as_wide: Option<bool>,
     normalize_output_to_unicode_nfc: Option<bool>,
     unicode_version: Option<u32>,
+    bidi_enabled: Option<bool>,
+    bidi_direction: Option<NativeBidiDirection>,
     use_ime: Option<bool>,
     use_dead_keys: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
@@ -4373,6 +4400,15 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             return None;
         };
         overrides.unicode_version = Some(unicode_version);
+        parsed = true;
+    }
+    if let Some(bidi_enabled) = lua_config_bool_assignment_from_query(config, "bidi_enabled") {
+        overrides.bidi_enabled = Some(bidi_enabled);
+        parsed = true;
+    }
+    if let Some(bidi_direction) = lua_config_string_assignment_from_query(config, "bidi_direction")
+    {
+        overrides.bidi_direction = Some(NativeBidiDirection::parse(&bidi_direction)?);
         parsed = true;
     }
     if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
@@ -15981,6 +16017,8 @@ struct NativeWindowApp {
     treat_east_asian_ambiguous_width_as_wide: bool,
     normalize_output_to_unicode_nfc: bool,
     unicode_version: u32,
+    bidi_enabled: bool,
+    bidi_direction: NativeBidiDirection,
     use_ime: bool,
     use_dead_keys: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
@@ -17496,6 +17534,8 @@ impl NativeWindowApp {
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
             unicode_version: DEFAULT_UNICODE_VERSION,
+            bidi_enabled: DEFAULT_BIDI_ENABLED,
+            bidi_direction: DEFAULT_BIDI_DIRECTION,
             use_ime: DEFAULT_USE_IME,
             use_dead_keys: DEFAULT_USE_DEAD_KEYS,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
@@ -18635,6 +18675,8 @@ impl NativeWindowApp {
             self.treat_east_asian_ambiguous_width_as_wide;
         detached_app.normalize_output_to_unicode_nfc = self.normalize_output_to_unicode_nfc;
         detached_app.unicode_version = self.unicode_version;
+        detached_app.bidi_enabled = self.bidi_enabled;
+        detached_app.bidi_direction = self.bidi_direction;
         detached_app.cell_widths.clone_from(&self.cell_widths);
         detached_app.leader.clone_from(&self.leader);
         detached_app
@@ -18930,6 +18972,8 @@ impl NativeWindowApp {
             source.treat_east_asian_ambiguous_width_as_wide;
         self.normalize_output_to_unicode_nfc = source.normalize_output_to_unicode_nfc;
         self.unicode_version = source.unicode_version;
+        self.bidi_enabled = source.bidi_enabled;
+        self.bidi_direction = source.bidi_direction;
         self.use_ime = source.use_ime;
         self.use_dead_keys = source.use_dead_keys;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
@@ -27205,6 +27249,8 @@ impl NativeWindowApp {
             treat_east_asian_ambiguous_width_as_wide: self.treat_east_asian_ambiguous_width_as_wide,
             normalize_output_to_unicode_nfc: self.normalize_output_to_unicode_nfc,
             unicode_version: self.unicode_version,
+            bidi_enabled: self.bidi_enabled,
+            bidi_direction: self.bidi_direction,
             use_ime: self.use_ime,
             use_dead_keys: self.use_dead_keys,
             ime_preedit_rendering: self.ime_preedit_rendering,
@@ -27731,6 +27777,8 @@ impl NativeWindowApp {
             .normalize_output_to_unicode_nfc
             .unwrap_or(DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC);
         self.unicode_version = overrides.unicode_version.unwrap_or(DEFAULT_UNICODE_VERSION);
+        self.bidi_enabled = overrides.bidi_enabled.unwrap_or(DEFAULT_BIDI_ENABLED);
+        self.bidi_direction = overrides.bidi_direction.unwrap_or(DEFAULT_BIDI_DIRECTION);
         self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
         self.use_dead_keys = overrides.use_dead_keys.unwrap_or(DEFAULT_USE_DEAD_KEYS);
         if !self.use_dead_keys {
@@ -53240,10 +53288,10 @@ mod tests {
         DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH, DEFAULT_ALLOW_WIN32_INPUT_MODE,
         DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_ANIMATION_FPS,
         DEFAULT_ANSI_PALETTE_COLORS, DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
-        DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR,
-        DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS, DEFAULT_CANONICALIZE_PASTED_NEWLINES,
-        DEFAULT_CELL_WIDTH, DEFAULT_CHAR_SELECT_BG_COLOR, DEFAULT_CHAR_SELECT_FG_COLOR,
-        DEFAULT_CHAR_SELECT_FONT_SIZE, DEFAULT_CHECK_FOR_UPDATES,
+        DEFAULT_AUTOMATICALLY_RELOAD_CONFIG, DEFAULT_BACKGROUND_COLOR, DEFAULT_BIDI_DIRECTION,
+        DEFAULT_BIDI_ENABLED, DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
+        DEFAULT_CANONICALIZE_PASTED_NEWLINES, DEFAULT_CELL_WIDTH, DEFAULT_CHAR_SELECT_BG_COLOR,
+        DEFAULT_CHAR_SELECT_FG_COLOR, DEFAULT_CHAR_SELECT_FONT_SIZE, DEFAULT_CHECK_FOR_UPDATES,
         DEFAULT_CHECK_FOR_UPDATES_INTERVAL_SECONDS, DEFAULT_COMMAND_PALETTE_BG_COLOR,
         DEFAULT_COMMAND_PALETTE_FG_COLOR, DEFAULT_COMMAND_PALETTE_FONT_SIZE,
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
@@ -53284,8 +53332,8 @@ mod tests {
         DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
         DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
         FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
-        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
-        NativeCellWidthOverride, NativeColorSpec, NativeCommandPaletteAugment,
+        NativeBidiDirection, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
+        NativeCellWidth, NativeCellWidthOverride, NativeColorSpec, NativeCommandPaletteAugment,
         NativeCommandPaletteEntry, NativeConfigOverrides, NativeConfirmation, NativeContrastRatio,
         NativeCubicBezier, NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry,
         NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
@@ -67553,6 +67601,8 @@ mod tests {
                     DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
                 normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
                 unicode_version: DEFAULT_UNICODE_VERSION,
+                bidi_enabled: DEFAULT_BIDI_ENABLED,
+                bidi_direction: DEFAULT_BIDI_DIRECTION,
                 use_ime: DEFAULT_USE_IME,
                 use_dead_keys: DEFAULT_USE_DEAD_KEYS,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
@@ -88723,6 +88773,39 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_bidi_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert!(!effective.bidi_enabled);
+        assert_eq!(effective.bidi_direction, NativeBidiDirection::LeftToRight);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_bidi_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.bidi_enabled = true
+            config.bidi_direction = 'AutoRightToLeft'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm bidi config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(effective.bidi_enabled);
+        assert_eq!(
+            effective.bidi_direction,
+            NativeBidiDirection::AutoRightToLeft
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_keyboard_protocol_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -99239,6 +99322,8 @@ mod tests {
             treat_east_asian_ambiguous_width_as_wide: Some(true),
             normalize_output_to_unicode_nfc: Some(true),
             unicode_version: Some(14),
+            bidi_enabled: Some(true),
+            bidi_direction: Some(NativeBidiDirection::AutoRightToLeft),
             use_ime: Some(false),
             use_dead_keys: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
@@ -99615,6 +99700,8 @@ mod tests {
             treat_east_asian_ambiguous_width_as_wide: true,
             normalize_output_to_unicode_nfc: true,
             unicode_version: 14,
+            bidi_enabled: true,
+            bidi_direction: NativeBidiDirection::AutoRightToLeft,
             use_ime: false,
             use_dead_keys: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
@@ -99846,6 +99933,8 @@ mod tests {
                 DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
             normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
             unicode_version: DEFAULT_UNICODE_VERSION,
+            bidi_enabled: DEFAULT_BIDI_ENABLED,
+            bidi_direction: DEFAULT_BIDI_DIRECTION,
             use_ime: DEFAULT_USE_IME,
             use_dead_keys: DEFAULT_USE_DEAD_KEYS,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,

@@ -347,8 +347,8 @@ keyboard, mouse, paste, resize
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
-  `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `use_dead_keys`, `ime_preedit_rendering`,
+  `normalize_output_to_unicode_nfc`, `unicode_version`, `bidi_enabled`,
+  `bidi_direction`, `use_ime`, `use_dead_keys`, `ime_preedit_rendering`,
   `macos_forward_to_ime_modifier_mask`, and
   `xim_im_name` parse into the native override path, including returned config
   table initializers and direct
@@ -382,7 +382,9 @@ keyboard, mouse, paste, resize
   terminal state. Unicode 8-or-earlier runtimes keep WezTerm's
   `WidenedIn9` characters narrow, Unicode 9+ widens them, and Unicode 14+
   emoji/text presentation selectors adjust the prior cell width for FE0F/FE0E
-  sequences.
+  sequences. `bidi_enabled` and `bidi_direction` are retained with WezTerm's
+  `false` and `LeftToRight` defaults and parse static Lua snippets into
+  effective config; actual bidi shaping/rendering remains future parity work.
   `treat_left_ctrlalt_as_altgr` makes Ctrl+Alt text key events use the
   AltGr text path rather than Ctrl+Alt key bindings. Left/right Alt side state
   honors WezTerm's composed-key defaults: left Alt keeps Meta behavior, while
@@ -1166,8 +1168,8 @@ keyboard, mouse, paste, resize
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
-  `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `use_dead_keys`, `ime_preedit_rendering`,
+  `normalize_output_to_unicode_nfc`, `unicode_version`, `bidi_enabled`,
+  `bidi_direction`, `use_ime`, `use_dead_keys`, `ime_preedit_rendering`,
   `macos_forward_to_ime_modifier_mask`,
   `xim_im_name`,
   `scroll_to_bottom_on_input`,
@@ -1266,7 +1268,9 @@ keyboard, mouse, paste, resize
   labeled stack entries. Unicode 8-or-earlier runtimes keep WezTerm's
   `WidenedIn9` characters narrow, Unicode 9+ widens them, and Unicode 14+
   emoji/text presentation selectors adjust the prior cell width for FE0F/FE0E
-  sequences. `use_ime`
+  sequences. `bidi_enabled` and `bidi_direction` are retained with WezTerm's
+  `false` and `LeftToRight` defaults in effective config and parse static Lua
+  snippets; actual bidi shaping/rendering remains future parity work. `use_ime`
   and `use_dead_keys` are stored with WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default,
   `macos_forward_to_ime_modifier_mask` with WezTerm's `SHIFT` default, and
@@ -1570,8 +1574,8 @@ keyboard, mouse, paste, resize
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
-  `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `use_dead_keys`, `ime_preedit_rendering`,
+  `normalize_output_to_unicode_nfc`, `unicode_version`, `bidi_enabled`,
+  `bidi_direction`, `use_ime`, `use_dead_keys`, `ime_preedit_rendering`,
   `macos_forward_to_ime_modifier_mask`,
   `xim_im_name`,
   `scroll_to_bottom_on_input`,
