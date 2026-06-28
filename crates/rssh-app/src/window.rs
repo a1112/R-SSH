@@ -6049,12 +6049,24 @@ fn lua_static_window_status_setter_from_statement(
     }
     let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
     if let Some(rest) = rest.strip_prefix('(') {
-        let rest = lua_trim_start_comments(rest)?;
-        let (status, status_len) = lua_inline_string_literal_value_and_len(rest)?;
-        let rest = lua_trim_start_comments(rest.get(status_len..)?)?;
-        return rest.strip_prefix(')').map(|_| status);
+        let (arguments, _) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        return lua_static_window_status_text_from_parenthesized_argument(argument);
     }
     lua_inline_string_literal_value_and_len(rest).map(|(status, _)| status)
+}
+
+fn lua_static_window_status_text_from_parenthesized_argument(argument: &str) -> Option<String> {
+    let argument = lua_trim_start_comments(argument)?;
+    if let Some((status, status_len)) = lua_inline_string_literal_value_and_len(argument) {
+        return lua_trim_start_comments(argument.get(status_len..)?)?
+            .is_empty()
+            .then_some(status);
+    }
+    wezterm_format_visible_text_from_query(argument)
 }
 
 fn lua_inline_string_literal_value_and_len(value: &str) -> Option<(String, usize)> {
@@ -45442,6 +45454,105 @@ fn split_lua_top_level_arguments(arguments: &str) -> Option<Vec<&str>> {
     Some(values)
 }
 
+fn lua_parenthesized_argument_list_prefix_from_query(value: &str) -> Option<(&str, &str)> {
+    let mut table_depth = 0u32;
+    let mut paren_depth = 0u32;
+    let mut bracket_depth = 0u32;
+    let mut lua_block_depth = 0usize;
+    let mut quote = None;
+    let mut escape = false;
+    let mut long_bracket_end = None;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+
+    for (index, character) in value.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+        if let Some(quoted) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == quoted {
+                quote = None;
+            }
+            continue;
+        }
+        if value[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index + 2..])
+            {
+                let content_and_rest = &value[index + 2 + content_start..];
+                let close_index = content_and_rest.find(&closing)?;
+                block_comment_end = Some(index + 2 + content_start + close_index + closing.len());
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => quote = Some(character),
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&value[index..])
+                {
+                    let content_and_rest = &value[index + content_start..];
+                    let close_index = content_and_rest.find(&closing)?;
+                    long_bracket_end = Some(index + content_start + close_index + closing.len());
+                } else {
+                    bracket_depth = bracket_depth.saturating_add(1);
+                }
+            }
+            ']' => bracket_depth = bracket_depth.checked_sub(1)?,
+            '{' => table_depth = table_depth.saturating_add(1),
+            '}' => table_depth = table_depth.checked_sub(1)?,
+            '(' => paren_depth = paren_depth.saturating_add(1),
+            ')' if table_depth == 0
+                && paren_depth == 0
+                && bracket_depth == 0
+                && lua_block_depth == 0 =>
+            {
+                return Some((&value[..index], &value[index + character.len_utf8()..]));
+            }
+            ')' => paren_depth = paren_depth.checked_sub(1)?,
+            _ => {}
+        }
+
+        if lua_source_keyword_at(value, index, "function")
+            || lua_source_keyword_at(value, index, "then")
+            || lua_source_keyword_at(value, index, "do")
+            || lua_source_keyword_at(value, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(value, index, "end")
+            || lua_source_keyword_at(value, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+        }
+    }
+
+    None
+}
+
 fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
     let mut depth = 0u32;
     let mut paren_depth = 0u32;
@@ -67184,6 +67295,31 @@ mod tests {
             tab_bar.ends_with("RIGHT-LEGACY-LUA"),
             "tab bar was {tab_bar:?}"
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_wezterm_format_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(wezterm.format({
+                { Text = 'RIGHT' },
+                { Text = '-FORMAT' },
+              }))
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm update-status event wezterm.format status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.ends_with("RIGHT-FORMAT"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
