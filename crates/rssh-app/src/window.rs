@@ -6080,6 +6080,13 @@ fn lua_static_tab_title_return_from_statement(
             if let Some(items) = native_format_items_from_lua_format_items_table_query(rest) {
                 return Some(NativeTabTitle::Format(items));
             }
+            if let Some(items) = native_format_items_from_wezterm_format_query_with_static_sources(
+                Some(static_source),
+                outer_static_source,
+                rest,
+            ) {
+                return Some(NativeTabTitle::Format(items));
+            }
 
             let variable = lua_identifier_literal_from_query(rest)?;
             let variable_rest = rest.get(variable.len()..)?;
@@ -44805,6 +44812,24 @@ fn native_format_items_from_wezterm_format_query_with_static_sources(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<Vec<NativeFormatItem>> {
+    let resolved_value = static_source
+        .and_then(|static_source| {
+            lua_static_wezterm_format_alias_query_from_query(
+                static_source.source,
+                value,
+                static_source.max_start,
+            )
+        })
+        .or_else(|| {
+            outer_static_source.and_then(|outer_static_source| {
+                lua_static_wezterm_format_alias_query_from_query(
+                    outer_static_source.source,
+                    value,
+                    outer_static_source.max_start,
+                )
+            })
+        });
+    let value = resolved_value.as_deref().unwrap_or(value);
     let table = wezterm_format_table_argument_from_query(value)?;
     if let Some(items) = native_format_items_from_lua_format_items_table_query(table) {
         return Some(items);
@@ -68176,6 +68201,32 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_update_status_event_format_alias_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local fmt = wezterm.format
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(fmt({
+                { Text = 'RIGHT' },
+                { Text = '-ALIAS' },
+              }))
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm update-status event format alias status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.ends_with("RIGHT-ALIAS"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
     fn window_app_parses_static_wezterm_update_status_event_styled_wezterm_format_status_setter() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -69959,6 +70010,38 @@ mod tests {
         let title_column = tab_bar
             .find("STATIC LUA FORMAT")
             .expect("formatted Lua title should render in the tab bar");
+        let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
+
+        assert_eq!(title_cell.ch, 'S');
+        assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_format_alias_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local fmt = wezterm.format
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return fmt({
+                { Foreground = { Color = '#010203' } },
+                { Background = { Color = '#040506' } },
+                { Text = 'STATIC LUA ALIAS FORMAT' },
+              })
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title event format alias return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let title_column = tab_bar
+            .find("STATIC LUA ALIAS FORMAT")
+            .expect("formatted Lua alias title should render in the tab bar");
         let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
 
         assert_eq!(title_cell.ch, 'S');

@@ -1789,10 +1789,11 @@ keyboard, mouse, paste, resize
   `show_close_tab_button_in_tabs`,
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`, and
   `show_tabs_in_tab_bar`. Static
-  `wezterm.on('format-tab-title', function(...) return ... end)` string and
-  inline, callback-local, or top-level static FormatItem table returns now map
-  onto the same tab-title override path; arbitrary Lua callbacks and the full
-  Lua config object remain future parity work.
+  `wezterm.on('format-tab-title', function(...) return ... end)` string,
+  inline/callback-local/top-level static FormatItem table returns, and
+  `wezterm.format` returns through static aliases now map onto the same
+  tab-title override path; arbitrary Lua callbacks and the full Lua config
+  object remain future parity work.
 - Implemented in v1: native window title recomputation now passes the computed
   default title, active tab id, active pane id, tab count, and active-tab pane
   count plus the active key-table stack top through a typed
@@ -1822,7 +1823,7 @@ keyboard, mouse, paste, resize
   `wezterm.on('update-status', function(window, pane) ... end)` and deprecated
   `update-right-status` static subsets map literal
   `window:set_left_status(...)` and `window:set_right_status(...)` calls plus
-  inline or static-table-variable `wezterm.format`
+  inline, static-table-variable, or static-alias `wezterm.format`
   Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition onto that status state, with
   static item tables resolving from callback-local or top-level scope and
