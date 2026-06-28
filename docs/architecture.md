@@ -162,9 +162,11 @@ keyboard, mouse, paste, resize
   static layer tables, with Color sources from inline or top-level static source
   tables plus explicit-color and preset Gradient sources mapped onto the same
   native background color/gradient paths with layer opacity and inline or
-  static-variable layer `hsb` transforms. Multi-layer `config.background`
-  stacks with Color layers below a final explicit-color or preset Gradient
-  layer are composed into native background color/gradient overrides, explicit
+  static-variable layer `hsb` transforms, while retaining the parsed
+  Color/Gradient/File layer stack in the native effective `background`
+  snapshot. Multi-layer `config.background` stacks with Color layers below a
+  final explicit-color or preset Gradient layer are composed into native
+  background color/gradient overrides, explicit
   color-list `window_background_gradient` values can be treated as WezTerm's
   implicit prepended layer below a following Color-only `config.background`
   stack, legacy `window_background_image` files render as 100%-sized background

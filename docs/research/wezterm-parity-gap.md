@@ -2641,9 +2641,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   into the native window background gradient path with layer opacity applied to
   gradient alpha. Layer `hsb` tables apply inline or through top-level static
   table variables to Color sources, explicit Gradient color lists, and preset
-  Gradient sources. Multi-layer stacks with one or more Color layers below a
-  final explicit-color or preset Gradient layer now preserve source-over alpha
-  semantics for that subset. Explicit-color Gradient stacks precompose the
+  Gradient sources, and the parsed Color/Gradient/File layer stack is retained
+  in the effective `background` config snapshot. Multi-layer stacks with one or
+  more Color layers below a final explicit-color or preset Gradient layer now
+  preserve source-over alpha semantics for that subset. Explicit-color
+  Gradient stacks precompose the
   Color stack into each Gradient stop; preset Gradient stacks blend the sampled
   Gradient over the configured background color during rendering. Explicit
   color-list `window_background_gradient` values are also treated as WezTerm's
