@@ -2823,6 +2823,13 @@ struct NativeHyperlinkRule {
     highlight: usize,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct NativeDaemonOptions {
+    pid_file: Option<String>,
+    stdout: Option<String>,
+    stderr: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -2990,6 +2997,7 @@ struct NativeEffectiveConfig {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
+    daemon_options: NativeDaemonOptions,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
     ratelimit_mux_line_prefetches_per_second: u32,
@@ -3229,6 +3237,7 @@ struct NativeConfigOverrides {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
+    daemon_options: Option<NativeDaemonOptions>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
     ratelimit_mux_line_prefetches_per_second: Option<u32>,
@@ -3368,6 +3377,24 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         overrides.default_mux_server_domain =
             Some(non_empty_spawn_command_option_value(&default_mux_server_domain).ok()?);
+        parsed = true;
+    }
+    if let Some(daemon_options) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "daemon_options",
+        )
+        .and_then(|daemon_options| {
+            native_daemon_options_lua_table_from_query(config, &daemon_options.value)
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "daemon_options")
+                .and_then(|daemon_options| {
+                    native_daemon_options_lua_table_from_query(config, daemon_options)
+                })
+        })
+    {
+        overrides.daemon_options = Some(daemon_options);
         parsed = true;
     }
     if let Some(mux_enable_ssh_agent) =
@@ -14026,6 +14053,34 @@ fn lua_background_color_with_hsb_and_opacity(
 }
 
 #[allow(dead_code)]
+fn native_daemon_options_lua_table_from_query(
+    source: &str,
+    value: &str,
+) -> Option<NativeDaemonOptions> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut options = NativeDaemonOptions::default();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = lua_static_string_assignment_value_from_query(source, value.trim())
+            .and_then(parse_maybe_quoted_query_text)?;
+        match key.as_str() {
+            "pid_file" => options.pid_file = Some(value),
+            "stdout" => options.stdout = Some(value),
+            "stderr" => options.stderr = Some(value),
+            _ => return None,
+        }
+    }
+
+    Some(options)
+}
+
+#[allow(dead_code)]
 fn native_webgpu_preferred_adapter_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
@@ -16130,6 +16185,7 @@ struct NativeWindowApp {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
+    daemon_options: NativeDaemonOptions,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
     ratelimit_mux_line_prefetches_per_second: u32,
@@ -17654,6 +17710,7 @@ impl NativeWindowApp {
             default_cwd: None,
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
+            daemon_options: NativeDaemonOptions::default(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
             ratelimit_mux_line_prefetches_per_second:
@@ -18807,6 +18864,7 @@ impl NativeWindowApp {
         detached_app
             .default_mux_server_domain
             .clone_from(&self.default_mux_server_domain);
+        detached_app.daemon_options.clone_from(&self.daemon_options);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
         detached_app.ssh_backend = self.ssh_backend;
         detached_app.ratelimit_mux_line_prefetches_per_second =
@@ -19121,6 +19179,7 @@ impl NativeWindowApp {
             .clone_from(&source.default_ssh_auth_sock);
         self.default_mux_server_domain
             .clone_from(&source.default_mux_server_domain);
+        self.daemon_options.clone_from(&source.daemon_options);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.ssh_backend = source.ssh_backend;
         self.ratelimit_mux_line_prefetches_per_second =
@@ -27413,6 +27472,7 @@ impl NativeWindowApp {
             default_cwd: self.default_cwd.clone(),
             default_ssh_auth_sock: self.default_ssh_auth_sock.clone(),
             default_mux_server_domain: self.default_mux_server_domain.clone(),
+            daemon_options: self.daemon_options.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             ssh_backend: self.ssh_backend,
             ratelimit_mux_line_prefetches_per_second: self.ratelimit_mux_line_prefetches_per_second,
@@ -27918,6 +27978,7 @@ impl NativeWindowApp {
         self.default_mux_server_domain = overrides
             .default_mux_server_domain
             .filter(|default_mux_server_domain| !default_mux_server_domain.is_empty());
+        self.daemon_options = overrides.daemon_options.clone().unwrap_or_default();
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
             .unwrap_or(DEFAULT_MUX_ENABLE_SSH_AGENT);
@@ -53574,10 +53635,10 @@ mod tests {
         NativeCanonicalizePastedNewlines, NativeCellWidth, NativeCellWidthOverride,
         NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
         NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
-        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
-        NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
-        NativeFontAntialias, NativeFontAttributes, NativeFontHinting, NativeFontLocator,
-        NativeFontRasterizer, NativeFontRule, NativeFontShaper, NativeFontSize,
+        NativeCursorStyle, NativeCursorThickness, NativeDaemonOptions, NativeDisplayPixelGeometry,
+        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontAttributes, NativeFontHinting,
+        NativeFontLocator, NativeFontRasterizer, NativeFontRule, NativeFontShaper, NativeFontSize,
         NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
         NativeFreetypeLoadFlags, NativeFreetypeTarget, NativeHorizontalContentAlignment,
         NativeHsbMultiplier, NativeHyperlinkRule, NativeImePreeditRendering, NativeInactivePaneHsb,
@@ -67816,6 +67877,7 @@ mod tests {
                 default_cwd: None,
                 default_ssh_auth_sock: None,
                 default_mux_server_domain: None,
+                daemon_options: NativeDaemonOptions::default(),
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 ssh_backend: NativeSshBackend::LibSsh,
                 ratelimit_mux_line_prefetches_per_second:
@@ -89154,6 +89216,74 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_daemon_options_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.daemon_options, NativeDaemonOptions::default());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_daemon_options_override() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.daemon_options = {
+                pid_file = 'run/wezterm.pid',
+                stdout = 'logs/wezterm.out',
+                stderr = 'logs/wezterm.err',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm daemon options config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().daemon_options,
+            NativeDaemonOptions {
+                pid_file: Some("run/wezterm.pid".to_owned()),
+                stdout: Some("logs/wezterm.out".to_owned()),
+                stderr: Some("logs/wezterm.err".to_owned()),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_daemon_options_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local pid_path = 'run/static.pid'
+            local daemon = {
+                pid_file = pid_path,
+                stdout = 'logs/static.out',
+                stderr = 'logs/static.err',
+            }
+
+            config.daemon_options = daemon
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm daemon options static-variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().daemon_options,
+            NativeDaemonOptions {
+                pid_file: Some("run/static.pid".to_owned()),
+                stdout: Some("logs/static.out".to_owned()),
+                stderr: Some("logs/static.err".to_owned()),
+            }
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_keyboard_protocol_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -99650,6 +99780,11 @@ mod tests {
             default_cwd: Some("/tmp/default".to_owned()),
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             default_mux_server_domain: Some("mux-main".to_owned()),
+            daemon_options: Some(NativeDaemonOptions {
+                pid_file: Some("run/wezterm.pid".to_owned()),
+                stdout: Some("logs/wezterm.out".to_owned()),
+                stderr: Some("logs/wezterm.err".to_owned()),
+            }),
             mux_enable_ssh_agent: Some(false),
             ssh_backend: Some(NativeSshBackend::Ssh2),
             ratelimit_mux_line_prefetches_per_second: Some(12),
@@ -100038,6 +100173,11 @@ mod tests {
             default_cwd: Some("/tmp/default".to_owned()),
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             default_mux_server_domain: Some("mux-main".to_owned()),
+            daemon_options: NativeDaemonOptions {
+                pid_file: Some("run/wezterm.pid".to_owned()),
+                stdout: Some("logs/wezterm.out".to_owned()),
+                stderr: Some("logs/wezterm.err".to_owned()),
+            },
             mux_enable_ssh_agent: false,
             ssh_backend: NativeSshBackend::Ssh2,
             ratelimit_mux_line_prefetches_per_second: 12,
@@ -100278,6 +100418,7 @@ mod tests {
             default_cwd: None,
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
+            daemon_options: NativeDaemonOptions::default(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
             ratelimit_mux_line_prefetches_per_second:

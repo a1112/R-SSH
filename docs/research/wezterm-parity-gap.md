@@ -1398,13 +1398,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   styles. Native config now also retains
   `config.default_gui_startup_args`, `config.ssh_backend`,
   `config.tiling_desktop_environments`, `config.default_mux_server_domain`,
+  `config.daemon_options`,
   `config.ratelimit_mux_line_prefetches_per_second`,
   `config.mux_output_parser_buffer_size`,
   `config.mux_output_parser_coalesce_delay_ms`,
   `config.periodic_stat_logging`, `config.ulimit_nofile`, and
   `config.ulimit_nproc` with WezTerm defaults; applying those values to GUI
   startup argument parsing, SSH backend selection, tiling WM behavior, a real
-  mux server/parser, stat logger, or process rlimits remains open.
+  mux server/parser, daemon pid/log redirection, stat logger, or process
+  rlimits remains open.
   The native config also retains `config.allow_download_protocols`,
   `config.xcursor_theme`, `config.xcursor_size`, and
   `config.palette_max_key_assigments_for_action` with WezTerm defaults; actual
