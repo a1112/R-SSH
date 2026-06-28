@@ -6014,8 +6014,13 @@ fn lua_static_status_update_from_function_body(
 
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let static_source = LuaStaticSource {
+            source: body,
+            max_start: start,
+        };
         if let Some(left_status) = lua_static_window_status_setter_from_statement(
             statement,
+            Some(static_source),
             window_name,
             "set_left_status",
         ) {
@@ -6023,6 +6028,7 @@ fn lua_static_status_update_from_function_body(
         }
         if let Some(right_status) = lua_static_window_status_setter_from_statement(
             statement,
+            Some(static_source),
             window_name,
             "set_right_status",
         ) {
@@ -6035,6 +6041,7 @@ fn lua_static_status_update_from_function_body(
 
 fn lua_static_window_status_setter_from_statement(
     statement: &str,
+    static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     method: &str,
 ) -> Option<String> {
@@ -6054,13 +6061,30 @@ fn lua_static_window_status_setter_from_statement(
         let [argument] = arguments.as_slice() else {
             return None;
         };
-        return lua_static_window_status_text_from_parenthesized_argument(argument);
+        return lua_static_window_status_text_from_parenthesized_argument(static_source, argument);
     }
     lua_inline_string_literal_value_and_len(rest).map(|(status, _)| status)
 }
 
-fn lua_static_window_status_text_from_parenthesized_argument(argument: &str) -> Option<String> {
+fn lua_static_window_status_text_from_parenthesized_argument(
+    static_source: Option<LuaStaticSource<'_>>,
+    argument: &str,
+) -> Option<String> {
     let argument = lua_trim_start_comments(argument)?;
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            argument,
+            static_source.max_start,
+        )
+    {
+        return lua_static_window_status_text_from_query(value);
+    }
+    lua_static_window_status_text_from_query(argument)
+}
+
+fn lua_static_window_status_text_from_query(value: &str) -> Option<String> {
+    let argument = lua_trim_start_comments(value)?;
     if let Some((status, status_len)) = lua_inline_string_literal_value_and_len(argument) {
         return lua_trim_start_comments(argument.get(status_len..)?)?
             .is_empty()
@@ -67453,6 +67477,47 @@ mod tests {
             plain_cell.underline_style,
             rssh_terminal::UnderlineStyle::None
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_local_format_status_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local right = wezterm.format({
+                { Foreground = { Color = '#010203' } },
+                { Text = 'RIGHT' },
+                'ResetAttributes',
+                { Text = '-LOCAL' },
+              })
+              window:set_right_status(right)
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status event local format status variable");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-LOCAL")
+            .expect("local format status variable should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
     }
 
     #[test]
