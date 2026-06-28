@@ -214,6 +214,7 @@ const DEFAULT_TAB_BAR_AT_BOTTOM: bool = false;
 const DEFAULT_TAB_AND_SPLIT_INDICES_ARE_ZERO_BASED: bool = false;
 const DEFAULT_SCROLL_TO_BOTTOM_ON_INPUT: bool = true;
 const DEFAULT_ENABLE_KITTY_GRAPHICS: bool = true;
+const DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA: bool = false;
 const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
@@ -2907,6 +2908,7 @@ struct NativeEffectiveConfig {
     ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
     enable_kitty_graphics: bool,
+    enable_checksum_rectangular_area: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
@@ -3116,6 +3118,7 @@ struct NativeConfigOverrides {
     ui_key_cap_rendering: Option<NativeUiKeyCapRendering>,
     swap_backspace_and_delete: Option<bool>,
     enable_kitty_graphics: Option<bool>,
+    enable_checksum_rectangular_area: Option<bool>,
     enable_csi_u_key_encoding: Option<bool>,
     enable_kitty_keyboard: Option<bool>,
     allow_win32_input_mode: Option<bool>,
@@ -4144,6 +4147,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "enable_kitty_graphics")
     {
         overrides.enable_kitty_graphics = Some(enable_kitty_graphics);
+        parsed = true;
+    }
+    if let Some(enable_checksum_rectangular_area) =
+        lua_config_bool_assignment_from_query(config, "enable_checksum_rectangular_area")
+    {
+        overrides.enable_checksum_rectangular_area = Some(enable_checksum_rectangular_area);
         parsed = true;
     }
     if let Some(enable_csi_u_key_encoding) =
@@ -15791,6 +15800,7 @@ struct NativeWindowApp {
     ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
     enable_kitty_graphics: bool,
+    enable_checksum_rectangular_area: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
     allow_win32_input_mode: bool,
@@ -17284,6 +17294,7 @@ impl NativeWindowApp {
             ui_key_cap_rendering: DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
             enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
+            enable_checksum_rectangular_area: DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
@@ -18403,6 +18414,7 @@ impl NativeWindowApp {
         detached_app.ui_key_cap_rendering = self.ui_key_cap_rendering;
         detached_app.swap_backspace_and_delete = self.swap_backspace_and_delete;
         detached_app.enable_kitty_graphics = self.enable_kitty_graphics;
+        detached_app.enable_checksum_rectangular_area = self.enable_checksum_rectangular_area;
         detached_app.enable_csi_u_key_encoding = self.enable_csi_u_key_encoding;
         detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
         detached_app.allow_win32_input_mode = self.allow_win32_input_mode;
@@ -18678,6 +18690,7 @@ impl NativeWindowApp {
         self.ui_key_cap_rendering = source.ui_key_cap_rendering;
         self.swap_backspace_and_delete = source.swap_backspace_and_delete;
         self.enable_kitty_graphics = source.enable_kitty_graphics;
+        self.enable_checksum_rectangular_area = source.enable_checksum_rectangular_area;
         self.enable_csi_u_key_encoding = source.enable_csi_u_key_encoding;
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
@@ -18881,6 +18894,8 @@ impl NativeWindowApp {
         let mut replacement_runtime = TerminalRuntime::new(size);
         replacement_runtime.set_terminal_name(self.term.clone());
         replacement_runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
+        replacement_runtime
+            .set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
         replacement_runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         replacement_runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
         replacement_runtime.set_treat_east_asian_ambiguous_width_as_wide(
@@ -18913,6 +18928,7 @@ impl NativeWindowApp {
         let mut runtime = TerminalRuntime::new(size);
         runtime.set_terminal_name(self.term.clone());
         runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
+        runtime.set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
         runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
@@ -26928,6 +26944,7 @@ impl NativeWindowApp {
             ui_key_cap_rendering: self.ui_key_cap_rendering,
             swap_backspace_and_delete: self.swap_backspace_and_delete,
             enable_kitty_graphics: self.enable_kitty_graphics,
+            enable_checksum_rectangular_area: self.enable_checksum_rectangular_area,
             enable_csi_u_key_encoding: self.enable_csi_u_key_encoding,
             enable_kitty_keyboard: self.enable_kitty_keyboard,
             allow_win32_input_mode: self.allow_win32_input_mode,
@@ -27385,6 +27402,9 @@ impl NativeWindowApp {
         self.enable_kitty_graphics = overrides
             .enable_kitty_graphics
             .unwrap_or(DEFAULT_ENABLE_KITTY_GRAPHICS);
+        self.enable_checksum_rectangular_area = overrides
+            .enable_checksum_rectangular_area
+            .unwrap_or(DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA);
         self.enable_csi_u_key_encoding = overrides
             .enable_csi_u_key_encoding
             .unwrap_or(DEFAULT_ENABLE_CSI_U_KEY_ENCODING);
@@ -27519,6 +27539,8 @@ impl NativeWindowApp {
         self.runtime
             .set_enable_kitty_graphics(self.enable_kitty_graphics);
         self.runtime
+            .set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
+        self.runtime
             .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         self.runtime
             .set_allow_win32_input_mode(self.allow_win32_input_mode);
@@ -27526,6 +27548,9 @@ impl NativeWindowApp {
             runtime
                 .runtime
                 .set_enable_kitty_graphics(self.enable_kitty_graphics);
+            runtime
+                .runtime
+                .set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
             runtime
                 .runtime
                 .set_enable_kitty_keyboard(self.enable_kitty_keyboard);
@@ -28859,6 +28884,7 @@ impl NativeWindowApp {
         let mut runtime = TerminalRuntime::new(runtime_size);
         runtime.set_terminal_name(self.term.clone());
         runtime.set_enable_kitty_graphics(self.enable_kitty_graphics);
+        runtime.set_enable_checksum_rectangular_area(self.enable_checksum_rectangular_area);
         runtime.set_enable_kitty_keyboard(self.enable_kitty_keyboard);
         runtime.set_allow_win32_input_mode(self.allow_win32_input_mode);
         runtime.set_treat_east_asian_ambiguous_width_as_wide(
@@ -52911,24 +52937,24 @@ mod tests {
         DEFAULT_CURSOR_BG_COLOR, DEFAULT_CUSTOM_BLOCK_GLYPHS, DEFAULT_DEBUG_KEY_EVENTS,
         DEFAULT_DETECT_PASSWORD_INPUT, DEFAULT_DISABLE_DEFAULT_KEY_BINDINGS,
         DEFAULT_DISABLE_DEFAULT_MOUSE_BINDINGS, DEFAULT_DISPLAY_PIXEL_GEOMETRY,
-        DEFAULT_ENABLE_CSI_U_KEY_ENCODING, DEFAULT_ENABLE_KITTY_GRAPHICS,
-        DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND, DEFAULT_FONT_ANTIALIAS,
-        DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER,
-        DEFAULT_FONT_SIZE, DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR,
-        DEFAULT_FOREGROUND_TEXT_HSB, DEFAULT_FREETYPE_LOAD_TARGET,
-        DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
-        DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB,
-        DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT, DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
-        DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
-        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
-        DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
-        DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT, DEFAULT_MUX_ENABLE_SSH_AGENT,
-        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SELECTION_WORD_BOUNDARY,
-        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
+        DEFAULT_ENABLE_KITTY_GRAPHICS, DEFAULT_ENABLE_KITTY_KEYBOARD, DEFAULT_ENABLE_WAYLAND,
+        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR,
+        DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
+        DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
+        DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
+        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
+        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
+        DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
+        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
+        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
+        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR,
+        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
@@ -59863,6 +59889,30 @@ mod tests {
 
         assert!(written.lock().unwrap().is_empty());
         assert!(app.render_snapshot().inline_images().is_empty());
+    }
+
+    #[test]
+    fn window_app_honors_wezterm_enable_checksum_rectangular_area_true() {
+        let mut app = NativeWindowApp::new(None);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.enable_checksum_rectangular_area = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm checksum rectangular area config");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"ABC\x1b[7;1;1;1;1;3*y").unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"\x1bP7!~00c6\x1b\\");
+        let snapshot = app.render_snapshot();
+        assert!(snapshot_row_text(&snapshot, TAB_BAR_ROWS, TERMINAL_COLUMNS).starts_with("ABC"));
     }
 
     #[test]
@@ -67100,6 +67150,7 @@ mod tests {
                 ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
                 swap_backspace_and_delete: false,
                 enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
+                enable_checksum_rectangular_area: DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA,
                 enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
@@ -88256,6 +88307,7 @@ mod tests {
             config.key_map_preference = 'Physical'
             config.swap_backspace_and_delete = true
             config.enable_kitty_graphics = false
+            config.enable_checksum_rectangular_area = true
             config.enable_csi_u_key_encoding = true
             config.enable_kitty_keyboard = true
             config.allow_win32_input_mode = false
@@ -88276,6 +88328,7 @@ mod tests {
         );
         assert!(effective.swap_backspace_and_delete);
         assert!(!effective.enable_kitty_graphics);
+        assert!(effective.enable_checksum_rectangular_area);
         assert!(effective.enable_csi_u_key_encoding);
         assert!(effective.enable_kitty_keyboard);
         assert!(!effective.allow_win32_input_mode);
@@ -98647,6 +98700,7 @@ mod tests {
             ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
             swap_backspace_and_delete: Some(true),
             enable_kitty_graphics: Some(false),
+            enable_checksum_rectangular_area: Some(true),
             enable_csi_u_key_encoding: Some(true),
             enable_kitty_keyboard: Some(true),
             allow_win32_input_mode: Some(false),
@@ -99004,6 +99058,7 @@ mod tests {
             ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
             swap_backspace_and_delete: true,
             enable_kitty_graphics: false,
+            enable_checksum_rectangular_area: true,
             enable_csi_u_key_encoding: true,
             enable_kitty_keyboard: true,
             allow_win32_input_mode: false,
@@ -99213,6 +99268,7 @@ mod tests {
             ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
             enable_kitty_graphics: DEFAULT_ENABLE_KITTY_GRAPHICS,
+            enable_checksum_rectangular_area: DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,

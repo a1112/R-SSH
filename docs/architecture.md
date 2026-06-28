@@ -323,13 +323,16 @@ keyboard, mouse, paste, resize
   enabled, honors kitty keyboard protocol negotiation sequences and flags
   queries. Native `enable_kitty_graphics` defaults to true and, when disabled,
   suppresses Kitty graphics query responses, uploads, placements, and rendered
-  inline images. Native `allow_win32_input_mode` defaults to true, tracks ConPTY
+  inline images. Native `enable_checksum_rectangular_area` defaults to false,
+  consumes DECRQCRA requests without replying by default, and emits WezTerm-style
+  DCS checksum responses for visible terminal cells when enabled. Native
+  `allow_win32_input_mode` defaults to true, tracks ConPTY
   `CSI ? 9001 h/l` mode requests, and makes native-window and local console
   input emit Win32 key records for that mode before CSI-u/kitty encoding.
   Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
   `ui_key_cap_rendering`, `enable_csi_u_key_encoding`,
-  `enable_kitty_graphics`, `enable_kitty_keyboard`, `allow_win32_input_mode`,
-  `treat_left_ctrlalt_as_altgr`,
+  `enable_kitty_graphics`, `enable_checksum_rectangular_area`,
+  `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
@@ -1134,7 +1137,8 @@ keyboard, mouse, paste, resize
   `quick_select_remove_styling`, `selection_word_boundary`, `term`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
-  `enable_kitty_graphics`, `enable_kitty_keyboard`, `allow_win32_input_mode`,
+  `enable_kitty_graphics`, `enable_checksum_rectangular_area`,
+  `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
@@ -1529,7 +1533,8 @@ keyboard, mouse, paste, resize
   `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
-  `enable_kitty_graphics`, `enable_kitty_keyboard`, `allow_win32_input_mode`,
+  `enable_kitty_graphics`, `enable_checksum_rectangular_area`,
+  `enable_kitty_keyboard`, `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,

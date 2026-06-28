@@ -26,6 +26,7 @@ pub struct TerminalRuntime {
     visible_output_filter: TerminalVisibleOutputFilter,
     mode_tracker: TerminalModeTracker,
     enable_kitty_keyboard: bool,
+    enable_checksum_rectangular_area: bool,
     allow_win32_input_mode: bool,
     clipboard_tracker: TerminalClipboardTracker,
     notification_tracker: TerminalNotificationTracker,
@@ -63,6 +64,7 @@ impl TerminalRuntime {
             visible_output_filter: TerminalVisibleOutputFilter::default(),
             mode_tracker: TerminalModeTracker::default(),
             enable_kitty_keyboard: false,
+            enable_checksum_rectangular_area: false,
             allow_win32_input_mode: true,
             clipboard_tracker: TerminalClipboardTracker::default(),
             notification_tracker: TerminalNotificationTracker::default(),
@@ -108,9 +110,7 @@ impl TerminalRuntime {
                     damage.extend(self.terminal.take_damage());
                 }
                 FilteredOutputEvent::Response(response) => {
-                    if !matches!(&response, TerminalResponse::KittyKeyboardFlags)
-                        || self.enable_kitty_keyboard
-                    {
+                    if self.should_emit_response(&response) {
                         responses.push(self.output_filter.response_bytes(
                             response,
                             &self.terminal,
@@ -144,6 +144,14 @@ impl TerminalRuntime {
             damage,
             bells,
             unknown_escape_sequences,
+        }
+    }
+
+    fn should_emit_response(&self, response: &TerminalResponse) -> bool {
+        match response {
+            TerminalResponse::KittyKeyboardFlags => self.enable_kitty_keyboard,
+            TerminalResponse::ChecksumRectangularArea(_) => self.enable_checksum_rectangular_area,
+            _ => true,
         }
     }
 
@@ -251,6 +259,10 @@ impl TerminalRuntime {
 
     pub(crate) fn set_enable_kitty_graphics(&mut self, enabled: bool) {
         self.terminal.set_enable_kitty_graphics(enabled);
+    }
+
+    pub(crate) fn set_enable_checksum_rectangular_area(&mut self, enabled: bool) {
+        self.enable_checksum_rectangular_area = enabled;
     }
 
     pub(crate) fn set_allow_win32_input_mode(&mut self, allowed: bool) {
@@ -747,6 +759,21 @@ impl TerminalOutputFilter {
                 )
             },
         );
+        let checksum_rectangular_area_response = find_decrqcra_query(&self.pending).map(
+            |DecrqcraQuery {
+                 index,
+                 consumed,
+                 request,
+             }| {
+                (
+                    index,
+                    MatchedTerminalResponse {
+                        consumed,
+                        response: TerminalResponse::ChecksumRectangularArea(request),
+                    },
+                )
+            },
+        );
         let decrqss_response = find_decrqss_query(&self.pending).map(
             |DecrqssQuery {
                  index,
@@ -827,6 +854,7 @@ impl TerminalOutputFilter {
             .chain(ansi_mode_response)
             .chain(osc_color_response)
             .chain(iterm_report_cell_size_response)
+            .chain(checksum_rectangular_area_response)
             .chain(decrqss_response)
             .chain(xtgettcap_response)
             .chain(xtsmgraphics_response)
@@ -847,6 +875,7 @@ impl TerminalOutputFilter {
             .max(ansi_mode_status_query_suffix_len(pending))
             .max(synchronized_output_mode_sequence_suffix_len(pending))
             .max(osc_color_query_suffix_len(pending))
+            .max(decrqcra_query_suffix_len(pending))
             .max(decrqss_query_suffix_len(pending))
             .max(xtgettcap_query_suffix_len(pending))
             .max(xtsmgraphics_query_suffix_len(pending))
@@ -924,6 +953,7 @@ enum TerminalResponse {
     AnsiModeStatus(u16),
     OscColor(OscColorResponse),
     ItermReportCellSize,
+    ChecksumRectangularArea(DecrqcraRequest),
     Decrqss(DecrqssResponse),
     XtGetTcap(XtGetTcapResponse),
     XtSmGraphics(XtSmGraphicsRequest),
@@ -988,6 +1018,15 @@ impl TerminalResponse {
                 f32::from(TerminalOutputFilter::CELL_WIDTH_PIXELS)
             )
             .into_bytes(),
+            TerminalResponse::ChecksumRectangularArea(request) => {
+                let checksum = terminal.checksum_rectangle(
+                    request.left,
+                    request.top,
+                    request.right,
+                    request.bottom,
+                );
+                format!("\x1bP{}!~{:04x}\x1b\\", request.request_id, checksum).into_bytes()
+            }
             TerminalResponse::Decrqss(query) => query.response(terminal),
             TerminalResponse::XtGetTcap(query) => query.response(),
             TerminalResponse::XtSmGraphics(request) => request.response(size),
@@ -1180,6 +1219,107 @@ fn parse_ascii_i64(bytes: &[u8]) -> Option<i64> {
         return None;
     }
     std::str::from_utf8(bytes).ok()?.parse().ok()
+}
+
+struct DecrqcraQuery {
+    index: usize,
+    consumed: usize,
+    request: DecrqcraRequest,
+}
+
+#[derive(Clone)]
+struct DecrqcraRequest {
+    request_id: i64,
+    top: u16,
+    left: u16,
+    bottom: u16,
+    right: u16,
+}
+
+fn find_decrqcra_query(bytes: &[u8]) -> Option<DecrqcraQuery> {
+    csi_start_prefixes()
+        .into_iter()
+        .filter_map(|(prefix, prefix_len)| {
+            let index = find_subslice(bytes, prefix)?;
+            let body_start = index + prefix_len;
+            let body = &bytes[body_start..];
+            let final_index = body.iter().position(|byte| (0x40..=0x7e).contains(byte))?;
+            if body[final_index] != b'y' {
+                return None;
+            }
+            let request = parse_decrqcra_request(&body[..final_index])?;
+            Some(DecrqcraQuery {
+                index,
+                consumed: prefix_len + final_index + 1,
+                request,
+            })
+        })
+        .min_by_key(|query| query.index)
+}
+
+fn parse_decrqcra_request(params: &[u8]) -> Option<DecrqcraRequest> {
+    let params = params.strip_suffix(b"*")?;
+    let mut parts = params.split(|byte| *byte == b';');
+    let request_id = parts.next().and_then(parse_ascii_i64)?;
+    let page_number = parts.next().and_then(parse_ascii_i64)?;
+    if request_id < 0 || page_number < 0 {
+        return None;
+    }
+
+    let top = decrqcra_zero_based_axis(parts.next(), 0)?;
+    let left = decrqcra_zero_based_axis(parts.next(), 0)?;
+    let bottom = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX))?;
+    let right = decrqcra_zero_based_axis(parts.next(), i64::from(u16::MAX))?;
+    if parts.next().is_some() {
+        return None;
+    }
+
+    Some(DecrqcraRequest {
+        request_id,
+        top,
+        left,
+        bottom,
+        right,
+    })
+}
+
+fn decrqcra_zero_based_axis(part: Option<&[u8]>, default: i64) -> Option<u16> {
+    let value = match part {
+        Some([]) | None => default,
+        Some(part) => parse_ascii_i64(part)?,
+    };
+    if value <= 0 {
+        Some(0)
+    } else {
+        Some(value.saturating_sub(1).min(i64::from(u16::MAX)) as u16)
+    }
+}
+
+fn decrqcra_query_suffix_len(bytes: &[u8]) -> usize {
+    suffix_len_matching_query_prefix(bytes, is_decrqcra_query_prefix)
+}
+
+fn is_decrqcra_query_prefix(bytes: &[u8]) -> bool {
+    let Some(rest) = bytes
+        .strip_prefix(b"\x1b[")
+        .or_else(|| bytes.strip_prefix(b"\x9b"))
+        .or_else(|| bytes.strip_prefix(UTF8_C1_CSI))
+    else {
+        return b"\x1b[".starts_with(bytes)
+            || b"\x9b".starts_with(bytes)
+            || UTF8_C1_CSI.starts_with(bytes);
+    };
+
+    let mut saw_star = false;
+    for byte in rest {
+        match *byte {
+            b'0'..=b'9' | b';' if !saw_star => {}
+            b'*' if !saw_star => saw_star = true,
+            b'y' if saw_star => {}
+            _ => return false,
+        }
+    }
+    true
 }
 
 const UTF8_C1_OSC: &[u8] = b"\xc2\x9d";
@@ -4034,6 +4174,29 @@ mod tests {
         assert!(text.contains("before middleafter"));
         assert!(!text.contains("[20t"));
         assert!(!text.contains("[21t"));
+    }
+
+    #[test]
+    fn consumes_decrqcra_without_response_by_default() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(10, 2));
+
+        let responses = runtime.feed_pty_output(b"ABC\x1b[7;1;1;1;1;3*yDEF");
+
+        assert!(responses.is_empty());
+        let text = terminal_text(&runtime);
+        assert!(text.contains("ABCDEF"));
+        assert!(!text.contains("[7;"));
+    }
+
+    #[test]
+    fn answers_decrqcra_when_checksum_rectangular_area_enabled() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(10, 2));
+        runtime.set_enable_checksum_rectangular_area(true);
+
+        let responses = runtime.feed_pty_output(b"ABC\x1b[7;1;1;1;1;3*y");
+
+        assert_eq!(responses, vec![b"\x1bP7!~00c6\x1b\\".to_vec()]);
+        assert!(terminal_text(&runtime).starts_with("ABC"));
     }
 
     #[test]

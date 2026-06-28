@@ -2609,6 +2609,48 @@ impl Terminal {
     }
 
     #[must_use]
+    pub fn checksum_rectangle(&self, left: u16, top: u16, right: u16, bottom: u16) -> u16 {
+        let size = self.grid.size();
+        if size.rows == 0 || size.columns == 0 || top > bottom || left > right {
+            return b' ' as u16;
+        }
+
+        let row_origin = if self.modes.origin_mode {
+            self.scroll_top
+        } else {
+            0
+        };
+        let column_origin = if self.modes.origin_mode {
+            self.left_margin
+        } else {
+            0
+        };
+        let max_row = size.rows.saturating_sub(1);
+        let max_column = size.columns.saturating_sub(1);
+        let start_row = row_origin.saturating_add(top).min(max_row);
+        let end_row = row_origin.saturating_add(bottom).min(max_row);
+        let start_column = column_origin.saturating_add(left).min(max_column);
+        let end_column = column_origin.saturating_add(right).min(max_column);
+
+        if start_row > end_row || start_column > end_column {
+            return b' ' as u16;
+        }
+
+        let mut checksum = 0_u16;
+        for row in start_row..=end_row {
+            for column in start_column..=end_column {
+                let byte = self
+                    .grid
+                    .get(row, column)
+                    .map_or(b' ', |cell| cell.ch as u8);
+                checksum = checksum.wrapping_add(u16::from(byte));
+            }
+        }
+
+        if checksum == 0 { b' ' as u16 } else { checksum }
+    }
+
+    #[must_use]
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
