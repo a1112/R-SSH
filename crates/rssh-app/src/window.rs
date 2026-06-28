@@ -2834,6 +2834,7 @@ struct NativeDaemonOptions {
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
     dpi: u32,
+    dpi_by_screen: BTreeMap<String, u32>,
     tab_max_width: usize,
     status_update_interval_ms: u64,
     max_fps: usize,
@@ -3074,6 +3075,7 @@ struct NativeEffectiveConfig {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NativeConfigOverrides {
     dpi: Option<u32>,
+    dpi_by_screen: Option<BTreeMap<String, u32>>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
     max_fps: Option<usize>,
@@ -3325,6 +3327,29 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 
     if let Some(dpi) = lua_config_f32_assignment_from_query(config, "dpi") {
         overrides.dpi = Some(native_dpi_from_f32(dpi)?);
+        parsed = true;
+    }
+    if let Some(dpi_by_screen) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "dpi_by_screen",
+        )
+        .and_then(|dpi_by_screen| {
+            native_dpi_by_screen_lua_table_from_query(
+                config,
+                &dpi_by_screen.value,
+                dpi_by_screen.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "dpi_by_screen")
+                .and_then(|dpi_by_screen| {
+                    let max_start = lua_source_slice_start_offset(config, dpi_by_screen)?;
+                    native_dpi_by_screen_lua_table_from_query(config, dpi_by_screen, max_start)
+                })
+        })
+    {
+        overrides.dpi_by_screen = Some(dpi_by_screen);
         parsed = true;
     }
     if let Some(tab_max_width) = lua_config_usize_assignment_from_query(config, "tab_max_width") {
@@ -12748,6 +12773,36 @@ fn native_dpi_from_f32(dpi: f32) -> Option<u32> {
 }
 
 #[allow(dead_code)]
+fn native_dpi_by_screen_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<BTreeMap<String, u32>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut dpi_by_screen = BTreeMap::new();
+    let static_source = Some(LuaStaticSource { source, max_start });
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
+        let value = lua_static_number_assignment_value_before_offset_from_query(
+            source,
+            value.trim(),
+            max_start,
+            lua_unsigned_number_literal_from_query,
+        )?;
+        let dpi = native_dpi_from_f32(value.parse().ok()?)?;
+        dpi_by_screen.insert(key, dpi);
+    }
+
+    Some(dpi_by_screen)
+}
+
+#[allow(dead_code)]
 fn native_cell_width_from_ratio(ratio: f32) -> Option<NativeCellWidth> {
     native_ratio_to_per_mille(ratio).map(NativeCellWidth::from_per_mille)
 }
@@ -16031,6 +16086,7 @@ struct NativeWindowApp {
     pixels: Option<Pixels<'static>>,
     renderer: PixelRenderer,
     configured_dpi: Option<u32>,
+    dpi_by_screen: BTreeMap<String, u32>,
     detected_window_dpi: u32,
     window_dpi: u32,
     runtime: TerminalRuntime,
@@ -17557,6 +17613,7 @@ impl NativeWindowApp {
                 renderer
             },
             configured_dpi: None,
+            dpi_by_screen: BTreeMap::new(),
             detected_window_dpi: DEFAULT_WINDOW_DPI,
             window_dpi: DEFAULT_WINDOW_DPI,
             runtime,
@@ -18710,6 +18767,7 @@ impl NativeWindowApp {
         detached_app.app_shell = app_shell;
         detached_app.startup_workspace_was_explicit = true;
         detached_app.config_overrides = self.config_overrides.clone();
+        detached_app.dpi_by_screen.clone_from(&self.dpi_by_screen);
         detached_app.initial_cols = self.initial_cols;
         detached_app.initial_rows = self.initial_rows;
         detached_app.foreground_text_hsb = self.foreground_text_hsb;
@@ -18976,6 +19034,7 @@ impl NativeWindowApp {
     fn inherit_effective_config_from(&mut self, source: &Self) {
         self.config_overrides.clone_from(&source.config_overrides);
         self.configured_dpi = source.configured_dpi;
+        self.dpi_by_screen.clone_from(&source.dpi_by_screen);
         self.detected_window_dpi = source.detected_window_dpi;
         self.apply_effective_window_dpi();
         self.font.clone_from(&source.font);
@@ -27306,6 +27365,7 @@ impl NativeWindowApp {
     fn native_effective_config(&self) -> NativeEffectiveConfig {
         NativeEffectiveConfig {
             dpi: self.window_dpi,
+            dpi_by_screen: self.dpi_by_screen.clone(),
             tab_max_width: self.tab_max_width,
             status_update_interval_ms: u64::try_from(self.status_update_interval.as_millis())
                 .unwrap_or(u64::MAX),
@@ -27576,6 +27636,7 @@ impl NativeWindowApp {
     fn set_config_overrides(&mut self, overrides: NativeConfigOverrides) {
         self.config_overrides = overrides.clone();
         self.configured_dpi = overrides.dpi;
+        self.dpi_by_screen = overrides.dpi_by_screen.clone().unwrap_or_default();
         self.apply_effective_window_dpi();
         self.tab_max_width = overrides.tab_max_width.unwrap_or(DEFAULT_TAB_MAX_WIDTH);
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
@@ -67706,6 +67767,7 @@ mod tests {
             events.as_slice(),
             [NativeEffectiveConfig {
                 dpi: super::DEFAULT_WINDOW_DPI,
+                dpi_by_screen: BTreeMap::new(),
                 tab_max_width: 28,
                 status_update_interval_ms: 1_250,
                 max_fps: DEFAULT_MAX_FPS,
@@ -91874,6 +91936,69 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_dpi_by_screen_config() {
+        let app = NativeWindowApp::new(None);
+
+        assert!(app.native_effective_config().dpi_by_screen.is_empty());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_dpi_by_screen() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.dpi_by_screen = {
+                ['Built-in Retina Display'] = 144.0,
+                HDMI = 120.0,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm dpi_by_screen config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().dpi_by_screen,
+            BTreeMap::from([
+                ("Built-in Retina Display".to_owned(), 144),
+                ("HDMI".to_owned(), 120),
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_dpi_by_screen_static_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local retina_dpi = 144.0
+            local screen_dpi = {
+                ['Built-in Retina Display'] = retina_dpi,
+                HDMI = 96.0,
+            }
+
+            config.dpi_by_screen = screen_dpi
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm dpi_by_screen static-variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().dpi_by_screen,
+            BTreeMap::from([
+                ("Built-in Retina Display".to_owned(), 144),
+                ("HDMI".to_owned(), 96),
+            ])
+        );
+    }
+
+    #[test]
     fn window_app_configured_dpi_overrides_detected_scale_factor() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(2.0);
@@ -99499,6 +99624,10 @@ mod tests {
     fn sample_native_config_overrides() -> NativeConfigOverrides {
         NativeConfigOverrides {
             dpi: Some(144),
+            dpi_by_screen: Some(BTreeMap::from([
+                ("Built-in Retina Display".to_owned(), 144),
+                ("HDMI".to_owned(), 96),
+            ])),
             tab_max_width: Some(32),
             status_update_interval_ms: Some(250),
             max_fps: Some(144),
@@ -99893,6 +100022,10 @@ mod tests {
     fn sample_effective_config() -> NativeEffectiveConfig {
         NativeEffectiveConfig {
             dpi: 144,
+            dpi_by_screen: BTreeMap::from([
+                ("Built-in Retina Display".to_owned(), 144),
+                ("HDMI".to_owned(), 96),
+            ]),
             tab_max_width: 32,
             status_update_interval_ms: 250,
             max_fps: 144,
@@ -100255,6 +100388,7 @@ mod tests {
     fn default_effective_config() -> NativeEffectiveConfig {
         NativeEffectiveConfig {
             dpi: super::DEFAULT_WINDOW_DPI,
+            dpi_by_screen: BTreeMap::new(),
             tab_max_width: 16,
             status_update_interval_ms: 1_000,
             max_fps: DEFAULT_MAX_FPS,
