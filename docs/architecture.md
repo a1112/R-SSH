@@ -1186,7 +1186,7 @@ keyboard, mouse, paste, resize
   `char_select_bg_color`, `char_select_fg_color`, `pane_select_font_size`,
   `pane_select_bg_color`, `pane_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
-  `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`, `audible_bell`, `visual_bell`, `colors`, `color_scheme`, `color_schemes`, `color_scheme_dirs`, `resolved_palette`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
+  `quick_select_remove_styling`, `hyperlink_rules`, `selection_word_boundary`, `term`, `enq_answerback`, `audible_bell`, `visual_bell`, `colors`, `color_scheme`, `color_schemes`, `color_scheme_dirs`, `resolved_palette`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `ssh_domains`, `tls_servers`, `tls_clients`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`, `launch_menu`, `leader`, `keys`, `key_tables`, `mouse_bindings`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`,
@@ -1643,7 +1643,8 @@ keyboard, mouse, paste, resize
   `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`,
   `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`,
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
-  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`,
+  `disable_default_quick_select_patterns`, `quick_select_remove_styling`,
+  `hyperlink_rules`, `selection_word_boundary`, `term`, `enq_answerback`,
   `audible_bell`, `visual_bell`, `colors`, `color_scheme`, `color_schemes`, `color_scheme_dirs`, `resolved_palette`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `ssh_domains`, `tls_servers`, `tls_clients`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`, `launch_menu`, `leader`, `keys`, `key_tables`, `mouse_bindings`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
@@ -1750,7 +1751,8 @@ keyboard, mouse, paste, resize
   `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`,
   `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`,
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
-  `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`,
+  `disable_default_quick_select_patterns`, `quick_select_remove_styling`,
+  `hyperlink_rules`, `selection_word_boundary`, `term`, `enq_answerback`,
   `audible_bell`, `visual_bell`, `colors`, `color_scheme`, `color_schemes`, `color_scheme_dirs`, `resolved_palette`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `ssh_domains`, `tls_servers`, `tls_clients`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`, `launch_menu`, `leader`, `keys`, `key_tables`, `mouse_bindings`,
   `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`,
@@ -1846,7 +1848,10 @@ keyboard, mouse, paste, resize
   `completeselectionoropenlinkatmousecursorto <destination>`. Static
   `config.keys` action calls resolve top-level string variables for
   `CompleteSelection` and `CompleteSelectionOrOpenLinkAtMouseCursor`
-  destinations. Lua event wiring remains future parity work.
+  destinations. Static WezTerm-style `config.hyperlink_rules` tables parse
+  `regex`, `format`, and `highlight` fields, `table.insert` appends custom
+  rules, and `wezterm.default_hyperlink_rules()` preserves default rules before
+  appended custom rules. Lua event wiring remains future parity work.
 - Implemented in v1: command-palette Reset Terminal injects RIS (`ESC c`) into
   the active pane output side, matching WezTerm-style `ResetTerminal`.
   Action-name `resetterminal` queries dispatch the same command.

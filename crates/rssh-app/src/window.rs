@@ -5139,11 +5139,23 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             "hyperlink_rules",
         )
     {
-        overrides.hyperlink_rules = Some(native_hyperlink_rules_lua_table_from_query(
+        let mut rules = native_hyperlink_rules_lua_table_from_query(
             config,
             &hyperlink_rules.value,
             hyperlink_rules.max_start,
-        )?);
+        )?;
+        if lua_config_hyperlink_rules_extends_default_rules_before_offset(
+            config,
+            hyperlink_rules.max_start,
+        )
+        .unwrap_or(false)
+        {
+            let mut defaults = default_hyperlink_rules();
+            defaults.append(&mut rules);
+            overrides.hyperlink_rules = Some(defaults);
+        } else {
+            overrides.hyperlink_rules = Some(rules);
+        }
         parsed = true;
     }
     if let Some(selection_word_boundary) =
@@ -15495,6 +15507,83 @@ fn native_hyperlink_rules_lua_table_from_query(
     }
 
     Some(rules)
+}
+
+fn lua_config_hyperlink_rules_extends_default_rules_before_offset(
+    source: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    let starts = lua_top_level_statement_start_indices_before_offset(source, max_start)?;
+    let mut extends_default = false;
+
+    for (position, start) in starts.iter().copied().enumerate() {
+        let statement_end = starts.get(position + 1).copied().unwrap_or(max_start);
+        let statement = source.get(start..statement_end)?;
+        let after_receiver = if lua_source_keyword_at(source, start, "local") {
+            let rest = lua_trim_start_comments(source.get(start + "local".len()..)?)?;
+            lua_config_receiver_prefix_rest(rest, receiver)
+        } else {
+            lua_config_receiver_prefix_rest(statement, receiver)
+        };
+        let Some(after_receiver) = after_receiver else {
+            continue;
+        };
+        let Some(after_field) = lua_config_field_access_rest_from_query_with_static_key(
+            source,
+            after_receiver,
+            "hyperlink_rules",
+            start,
+        ) else {
+            continue;
+        };
+        let after_field = lua_trim_start_comments(after_field)?;
+        let Some(value) = after_field.strip_prefix('=') else {
+            continue;
+        };
+        extends_default =
+            lua_wezterm_default_hyperlink_rules_value_from_query(lua_trim_start_comments(value)?);
+    }
+
+    Some(extends_default)
+}
+
+fn lua_wezterm_default_hyperlink_rules_value_from_query(query: &str) -> bool {
+    let query = query.trim_start();
+    let Some(rest) = query.strip_prefix("wezterm") else {
+        return false;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix('.') else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix("default_hyperlink_rules") else {
+        return false;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix('(') else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix(')') else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn native_hyperlink_rule_lua_table_from_query(
@@ -95164,6 +95253,42 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn window_app_extends_default_hyperlink_rules_from_wezterm_lua_config() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.hyperlink_rules = wezterm.default_hyperlink_rules()
+            table.insert(config.hyperlink_rules, {
+              regex = [[\b[tT](\d+)\b]],
+              format = 'https://tickets.example/$1',
+              highlight = 1,
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm default hyperlink_rules extension config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let defaults = default_hyperlink_rules();
+        assert_eq!(effective.hyperlink_rules.len(), defaults.len() + 1);
+        assert!(
+            defaults
+                .iter()
+                .all(|rule| effective.hyperlink_rules.contains(rule))
+        );
+        assert!(effective.hyperlink_rules.iter().any(|rule| {
+            rule.regex == r"\b[tT](\d+)\b"
+                && rule.format == "https://tickets.example/$1"
+                && rule.highlight == 1
+        }));
     }
 
     #[test]
