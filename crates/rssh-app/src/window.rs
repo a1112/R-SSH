@@ -5754,7 +5754,14 @@ fn lua_static_wezterm_status_update_event_from_statement(
     let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
     let (body, window_name) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
-    lua_static_status_update_from_function_body(body, window_name)
+    lua_static_status_update_from_function_body(
+        body,
+        window_name,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
 }
 
 fn lua_static_wezterm_string_return_event_from_query(
@@ -6006,6 +6013,7 @@ fn lua_static_tab_title_return_from_statement(statement: &str) -> Option<NativeT
 fn lua_static_status_update_from_function_body(
     body: &str,
     window_name: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeWindowStatusUpdate> {
     let mut update = NativeWindowStatusUpdate {
         left_status: None,
@@ -6021,6 +6029,7 @@ fn lua_static_status_update_from_function_body(
         if let Some(left_status) = lua_static_window_status_setter_from_statement(
             statement,
             Some(static_source),
+            outer_static_source,
             window_name,
             "set_left_status",
         ) {
@@ -6029,6 +6038,7 @@ fn lua_static_status_update_from_function_body(
         if let Some(right_status) = lua_static_window_status_setter_from_statement(
             statement,
             Some(static_source),
+            outer_static_source,
             window_name,
             "set_right_status",
         ) {
@@ -6042,6 +6052,7 @@ fn lua_static_status_update_from_function_body(
 fn lua_static_window_status_setter_from_statement(
     statement: &str,
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     method: &str,
 ) -> Option<String> {
@@ -6061,13 +6072,18 @@ fn lua_static_window_status_setter_from_statement(
         let [argument] = arguments.as_slice() else {
             return None;
         };
-        return lua_static_window_status_text_from_parenthesized_argument(static_source, argument);
+        return lua_static_window_status_text_from_parenthesized_argument(
+            static_source,
+            outer_static_source,
+            argument,
+        );
     }
     lua_inline_string_literal_value_and_len(rest).map(|(status, _)| status)
 }
 
 fn lua_static_window_status_text_from_parenthesized_argument(
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     argument: &str,
 ) -> Option<String> {
     let argument = lua_trim_start_comments(argument)?;
@@ -6076,6 +6092,15 @@ fn lua_static_window_status_text_from_parenthesized_argument(
             static_source.source,
             argument,
             static_source.max_start,
+        )
+    {
+        return lua_static_window_status_text_from_query(value);
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            argument,
+            outer_static_source.max_start,
         )
     {
         return lua_static_window_status_text_from_query(value);
@@ -67507,6 +67532,47 @@ mod tests {
         let start_column = tab_bar
             .find("RIGHT-LOCAL")
             .expect("local format status variable should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_top_level_format_status_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local right = wezterm.format({
+              { Foreground = { Color = '#010203' } },
+              { Text = 'RIGHT' },
+              'ResetAttributes',
+              { Text = '-TOP' },
+            })
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(right)
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status event top-level format status variable");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-TOP")
+            .expect("top-level format status variable should render without escape bytes");
         let styled_cell =
             snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
         let plain_cell = snapshot_cell(

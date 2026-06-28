@@ -1616,7 +1616,7 @@ runtime storage for tabs and split panes.
   state directly. Lua-configurable `status_update_interval` plus static
   `wezterm.on('update-status', ...)` and deprecated `update-right-status`
   literal `window:set_left_status(...)` / `set_right_status(...)` setters map
-  into the same status state, including inline or callback-local static
+  into the same status state, including inline, callback-local, or top-level static
   `wezterm.format` Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition. Arbitrary Lua callbacks and
   dynamic `wezterm.format` construction remain later parity work.
