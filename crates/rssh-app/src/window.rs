@@ -2830,6 +2830,13 @@ struct NativeDaemonOptions {
     stderr: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct NativeSerialDomain {
+    name: String,
+    port: Option<String>,
+    baud: Option<usize>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -2999,6 +3006,7 @@ struct NativeEffectiveConfig {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     daemon_options: NativeDaemonOptions,
+    serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
     ratelimit_mux_line_prefetches_per_second: u32,
@@ -3240,6 +3248,7 @@ struct NativeConfigOverrides {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     daemon_options: Option<NativeDaemonOptions>,
+    serial_ports: Option<Vec<NativeSerialDomain>>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
     ratelimit_mux_line_prefetches_per_second: Option<u32>,
@@ -3420,6 +3429,29 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         })
     {
         overrides.daemon_options = Some(daemon_options);
+        parsed = true;
+    }
+    if let Some(serial_ports) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "serial_ports",
+        )
+        .and_then(|serial_ports| {
+            native_serial_ports_lua_table_from_query(
+                config,
+                &serial_ports.value,
+                serial_ports.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "serial_ports")
+                .and_then(|serial_ports| {
+                    let max_start = lua_source_slice_start_offset(config, serial_ports)?;
+                    native_serial_ports_lua_table_from_query(config, serial_ports, max_start)
+                })
+        })
+    {
+        overrides.serial_ports = Some(serial_ports);
         parsed = true;
     }
     if let Some(mux_enable_ssh_agent) =
@@ -12803,6 +12835,122 @@ fn native_dpi_by_screen_lua_table_from_query(
 }
 
 #[allow(dead_code)]
+fn native_serial_ports_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeSerialDomain>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut ports = Vec::new();
+    let mut indexed_ports = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !ports.is_empty() || index == 0 || indexed_ports.contains_key(&index) {
+                return None;
+            }
+            indexed_ports.insert(
+                index,
+                native_serial_domain_lua_table_from_query(static_source, value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_ports.is_empty() {
+            return None;
+        }
+        ports.push(native_serial_domain_lua_table_from_query(
+            static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_ports.is_empty() {
+        return (1..=indexed_ports.len())
+            .map(|index| indexed_ports.remove(&index))
+            .collect();
+    }
+
+    Some(ports)
+}
+
+#[allow(dead_code)]
+fn native_serial_domain_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeSerialDomain> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut name = None;
+    let mut port = None;
+    let mut baud = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        if key.eq_ignore_ascii_case("name") {
+            if name.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            name = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("port") {
+            if port.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            port = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("baud") {
+            if baud.is_some() {
+                return None;
+            }
+            baud = Some(
+                lua_static_number_assignment_value_before_offset_from_query(
+                    static_source?.source,
+                    value,
+                    static_source?.max_start,
+                    lua_unsigned_integer_literal_from_query,
+                )?
+                .parse()
+                .ok()?,
+            );
+        } else {
+            return None;
+        }
+    }
+
+    Some(NativeSerialDomain {
+        name: name?,
+        port,
+        baud,
+    })
+}
+
+#[allow(dead_code)]
 fn native_cell_width_from_ratio(ratio: f32) -> Option<NativeCellWidth> {
     native_ratio_to_per_mille(ratio).map(NativeCellWidth::from_per_mille)
 }
@@ -16242,6 +16390,7 @@ struct NativeWindowApp {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     daemon_options: NativeDaemonOptions,
+    serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
     ratelimit_mux_line_prefetches_per_second: u32,
@@ -17768,6 +17917,7 @@ impl NativeWindowApp {
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
             daemon_options: NativeDaemonOptions::default(),
+            serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
             ratelimit_mux_line_prefetches_per_second:
@@ -18923,6 +19073,7 @@ impl NativeWindowApp {
             .default_mux_server_domain
             .clone_from(&self.default_mux_server_domain);
         detached_app.daemon_options.clone_from(&self.daemon_options);
+        detached_app.serial_ports.clone_from(&self.serial_ports);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
         detached_app.ssh_backend = self.ssh_backend;
         detached_app.ratelimit_mux_line_prefetches_per_second =
@@ -19239,6 +19390,7 @@ impl NativeWindowApp {
         self.default_mux_server_domain
             .clone_from(&source.default_mux_server_domain);
         self.daemon_options.clone_from(&source.daemon_options);
+        self.serial_ports.clone_from(&source.serial_ports);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.ssh_backend = source.ssh_backend;
         self.ratelimit_mux_line_prefetches_per_second =
@@ -27533,6 +27685,7 @@ impl NativeWindowApp {
             default_ssh_auth_sock: self.default_ssh_auth_sock.clone(),
             default_mux_server_domain: self.default_mux_server_domain.clone(),
             daemon_options: self.daemon_options.clone(),
+            serial_ports: self.serial_ports.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             ssh_backend: self.ssh_backend,
             ratelimit_mux_line_prefetches_per_second: self.ratelimit_mux_line_prefetches_per_second,
@@ -28040,6 +28193,7 @@ impl NativeWindowApp {
             .default_mux_server_domain
             .filter(|default_mux_server_domain| !default_mux_server_domain.is_empty());
         self.daemon_options = overrides.daemon_options.clone().unwrap_or_default();
+        self.serial_ports = overrides.serial_ports.clone().unwrap_or_default();
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
             .unwrap_or(DEFAULT_MUX_ENABLE_SSH_AGENT);
@@ -53708,7 +53862,7 @@ mod tests {
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
         NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
         NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
+        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight, NativeSerialDomain,
         NativeSquareGlyphOverflow, NativeSshBackend, NativeStrikethroughPosition,
         NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
         NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
@@ -67940,6 +68094,7 @@ mod tests {
                 default_ssh_auth_sock: None,
                 default_mux_server_domain: None,
                 daemon_options: NativeDaemonOptions::default(),
+                serial_ports: Vec::new(),
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 ssh_backend: NativeSshBackend::LibSsh,
                 ratelimit_mux_line_prefetches_per_second:
@@ -91999,6 +92154,54 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_serial_ports_config() {
+        let app = NativeWindowApp::new(None);
+
+        assert!(app.native_effective_config().serial_ports.is_empty());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_serial_ports() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.serial_ports = {
+              { name = 'dev-console', port = 'COM3', baud = 115200 },
+              { name = 'usb-debug', port = '/dev/ttyUSB0' },
+              { name = 'named-default' },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm serial_ports config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().serial_ports,
+            vec![
+                NativeSerialDomain {
+                    name: "dev-console".to_owned(),
+                    port: Some("COM3".to_owned()),
+                    baud: Some(115200),
+                },
+                NativeSerialDomain {
+                    name: "usb-debug".to_owned(),
+                    port: Some("/dev/ttyUSB0".to_owned()),
+                    baud: None,
+                },
+                NativeSerialDomain {
+                    name: "named-default".to_owned(),
+                    port: None,
+                    baud: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn window_app_configured_dpi_overrides_detected_scale_factor() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(2.0);
@@ -99914,6 +100117,11 @@ mod tests {
                 stdout: Some("logs/wezterm.out".to_owned()),
                 stderr: Some("logs/wezterm.err".to_owned()),
             }),
+            serial_ports: Some(vec![NativeSerialDomain {
+                name: "ops-console".to_owned(),
+                port: Some("/dev/ttyUSB0".to_owned()),
+                baud: Some(115200),
+            }]),
             mux_enable_ssh_agent: Some(false),
             ssh_backend: Some(NativeSshBackend::Ssh2),
             ratelimit_mux_line_prefetches_per_second: Some(12),
@@ -100311,6 +100519,11 @@ mod tests {
                 stdout: Some("logs/wezterm.out".to_owned()),
                 stderr: Some("logs/wezterm.err".to_owned()),
             },
+            serial_ports: vec![NativeSerialDomain {
+                name: "ops-console".to_owned(),
+                port: Some("/dev/ttyUSB0".to_owned()),
+                baud: Some(115200),
+            }],
             mux_enable_ssh_agent: false,
             ssh_backend: NativeSshBackend::Ssh2,
             ratelimit_mux_line_prefetches_per_second: 12,
@@ -100553,6 +100766,7 @@ mod tests {
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
             daemon_options: NativeDaemonOptions::default(),
+            serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
             ratelimit_mux_line_prefetches_per_second:
