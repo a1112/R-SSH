@@ -3049,6 +3049,112 @@ fn native_split_ansi_palette(palette: [Color; 16]) -> ([Color; 8], [Color; 8]) {
     )
 }
 
+fn native_tab_bar_item_colors_with_overrides(
+    base: NativeTabBarItemColors,
+    overrides: NativeTabBarItemColors,
+) -> NativeTabBarItemColors {
+    NativeTabBarItemColors {
+        fg_color: overrides.fg_color.or(base.fg_color),
+        bg_color: overrides.bg_color.or(base.bg_color),
+        intensity: overrides.intensity.or(base.intensity),
+        underline: overrides.underline.or(base.underline),
+        italic: overrides.italic.or(base.italic),
+        strikethrough: overrides.strikethrough.or(base.strikethrough),
+    }
+}
+
+fn native_resolved_palette_with_overrides(
+    base: NativeResolvedPalette,
+    overrides: &NativeConfigOverrides,
+) -> NativeResolvedPalette {
+    let (ansi, brights) = overrides
+        .ansi_palette
+        .map_or((base.ansi, base.brights), |palette| {
+            native_split_ansi_palette(palette)
+        });
+
+    NativeResolvedPalette {
+        foreground: overrides.foreground_color.unwrap_or(base.foreground),
+        background: overrides.background_color.unwrap_or(base.background),
+        cursor_fg: overrides.cursor_fg_color.or(base.cursor_fg),
+        cursor_bg: overrides.cursor_bg_color.unwrap_or(base.cursor_bg),
+        cursor_border: overrides.cursor_border_color.or(base.cursor_border),
+        selection_fg: overrides.selection_fg_color.or(base.selection_fg),
+        selection_bg: overrides.selection_bg_color.or(base.selection_bg),
+        ansi,
+        brights,
+        indexed: overrides.indexed_palette.unwrap_or(base.indexed),
+        tab_bar_background: overrides
+            .tab_bar_background_color
+            .or(base.tab_bar_background),
+        tab_bar_inactive_tab_edge: overrides
+            .tab_bar_inactive_tab_edge_color
+            .or(base.tab_bar_inactive_tab_edge),
+        tab_bar_active_tab: native_tab_bar_item_colors_with_overrides(
+            base.tab_bar_active_tab,
+            overrides.tab_bar_active_tab_colors,
+        ),
+        tab_bar_inactive_tab: native_tab_bar_item_colors_with_overrides(
+            base.tab_bar_inactive_tab,
+            overrides.tab_bar_inactive_tab_colors,
+        ),
+        tab_bar_inactive_tab_hover: native_tab_bar_item_colors_with_overrides(
+            base.tab_bar_inactive_tab_hover,
+            overrides.tab_bar_inactive_tab_hover_colors,
+        ),
+        tab_bar_new_tab: native_tab_bar_item_colors_with_overrides(
+            base.tab_bar_new_tab,
+            overrides.tab_bar_new_tab_colors,
+        ),
+        tab_bar_new_tab_hover: native_tab_bar_item_colors_with_overrides(
+            base.tab_bar_new_tab_hover,
+            overrides.tab_bar_new_tab_hover_colors,
+        ),
+        scrollbar_thumb: overrides.scrollbar_thumb_color.or(base.scrollbar_thumb),
+        split: overrides.split_color.or(base.split),
+        visual_bell: overrides.visual_bell_color.or(base.visual_bell),
+        compose_cursor: overrides.compose_cursor_color.or(base.compose_cursor),
+        copy_mode_active_highlight_fg: overrides
+            .copy_mode_active_highlight_fg
+            .or(base.copy_mode_active_highlight_fg),
+        copy_mode_active_highlight_bg: overrides
+            .copy_mode_active_highlight_bg
+            .or(base.copy_mode_active_highlight_bg),
+        copy_mode_inactive_highlight_fg: overrides
+            .copy_mode_inactive_highlight_fg
+            .or(base.copy_mode_inactive_highlight_fg),
+        copy_mode_inactive_highlight_bg: overrides
+            .copy_mode_inactive_highlight_bg
+            .or(base.copy_mode_inactive_highlight_bg),
+        quick_select_label_fg: overrides
+            .quick_select_label_fg
+            .or(base.quick_select_label_fg),
+        quick_select_label_bg: overrides
+            .quick_select_label_bg
+            .or(base.quick_select_label_bg),
+        quick_select_match_fg: overrides
+            .quick_select_match_fg
+            .or(base.quick_select_match_fg),
+        quick_select_match_bg: overrides
+            .quick_select_match_bg
+            .or(base.quick_select_match_bg),
+        input_selector_label_fg: overrides
+            .input_selector_label_fg
+            .or(base.input_selector_label_fg),
+        input_selector_label_bg: overrides
+            .input_selector_label_bg
+            .or(base.input_selector_label_bg),
+        launcher_label_fg: overrides.launcher_label_fg.or(base.launcher_label_fg),
+        launcher_label_bg: overrides.launcher_label_bg.or(base.launcher_label_bg),
+    }
+}
+
+fn native_resolved_palette_from_overrides(
+    overrides: &NativeConfigOverrides,
+) -> NativeResolvedPalette {
+    native_resolved_palette_with_overrides(NativeResolvedPalette::default(), overrides)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -3178,6 +3284,7 @@ struct NativeEffectiveConfig {
     visual_bell: NativeVisualBell,
     color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
+    color_schemes: HashMap<String, NativeResolvedPalette>,
     resolved_palette: NativeResolvedPalette,
     foreground_color: Color,
     background_color: Color,
@@ -3433,6 +3540,7 @@ struct NativeConfigOverrides {
     visual_bell: Option<NativeVisualBell>,
     color_scheme: Option<String>,
     color_scheme_dirs: Option<Vec<String>>,
+    color_schemes: Option<HashMap<String, NativeResolvedPalette>>,
     foreground_color: Option<Color>,
     background_color: Option<Color>,
     ansi_palette: Option<[Color; 16]>,
@@ -3968,6 +4076,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     let color_scheme = lua_config_string_assignment_from_query(config, "color_scheme");
     if let Some(color_scheme) = color_scheme.clone() {
         overrides.color_scheme = Some(color_scheme);
+        parsed = true;
+    }
+    if let Some(color_schemes) =
+        native_color_schemes_from_wezterm_lua_config(config, config_receiver)?
+    {
+        overrides.color_schemes = Some(color_schemes);
         parsed = true;
     }
     let mut in_file_color_scheme_found = false;
@@ -5529,6 +5643,133 @@ fn apply_lua_color_scheme_source_overrides(
             Some(parsed)
         }
     }
+}
+
+fn native_color_scheme_palette_from_lua_source(
+    config: &str,
+    color_scheme: &str,
+    source: NativeColorSchemeLuaSource<'_>,
+) -> Option<NativeResolvedPalette> {
+    let mut overrides = NativeConfigOverrides::default();
+    apply_lua_color_scheme_source_overrides(config, color_scheme, source, &mut overrides)?;
+    Some(native_resolved_palette_from_overrides(&overrides))
+}
+
+fn native_color_schemes_lua_table_from_query(
+    config: &str,
+    color_schemes: &str,
+) -> Option<HashMap<String, NativeResolvedPalette>> {
+    let table = color_schemes
+        .trim()
+        .strip_prefix('{')?
+        .strip_suffix('}')?
+        .trim();
+    let mut schemes = HashMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let Some((name, colors)) = split_lua_table_assignment_from_field(field) else {
+            continue;
+        };
+        let name = split_lua_table_key_from_query(name.trim())?;
+        let source = color_scheme_lua_source_value_from_query(config, colors, false)?;
+        let palette = native_color_scheme_palette_from_lua_source(config, &name, source)?;
+        schemes.insert(name, palette);
+    }
+
+    Some(schemes)
+}
+
+fn apply_lua_color_scheme_config_assignments_to_map(
+    config: &str,
+    receiver: &str,
+    schemes: &mut HashMap<String, NativeResolvedPalette>,
+) -> Option<bool> {
+    let mut parsed = false;
+
+    for start in lua_top_level_statement_start_indices_before_offset(config, config.len())? {
+        let Some(rest) = lua_config_receiver_prefix_rest(config.get(start..)?, receiver) else {
+            continue;
+        };
+        let Some(rest) = lua_trim_start_comments(rest)?.strip_prefix('.') else {
+            continue;
+        };
+        let Some(rest) = rest.strip_prefix("color_schemes") else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let Some((name, rest)) = color_scheme_lua_table_assignment_key_from_query(rest) else {
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let source = color_scheme_lua_source_value_from_query(config, value, true)?;
+        let palette = native_color_scheme_palette_from_lua_source(config, &name, source)?;
+        schemes.insert(name, palette);
+        parsed = true;
+    }
+
+    Some(parsed)
+}
+
+fn apply_lua_color_scheme_config_mutations_to_map(
+    config: &str,
+    receiver: &str,
+    schemes: &mut HashMap<String, NativeResolvedPalette>,
+) -> Option<bool> {
+    let mut parsed = false;
+    let scheme_names = schemes.keys().cloned().collect::<Vec<_>>();
+
+    for name in scheme_names {
+        let mut overrides = NativeConfigOverrides::default();
+        if !apply_lua_color_scheme_entry_mutation_overrides(
+            config,
+            &name,
+            NativeColorSchemeEntryMutationTarget::Config { receiver },
+            0,
+            config.len(),
+            &mut overrides,
+        )? {
+            continue;
+        }
+        let base = schemes.remove(&name)?;
+        schemes.insert(
+            name,
+            native_resolved_palette_with_overrides(base, &overrides),
+        );
+        parsed = true;
+    }
+
+    Some(parsed)
+}
+
+fn native_color_schemes_from_wezterm_lua_config(
+    config: &str,
+    receiver: &str,
+) -> Option<Option<HashMap<String, NativeResolvedPalette>>> {
+    let mut parsed = false;
+    let mut schemes = HashMap::new();
+
+    if let Some(color_schemes) =
+        lua_config_table_or_static_variable_assignment_from_query(config, "color_schemes")
+    {
+        schemes = native_color_schemes_lua_table_from_query(config, color_schemes)?;
+        parsed = true;
+    }
+
+    parsed |= apply_lua_color_scheme_config_assignments_to_map(config, receiver, &mut schemes)?;
+    if parsed {
+        apply_lua_color_scheme_config_mutations_to_map(config, receiver, &mut schemes)?;
+    }
+
+    Some(parsed.then_some(schemes))
 }
 
 fn color_scheme_lua_mutation_source_from_config_query<'a>(
@@ -17815,6 +18056,7 @@ struct NativeWindowApp {
     visual_bell: NativeVisualBell,
     color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
+    color_schemes: HashMap<String, NativeResolvedPalette>,
     foreground_color: Color,
     background_color: Color,
     ansi_palette: Option<[Color; 16]>,
@@ -19349,6 +19591,7 @@ impl NativeWindowApp {
             visual_bell: NativeVisualBell::default(),
             color_scheme: None,
             color_scheme_dirs: Vec::new(),
+            color_schemes: HashMap::new(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
             ansi_palette: None,
@@ -20453,6 +20696,10 @@ impl NativeWindowApp {
         detached_app.audible_bell = self.audible_bell;
         detached_app.visual_bell = self.visual_bell;
         detached_app.color_scheme.clone_from(&self.color_scheme);
+        detached_app
+            .color_scheme_dirs
+            .clone_from(&self.color_scheme_dirs);
+        detached_app.color_schemes.clone_from(&self.color_schemes);
         detached_app.foreground_color = self.foreground_color;
         detached_app.renderer.set_default_foreground(color_to_rgba(
             self.foreground_color,
@@ -20790,6 +21037,7 @@ impl NativeWindowApp {
         self.visual_bell = source.visual_bell;
         self.color_scheme.clone_from(&source.color_scheme);
         self.color_scheme_dirs.clone_from(&source.color_scheme_dirs);
+        self.color_schemes.clone_from(&source.color_schemes);
         self.foreground_color = source.foreground_color;
         self.renderer.set_default_foreground(color_to_rgba(
             source.foreground_color,
@@ -29178,6 +29426,7 @@ impl NativeWindowApp {
             visual_bell: self.visual_bell,
             color_scheme: self.color_scheme.clone(),
             color_scheme_dirs: self.color_scheme_dirs.clone(),
+            color_schemes: self.color_schemes.clone(),
             resolved_palette: self.native_resolved_palette(),
             foreground_color: self.foreground_color,
             background_color: self.background_color,
@@ -29634,6 +29883,7 @@ impl NativeWindowApp {
         self.visual_bell = overrides.visual_bell.unwrap_or_default();
         self.color_scheme = overrides.color_scheme.clone();
         self.color_scheme_dirs = overrides.color_scheme_dirs.clone().unwrap_or_default();
+        self.color_schemes = overrides.color_schemes.clone().unwrap_or_default();
         self.foreground_color = overrides
             .foreground_color
             .unwrap_or(DEFAULT_FOREGROUND_COLOR);
@@ -55448,7 +55698,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashMap};
     use std::io::{self, Write};
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command};
@@ -59319,6 +59569,15 @@ mod tests {
 
         let effective = app.native_effective_config();
         assert_eq!(effective.color_scheme, Some("Project Scheme".to_owned()));
+        let scheme = effective
+            .color_schemes
+            .get("Project Scheme")
+            .expect("expected retained Project Scheme");
+        assert_eq!(scheme.foreground, Color::Rgb(1, 2, 3));
+        assert_eq!(scheme.background, Color::Rgb(4, 5, 6));
+        assert_eq!(scheme.ansi[1], Color::Rgb(17, 18, 19));
+        assert_eq!(scheme.brights[1], Color::Rgb(41, 42, 43));
+        assert_eq!(scheme.indexed[136], Some(Color::Rgb(7, 8, 9)));
         assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
         assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
         assert_eq!(
@@ -69750,6 +70009,7 @@ mod tests {
                 visual_bell: NativeVisualBell::default(),
                 color_scheme: None,
                 color_scheme_dirs: Vec::new(),
+                color_schemes: HashMap::new(),
                 resolved_palette: NativeResolvedPalette::default(),
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
@@ -102069,6 +102329,10 @@ mod tests {
         }
     }
 
+    fn sample_color_schemes() -> HashMap<String, NativeResolvedPalette> {
+        HashMap::from([("Project Scheme".to_owned(), sample_resolved_palette())])
+    }
+
     fn sample_native_config_overrides() -> NativeConfigOverrides {
         NativeConfigOverrides {
             dpi: Some(144),
@@ -102298,6 +102562,7 @@ mod tests {
             }),
             color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: Some(vec!["colors".to_owned(), "more-colors".to_owned()]),
+            color_schemes: Some(sample_color_schemes()),
             foreground_color: Some(Color::Rgb(7, 8, 9)),
             background_color: Some(Color::Rgb(4, 5, 6)),
             ansi_palette: Some(sample_ansi_palette()),
@@ -102782,6 +103047,7 @@ mod tests {
             },
             color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: vec!["colors".to_owned(), "more-colors".to_owned()],
+            color_schemes: sample_color_schemes(),
             resolved_palette: sample_resolved_palette(),
             foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
@@ -103167,6 +103433,7 @@ mod tests {
             visual_bell: NativeVisualBell::default(),
             color_scheme: None,
             color_scheme_dirs: Vec::new(),
+            color_schemes: HashMap::new(),
             resolved_palette: NativeResolvedPalette::default(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
