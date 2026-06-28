@@ -7836,8 +7836,9 @@ fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<
 #[allow(dead_code)]
 fn lua_config_font_assignment_from_query(source: &str, field: &str) -> Option<NativeFontConfig> {
     lua_config_assignment_from_query(source, field, |value| {
-        lua_static_string_assignment_value_from_query(source, value)
-            .or_else(|| lua_wezterm_font_call_assignment_value_from_query(value))
+        lua_static_string_assignment_value_from_query(source, value).or_else(|| {
+            lua_wezterm_font_call_assignment_value_from_query_with_static_source(source, value)
+        })
     })
     .and_then(|value| parse_wezterm_font_config_value(source, value))
 }
@@ -7854,6 +7855,14 @@ fn lua_config_font_rules_assignment_from_query(source: &str) -> Option<Vec<Nativ
 fn lua_wezterm_font_call_assignment_value_from_query(query: &str) -> Option<&str> {
     lua_wezterm_font_with_fallback_call_assignment_value_from_query(query)
         .or_else(|| lua_wezterm_font_family_call_assignment_value_from_query(query))
+}
+
+fn lua_wezterm_font_call_assignment_value_from_query_with_static_source<'a>(
+    source: &str,
+    query: &'a str,
+) -> Option<&'a str> {
+    lua_wezterm_font_call_assignment_value_from_query(query)
+        .or_else(|| lua_static_wezterm_font_alias_call_assignment_value_from_query(source, query))
 }
 
 fn lua_wezterm_font_family_call_assignment_value_from_query(query: &str) -> Option<&str> {
@@ -7933,6 +7942,97 @@ fn lua_wezterm_font_with_fallback_call_assignment_value_from_query(query: &str) 
         return None;
     }
     query.get(..query.len() - after_table.len() + ')'.len_utf8())
+}
+
+#[derive(Clone, Copy)]
+enum LuaStaticWeztermFontAliasKind {
+    Font,
+    FontWithFallback,
+}
+
+impl LuaStaticWeztermFontAliasKind {
+    fn normalized_prefix(self) -> &'static str {
+        match self {
+            Self::Font => "wezterm.font",
+            Self::FontWithFallback => "wezterm.font_with_fallback",
+        }
+    }
+}
+
+fn lua_static_wezterm_font_alias_call_assignment_value_from_query<'a>(
+    source: &str,
+    query: &'a str,
+) -> Option<&'a str> {
+    let query = lua_trim_start_comments(query)?;
+    let max_start = lua_source_slice_start_offset(source, query)?;
+    let alias = lua_identifier_literal_from_query(query)?;
+    let kind = lua_static_wezterm_font_alias_kind_before_offset(source, alias, max_start)??;
+    let rest = query.get(alias.len()..)?;
+    if !matches!(rest.trim_start().chars().next()?, '(' | '\'' | '"' | '{') {
+        return None;
+    }
+
+    let normalized_prefix = kind.normalized_prefix();
+    let normalized = format!("{normalized_prefix}{rest}");
+    let parsed = lua_wezterm_font_call_assignment_value_from_query(&normalized)?;
+    let consumed_rest_len = parsed.len().checked_sub(normalized_prefix.len())?;
+    query.get(..alias.len() + consumed_rest_len)
+}
+
+fn lua_static_wezterm_font_alias_query_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let query = lua_trim_start_comments(query)?;
+    let alias = lua_identifier_literal_from_query(query)?;
+    let kind = lua_static_wezterm_font_alias_kind_before_offset(source, alias, max_start)??;
+    let rest = query.get(alias.len()..)?;
+    if !matches!(rest.trim_start().chars().next()?, '(' | '\'' | '"' | '{') {
+        return None;
+    }
+
+    Some(format!("{}{}", kind.normalized_prefix(), rest))
+}
+
+fn lua_static_wezterm_font_alias_kind_before_offset(
+    source: &str,
+    alias: &str,
+    max_start: usize,
+) -> Option<Option<LuaStaticWeztermFontAliasKind>> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(alias) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        selected = lua_top_level_statement_value_from_query(value)
+            .and_then(lua_static_wezterm_font_alias_kind_from_value_query);
+    }
+
+    Some(selected)
+}
+
+fn lua_static_wezterm_font_alias_kind_from_value_query(
+    value: &str,
+) -> Option<LuaStaticWeztermFontAliasKind> {
+    match value.trim() {
+        "wezterm.font" => Some(LuaStaticWeztermFontAliasKind::Font),
+        "wezterm.font_with_fallback" => Some(LuaStaticWeztermFontAliasKind::FontWithFallback),
+        _ => None,
+    }
 }
 
 #[allow(dead_code)]
@@ -17336,6 +17436,10 @@ fn parse_wezterm_font_families_value(source: &str, value: &str) -> Option<Vec<St
 }
 
 fn parse_wezterm_font_config_value(source: &str, value: &str) -> Option<NativeFontConfig> {
+    let resolved_value = lua_source_slice_start_offset(source, value).and_then(|max_start| {
+        lua_static_wezterm_font_alias_query_from_query(source, value, max_start)
+    });
+    let value = resolved_value.as_deref().unwrap_or(value);
     Some(NativeFontConfig {
         families: parse_wezterm_font_families_value(source, value)?,
         attributes: parse_wezterm_font_attributes_value(source, value).unwrap_or_default(),
@@ -96460,6 +96564,43 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_font_static_alias() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local font = wezterm.font
+
+            config.font = font('JetBrains Mono', {
+              weight = 'Bold',
+              style = 'Italic',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font alias config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("Bold".to_owned()),
+                stretch: None,
+                style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
+            }
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_font_attributes() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -96708,6 +96849,31 @@ mod tests {
             effective.contains("font_fallbacks: [\"Noto Color Emoji\"]"),
             "effective config should expose WezTerm fallback font families: {effective:?}"
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_with_fallback_static_alias() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local font_with_fallback = wezterm.font_with_fallback
+
+            config.font = font_with_fallback {
+              'JetBrains Mono',
+              'Noto Color Emoji',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font_with_fallback alias config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(effective.font_fallbacks, vec!["Noto Color Emoji"]);
     }
 
     #[test]

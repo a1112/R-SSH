@@ -326,7 +326,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   effective load target when unset, and `freetype_load_flags` defaulting to
   `DEFAULT` below 100 DPI or `NO_HINTING` at 100 DPI or higher, plus
   top-level static table variables and `table.insert(config.font_dirs, ...)`
-  appends for `config.font_dirs`. Custom block
+  appends for `config.font_dirs`. `config.font` accepts static `wezterm.font`
+  and `wezterm.font_with_fallback` calls, including top-level static helper
+  aliases, retaining the primary family, fallback families, and supported font
+  attributes in effective config. Custom block
   glyph, square-glyph overflow, COLR font rasterizer, SVG-font ignore,
   fallback-font coverage sorting and font-directory fallback-search, FreeType
   interpreter-version, PCF long-family-name, display pixel-geometry,

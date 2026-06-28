@@ -1035,7 +1035,11 @@ keyboard, mouse, paste, resize
   `freetype_load_flags` defaults to `DEFAULT` below 100 DPI and
   `NO_HINTING` at 100 DPI or higher, and static Lua `font_dirs` tables parse
   inline, through top-level static table variables, or through
-  `table.insert(config.font_dirs, ...)` appends. Custom block glyph,
+  `table.insert(config.font_dirs, ...)` appends.
+  `config.font` accepts static `wezterm.font` and `wezterm.font_with_fallback`
+  calls, including top-level static helper aliases, retaining the primary
+  family, fallback families, and supported font attributes in effective config.
+  Custom block glyph,
   square-glyph overflow, COLR font rasterizer, SVG-font ignore, fallback-font
   coverage sorting and font-directory fallback-search, FreeType
   interpreter-version, PCF long-family-name, display pixel-geometry,
