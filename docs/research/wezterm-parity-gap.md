@@ -2747,11 +2747,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   whose `[metadata].name` or file stem matches `config.color_scheme` reuses the
   same implemented color fields as `config.colors`, so explicit `config.colors`
   values override the selected scheme. Static
-  `wezterm.color.load_scheme('path')` calls with a constant
-  TOML path can also feed selected `config.color_schemes['Name']` entries
-  directly or through static variables whose supported static mutations are
-  applied, or `config.colors` directly, through a static table variable, or
-  through the first returned variable from `local colors, metadata = ...` or
+  `wezterm.color.load_scheme('path')` calls with a constant TOML path, plus
+  top-level static aliases such as
+  `local load_scheme = wezterm.color.load_scheme` invoked with a constant TOML
+  path, can also feed selected `config.color_schemes['Name']` entries directly
+  or through static variables whose supported static mutations are applied, or
+  `config.colors` directly, through a static table variable, or through the
+  first returned variable from `local colors, metadata = ...` or
   `colors, metadata = ...`
   assignments. Static `load_scheme` variable references resolve to the latest
   top-level binding before the `config.colors` assignment and ignore

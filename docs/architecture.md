@@ -1595,10 +1595,12 @@ keyboard, mouse, paste, resize
   load when `[metadata].name` or the file stem matches `config.color_scheme`
   and reuse the same implemented color fields before `config.colors` applies
   overriding fields. Static `wezterm.color.load_scheme('path')` calls with a
-  constant TOML path can also feed selected `config.color_schemes['Name']`
-  entries directly or through static variables whose supported static mutations
-  are applied, or `config.colors` directly, through a static table variable, or
-  through the first returned variable from `local colors, metadata = ...` or
+  constant TOML path, plus top-level static aliases such as
+  `local load_scheme = wezterm.color.load_scheme` invoked with a constant TOML
+  path, can also feed selected `config.color_schemes['Name']` entries directly
+  or through static variables whose supported static mutations are applied, or
+  `config.colors` directly, through a static table variable, or through the
+  first returned variable from `local colors, metadata = ...` or
   `colors, metadata = ...` assignments. Static `load_scheme` variable
   references resolve to the latest top-level binding before the `config.colors`
   assignment and ignore helper-function-local bindings/mutations plus later
