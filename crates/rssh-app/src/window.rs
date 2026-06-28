@@ -3766,6 +3766,7 @@ struct NativeConfigOverrides {
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
     mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
+    lua_window_title: Option<String>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
@@ -3811,6 +3812,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 
     if let Some(update_status) = lua_static_wezterm_status_update_event_from_query(config) {
         overrides.lua_update_status = Some(update_status);
+        parsed = true;
+    }
+    if let Some(window_title) =
+        lua_static_wezterm_string_return_event_from_query(config, "format-window-title")
+    {
+        overrides.lua_window_title = Some(window_title);
         parsed = true;
     }
 
@@ -5745,6 +5752,50 @@ fn lua_static_wezterm_status_update_event_from_statement(
     lua_static_status_update_from_function_body(body, window_name)
 }
 
+fn lua_static_wezterm_string_return_event_from_query(
+    source: &str,
+    expected_event_name: &str,
+) -> Option<String> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(value) = lua_static_wezterm_string_return_event_from_statement(
+            source,
+            start,
+            expected_event_name,
+        ) {
+            selected = Some(value);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_string_return_event_from_statement(
+    source: &str,
+    start: usize,
+    expected_event_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(source.get(start..)?)?;
+    let rest = statement.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
+    if event_name != expected_event_name {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (body, _) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
+    lua_static_string_return_from_function_body(body)
+}
+
 fn lua_anonymous_function_body_and_first_param_from_query<'a>(
     value: &'a str,
 ) -> Option<(&'a str, &'a str)> {
@@ -5860,6 +5911,29 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
     }
 
     None
+}
+
+fn lua_static_string_return_from_function_body(body: &str) -> Option<String> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(value) = lua_static_string_return_from_statement(statement) {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+fn lua_static_string_return_from_statement(statement: &str) -> Option<String> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let (value, value_len) = lua_inline_string_literal_value_and_len(rest)?;
+    let rest = lua_trim_start_comments(rest.get(value_len..)?)?;
+    let rest = rest.strip_prefix(';').unwrap_or(rest);
+    lua_trim_start_comments(rest)?.is_empty().then_some(value)
 }
 
 fn lua_static_status_update_from_function_body(
@@ -18621,6 +18695,7 @@ struct NativeWindowApp {
     latest_notification: Option<TerminalNotification>,
     left_status: String,
     right_status: String,
+    lua_window_title: Option<String>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     status_update_interval: Duration,
     max_fps: usize,
@@ -20166,6 +20241,7 @@ impl NativeWindowApp {
             latest_notification: None,
             left_status: String::new(),
             right_status: String::new(),
+            lua_window_title: None,
             lua_update_status: None,
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
             max_fps: DEFAULT_MAX_FPS,
@@ -21423,6 +21499,7 @@ impl NativeWindowApp {
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
+        self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
@@ -30051,6 +30128,7 @@ impl NativeWindowApp {
         self.apply_effective_window_dpi();
         self.tab_max_width = overrides.tab_max_width.unwrap_or(DEFAULT_TAB_MAX_WIDTH);
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
+        self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
         self.max_fps = overrides
             .max_fps
@@ -31938,7 +32016,9 @@ impl NativeWindowApp {
             panes,
         };
 
-        (self.window_title_formatter)(&title_format).unwrap_or(default_title)
+        (self.window_title_formatter)(&title_format)
+            .or_else(|| self.lua_window_title.clone())
+            .unwrap_or(default_title)
     }
 
     fn scrollback_scrollbar(&self) -> Option<ScrollbackScrollbar> {
@@ -70441,6 +70521,24 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_format_window_title_event_string_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'STATIC LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title event string return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
     fn window_title_formatter_receives_effective_config_snapshot() {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&seen);
@@ -103463,6 +103561,7 @@ mod tests {
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
+            lua_window_title: Some("Lua Title".to_owned()),
             lua_update_status: Some(NativeWindowStatusUpdate {
                 left_status: Some("LEFT".to_owned()),
                 right_status: Some("RIGHT".to_owned()),

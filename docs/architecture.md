@@ -1785,8 +1785,10 @@ keyboard, mouse, paste, resize
   TabInformation/PaneInformation-style snapshots for the active tab, active
   pane, all tabs in the window, and panes in the active tab. Returning a string
   overrides the title; returning `None` falls back to the default. The typed
-  event carries the same effective config snapshot; Lua event wiring plus the
-  full Lua config object remain future parity work.
+  event carries the same effective config snapshot. Static
+  `wezterm.on('format-window-title', function(...) return 'title' end)` string
+  returns now map onto the same title override path; arbitrary Lua callback
+  execution and the full Lua config object remain future parity work.
 - Implemented in v1: native window `about_to_wait` dispatches typed
   `update-status` and deprecated `update-right-status` hooks with the window id
   and active pane id, scheduled by a WezTerm-style 1000ms

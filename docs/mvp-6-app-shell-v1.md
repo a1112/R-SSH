@@ -1595,8 +1595,10 @@ runtime storage for tabs and split panes.
   TabInformation/PaneInformation-style snapshots for the active tab, active
   pane, all tabs in the window, and panes in the active tab; returning a string
   overrides the native title, while `None` keeps the default. The typed event
-  carries the same effective config snapshot; Lua event wiring plus the full Lua
-  config object remain later parity work.
+  carries the same effective config snapshot. Static
+  `wezterm.on('format-window-title', function(...) return 'title' end)` string
+  returns map onto the same title override path; arbitrary Lua callbacks and
+  the full Lua config object remain later parity work.
 - `rssh-app` dispatches typed native-window `update-status` and deprecated
   `update-right-status` hooks from the native event loop with the window id and
   active pane id, scheduled by a WezTerm-style 1000ms
