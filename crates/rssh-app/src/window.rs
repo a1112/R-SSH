@@ -3090,6 +3090,7 @@ struct NativeEffectiveConfig {
     enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
     foreground_color: Color,
     background_color: Color,
@@ -3338,6 +3339,7 @@ struct NativeConfigOverrides {
     enq_answerback: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
     visual_bell: Option<NativeVisualBell>,
+    color_scheme: Option<String>,
     color_scheme_dirs: Option<Vec<String>>,
     foreground_color: Option<Color>,
     background_color: Option<Color>,
@@ -3872,6 +3874,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     let color_scheme = lua_config_string_assignment_from_query(config, "color_scheme");
+    if let Some(color_scheme) = color_scheme.clone() {
+        overrides.color_scheme = Some(color_scheme);
+        parsed = true;
+    }
     let mut in_file_color_scheme_found = false;
     let mut external_color_scheme_found = false;
     if let Some(color_scheme) = color_scheme.as_deref()
@@ -17715,6 +17721,7 @@ struct NativeWindowApp {
     enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
     foreground_color: Color,
     background_color: Color,
@@ -19248,6 +19255,7 @@ impl NativeWindowApp {
             enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
             audible_bell: DEFAULT_AUDIBLE_BELL,
             visual_bell: NativeVisualBell::default(),
+            color_scheme: None,
             color_scheme_dirs: Vec::new(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
@@ -20352,6 +20360,7 @@ impl NativeWindowApp {
         detached_app.enq_answerback.clone_from(&self.enq_answerback);
         detached_app.audible_bell = self.audible_bell;
         detached_app.visual_bell = self.visual_bell;
+        detached_app.color_scheme.clone_from(&self.color_scheme);
         detached_app.foreground_color = self.foreground_color;
         detached_app.renderer.set_default_foreground(color_to_rgba(
             self.foreground_color,
@@ -20687,6 +20696,7 @@ impl NativeWindowApp {
         self.enq_answerback.clone_from(&source.enq_answerback);
         self.audible_bell = source.audible_bell;
         self.visual_bell = source.visual_bell;
+        self.color_scheme.clone_from(&source.color_scheme);
         self.color_scheme_dirs.clone_from(&source.color_scheme_dirs);
         self.foreground_color = source.foreground_color;
         self.renderer.set_default_foreground(color_to_rgba(
@@ -29034,6 +29044,7 @@ impl NativeWindowApp {
             enq_answerback: self.enq_answerback.clone(),
             audible_bell: self.audible_bell,
             visual_bell: self.visual_bell,
+            color_scheme: self.color_scheme.clone(),
             color_scheme_dirs: self.color_scheme_dirs.clone(),
             foreground_color: self.foreground_color,
             background_color: self.background_color,
@@ -29483,6 +29494,7 @@ impl NativeWindowApp {
         self.apply_terminal_identity_config_to_runtimes();
         self.audible_bell = overrides.audible_bell.unwrap_or(DEFAULT_AUDIBLE_BELL);
         self.visual_bell = overrides.visual_bell.unwrap_or_default();
+        self.color_scheme = overrides.color_scheme.clone();
         self.color_scheme_dirs = overrides.color_scheme_dirs.clone().unwrap_or_default();
         self.foreground_color = overrides
             .foreground_color
@@ -59168,6 +59180,7 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        assert_eq!(effective.color_scheme, Some("Project Scheme".to_owned()));
         assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
         assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
         assert_eq!(
@@ -59209,6 +59222,7 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        assert_eq!(effective.color_scheme, Some("Project Scheme".to_owned()));
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
@@ -59239,6 +59253,7 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        assert_eq!(effective.color_scheme, Some("Project Scheme".to_owned()));
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
@@ -69588,6 +69603,7 @@ mod tests {
                 enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
                 audible_bell: NativeAudibleBell::SystemBeep,
                 visual_bell: NativeVisualBell::default(),
+                color_scheme: None,
                 color_scheme_dirs: Vec::new(),
                 foreground_color: DEFAULT_FOREGROUND_COLOR,
                 background_color: DEFAULT_BACKGROUND_COLOR,
@@ -102004,6 +102020,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
+            color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: Some(vec!["colors".to_owned(), "more-colors".to_owned()]),
             foreground_color: Some(Color::Rgb(7, 8, 9)),
             background_color: Some(Color::Rgb(4, 5, 6)),
@@ -102487,6 +102504,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             },
+            color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: vec!["colors".to_owned(), "more-colors".to_owned()],
             foreground_color: Color::Rgb(7, 8, 9),
             background_color: Color::Rgb(4, 5, 6),
@@ -102839,6 +102857,7 @@ mod tests {
             enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
             audible_bell: NativeAudibleBell::SystemBeep,
             visual_bell: NativeVisualBell::default(),
+            color_scheme: None,
             color_scheme_dirs: Vec::new(),
             foreground_color: DEFAULT_FOREGROUND_COLOR,
             background_color: DEFAULT_BACKGROUND_COLOR,
