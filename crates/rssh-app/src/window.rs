@@ -80,6 +80,8 @@ const DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND: u32 = 50;
 const DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE: usize = 128 * 1024;
 const DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS: u64 = 3;
 const DEFAULT_UNIX_DOMAIN_TIMEOUT_MS: u64 = 60_000;
+const DEFAULT_SSH_DOMAIN_TIMEOUT_MS: u64 = 60_000;
+const DEFAULT_SSH_DOMAIN_LOCAL_ECHO_THRESHOLD_MS: u64 = 100;
 const DEFAULT_PERIODIC_STAT_LOGGING: u64 = 0;
 const DEFAULT_ULIMIT_NOFILE: u64 = 2048;
 const DEFAULT_ULIMIT_NPROC: u64 = 2048;
@@ -2876,6 +2878,60 @@ struct NativeUnixDomain {
     overlay_lag_indicator: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum NativeSshMultiplexing {
+    #[default]
+    WezTerm,
+    None,
+}
+
+impl NativeSshMultiplexing {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "WezTerm" => Some(Self::WezTerm),
+            "None" => Some(Self::None),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum NativeShellAssumption {
+    #[default]
+    Unknown,
+    Posix,
+}
+
+impl NativeShellAssumption {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Unknown" => Some(Self::Unknown),
+            "Posix" => Some(Self::Posix),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+struct NativeSshDomain {
+    name: String,
+    remote_address: String,
+    no_agent_auth: bool,
+    username: Option<String>,
+    connect_automatically: bool,
+    timeout_ms: u64,
+    local_echo_threshold_ms: Option<u64>,
+    overlay_lag_indicator: bool,
+    remote_wezterm_path: Option<String>,
+    override_proxy_command: Option<String>,
+    ssh_backend: Option<NativeSshBackend>,
+    multiplexing: NativeSshMultiplexing,
+    ssh_option: BTreeMap<String, String>,
+    default_prog: Option<Vec<String>>,
+    assume_shell: NativeShellAssumption,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -3048,6 +3104,7 @@ struct NativeEffectiveConfig {
     exec_domains: Vec<NativeExecDomain>,
     wsl_domains: Vec<NativeWslDomain>,
     unix_domains: Vec<NativeUnixDomain>,
+    ssh_domains: Vec<NativeSshDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -3293,6 +3350,7 @@ struct NativeConfigOverrides {
     exec_domains: Option<Vec<NativeExecDomain>>,
     wsl_domains: Option<Vec<NativeWslDomain>>,
     unix_domains: Option<Vec<NativeUnixDomain>>,
+    ssh_domains: Option<Vec<NativeSshDomain>>,
     serial_ports: Option<Vec<NativeSerialDomain>>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
@@ -3543,6 +3601,29 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         })
     {
         overrides.unix_domains = Some(unix_domains);
+        parsed = true;
+    }
+    if let Some(ssh_domains) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "ssh_domains",
+        )
+        .and_then(|ssh_domains| {
+            native_ssh_domains_lua_table_from_query(
+                config,
+                &ssh_domains.value,
+                ssh_domains.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "ssh_domains")
+                .and_then(|ssh_domains| {
+                    let max_start = lua_source_slice_start_offset(config, ssh_domains)?;
+                    native_ssh_domains_lua_table_from_query(config, ssh_domains, max_start)
+                })
+        })
+    {
+        overrides.ssh_domains = Some(ssh_domains);
         parsed = true;
     }
     if let Some(serial_ports) =
@@ -13451,6 +13532,247 @@ fn native_lua_static_u64_from_query(
 }
 
 #[allow(dead_code)]
+fn native_ssh_domains_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeSshDomain>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut domains = Vec::new();
+    let mut indexed_domains = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !domains.is_empty() || index == 0 || indexed_domains.contains_key(&index) {
+                return None;
+            }
+            indexed_domains.insert(
+                index,
+                native_ssh_domain_lua_table_from_query(static_source, value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_domains.is_empty() {
+            return None;
+        }
+        domains.push(native_ssh_domain_lua_table_from_query(
+            static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_domains.is_empty() {
+        return (1..=indexed_domains.len())
+            .map(|index| indexed_domains.remove(&index))
+            .collect();
+    }
+
+    Some(domains)
+}
+
+#[allow(dead_code)]
+fn native_ssh_domain_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeSshDomain> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut name = None;
+    let mut remote_address = None;
+    let mut no_agent_auth = None;
+    let mut username = None;
+    let mut connect_automatically = None;
+    let mut timeout_ms = None;
+    let mut local_echo_threshold_ms = None;
+    let mut overlay_lag_indicator = None;
+    let mut remote_wezterm_path = None;
+    let mut override_proxy_command = None;
+    let mut ssh_backend = None;
+    let mut multiplexing = None;
+    let mut ssh_option = None;
+    let mut default_prog = None;
+    let mut assume_shell = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "name" => {
+                if name.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                name = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "remote_address" => {
+                if remote_address.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                remote_address = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "no_agent_auth" => {
+                if no_agent_auth.is_some() {
+                    return None;
+                }
+                no_agent_auth = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "username" => {
+                if username.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                username = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "connect_automatically" => {
+                if connect_automatically.is_some() {
+                    return None;
+                }
+                connect_automatically = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "timeout" | "timeout_ms" => {
+                if timeout_ms.is_some() {
+                    return None;
+                }
+                timeout_ms = Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "local_echo_threshold_ms" => {
+                if local_echo_threshold_ms.is_some() {
+                    return None;
+                }
+                local_echo_threshold_ms =
+                    Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "overlay_lag_indicator" => {
+                if overlay_lag_indicator.is_some() {
+                    return None;
+                }
+                overlay_lag_indicator = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "remote_wezterm_path" => {
+                if remote_wezterm_path.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                remote_wezterm_path = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "override_proxy_command" => {
+                if override_proxy_command.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                override_proxy_command = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "ssh_backend" => {
+                if ssh_backend.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                ssh_backend = Some(NativeSshBackend::parse(&value)?);
+            }
+            "multiplexing" => {
+                if multiplexing.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                multiplexing = Some(NativeSshMultiplexing::parse(&value)?);
+            }
+            "ssh_option" => {
+                if ssh_option.is_some() {
+                    return None;
+                }
+                ssh_option = Some(native_lua_static_string_map_from_query(
+                    static_source,
+                    value,
+                )?);
+            }
+            "default_prog" => {
+                if default_prog.is_some() {
+                    return None;
+                }
+                default_prog = Some(split_lua_table_string_array_with_static_source(
+                    static_source,
+                    value,
+                )?);
+            }
+            "assume_shell" => {
+                if assume_shell.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                assume_shell = Some(NativeShellAssumption::parse(&value)?);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(NativeSshDomain {
+        name: name?,
+        remote_address: remote_address?,
+        no_agent_auth: no_agent_auth.unwrap_or(false),
+        username,
+        connect_automatically: connect_automatically.unwrap_or(false),
+        timeout_ms: timeout_ms.unwrap_or(DEFAULT_SSH_DOMAIN_TIMEOUT_MS),
+        local_echo_threshold_ms: local_echo_threshold_ms
+            .or(Some(DEFAULT_SSH_DOMAIN_LOCAL_ECHO_THRESHOLD_MS)),
+        overlay_lag_indicator: overlay_lag_indicator.unwrap_or(false),
+        remote_wezterm_path,
+        override_proxy_command,
+        ssh_backend,
+        multiplexing: multiplexing.unwrap_or_default(),
+        ssh_option: ssh_option.unwrap_or_default(),
+        default_prog,
+        assume_shell: assume_shell.unwrap_or_default(),
+    })
+}
+
+#[allow(dead_code)]
+fn native_lua_static_string_map_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<BTreeMap<String, String>> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    split_lua_table_environment_from_query_with_static_source(static_source, value)
+}
+
+#[allow(dead_code)]
 fn native_serial_ports_lua_table_from_query(
     source: &str,
     value: &str,
@@ -17009,6 +17331,7 @@ struct NativeWindowApp {
     exec_domains: Vec<NativeExecDomain>,
     wsl_domains: Vec<NativeWslDomain>,
     unix_domains: Vec<NativeUnixDomain>,
+    ssh_domains: Vec<NativeSshDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -18539,6 +18862,7 @@ impl NativeWindowApp {
             exec_domains: Vec::new(),
             wsl_domains: Vec::new(),
             unix_domains: default_native_unix_domains(),
+            ssh_domains: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
@@ -19698,6 +20022,7 @@ impl NativeWindowApp {
         detached_app.exec_domains.clone_from(&self.exec_domains);
         detached_app.wsl_domains.clone_from(&self.wsl_domains);
         detached_app.unix_domains.clone_from(&self.unix_domains);
+        detached_app.ssh_domains.clone_from(&self.ssh_domains);
         detached_app.serial_ports.clone_from(&self.serial_ports);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
         detached_app.ssh_backend = self.ssh_backend;
@@ -20018,6 +20343,7 @@ impl NativeWindowApp {
         self.exec_domains.clone_from(&source.exec_domains);
         self.wsl_domains.clone_from(&source.wsl_domains);
         self.unix_domains.clone_from(&source.unix_domains);
+        self.ssh_domains.clone_from(&source.ssh_domains);
         self.serial_ports.clone_from(&source.serial_ports);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.ssh_backend = source.ssh_backend;
@@ -28316,6 +28642,7 @@ impl NativeWindowApp {
             exec_domains: self.exec_domains.clone(),
             wsl_domains: self.wsl_domains.clone(),
             unix_domains: self.unix_domains.clone(),
+            ssh_domains: self.ssh_domains.clone(),
             serial_ports: self.serial_ports.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             ssh_backend: self.ssh_backend,
@@ -28830,6 +29157,7 @@ impl NativeWindowApp {
             .unix_domains
             .clone()
             .unwrap_or_else(default_native_unix_domains);
+        self.ssh_domains = overrides.ssh_domains.clone().unwrap_or_default();
         self.serial_ports = overrides.serial_ports.clone().unwrap_or_default();
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
@@ -54627,19 +54955,20 @@ mod tests {
         NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
         NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
         NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight, NativeSerialDomain,
-        NativeSquareGlyphOverflow, NativeSshBackend, NativeStrikethroughPosition,
-        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
-        NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUnixDomain, NativeUserKeyAssignment,
-        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
-        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
-        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
-        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
-        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
-        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeShellAssumption, NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain,
+        NativeSshMultiplexing, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
+        NativeUnixDomain, NativeUserKeyAssignment, NativeUserMouseAssignment,
+        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
+        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop,
+        NativeWindowApp, NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
+        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
+        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
@@ -68862,6 +69191,7 @@ mod tests {
                 exec_domains: Vec::new(),
                 wsl_domains: Vec::new(),
                 unix_domains: default_native_unix_domains(),
+                ssh_domains: Vec::new(),
                 serial_ports: Vec::new(),
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 ssh_backend: NativeSshBackend::LibSsh,
@@ -93173,6 +93503,99 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_ssh_domains_config() {
+        let app = NativeWindowApp::new(None);
+
+        assert!(app.native_effective_config().ssh_domains.is_empty());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_ssh_domains() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local opts = {
+              compression = 'yes',
+              proxycommand = 'ssh bastion -W %h:%p',
+            }
+            local prog = { 'zsh', '-l' }
+
+            config.ssh_domains = {
+              {
+                name = 'prod',
+                remote_address = 'prod.example.com:2222',
+                no_agent_auth = true,
+                username = 'deploy',
+                connect_automatically = true,
+                timeout = 45000,
+                local_echo_threshold_ms = 25,
+                overlay_lag_indicator = true,
+                remote_wezterm_path = '/opt/wezterm/wezterm',
+                override_proxy_command = 'wezterm cli proxy --stdio',
+                ssh_backend = 'Ssh2',
+                multiplexing = 'None',
+                ssh_option = opts,
+                default_prog = prog,
+                assume_shell = 'Posix',
+              },
+              {
+                name = 'mux',
+                remote_address = 'mux.example.com',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ssh_domains config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().ssh_domains,
+            vec![
+                NativeSshDomain {
+                    name: "prod".to_owned(),
+                    remote_address: "prod.example.com:2222".to_owned(),
+                    no_agent_auth: true,
+                    username: Some("deploy".to_owned()),
+                    connect_automatically: true,
+                    timeout_ms: 45_000,
+                    local_echo_threshold_ms: Some(25),
+                    overlay_lag_indicator: true,
+                    remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                    override_proxy_command: Some("wezterm cli proxy --stdio".to_owned()),
+                    ssh_backend: Some(NativeSshBackend::Ssh2),
+                    multiplexing: NativeSshMultiplexing::None,
+                    ssh_option: BTreeMap::from([
+                        ("compression".to_owned(), "yes".to_owned()),
+                        ("proxycommand".to_owned(), "ssh bastion -W %h:%p".to_owned()),
+                    ]),
+                    default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+                    assume_shell: NativeShellAssumption::Posix,
+                },
+                NativeSshDomain {
+                    name: "mux".to_owned(),
+                    remote_address: "mux.example.com".to_owned(),
+                    no_agent_auth: false,
+                    username: None,
+                    connect_automatically: false,
+                    timeout_ms: 60_000,
+                    local_echo_threshold_ms: Some(100),
+                    overlay_lag_indicator: false,
+                    remote_wezterm_path: None,
+                    override_proxy_command: None,
+                    ssh_backend: None,
+                    multiplexing: NativeSshMultiplexing::WezTerm,
+                    ssh_option: BTreeMap::new(),
+                    default_prog: None,
+                    assume_shell: NativeShellAssumption::Unknown,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn window_app_configured_dpi_overrides_detected_scale_factor() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(2.0);
@@ -101122,6 +101545,23 @@ mod tests {
                 local_echo_threshold_ms: Some(12),
                 overlay_lag_indicator: true,
             }]),
+            ssh_domains: Some(vec![NativeSshDomain {
+                name: "ops-ssh".to_owned(),
+                remote_address: "ops.example.com:2222".to_owned(),
+                no_agent_auth: true,
+                username: Some("ops".to_owned()),
+                connect_automatically: true,
+                timeout_ms: 45_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                override_proxy_command: Some("wezterm cli proxy --stdio".to_owned()),
+                ssh_backend: Some(NativeSshBackend::Ssh2),
+                multiplexing: NativeSshMultiplexing::None,
+                ssh_option: BTreeMap::from([("compression".to_owned(), "yes".to_owned())]),
+                default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+                assume_shell: NativeShellAssumption::Posix,
+            }]),
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -101558,6 +101998,23 @@ mod tests {
                 local_echo_threshold_ms: Some(12),
                 overlay_lag_indicator: true,
             }],
+            ssh_domains: vec![NativeSshDomain {
+                name: "ops-ssh".to_owned(),
+                remote_address: "ops.example.com:2222".to_owned(),
+                no_agent_auth: true,
+                username: Some("ops".to_owned()),
+                connect_automatically: true,
+                timeout_ms: 45_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                override_proxy_command: Some("wezterm cli proxy --stdio".to_owned()),
+                ssh_backend: Some(NativeSshBackend::Ssh2),
+                multiplexing: NativeSshMultiplexing::None,
+                ssh_option: BTreeMap::from([("compression".to_owned(), "yes".to_owned())]),
+                default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+                assume_shell: NativeShellAssumption::Posix,
+            }],
             serial_ports: vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -101808,6 +102265,7 @@ mod tests {
             exec_domains: Vec::new(),
             wsl_domains: Vec::new(),
             unix_domains: default_native_unix_domains(),
+            ssh_domains: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,

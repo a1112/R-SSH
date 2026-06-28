@@ -360,6 +360,7 @@ keyboard, mouse, paste, resize
   `exec_domains`,
   `wsl_domains`,
   `unix_domains`,
+  `ssh_domains`,
   `serial_ports`,
   `ratelimit_mux_line_prefetches_per_second`,
   `mux_output_parser_buffer_size`,
@@ -1175,7 +1176,7 @@ keyboard, mouse, paste, resize
   `pane_select_bg_color`, `pane_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`,
   `quick_select_patterns`, `disable_default_quick_select_patterns`,
   `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `ssh_domains`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`,
   `enable_kitty_keyboard`, `allow_download_protocols`, `xcursor_theme`,
@@ -1282,6 +1283,13 @@ keyboard, mouse, paste, resize
   `write_timeout_ms`, optional `local_echo_threshold_ms`, and
   `overlay_lag_indicator` entries and defaults to WezTerm's `unix` domain with
   60000ms read/write timeouts,
+  `ssh_domains` stores explicit SSH domain `name`, `remote_address`,
+  `no_agent_auth`, optional `username`, `connect_automatically`,
+  `timeout_ms`, optional `local_echo_threshold_ms`, `overlay_lag_indicator`,
+  optional `remote_wezterm_path`, optional `override_proxy_command`, optional
+  per-domain `ssh_backend`, `multiplexing`, `ssh_option` string map, optional
+  `default_prog`, and `assume_shell` entries and defaults to an empty explicit
+  list while WezTerm's dynamic SSH-config host enumeration remains future work,
   `serial_ports` stores optional serial domain `name`, `port`, and `baud`
   entries and defaults to an empty list,
   `ratelimit_mux_line_prefetches_per_second` to `50`,
@@ -1289,8 +1297,9 @@ keyboard, mouse, paste, resize
   `mux_output_parser_coalesce_delay_ms` to `3`, `periodic_stat_logging` to
   `0`, and both `ulimit_nofile` and `ulimit_nproc` to `2048`; applying those
   values to a real mux server/parser, daemon pid/log redirection, WSL default
-  discovery, exec/WSL/Unix/serial domain connections, Unix socket/proxy timeout
-  application, or process rlimits remains future parity work.
+  discovery, SSH config host enumeration, exec/WSL/Unix/SSH/serial domain
+  connections, Unix socket/proxy timeout application, SSH timeout/backend/
+  multiplexing application, or process rlimits remains future parity work.
   `treat_left_ctrlalt_as_altgr` is stored with WezTerm's default
   `false`; when enabled, Ctrl+Alt text key events are routed as AltGr text
   input instead of matching Ctrl+Alt key bindings.
@@ -1612,7 +1621,7 @@ keyboard, mouse, paste, resize
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`,
   `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `ssh_domains`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`,
   `enable_kitty_keyboard`, `allow_download_protocols`, `xcursor_theme`,
@@ -1719,7 +1728,7 @@ keyboard, mouse, paste, resize
   `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`,
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`,
   `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`,
-  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`,
+  `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `default_ssh_auth_sock`, `default_gui_startup_args`, `default_mux_server_domain`, `daemon_options`, `exec_domains`, `wsl_domains`, `unix_domains`, `ssh_domains`, `serial_ports`, `mux_enable_ssh_agent`, `ssh_backend`, `ratelimit_mux_line_prefetches_per_second`, `mux_output_parser_buffer_size`, `mux_output_parser_coalesce_delay_ms`, `mux_env_remove`, `tiling_desktop_environments`, `periodic_stat_logging`, `ulimit_nofile`, `ulimit_nproc`, `detect_password_input`, `set_environment_variables`,
   `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`,
   `canonicalize_pasted_newlines`,
   `quote_dropped_files`,
