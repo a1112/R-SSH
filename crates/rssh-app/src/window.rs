@@ -2851,6 +2851,15 @@ struct NativeExecDomain {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeWslDomain {
+    name: String,
+    distribution: Option<String>,
+    username: Option<String>,
+    default_cwd: Option<String>,
+    default_prog: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
     dpi: u32,
@@ -3020,6 +3029,7 @@ struct NativeEffectiveConfig {
     default_mux_server_domain: Option<String>,
     daemon_options: NativeDaemonOptions,
     exec_domains: Vec<NativeExecDomain>,
+    wsl_domains: Vec<NativeWslDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -3263,6 +3273,7 @@ struct NativeConfigOverrides {
     default_mux_server_domain: Option<String>,
     daemon_options: Option<NativeDaemonOptions>,
     exec_domains: Option<Vec<NativeExecDomain>>,
+    wsl_domains: Option<Vec<NativeWslDomain>>,
     serial_ports: Option<Vec<NativeSerialDomain>>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
@@ -3467,6 +3478,29 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         })
     {
         overrides.exec_domains = Some(exec_domains);
+        parsed = true;
+    }
+    if let Some(wsl_domains) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "wsl_domains",
+        )
+        .and_then(|wsl_domains| {
+            native_wsl_domains_lua_table_from_query(
+                config,
+                &wsl_domains.value,
+                wsl_domains.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "wsl_domains")
+                .and_then(|wsl_domains| {
+                    let max_start = lua_source_slice_start_offset(config, wsl_domains)?;
+                    native_wsl_domains_lua_table_from_query(config, wsl_domains, max_start)
+                })
+        })
+    {
+        overrides.wsl_domains = Some(wsl_domains);
         parsed = true;
     }
     if let Some(serial_ports) =
@@ -13052,6 +13086,132 @@ fn native_lua_function_expression_from_query(value: &str) -> bool {
 }
 
 #[allow(dead_code)]
+fn native_wsl_domains_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeWslDomain>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut domains = Vec::new();
+    let mut indexed_domains = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !domains.is_empty() || index == 0 || indexed_domains.contains_key(&index) {
+                return None;
+            }
+            indexed_domains.insert(
+                index,
+                native_wsl_domain_lua_table_from_query(static_source, value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_domains.is_empty() {
+            return None;
+        }
+        domains.push(native_wsl_domain_lua_table_from_query(
+            static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_domains.is_empty() {
+        return (1..=indexed_domains.len())
+            .map(|index| indexed_domains.remove(&index))
+            .collect();
+    }
+
+    Some(domains)
+}
+
+#[allow(dead_code)]
+fn native_wsl_domain_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeWslDomain> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut name = None;
+    let mut distribution = None;
+    let mut username = None;
+    let mut default_cwd = None;
+    let mut default_prog = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        if key.eq_ignore_ascii_case("name") {
+            if name.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            name = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("distribution") {
+            if distribution.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            distribution = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("username") {
+            if username.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            username = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("default_cwd") {
+            if default_cwd.is_some() {
+                return None;
+            }
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            default_cwd = Some(non_empty_spawn_command_option_value(&value).ok()?);
+        } else if key.eq_ignore_ascii_case("default_prog") {
+            if default_prog.is_some() {
+                return None;
+            }
+            default_prog = Some(split_lua_table_string_array_with_static_source(
+                static_source,
+                value,
+            )?);
+        } else {
+            return None;
+        }
+    }
+
+    Some(NativeWslDomain {
+        name: name?,
+        distribution,
+        username,
+        default_cwd,
+        default_prog,
+    })
+}
+
+#[allow(dead_code)]
 fn native_serial_ports_lua_table_from_query(
     source: &str,
     value: &str,
@@ -16608,6 +16768,7 @@ struct NativeWindowApp {
     default_mux_server_domain: Option<String>,
     daemon_options: NativeDaemonOptions,
     exec_domains: Vec<NativeExecDomain>,
+    wsl_domains: Vec<NativeWslDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -18136,6 +18297,7 @@ impl NativeWindowApp {
             default_mux_server_domain: None,
             daemon_options: NativeDaemonOptions::default(),
             exec_domains: Vec::new(),
+            wsl_domains: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
@@ -19293,6 +19455,7 @@ impl NativeWindowApp {
             .clone_from(&self.default_mux_server_domain);
         detached_app.daemon_options.clone_from(&self.daemon_options);
         detached_app.exec_domains.clone_from(&self.exec_domains);
+        detached_app.wsl_domains.clone_from(&self.wsl_domains);
         detached_app.serial_ports.clone_from(&self.serial_ports);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
         detached_app.ssh_backend = self.ssh_backend;
@@ -19611,6 +19774,7 @@ impl NativeWindowApp {
             .clone_from(&source.default_mux_server_domain);
         self.daemon_options.clone_from(&source.daemon_options);
         self.exec_domains.clone_from(&source.exec_domains);
+        self.wsl_domains.clone_from(&source.wsl_domains);
         self.serial_ports.clone_from(&source.serial_ports);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.ssh_backend = source.ssh_backend;
@@ -27907,6 +28071,7 @@ impl NativeWindowApp {
             default_mux_server_domain: self.default_mux_server_domain.clone(),
             daemon_options: self.daemon_options.clone(),
             exec_domains: self.exec_domains.clone(),
+            wsl_domains: self.wsl_domains.clone(),
             serial_ports: self.serial_ports.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             ssh_backend: self.ssh_backend,
@@ -28416,6 +28581,7 @@ impl NativeWindowApp {
             .filter(|default_mux_server_domain| !default_mux_server_domain.is_empty());
         self.daemon_options = overrides.daemon_options.clone().unwrap_or_default();
         self.exec_domains = overrides.exec_domains.clone().unwrap_or_default();
+        self.wsl_domains = overrides.wsl_domains.clone().unwrap_or_default();
         self.serial_ports = overrides.serial_ports.clone().unwrap_or_default();
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
@@ -54212,13 +54378,13 @@ mod tests {
         NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
-        PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection, SelectionCell,
-        TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS, WindowActivateKeyTable,
-        WindowActivateWindowRequest, WindowCharSelectOptions, WindowClearScrollbackMode,
-        WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry, WindowConfirmationOptions,
-        WindowCopyDestination, WindowDomainSelector, WindowEmitEvent, WindowFontSizeAction,
-        WindowInputSelectorChoice, WindowInputSelectorOptions, WindowMouseEvent,
-        WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
+        NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
+        SelectionCell, TAB_BAR_ROWS, TERMINAL_COLUMNS, TERMINAL_ROWS, WINDOW_COMMANDS,
+        WindowActivateKeyTable, WindowActivateWindowRequest, WindowCharSelectOptions,
+        WindowClearScrollbackMode, WindowCloseTarget, WindowCommand, WindowCommandPaletteEntry,
+        WindowConfirmationOptions, WindowCopyDestination, WindowDomainSelector, WindowEmitEvent,
+        WindowFontSizeAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
+        WindowMouseEvent, WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
         WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
         WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
         WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
@@ -68429,6 +68595,7 @@ mod tests {
                 default_mux_server_domain: None,
                 daemon_options: NativeDaemonOptions::default(),
                 exec_domains: Vec::new(),
+                wsl_domains: Vec::new(),
                 serial_ports: Vec::new(),
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 ssh_backend: NativeSshBackend::LibSsh,
@@ -92589,6 +92756,62 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_wsl_domains_config() {
+        let app = NativeWindowApp::new(None);
+
+        assert!(app.native_effective_config().wsl_domains.is_empty());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_wsl_domains() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local ubuntu_prog = { 'zsh', '-l' }
+
+            config.wsl_domains = {
+              {
+                name = 'WSL:Ubuntu',
+                distribution = 'Ubuntu',
+                username = 'ops',
+                default_cwd = '~',
+                default_prog = ubuntu_prog,
+              },
+              {
+                name = 'WSL:Debian',
+                distribution = 'Debian',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm wsl_domains config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().wsl_domains,
+            vec![
+                NativeWslDomain {
+                    name: "WSL:Ubuntu".to_owned(),
+                    distribution: Some("Ubuntu".to_owned()),
+                    username: Some("ops".to_owned()),
+                    default_cwd: Some("~".to_owned()),
+                    default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+                },
+                NativeWslDomain {
+                    name: "WSL:Debian".to_owned(),
+                    distribution: Some("Debian".to_owned()),
+                    username: None,
+                    default_cwd: None,
+                    default_prog: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn window_app_configured_dpi_overrides_detected_scale_factor() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(2.0);
@@ -100509,6 +100732,13 @@ mod tests {
                 fixup_command: "exec-domain-ops".to_owned(),
                 label: Some(NativeExecDomainLabel::Value("Ops".to_owned())),
             }]),
+            wsl_domains: Some(vec![NativeWslDomain {
+                name: "WSL:Ubuntu".to_owned(),
+                distribution: Some("Ubuntu".to_owned()),
+                username: Some("ops".to_owned()),
+                default_cwd: Some("~".to_owned()),
+                default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+            }]),
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -100916,6 +101146,13 @@ mod tests {
                 fixup_command: "exec-domain-ops".to_owned(),
                 label: Some(NativeExecDomainLabel::Value("Ops".to_owned())),
             }],
+            wsl_domains: vec![NativeWslDomain {
+                name: "WSL:Ubuntu".to_owned(),
+                distribution: Some("Ubuntu".to_owned()),
+                username: Some("ops".to_owned()),
+                default_cwd: Some("~".to_owned()),
+                default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
+            }],
             serial_ports: vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -101164,6 +101401,7 @@ mod tests {
             default_mux_server_domain: None,
             daemon_options: NativeDaemonOptions::default(),
             exec_domains: Vec::new(),
+            wsl_domains: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
