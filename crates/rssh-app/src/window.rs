@@ -3152,6 +3152,10 @@ struct NativeEffectiveConfig {
     tiling_desktop_environments: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
+    leader: Option<NativeLeaderKey>,
+    keys: Vec<NativeUserKeyAssignment>,
+    key_tables: BTreeMap<String, Vec<NativeUserKeyAssignment>>,
+    mouse_bindings: Vec<NativeUserMouseAssignment>,
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
     swap_backspace_and_delete: bool,
@@ -29107,6 +29111,10 @@ impl NativeWindowApp {
             tiling_desktop_environments: self.tiling_desktop_environments.clone(),
             set_environment_variables: self.set_environment_variables.clone(),
             launch_menu: self.launch_menu.clone(),
+            leader: self.leader.clone(),
+            keys: self.key_assignments.clone(),
+            key_tables: self.key_tables.clone(),
+            mouse_bindings: self.mouse_assignments.clone(),
             key_map_preference: self.key_map_preference,
             ui_key_cap_rendering: self.ui_key_cap_rendering,
             swap_backspace_and_delete: self.swap_backspace_and_delete,
@@ -69668,6 +69676,10 @@ mod tests {
                 tiling_desktop_environments: default_tiling_desktop_environments(),
                 set_environment_variables: BTreeMap::new(),
                 launch_menu: Vec::new(),
+                leader: None,
+                keys: Vec::new(),
+                key_tables: BTreeMap::new(),
+                mouse_bindings: Vec::new(),
                 key_map_preference: NativeKeyMapPreference::Mapped,
                 ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
                 swap_backspace_and_delete: false,
@@ -83134,9 +83146,19 @@ mod tests {
               },
             }
 
+            config.leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 }
+
             config.key_tables = {
               resize_pane = {
                 { key = 'h', action = act.SendString 'left' },
+              },
+            }
+
+            config.mouse_bindings = {
+              {
+                event = { Drag = { streak = 1, button = 'Left' } },
+                mods = 'ALT',
+                action = act.StartWindowDrag,
               },
             }
 
@@ -83145,6 +83167,53 @@ mod tests {
         )
         .expect("expected WezTerm key_tables config");
         app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.leader,
+            Some(NativeLeaderKey {
+                keys: "CTRL+a".to_owned(),
+                timeout_milliseconds: Some(1_000),
+            })
+        );
+        assert_eq!(
+            effective.keys,
+            vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Space".to_owned(),
+                command: WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
+                    name: "resize_pane".to_owned(),
+                    timeout_milliseconds: None,
+                    one_shot: true,
+                    replace_current: false,
+                    until_unknown: false,
+                    prevent_fallback: false,
+                }),
+            }]
+        );
+        assert_eq!(
+            effective.key_tables,
+            BTreeMap::from([(
+                "resize_pane".to_owned(),
+                vec![NativeUserKeyAssignment {
+                    keys: "h".to_owned(),
+                    command: WindowCommand::SendString("left".to_owned()),
+                }],
+            )])
+        );
+        assert_eq!(
+            effective.mouse_bindings,
+            vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Drag,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                    streak: 1,
+                },
+                modifiers: ModifiersState::ALT,
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::StartWindowDrag,
+            }]
+        );
 
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
         app.handle_keyboard_input_event(
@@ -102689,6 +102758,26 @@ mod tests {
                     window_position: None,
                 }),
             }],
+            leader: Some(NativeLeaderKey {
+                keys: "CTRL+A".to_owned(),
+                timeout_milliseconds: Some(750),
+            }),
+            keys: vec![NativeUserKeyAssignment {
+                keys: "CTRL+ALT+D".to_owned(),
+                command: WindowCommand::ShowDebugOverlay,
+            }],
+            key_tables: BTreeMap::new(),
+            mouse_bindings: vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Drag,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                    streak: 1,
+                },
+                modifiers: ModifiersState::ALT,
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::StartWindowDrag,
+            }],
             key_map_preference: NativeKeyMapPreference::Physical,
             ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
             swap_backspace_and_delete: true,
@@ -102941,6 +103030,10 @@ mod tests {
             tiling_desktop_environments: default_tiling_desktop_environments(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
+            leader: None,
+            keys: Vec::new(),
+            key_tables: BTreeMap::new(),
+            mouse_bindings: Vec::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
             ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
             swap_backspace_and_delete: false,
