@@ -4596,7 +4596,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     {
         let data = fs::read(Path::new(&window_background_image)).ok()?;
         overrides.window_background_image = Some(window_background_image);
-        overrides.window_background_images = Some(vec![NativeWindowBackgroundImage {
+        let image = NativeWindowBackgroundImage {
             data,
             opacity_alpha: overrides
                 .window_background_opacity
@@ -4610,7 +4610,11 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                 height: RenderBackgroundImageDimension::Percent(10_000),
                 ..NativeWindowBackgroundImageLayout::default()
             },
-        }]);
+        };
+        overrides.background = Some(vec![NativeWindowBackgroundVisualLayer::Image(
+            image.clone(),
+        )]);
+        overrides.window_background_images = Some(vec![image]);
         parsed = true;
     }
     if let Some(window_background_gradient) =
@@ -58973,6 +58977,26 @@ mod tests {
         app.set_config_overrides(overrides);
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
+        assert_eq!(
+            app.native_effective_config().background,
+            vec![
+                super::NativeWindowBackgroundVisualLayer::Image(
+                    super::NativeWindowBackgroundImage {
+                        data: std::fs::read(&image_path).expect("expected test PNG data"),
+                        opacity_alpha: u8::MAX,
+                        hsb: super::native_identity_hsb(),
+                        animation_speed_millis: 1_000,
+                        attachment: RenderBackgroundImageAttachment::Fixed,
+                        layout: super::NativeWindowBackgroundImageLayout {
+                            width: super::RenderBackgroundImageDimension::Percent(10_000),
+                            height: super::RenderBackgroundImageDimension::Percent(10_000),
+                            ..super::NativeWindowBackgroundImageLayout::default()
+                        },
+                    },
+                ),
+                super::NativeWindowBackgroundVisualLayer::Color(Color::Rgba(0, 0, 255, 127)),
+            ]
+        );
         assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
         assert_eq!(
             frame_pixel_at(

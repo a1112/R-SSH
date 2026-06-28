@@ -173,8 +173,9 @@ keyboard, mouse, paste, resize
   `window_background_image` files render as 100%-sized background image layers
   with `window_background_image_hsb` and `window_background_opacity`
   and can serve as WezTerm's implicit prepended layer below a following
-  Color-only `config.background` stack, while the legacy path and optional HSB
-  transform are retained in the native effective config snapshot, and
+  Color-only `config.background` stack while being retained as the first
+  effective `background` layer; the legacy path and optional HSB transform are
+  also retained in the native effective config snapshot, and
   static ordered Gradient/File visual layer stacks, including Color-below-File,
   Color-over-File, multiple File layers, and Gradient-over-File, render through
   the native background layer path from string File sources or File source
