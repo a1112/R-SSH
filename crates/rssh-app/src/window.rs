@@ -79,6 +79,7 @@ const DEFAULT_MUX_ENV_REMOVE: &[&str] = &["SSH_AUTH_SOCK", "SSH_CLIENT", "SSH_CO
 const DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND: u32 = 50;
 const DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE: usize = 128 * 1024;
 const DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS: u64 = 3;
+const DEFAULT_UNIX_DOMAIN_TIMEOUT_MS: u64 = 60_000;
 const DEFAULT_PERIODIC_STAT_LOGGING: u64 = 0;
 const DEFAULT_ULIMIT_NOFILE: u64 = 2048;
 const DEFAULT_ULIMIT_NPROC: u64 = 2048;
@@ -2861,6 +2862,22 @@ struct NativeWslDomain {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
+struct NativeUnixDomain {
+    name: String,
+    socket_path: Option<String>,
+    connect_automatically: bool,
+    no_serve_automatically: bool,
+    serve_command: Option<Vec<String>>,
+    proxy_command: Option<Vec<String>>,
+    skip_permissions_check: bool,
+    read_timeout_ms: u64,
+    write_timeout_ms: u64,
+    local_echo_threshold_ms: Option<u64>,
+    overlay_lag_indicator: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
     dpi: u32,
     dpi_by_screen: BTreeMap<String, u32>,
@@ -3030,6 +3047,7 @@ struct NativeEffectiveConfig {
     daemon_options: NativeDaemonOptions,
     exec_domains: Vec<NativeExecDomain>,
     wsl_domains: Vec<NativeWslDomain>,
+    unix_domains: Vec<NativeUnixDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -3274,6 +3292,7 @@ struct NativeConfigOverrides {
     daemon_options: Option<NativeDaemonOptions>,
     exec_domains: Option<Vec<NativeExecDomain>>,
     wsl_domains: Option<Vec<NativeWslDomain>>,
+    unix_domains: Option<Vec<NativeUnixDomain>>,
     serial_ports: Option<Vec<NativeSerialDomain>>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
@@ -3501,6 +3520,29 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         })
     {
         overrides.wsl_domains = Some(wsl_domains);
+        parsed = true;
+    }
+    if let Some(unix_domains) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "unix_domains",
+        )
+        .and_then(|unix_domains| {
+            native_unix_domains_lua_table_from_query(
+                config,
+                &unix_domains.value,
+                unix_domains.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "unix_domains")
+                .and_then(|unix_domains| {
+                    let max_start = lua_source_slice_start_offset(config, unix_domains)?;
+                    native_unix_domains_lua_table_from_query(config, unix_domains, max_start)
+                })
+        })
+    {
+        overrides.unix_domains = Some(unix_domains);
         parsed = true;
     }
     if let Some(serial_ports) =
@@ -13212,6 +13254,203 @@ fn native_wsl_domain_lua_table_from_query(
 }
 
 #[allow(dead_code)]
+fn native_unix_domains_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeUnixDomain>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut domains = Vec::new();
+    let mut indexed_domains = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !domains.is_empty() || index == 0 || indexed_domains.contains_key(&index) {
+                return None;
+            }
+            indexed_domains.insert(
+                index,
+                native_unix_domain_lua_table_from_query(static_source, value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_domains.is_empty() {
+            return None;
+        }
+        domains.push(native_unix_domain_lua_table_from_query(
+            static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_domains.is_empty() {
+        return (1..=indexed_domains.len())
+            .map(|index| indexed_domains.remove(&index))
+            .collect();
+    }
+
+    Some(domains)
+}
+
+#[allow(dead_code)]
+fn native_unix_domain_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeUnixDomain> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut name = None;
+    let mut socket_path = None;
+    let mut connect_automatically = None;
+    let mut no_serve_automatically = None;
+    let mut serve_command = None;
+    let mut proxy_command = None;
+    let mut skip_permissions_check = None;
+    let mut read_timeout_ms = None;
+    let mut write_timeout_ms = None;
+    let mut local_echo_threshold_ms = None;
+    let mut overlay_lag_indicator = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "name" => {
+                if name.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                name = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "socket_path" => {
+                if socket_path.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                socket_path = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "connect_automatically" => {
+                if connect_automatically.is_some() {
+                    return None;
+                }
+                connect_automatically = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "no_serve_automatically" => {
+                if no_serve_automatically.is_some() {
+                    return None;
+                }
+                no_serve_automatically = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "serve_command" => {
+                if serve_command.is_some() {
+                    return None;
+                }
+                serve_command = Some(split_lua_table_string_array_with_static_source(
+                    static_source,
+                    value,
+                )?);
+            }
+            "proxy_command" => {
+                if proxy_command.is_some() {
+                    return None;
+                }
+                proxy_command = Some(split_lua_table_string_array_with_static_source(
+                    static_source,
+                    value,
+                )?);
+            }
+            "skip_permissions_check" => {
+                if skip_permissions_check.is_some() {
+                    return None;
+                }
+                skip_permissions_check = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "read_timeout" | "read_timeout_ms" => {
+                if read_timeout_ms.is_some() {
+                    return None;
+                }
+                read_timeout_ms = Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "write_timeout" | "write_timeout_ms" => {
+                if write_timeout_ms.is_some() {
+                    return None;
+                }
+                write_timeout_ms = Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "local_echo_threshold_ms" => {
+                if local_echo_threshold_ms.is_some() {
+                    return None;
+                }
+                local_echo_threshold_ms =
+                    Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "overlay_lag_indicator" => {
+                if overlay_lag_indicator.is_some() {
+                    return None;
+                }
+                overlay_lag_indicator = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(NativeUnixDomain {
+        name: name?,
+        socket_path,
+        connect_automatically: connect_automatically.unwrap_or(false),
+        no_serve_automatically: no_serve_automatically.unwrap_or(false),
+        serve_command,
+        proxy_command,
+        skip_permissions_check: skip_permissions_check.unwrap_or(false),
+        read_timeout_ms: read_timeout_ms.unwrap_or(DEFAULT_UNIX_DOMAIN_TIMEOUT_MS),
+        write_timeout_ms: write_timeout_ms.unwrap_or(DEFAULT_UNIX_DOMAIN_TIMEOUT_MS),
+        local_echo_threshold_ms,
+        overlay_lag_indicator: overlay_lag_indicator.unwrap_or(false),
+    })
+}
+
+#[allow(dead_code)]
+fn native_lua_static_u64_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<u64> {
+    let static_source = static_source?;
+    lua_static_number_assignment_value_before_offset_from_query(
+        static_source.source,
+        value,
+        static_source.max_start,
+        lua_unsigned_integer_literal_from_query,
+    )?
+    .parse()
+    .ok()
+}
+
+#[allow(dead_code)]
 fn native_serial_ports_lua_table_from_query(
     source: &str,
     value: &str,
@@ -16769,6 +17008,7 @@ struct NativeWindowApp {
     daemon_options: NativeDaemonOptions,
     exec_domains: Vec<NativeExecDomain>,
     wsl_domains: Vec<NativeWslDomain>,
+    unix_domains: Vec<NativeUnixDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -18298,6 +18538,7 @@ impl NativeWindowApp {
             daemon_options: NativeDaemonOptions::default(),
             exec_domains: Vec::new(),
             wsl_domains: Vec::new(),
+            unix_domains: default_native_unix_domains(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
@@ -19456,6 +19697,7 @@ impl NativeWindowApp {
         detached_app.daemon_options.clone_from(&self.daemon_options);
         detached_app.exec_domains.clone_from(&self.exec_domains);
         detached_app.wsl_domains.clone_from(&self.wsl_domains);
+        detached_app.unix_domains.clone_from(&self.unix_domains);
         detached_app.serial_ports.clone_from(&self.serial_ports);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
         detached_app.ssh_backend = self.ssh_backend;
@@ -19775,6 +20017,7 @@ impl NativeWindowApp {
         self.daemon_options.clone_from(&source.daemon_options);
         self.exec_domains.clone_from(&source.exec_domains);
         self.wsl_domains.clone_from(&source.wsl_domains);
+        self.unix_domains.clone_from(&source.unix_domains);
         self.serial_ports.clone_from(&source.serial_ports);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.ssh_backend = source.ssh_backend;
@@ -28072,6 +28315,7 @@ impl NativeWindowApp {
             daemon_options: self.daemon_options.clone(),
             exec_domains: self.exec_domains.clone(),
             wsl_domains: self.wsl_domains.clone(),
+            unix_domains: self.unix_domains.clone(),
             serial_ports: self.serial_ports.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             ssh_backend: self.ssh_backend,
@@ -28582,6 +28826,10 @@ impl NativeWindowApp {
         self.daemon_options = overrides.daemon_options.clone().unwrap_or_default();
         self.exec_domains = overrides.exec_domains.clone().unwrap_or_default();
         self.wsl_domains = overrides.wsl_domains.clone().unwrap_or_default();
+        self.unix_domains = overrides
+            .unix_domains
+            .clone()
+            .unwrap_or_else(default_native_unix_domains);
         self.serial_ports = overrides.serial_ports.clone().unwrap_or_default();
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
@@ -54092,6 +54340,22 @@ fn default_gui_startup_args() -> Vec<String> {
         .collect()
 }
 
+fn default_native_unix_domains() -> Vec<NativeUnixDomain> {
+    vec![NativeUnixDomain {
+        name: "unix".to_owned(),
+        socket_path: None,
+        connect_automatically: false,
+        no_serve_automatically: false,
+        serve_command: None,
+        proxy_command: None,
+        skip_permissions_check: false,
+        read_timeout_ms: DEFAULT_UNIX_DOMAIN_TIMEOUT_MS,
+        write_timeout_ms: DEFAULT_UNIX_DOMAIN_TIMEOUT_MS,
+        local_echo_threshold_ms: None,
+        overlay_lag_indicator: false,
+    }]
+}
+
 fn default_tiling_desktop_environments() -> Vec<String> {
     DEFAULT_TILING_DESKTOP_ENVIRONMENTS
         .iter()
@@ -54366,16 +54630,16 @@ mod tests {
         NativeSquareGlyphOverflow, NativeSshBackend, NativeStrikethroughPosition,
         NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
         NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUserKeyAssignment, NativeUserMouseAssignment,
-        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
-        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop,
-        NativeWindowApp, NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
-        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
-        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeUnderlineThickness, NativeUnixDomain, NativeUserKeyAssignment,
+        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
+        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
+        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
+        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
+        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
+        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
@@ -54393,10 +54657,11 @@ mod tests {
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
-        default_mux_env_remove, default_skip_close_confirmation_for_processes_named,
-        default_tiling_desktop_environments, demo_snapshot, encode_window_focus_event,
-        encode_window_key, encode_window_key_with_kitty, encode_window_key_with_kitty_event,
-        encode_window_mouse_event, encode_window_mouse_event_with_pixels, encode_window_paste,
+        default_mux_env_remove, default_native_unix_domains,
+        default_skip_close_confirmation_for_processes_named, default_tiling_desktop_environments,
+        demo_snapshot, encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
+        encode_window_key_with_kitty_event, encode_window_mouse_event,
+        encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
         native_window_resize_increments_supported, nerd_font_icon_for_name,
         pane_select_activate_alphabet_from_query,
@@ -68596,6 +68861,7 @@ mod tests {
                 daemon_options: NativeDaemonOptions::default(),
                 exec_domains: Vec::new(),
                 wsl_domains: Vec::new(),
+                unix_domains: default_native_unix_domains(),
                 serial_ports: Vec::new(),
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 ssh_backend: NativeSshBackend::LibSsh,
@@ -92812,6 +93078,101 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_unix_domains_config() {
+        let app = NativeWindowApp::new(None);
+
+        assert_eq!(
+            app.native_effective_config().unix_domains,
+            vec![NativeUnixDomain {
+                name: "unix".to_owned(),
+                socket_path: None,
+                connect_automatically: false,
+                no_serve_automatically: false,
+                serve_command: None,
+                proxy_command: None,
+                skip_permissions_check: false,
+                read_timeout_ms: 60_000,
+                write_timeout_ms: 60_000,
+                local_echo_threshold_ms: None,
+                overlay_lag_indicator: false,
+            }]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_unix_domains() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local serve = { 'wsl', '-e', 'wezterm-mux-server', '--daemonize' }
+
+            config.unix_domains = {
+              {
+                name = 'wsl-mux',
+                socket_path = '/tmp/wezterm.sock',
+                connect_automatically = true,
+                no_serve_automatically = true,
+                serve_command = serve,
+                proxy_command = { 'ssh', 'dev', 'wezterm', 'cli', 'proxy' },
+                skip_permissions_check = true,
+                local_echo_threshold_ms = 15,
+                overlay_lag_indicator = true,
+              },
+              { name = 'local-alt' },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm unix_domains config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().unix_domains,
+            vec![
+                NativeUnixDomain {
+                    name: "wsl-mux".to_owned(),
+                    socket_path: Some("/tmp/wezterm.sock".to_owned()),
+                    connect_automatically: true,
+                    no_serve_automatically: true,
+                    serve_command: Some(vec![
+                        "wsl".to_owned(),
+                        "-e".to_owned(),
+                        "wezterm-mux-server".to_owned(),
+                        "--daemonize".to_owned(),
+                    ]),
+                    proxy_command: Some(vec![
+                        "ssh".to_owned(),
+                        "dev".to_owned(),
+                        "wezterm".to_owned(),
+                        "cli".to_owned(),
+                        "proxy".to_owned(),
+                    ]),
+                    skip_permissions_check: true,
+                    read_timeout_ms: 60_000,
+                    write_timeout_ms: 60_000,
+                    local_echo_threshold_ms: Some(15),
+                    overlay_lag_indicator: true,
+                },
+                NativeUnixDomain {
+                    name: "local-alt".to_owned(),
+                    socket_path: None,
+                    connect_automatically: false,
+                    no_serve_automatically: false,
+                    serve_command: None,
+                    proxy_command: None,
+                    skip_permissions_check: false,
+                    read_timeout_ms: 60_000,
+                    write_timeout_ms: 60_000,
+                    local_echo_threshold_ms: None,
+                    overlay_lag_indicator: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn window_app_configured_dpi_overrides_detected_scale_factor() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(2.0);
@@ -100739,6 +101100,28 @@ mod tests {
                 default_cwd: Some("~".to_owned()),
                 default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
             }]),
+            unix_domains: Some(vec![NativeUnixDomain {
+                name: "ops-unix".to_owned(),
+                socket_path: Some("/tmp/ops.sock".to_owned()),
+                connect_automatically: true,
+                no_serve_automatically: true,
+                serve_command: Some(vec![
+                    "wezterm-mux-server".to_owned(),
+                    "--daemonize".to_owned(),
+                ]),
+                proxy_command: Some(vec![
+                    "ssh".to_owned(),
+                    "ops".to_owned(),
+                    "wezterm".to_owned(),
+                    "cli".to_owned(),
+                    "proxy".to_owned(),
+                ]),
+                skip_permissions_check: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+            }]),
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -101153,6 +101536,28 @@ mod tests {
                 default_cwd: Some("~".to_owned()),
                 default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
             }],
+            unix_domains: vec![NativeUnixDomain {
+                name: "ops-unix".to_owned(),
+                socket_path: Some("/tmp/ops.sock".to_owned()),
+                connect_automatically: true,
+                no_serve_automatically: true,
+                serve_command: Some(vec![
+                    "wezterm-mux-server".to_owned(),
+                    "--daemonize".to_owned(),
+                ]),
+                proxy_command: Some(vec![
+                    "ssh".to_owned(),
+                    "ops".to_owned(),
+                    "wezterm".to_owned(),
+                    "cli".to_owned(),
+                    "proxy".to_owned(),
+                ]),
+                skip_permissions_check: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                overlay_lag_indicator: true,
+            }],
             serial_ports: vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -101402,6 +101807,7 @@ mod tests {
             daemon_options: NativeDaemonOptions::default(),
             exec_domains: Vec::new(),
             wsl_domains: Vec::new(),
+            unix_domains: default_native_unix_domains(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
