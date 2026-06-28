@@ -1813,7 +1813,7 @@ keyboard, mouse, paste, resize
   Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition onto that status state, with
   static item tables resolving from callback-local or top-level scope and
-  callback-local `table.insert` appends.
+  callback-local `table.insert` or `items[#items + 1] = ...` appends.
   Arbitrary Lua status callbacks, dynamic `wezterm.format` construction, and
   broader window status API wiring remain future parity work.
 - Implemented in v1: the tab bar `+` button dispatches a typed

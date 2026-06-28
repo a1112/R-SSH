@@ -44477,6 +44477,19 @@ fn lua_format_items_table_variable_with_insert_appends_before_offset(
             continue;
         }
 
+        if let Some(assignment) =
+            lua_static_format_items_table_variable_index_or_append_assignment_from_query(
+                source, start, variable,
+            )
+        {
+            selected = Some(lua_table_with_index_or_append_assigned_field(
+                selected.take(),
+                assignment.index,
+                &assignment.value,
+            )?);
+            continue;
+        }
+
         if let Some(insert) = lua_static_format_items_table_variable_insert_append_value_from_query(
             source, start, variable,
         ) {
@@ -44489,6 +44502,128 @@ fn lua_format_items_table_variable_with_insert_appends_before_offset(
     }
 
     selected
+}
+
+fn lua_static_format_items_table_variable_index_or_append_assignment_from_query(
+    source: &str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableIndexOrAppendAssignment<String>> {
+    if let Some(assignment) =
+        lua_static_format_items_table_variable_index_assignment_from_query(source, start, variable)
+    {
+        return Some(LuaTableIndexOrAppendAssignment {
+            index: Some(assignment.index),
+            value: assignment.value,
+        });
+    }
+
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let after_open = lua_trim_start_comments(after_variable)?.strip_prefix('[')?;
+    let after_hash = lua_trim_start_comments(after_open)?.strip_prefix('#')?;
+    let after_hash = lua_trim_start_comments(after_hash)?;
+    let Some(rest) = after_hash.strip_prefix(variable) else {
+        return None;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    Some(LuaTableIndexOrAppendAssignment {
+        index: None,
+        value: lua_format_item_length_append_assignment_value_after_target_from_query(
+            source, rest, start,
+        )?,
+    })
+}
+
+fn lua_static_format_items_table_variable_index_assignment_from_query(
+    source: &str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableIndexAssignment<String>> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    lua_format_item_index_assignment_value_from_query(source, after_variable, start)
+}
+
+fn lua_format_item_index_assignment_value_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<LuaTableIndexAssignment<String>> {
+    let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
+    let after_open = lua_trim_start_comments(after_open)?;
+    let literal = lua_unsigned_integer_literal_from_query(after_open)?;
+    let index = literal.parse().ok()?;
+    let rest = lua_trim_start_comments(after_open.get(literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableIndexAssignment {
+        index,
+        value: lua_format_item_assignment_value_from_query(source, rest, max_start)?,
+    })
+}
+
+fn lua_format_item_length_append_assignment_value_after_target_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let rest = lua_trim_start_comments(query)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('+')?)?;
+    let literal = lua_unsigned_integer_literal_from_query(rest)?;
+    if literal != "1" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(literal.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    lua_format_item_assignment_value_from_query(source, rest, max_start)
+}
+
+fn lua_format_item_assignment_value_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    if let Some(value) = lua_braced_table_literal_from_query(query) {
+        return Some(value.to_owned());
+    }
+
+    if let Some(value) = lua_quoted_string_literal_from_query(query)
+        .or_else(|| lua_long_bracket_literal_from_query(query))
+    {
+        let rest = query.get(value.len()..)?;
+        if lua_static_identifier_value_rest_is_statement_end(rest) {
+            return Some(value.to_owned());
+        }
+    }
+
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    lua_static_table_variable_assignment_with_insert_appends_before_offset_from_query(
+        source, variable, max_start,
+    )
 }
 
 fn lua_static_format_items_table_variable_insert_append_value_from_query(
@@ -67825,6 +67960,70 @@ mod tests {
         let start_column = tab_bar
             .find("RIGHT-INSERT")
             .expect("local format item table.insert status should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn lua_format_items_table_variable_length_append_preserves_reset_attributes() {
+        let source = r##"
+        local elements = {}
+        elements[#elements + 1] = { Text = 'RIGHT' }
+        elements[#elements + 1] = 'ResetAttributes'
+        elements[#elements + 1] = { Text = '-APPEND' }
+        window:set_right_status(wezterm.format(elements))
+        "##;
+        let max_start = source
+            .find("window:set_right_status")
+            .expect("status setter should be in source");
+
+        let table = super::lua_format_items_table_variable_with_insert_appends_before_offset(
+            source, "elements", max_start,
+        )
+        .expect("expected static format item table length appends");
+        let items = super::native_format_items_from_lua_format_items_table_query(&table)
+            .expect("expected rebuilt format item table");
+
+        assert_eq!(items.len(), 3, "rebuilt table was {table:?}");
+        assert!(matches!(items[1], super::NativeFormatItem::ResetAttributes));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_local_format_items_length_append() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local elements = {}
+              elements[#elements + 1] = { Foreground = { Color = '#010203' } }
+              elements[#elements + 1] = { Text = 'RIGHT' }
+              elements[#elements + 1] = 'ResetAttributes'
+              elements[#elements + 1] = { Text = '-APPEND' }
+              window:set_right_status(wezterm.format(elements))
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status local format item length append config");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-APPEND")
+            .expect("local format item length append status should render without escape bytes");
         let styled_cell =
             snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
         let plain_cell = snapshot_cell(
