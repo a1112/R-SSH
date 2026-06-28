@@ -2965,6 +2965,84 @@ struct NativeTlsClientDomain {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
+struct NativePalette {
+    foreground: Option<Color>,
+    background: Option<Color>,
+    cursor_fg: Option<Color>,
+    cursor_bg: Option<Color>,
+    cursor_border: Option<Color>,
+    selection_fg: Option<Option<Color>>,
+    selection_bg: Option<Color>,
+    ansi: Option<[Color; 8]>,
+    brights: Option<[Color; 8]>,
+    indexed: [Option<Color>; 256],
+    tab_bar_background: Option<Color>,
+    tab_bar_inactive_tab_edge: Option<Color>,
+    tab_bar_active_tab: NativeTabBarItemColors,
+    tab_bar_inactive_tab: NativeTabBarItemColors,
+    tab_bar_inactive_tab_hover: NativeTabBarItemColors,
+    tab_bar_new_tab: NativeTabBarItemColors,
+    tab_bar_new_tab_hover: NativeTabBarItemColors,
+    scrollbar_thumb: Option<Color>,
+    split: Option<Color>,
+    visual_bell: Option<Color>,
+    compose_cursor: Option<Color>,
+    copy_mode_active_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_active_highlight_bg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_fg: Option<NativeColorSpec>,
+    copy_mode_inactive_highlight_bg: Option<NativeColorSpec>,
+    quick_select_label_fg: Option<NativeColorSpec>,
+    quick_select_label_bg: Option<NativeColorSpec>,
+    quick_select_match_fg: Option<NativeColorSpec>,
+    quick_select_match_bg: Option<NativeColorSpec>,
+    input_selector_label_fg: Option<NativeColorSpec>,
+    input_selector_label_bg: Option<NativeColorSpec>,
+    launcher_label_fg: Option<NativeColorSpec>,
+    launcher_label_bg: Option<NativeColorSpec>,
+}
+
+impl Default for NativePalette {
+    fn default() -> Self {
+        Self {
+            foreground: None,
+            background: None,
+            cursor_fg: None,
+            cursor_bg: None,
+            cursor_border: None,
+            selection_fg: None,
+            selection_bg: None,
+            ansi: None,
+            brights: None,
+            indexed: [None; 256],
+            tab_bar_background: None,
+            tab_bar_inactive_tab_edge: None,
+            tab_bar_active_tab: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab: NativeTabBarItemColors::default(),
+            tab_bar_inactive_tab_hover: NativeTabBarItemColors::default(),
+            tab_bar_new_tab: NativeTabBarItemColors::default(),
+            tab_bar_new_tab_hover: NativeTabBarItemColors::default(),
+            scrollbar_thumb: None,
+            split: None,
+            visual_bell: None,
+            compose_cursor: None,
+            copy_mode_active_highlight_fg: None,
+            copy_mode_active_highlight_bg: None,
+            copy_mode_inactive_highlight_fg: None,
+            copy_mode_inactive_highlight_bg: None,
+            quick_select_label_fg: None,
+            quick_select_label_bg: None,
+            quick_select_match_fg: None,
+            quick_select_match_bg: None,
+            input_selector_label_fg: None,
+            input_selector_label_bg: None,
+            launcher_label_fg: None,
+            launcher_label_bg: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 struct NativeResolvedPalette {
     foreground: Color,
     background: Color,
@@ -3060,6 +3138,49 @@ fn native_tab_bar_item_colors_with_overrides(
         underline: overrides.underline.or(base.underline),
         italic: overrides.italic.or(base.italic),
         strikethrough: overrides.strikethrough.or(base.strikethrough),
+    }
+}
+
+fn native_palette_from_overrides(overrides: &NativeConfigOverrides) -> NativePalette {
+    let (ansi, brights) = overrides
+        .ansi_palette
+        .map(native_split_ansi_palette)
+        .map_or((None, None), |(ansi, brights)| (Some(ansi), Some(brights)));
+
+    NativePalette {
+        foreground: overrides.foreground_color,
+        background: overrides.background_color,
+        cursor_fg: overrides.cursor_fg_color,
+        cursor_bg: overrides.cursor_bg_color,
+        cursor_border: overrides.cursor_border_color,
+        selection_fg: overrides.selection_fg_color,
+        selection_bg: overrides.selection_bg_color,
+        ansi,
+        brights,
+        indexed: overrides.indexed_palette.unwrap_or([None; 256]),
+        tab_bar_background: overrides.tab_bar_background_color,
+        tab_bar_inactive_tab_edge: overrides.tab_bar_inactive_tab_edge_color,
+        tab_bar_active_tab: overrides.tab_bar_active_tab_colors,
+        tab_bar_inactive_tab: overrides.tab_bar_inactive_tab_colors,
+        tab_bar_inactive_tab_hover: overrides.tab_bar_inactive_tab_hover_colors,
+        tab_bar_new_tab: overrides.tab_bar_new_tab_colors,
+        tab_bar_new_tab_hover: overrides.tab_bar_new_tab_hover_colors,
+        scrollbar_thumb: overrides.scrollbar_thumb_color,
+        split: overrides.split_color,
+        visual_bell: overrides.visual_bell_color,
+        compose_cursor: overrides.compose_cursor_color,
+        copy_mode_active_highlight_fg: overrides.copy_mode_active_highlight_fg,
+        copy_mode_active_highlight_bg: overrides.copy_mode_active_highlight_bg,
+        copy_mode_inactive_highlight_fg: overrides.copy_mode_inactive_highlight_fg,
+        copy_mode_inactive_highlight_bg: overrides.copy_mode_inactive_highlight_bg,
+        quick_select_label_fg: overrides.quick_select_label_fg,
+        quick_select_label_bg: overrides.quick_select_label_bg,
+        quick_select_match_fg: overrides.quick_select_match_fg,
+        quick_select_match_bg: overrides.quick_select_match_bg,
+        input_selector_label_fg: overrides.input_selector_label_fg,
+        input_selector_label_bg: overrides.input_selector_label_bg,
+        launcher_label_fg: overrides.launcher_label_fg,
+        launcher_label_bg: overrides.launcher_label_bg,
     }
 }
 
@@ -3282,6 +3403,7 @@ struct NativeEffectiveConfig {
     enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    colors: Option<NativePalette>,
     color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
     color_schemes: HashMap<String, NativeResolvedPalette>,
@@ -3538,6 +3660,7 @@ struct NativeConfigOverrides {
     enq_answerback: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
     visual_bell: Option<NativeVisualBell>,
+    colors: Option<NativePalette>,
     color_scheme: Option<String>,
     color_scheme_dirs: Option<Vec<String>>,
     color_schemes: Option<HashMap<String, NativeResolvedPalette>>,
@@ -4135,15 +4258,23 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed |= apply_default_toml_color_scheme_dirs_overrides(color_scheme, &mut overrides)?;
     }
     if let Some(colors_source) = lua_config_colors_source_from_query(config)? {
+        let mut colors_overrides = NativeConfigOverrides::default();
         match colors_source {
             NativeConfigColorsLuaSource::Table { colors, variable } => {
                 parsed |= apply_lua_colors_table_overrides(colors, &mut overrides)?;
+                apply_lua_colors_table_overrides(colors, &mut colors_overrides)?;
                 if let Some(variable) = variable.as_ref() {
                     parsed |= apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
                         variable.mutation_max_start,
                         &mut overrides,
+                    )?;
+                    apply_lua_color_variable_mutation_overrides(
+                        config,
+                        &variable.name,
+                        variable.mutation_max_start,
+                        &mut colors_overrides,
                     )?;
                 }
             }
@@ -4152,12 +4283,22 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                     Path::new(&load_scheme.path),
                     &mut overrides,
                 )?;
+                apply_toml_color_scheme_file_overrides(
+                    Path::new(&load_scheme.path),
+                    &mut colors_overrides,
+                )?;
                 if let Some(variable) = load_scheme.variable.as_ref() {
                     parsed |= apply_lua_color_variable_mutation_overrides(
                         config,
                         &variable.name,
                         variable.mutation_max_start,
                         &mut overrides,
+                    )?;
+                    apply_lua_color_variable_mutation_overrides(
+                        config,
+                        &variable.name,
+                        variable.mutation_max_start,
+                        &mut colors_overrides,
                     )?;
                 }
             }
@@ -4168,6 +4309,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             config.len(),
             &mut overrides,
         )?;
+        apply_lua_config_colors_tab_bar_mutation_overrides(
+            config,
+            config_receiver,
+            config.len(),
+            &mut colors_overrides,
+        )?;
+        overrides.colors = Some(native_palette_from_overrides(&colors_overrides));
     }
     if let Some(notification_handling) =
         lua_config_string_assignment_from_query(config, "notification_handling")
@@ -18054,6 +18202,7 @@ struct NativeWindowApp {
     enq_answerback: String,
     audible_bell: NativeAudibleBell,
     visual_bell: NativeVisualBell,
+    colors: Option<NativePalette>,
     color_scheme: Option<String>,
     color_scheme_dirs: Vec<String>,
     color_schemes: HashMap<String, NativeResolvedPalette>,
@@ -19589,6 +19738,7 @@ impl NativeWindowApp {
             enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
             audible_bell: DEFAULT_AUDIBLE_BELL,
             visual_bell: NativeVisualBell::default(),
+            colors: None,
             color_scheme: None,
             color_scheme_dirs: Vec::new(),
             color_schemes: HashMap::new(),
@@ -20695,6 +20845,7 @@ impl NativeWindowApp {
         detached_app.enq_answerback.clone_from(&self.enq_answerback);
         detached_app.audible_bell = self.audible_bell;
         detached_app.visual_bell = self.visual_bell;
+        detached_app.colors.clone_from(&self.colors);
         detached_app.color_scheme.clone_from(&self.color_scheme);
         detached_app
             .color_scheme_dirs
@@ -21035,6 +21186,7 @@ impl NativeWindowApp {
         self.enq_answerback.clone_from(&source.enq_answerback);
         self.audible_bell = source.audible_bell;
         self.visual_bell = source.visual_bell;
+        self.colors.clone_from(&source.colors);
         self.color_scheme.clone_from(&source.color_scheme);
         self.color_scheme_dirs.clone_from(&source.color_scheme_dirs);
         self.color_schemes.clone_from(&source.color_schemes);
@@ -29424,6 +29576,7 @@ impl NativeWindowApp {
             enq_answerback: self.enq_answerback.clone(),
             audible_bell: self.audible_bell,
             visual_bell: self.visual_bell,
+            colors: self.colors.clone(),
             color_scheme: self.color_scheme.clone(),
             color_scheme_dirs: self.color_scheme_dirs.clone(),
             color_schemes: self.color_schemes.clone(),
@@ -29881,6 +30034,7 @@ impl NativeWindowApp {
         self.apply_terminal_identity_config_to_runtimes();
         self.audible_bell = overrides.audible_bell.unwrap_or(DEFAULT_AUDIBLE_BELL);
         self.visual_bell = overrides.visual_bell.unwrap_or_default();
+        self.colors = overrides.colors.clone();
         self.color_scheme = overrides.color_scheme.clone();
         self.color_scheme_dirs = overrides.color_scheme_dirs.clone().unwrap_or_default();
         self.color_schemes = overrides.color_schemes.clone().unwrap_or_default();
@@ -55794,9 +55948,9 @@ mod tests {
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
         NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
-        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
-        NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeResolvedPalette,
-        NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
+        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePalette,
+        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
+        NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
         NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain, NativeSshMultiplexing,
         NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
         NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeTlsClientDomain,
@@ -59517,6 +59671,11 @@ mod tests {
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
+        let colors = effective.colors.expect("expected retained colors palette");
+        assert_eq!(colors.foreground, Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(colors.background, Some(Color::Rgb(4, 5, 6)));
+        assert_eq!(colors.cursor_bg, Some(Color::Rgb(7, 8, 9)));
+        assert_eq!(colors.cursor_fg, None);
         assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
         assert_eq!(effective.background_color, Color::Rgb(4, 5, 6));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(7, 8, 9));
@@ -70007,6 +70166,7 @@ mod tests {
                 enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
                 audible_bell: NativeAudibleBell::SystemBeep,
                 visual_bell: NativeVisualBell::default(),
+                colors: None,
                 color_scheme: None,
                 color_scheme_dirs: Vec::new(),
                 color_schemes: HashMap::new(),
@@ -102268,6 +102428,67 @@ mod tests {
         palette
     }
 
+    fn sample_palette() -> NativePalette {
+        let (ansi, brights) = super::native_split_ansi_palette(sample_ansi_palette());
+        NativePalette {
+            foreground: Some(Color::Rgb(7, 8, 9)),
+            background: Some(Color::Rgb(4, 5, 6)),
+            cursor_fg: Some(Color::Rgb(13, 14, 15)),
+            cursor_bg: Some(Color::Rgb(10, 11, 12)),
+            cursor_border: Some(Color::Rgb(16, 17, 18)),
+            selection_fg: Some(Some(Color::Rgb(61, 62, 63))),
+            selection_bg: Some(Color::Rgb(71, 72, 73)),
+            ansi: Some(ansi),
+            brights: Some(brights),
+            indexed: sample_indexed_palette(),
+            tab_bar_background: Some(Color::Rgb(25, 26, 27)),
+            tab_bar_inactive_tab_edge: Some(Color::Rgb(27, 28, 29)),
+            tab_bar_active_tab: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(28, 29, 30)),
+                bg_color: Some(Color::Rgb(31, 32, 33)),
+                ..Default::default()
+            },
+            tab_bar_inactive_tab: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(34, 35, 36)),
+                bg_color: Some(Color::Rgb(37, 38, 39)),
+                ..Default::default()
+            },
+            tab_bar_inactive_tab_hover: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(46, 47, 48)),
+                bg_color: Some(Color::Rgb(49, 50, 51)),
+                ..Default::default()
+            },
+            tab_bar_new_tab: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(40, 41, 42)),
+                bg_color: Some(Color::Rgb(43, 44, 45)),
+                ..Default::default()
+            },
+            tab_bar_new_tab_hover: NativeTabBarItemColors {
+                fg_color: Some(Color::Rgb(52, 53, 54)),
+                bg_color: Some(Color::Rgb(55, 56, 57)),
+                ..Default::default()
+            },
+            scrollbar_thumb: Some(Color::Rgb(22, 23, 24)),
+            split: Some(Color::Rgb(19, 20, 21)),
+            visual_bell: Some(Color::Rgb(1, 2, 3)),
+            compose_cursor: Some(Color::Rgb(22, 23, 24)),
+            copy_mode_active_highlight_fg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+            copy_mode_active_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(21, 22, 23))),
+            copy_mode_inactive_highlight_fg: Some(NativeColorSpec::AnsiColor(
+                NativeAnsiColor::White,
+            )),
+            copy_mode_inactive_highlight_bg: Some(NativeColorSpec::Color(Color::Rgb(24, 25, 26))),
+            quick_select_label_fg: Some(NativeColorSpec::Color(Color::Rgb(30, 31, 32))),
+            quick_select_label_bg: Some(NativeColorSpec::Color(Color::Rgb(27, 28, 29))),
+            quick_select_match_fg: Some(NativeColorSpec::Color(Color::Rgb(33, 34, 35))),
+            quick_select_match_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy)),
+            input_selector_label_fg: Some(NativeColorSpec::Color(Color::Rgb(37, 38, 39))),
+            input_selector_label_bg: Some(NativeColorSpec::Color(Color::Rgb(34, 35, 36))),
+            launcher_label_fg: Some(NativeColorSpec::Color(Color::Rgb(40, 41, 42))),
+            launcher_label_bg: Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black)),
+        }
+    }
+
     fn sample_resolved_palette() -> NativeResolvedPalette {
         let (ansi, brights) = super::native_split_ansi_palette(sample_ansi_palette());
         NativeResolvedPalette {
@@ -102560,6 +102781,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             }),
+            colors: Some(sample_palette()),
             color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: Some(vec!["colors".to_owned(), "more-colors".to_owned()]),
             color_schemes: Some(sample_color_schemes()),
@@ -103045,6 +103267,7 @@ mod tests {
                 fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::BackgroundColor,
             },
+            colors: Some(sample_palette()),
             color_scheme: Some("Project Scheme".to_owned()),
             color_scheme_dirs: vec!["colors".to_owned(), "more-colors".to_owned()],
             color_schemes: sample_color_schemes(),
@@ -103431,6 +103654,7 @@ mod tests {
             enq_answerback: DEFAULT_ENQ_ANSWERBACK.to_owned(),
             audible_bell: NativeAudibleBell::SystemBeep,
             visual_bell: NativeVisualBell::default(),
+            colors: None,
             color_scheme: None,
             color_scheme_dirs: Vec::new(),
             color_schemes: HashMap::new(),
