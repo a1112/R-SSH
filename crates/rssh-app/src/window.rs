@@ -82,6 +82,8 @@ const DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS: u64 = 3;
 const DEFAULT_UNIX_DOMAIN_TIMEOUT_MS: u64 = 60_000;
 const DEFAULT_SSH_DOMAIN_TIMEOUT_MS: u64 = 60_000;
 const DEFAULT_SSH_DOMAIN_LOCAL_ECHO_THRESHOLD_MS: u64 = 100;
+const DEFAULT_TLS_DOMAIN_TIMEOUT_MS: u64 = 60_000;
+const DEFAULT_TLS_DOMAIN_LOCAL_ECHO_THRESHOLD_MS: u64 = 100;
 const DEFAULT_PERIODIC_STAT_LOGGING: u64 = 0;
 const DEFAULT_ULIMIT_NOFILE: u64 = 2048;
 const DEFAULT_ULIMIT_NPROC: u64 = 2048;
@@ -2932,6 +2934,35 @@ struct NativeSshDomain {
     assume_shell: NativeShellAssumption,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct NativeTlsServerDomain {
+    bind_address: String,
+    pem_private_key: Option<String>,
+    pem_cert: Option<String>,
+    pem_ca: Option<String>,
+    pem_root_certs: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
+struct NativeTlsClientDomain {
+    name: String,
+    bootstrap_via_ssh: Option<String>,
+    remote_address: String,
+    pem_private_key: Option<String>,
+    pem_cert: Option<String>,
+    pem_ca: Option<String>,
+    pem_root_certs: Vec<String>,
+    accept_invalid_hostnames: bool,
+    expected_cn: Option<String>,
+    connect_automatically: bool,
+    read_timeout_ms: u64,
+    write_timeout_ms: u64,
+    local_echo_threshold_ms: Option<u64>,
+    remote_wezterm_path: Option<String>,
+    overlay_lag_indicator: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)]
 struct NativeEffectiveConfig {
@@ -3105,6 +3136,8 @@ struct NativeEffectiveConfig {
     wsl_domains: Vec<NativeWslDomain>,
     unix_domains: Vec<NativeUnixDomain>,
     ssh_domains: Vec<NativeSshDomain>,
+    tls_servers: Vec<NativeTlsServerDomain>,
+    tls_clients: Vec<NativeTlsClientDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -3351,6 +3384,8 @@ struct NativeConfigOverrides {
     wsl_domains: Option<Vec<NativeWslDomain>>,
     unix_domains: Option<Vec<NativeUnixDomain>>,
     ssh_domains: Option<Vec<NativeSshDomain>>,
+    tls_servers: Option<Vec<NativeTlsServerDomain>>,
+    tls_clients: Option<Vec<NativeTlsClientDomain>>,
     serial_ports: Option<Vec<NativeSerialDomain>>,
     mux_enable_ssh_agent: Option<bool>,
     ssh_backend: Option<NativeSshBackend>,
@@ -3624,6 +3659,52 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         })
     {
         overrides.ssh_domains = Some(ssh_domains);
+        parsed = true;
+    }
+    if let Some(tls_servers) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "tls_servers",
+        )
+        .and_then(|tls_servers| {
+            native_tls_server_domains_lua_table_from_query(
+                config,
+                &tls_servers.value,
+                tls_servers.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "tls_servers")
+                .and_then(|tls_servers| {
+                    let max_start = lua_source_slice_start_offset(config, tls_servers)?;
+                    native_tls_server_domains_lua_table_from_query(config, tls_servers, max_start)
+                })
+        })
+    {
+        overrides.tls_servers = Some(tls_servers);
+        parsed = true;
+    }
+    if let Some(tls_clients) =
+        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "tls_clients",
+        )
+        .and_then(|tls_clients| {
+            native_tls_client_domains_lua_table_from_query(
+                config,
+                &tls_clients.value,
+                tls_clients.max_start,
+            )
+        })
+        .or_else(|| {
+            lua_config_table_or_static_variable_assignment_from_query(config, "tls_clients")
+                .and_then(|tls_clients| {
+                    let max_start = lua_source_slice_start_offset(config, tls_clients)?;
+                    native_tls_client_domains_lua_table_from_query(config, tls_clients, max_start)
+                })
+        })
+    {
+        overrides.tls_clients = Some(tls_clients);
         parsed = true;
     }
     if let Some(serial_ports) =
@@ -13773,6 +13854,354 @@ fn native_lua_static_string_map_from_query(
 }
 
 #[allow(dead_code)]
+fn native_tls_server_domains_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeTlsServerDomain>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut domains = Vec::new();
+    let mut indexed_domains = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !domains.is_empty() || index == 0 || indexed_domains.contains_key(&index) {
+                return None;
+            }
+            indexed_domains.insert(
+                index,
+                native_tls_server_domain_lua_table_from_query(static_source, value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_domains.is_empty() {
+            return None;
+        }
+        domains.push(native_tls_server_domain_lua_table_from_query(
+            static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_domains.is_empty() {
+        return (1..=indexed_domains.len())
+            .map(|index| indexed_domains.remove(&index))
+            .collect();
+    }
+
+    Some(domains)
+}
+
+#[allow(dead_code)]
+fn native_tls_server_domain_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeTlsServerDomain> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut domain = NativeTlsServerDomain::default();
+    let mut bind_address = None;
+    let mut pem_private_key = None;
+    let mut pem_cert = None;
+    let mut pem_ca = None;
+    let mut pem_root_certs = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "bind_address" => {
+                if bind_address.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                domain.bind_address = non_empty_spawn_command_option_value(&value).ok()?;
+                bind_address = Some(());
+            }
+            "pem_private_key" => {
+                if pem_private_key.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                domain.pem_private_key = Some(non_empty_spawn_command_option_value(&value).ok()?);
+                pem_private_key = Some(());
+            }
+            "pem_cert" => {
+                if pem_cert.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                domain.pem_cert = Some(non_empty_spawn_command_option_value(&value).ok()?);
+                pem_cert = Some(());
+            }
+            "pem_ca" => {
+                if pem_ca.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                domain.pem_ca = Some(non_empty_spawn_command_option_value(&value).ok()?);
+                pem_ca = Some(());
+            }
+            "pem_root_certs" => {
+                if pem_root_certs.is_some() {
+                    return None;
+                }
+                domain.pem_root_certs =
+                    split_lua_table_string_array_with_static_source(static_source, value)?;
+                pem_root_certs = Some(());
+            }
+            _ => return None,
+        }
+    }
+
+    bind_address?;
+    Some(domain)
+}
+
+#[allow(dead_code)]
+fn native_tls_client_domains_lua_table_from_query(
+    source: &str,
+    value: &str,
+    max_start: usize,
+) -> Option<Vec<NativeTlsClientDomain>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = Some(LuaStaticSource { source, max_start });
+    let mut domains = Vec::new();
+    let mut indexed_domains = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !domains.is_empty() || index == 0 || indexed_domains.contains_key(&index) {
+                return None;
+            }
+            indexed_domains.insert(
+                index,
+                native_tls_client_domain_lua_table_from_query(static_source, value.trim())?,
+            );
+            continue;
+        }
+
+        if !indexed_domains.is_empty() {
+            return None;
+        }
+        domains.push(native_tls_client_domain_lua_table_from_query(
+            static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_domains.is_empty() {
+        return (1..=indexed_domains.len())
+            .map(|index| indexed_domains.remove(&index))
+            .collect();
+    }
+
+    Some(domains)
+}
+
+#[allow(dead_code)]
+fn native_tls_client_domain_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeTlsClientDomain> {
+    let value = value.trim();
+    let resolved_value;
+    let value = if value.starts_with('{') {
+        value
+    } else {
+        let static_source = static_source?;
+        resolved_value = lua_table_insert_value_table_string_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )?;
+        resolved_value.as_str()
+    };
+    let table = value.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut name = None;
+    let mut bootstrap_via_ssh = None;
+    let mut remote_address = None;
+    let mut pem_private_key = None;
+    let mut pem_cert = None;
+    let mut pem_ca = None;
+    let mut pem_root_certs = None;
+    let mut accept_invalid_hostnames = None;
+    let mut expected_cn = None;
+    let mut connect_automatically = None;
+    let mut read_timeout_ms = None;
+    let mut write_timeout_ms = None;
+    let mut local_echo_threshold_ms = None;
+    let mut remote_wezterm_path = None;
+    let mut overlay_lag_indicator = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        let value = value.trim();
+        match key.as_str() {
+            "name" => {
+                if name.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                name = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "bootstrap_via_ssh" => {
+                if bootstrap_via_ssh.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                bootstrap_via_ssh = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "remote_address" => {
+                if remote_address.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                remote_address = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "pem_private_key" => {
+                if pem_private_key.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                pem_private_key = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "pem_cert" => {
+                if pem_cert.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                pem_cert = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "pem_ca" => {
+                if pem_ca.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                pem_ca = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "pem_root_certs" => {
+                if pem_root_certs.is_some() {
+                    return None;
+                }
+                pem_root_certs = Some(split_lua_table_string_array_with_static_source(
+                    static_source,
+                    value,
+                )?);
+            }
+            "accept_invalid_hostnames" => {
+                if accept_invalid_hostnames.is_some() {
+                    return None;
+                }
+                accept_invalid_hostnames =
+                    Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "expected_cn" => {
+                if expected_cn.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                expected_cn = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "connect_automatically" => {
+                if connect_automatically.is_some() {
+                    return None;
+                }
+                connect_automatically = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            "read_timeout" | "read_timeout_ms" => {
+                if read_timeout_ms.is_some() {
+                    return None;
+                }
+                read_timeout_ms = Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "write_timeout" | "write_timeout_ms" => {
+                if write_timeout_ms.is_some() {
+                    return None;
+                }
+                write_timeout_ms = Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "local_echo_threshold_ms" => {
+                if local_echo_threshold_ms.is_some() {
+                    return None;
+                }
+                local_echo_threshold_ms =
+                    Some(native_lua_static_u64_from_query(static_source, value)?);
+            }
+            "remote_wezterm_path" => {
+                if remote_wezterm_path.is_some() {
+                    return None;
+                }
+                let value = parse_maybe_static_query_text(static_source, value)?;
+                remote_wezterm_path = Some(non_empty_spawn_command_option_value(&value).ok()?);
+            }
+            "overlay_lag_indicator" => {
+                if overlay_lag_indicator.is_some() {
+                    return None;
+                }
+                overlay_lag_indicator = Some(parse_maybe_static_query_bool(static_source, value)?);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(NativeTlsClientDomain {
+        name: name?,
+        bootstrap_via_ssh,
+        remote_address: remote_address?,
+        pem_private_key,
+        pem_cert,
+        pem_ca,
+        pem_root_certs: pem_root_certs.unwrap_or_default(),
+        accept_invalid_hostnames: accept_invalid_hostnames.unwrap_or(false),
+        expected_cn,
+        connect_automatically: connect_automatically.unwrap_or(false),
+        read_timeout_ms: read_timeout_ms.unwrap_or(DEFAULT_TLS_DOMAIN_TIMEOUT_MS),
+        write_timeout_ms: write_timeout_ms.unwrap_or(DEFAULT_TLS_DOMAIN_TIMEOUT_MS),
+        local_echo_threshold_ms: local_echo_threshold_ms
+            .or(Some(DEFAULT_TLS_DOMAIN_LOCAL_ECHO_THRESHOLD_MS)),
+        remote_wezterm_path,
+        overlay_lag_indicator: overlay_lag_indicator.unwrap_or(false),
+    })
+}
+
+#[allow(dead_code)]
 fn native_serial_ports_lua_table_from_query(
     source: &str,
     value: &str,
@@ -17332,6 +17761,8 @@ struct NativeWindowApp {
     wsl_domains: Vec<NativeWslDomain>,
     unix_domains: Vec<NativeUnixDomain>,
     ssh_domains: Vec<NativeSshDomain>,
+    tls_servers: Vec<NativeTlsServerDomain>,
+    tls_clients: Vec<NativeTlsClientDomain>,
     serial_ports: Vec<NativeSerialDomain>,
     mux_enable_ssh_agent: bool,
     ssh_backend: NativeSshBackend,
@@ -18863,6 +19294,8 @@ impl NativeWindowApp {
             wsl_domains: Vec::new(),
             unix_domains: default_native_unix_domains(),
             ssh_domains: Vec::new(),
+            tls_servers: Vec::new(),
+            tls_clients: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
@@ -20023,6 +20456,8 @@ impl NativeWindowApp {
         detached_app.wsl_domains.clone_from(&self.wsl_domains);
         detached_app.unix_domains.clone_from(&self.unix_domains);
         detached_app.ssh_domains.clone_from(&self.ssh_domains);
+        detached_app.tls_servers.clone_from(&self.tls_servers);
+        detached_app.tls_clients.clone_from(&self.tls_clients);
         detached_app.serial_ports.clone_from(&self.serial_ports);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
         detached_app.ssh_backend = self.ssh_backend;
@@ -20344,6 +20779,8 @@ impl NativeWindowApp {
         self.wsl_domains.clone_from(&source.wsl_domains);
         self.unix_domains.clone_from(&source.unix_domains);
         self.ssh_domains.clone_from(&source.ssh_domains);
+        self.tls_servers.clone_from(&source.tls_servers);
+        self.tls_clients.clone_from(&source.tls_clients);
         self.serial_ports.clone_from(&source.serial_ports);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
         self.ssh_backend = source.ssh_backend;
@@ -28643,6 +29080,8 @@ impl NativeWindowApp {
             wsl_domains: self.wsl_domains.clone(),
             unix_domains: self.unix_domains.clone(),
             ssh_domains: self.ssh_domains.clone(),
+            tls_servers: self.tls_servers.clone(),
+            tls_clients: self.tls_clients.clone(),
             serial_ports: self.serial_ports.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
             ssh_backend: self.ssh_backend,
@@ -29158,6 +29597,8 @@ impl NativeWindowApp {
             .clone()
             .unwrap_or_else(default_native_unix_domains);
         self.ssh_domains = overrides.ssh_domains.clone().unwrap_or_default();
+        self.tls_servers = overrides.tls_servers.clone().unwrap_or_default();
+        self.tls_clients = overrides.tls_clients.clone().unwrap_or_default();
         self.serial_ports = overrides.serial_ports.clone().unwrap_or_default();
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
@@ -54958,11 +55399,12 @@ mod tests {
         NativeShellAssumption, NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain,
         NativeSshMultiplexing, NativeStrikethroughPosition, NativeTabBarItemColors,
         NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
-        NativeUnixDomain, NativeUserKeyAssignment, NativeUserMouseAssignment,
-        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
-        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop,
-        NativeWindowApp, NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
+        NativeTlsClientDomain, NativeTlsServerDomain, NativeUiKeyCapRendering,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUnixDomain,
+        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
+        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
         NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
         NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
         NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
@@ -69192,6 +69634,8 @@ mod tests {
                 wsl_domains: Vec::new(),
                 unix_domains: default_native_unix_domains(),
                 ssh_domains: Vec::new(),
+                tls_servers: Vec::new(),
+                tls_clients: Vec::new(),
                 serial_ports: Vec::new(),
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
                 ssh_backend: NativeSshBackend::LibSsh,
@@ -93596,6 +94040,121 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_tls_domains_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert!(effective.tls_servers.is_empty());
+        assert!(effective.tls_clients.is_empty());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_tls_domains() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local roots = { '/etc/ssl/certs', '/opt/wezterm/ca.pem' }
+
+            config.tls_servers = {
+              {
+                bind_address = '127.0.0.1:8080',
+                pem_private_key = '/etc/wezterm/server.key',
+                pem_cert = '/etc/wezterm/server.crt',
+                pem_ca = '/etc/wezterm/ca.pem',
+                pem_root_certs = roots,
+              },
+            }
+
+            config.tls_clients = {
+              {
+                name = 'tls-prod',
+                bootstrap_via_ssh = 'deploy@bastion.example.com:22',
+                remote_address = 'prod.example.com:8443',
+                pem_private_key = '/home/me/client.key',
+                pem_cert = '/home/me/client.crt',
+                pem_ca = '/home/me/ca.pem',
+                pem_root_certs = roots,
+                accept_invalid_hostnames = true,
+                expected_cn = 'prod.internal',
+                connect_automatically = true,
+                read_timeout = 45000,
+                write_timeout = 30000,
+                local_echo_threshold_ms = 25,
+                remote_wezterm_path = '/opt/wezterm/wezterm',
+                overlay_lag_indicator = true,
+              },
+              {
+                name = 'tls-minimal',
+                remote_address = 'minimal.example.com:443',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm TLS domain config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.tls_servers,
+            vec![NativeTlsServerDomain {
+                bind_address: "127.0.0.1:8080".to_owned(),
+                pem_private_key: Some("/etc/wezterm/server.key".to_owned()),
+                pem_cert: Some("/etc/wezterm/server.crt".to_owned()),
+                pem_ca: Some("/etc/wezterm/ca.pem".to_owned()),
+                pem_root_certs: vec![
+                    "/etc/ssl/certs".to_owned(),
+                    "/opt/wezterm/ca.pem".to_owned(),
+                ],
+            }]
+        );
+        assert_eq!(
+            effective.tls_clients,
+            vec![
+                NativeTlsClientDomain {
+                    name: "tls-prod".to_owned(),
+                    bootstrap_via_ssh: Some("deploy@bastion.example.com:22".to_owned()),
+                    remote_address: "prod.example.com:8443".to_owned(),
+                    pem_private_key: Some("/home/me/client.key".to_owned()),
+                    pem_cert: Some("/home/me/client.crt".to_owned()),
+                    pem_ca: Some("/home/me/ca.pem".to_owned()),
+                    pem_root_certs: vec![
+                        "/etc/ssl/certs".to_owned(),
+                        "/opt/wezterm/ca.pem".to_owned(),
+                    ],
+                    accept_invalid_hostnames: true,
+                    expected_cn: Some("prod.internal".to_owned()),
+                    connect_automatically: true,
+                    read_timeout_ms: 45_000,
+                    write_timeout_ms: 30_000,
+                    local_echo_threshold_ms: Some(25),
+                    remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                    overlay_lag_indicator: true,
+                },
+                NativeTlsClientDomain {
+                    name: "tls-minimal".to_owned(),
+                    bootstrap_via_ssh: None,
+                    remote_address: "minimal.example.com:443".to_owned(),
+                    pem_private_key: None,
+                    pem_cert: None,
+                    pem_ca: None,
+                    pem_root_certs: Vec::new(),
+                    accept_invalid_hostnames: false,
+                    expected_cn: None,
+                    connect_automatically: false,
+                    read_timeout_ms: 60_000,
+                    write_timeout_ms: 60_000,
+                    local_echo_threshold_ms: Some(100),
+                    remote_wezterm_path: None,
+                    overlay_lag_indicator: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn window_app_configured_dpi_overrides_detected_scale_factor() {
         let mut app = NativeWindowApp::new(None);
         app.apply_window_scale_factor(2.0);
@@ -101562,6 +102121,36 @@ mod tests {
                 default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
                 assume_shell: NativeShellAssumption::Posix,
             }]),
+            tls_servers: Some(vec![NativeTlsServerDomain {
+                bind_address: "127.0.0.1:8080".to_owned(),
+                pem_private_key: Some("/etc/wezterm/server.key".to_owned()),
+                pem_cert: Some("/etc/wezterm/server.crt".to_owned()),
+                pem_ca: Some("/etc/wezterm/ca.pem".to_owned()),
+                pem_root_certs: vec![
+                    "/etc/ssl/certs".to_owned(),
+                    "/opt/wezterm/ca.pem".to_owned(),
+                ],
+            }]),
+            tls_clients: Some(vec![NativeTlsClientDomain {
+                name: "ops-tls".to_owned(),
+                bootstrap_via_ssh: Some("ops@bastion.example.com:22".to_owned()),
+                remote_address: "ops.example.com:8443".to_owned(),
+                pem_private_key: Some("/home/ops/client.key".to_owned()),
+                pem_cert: Some("/home/ops/client.crt".to_owned()),
+                pem_ca: Some("/home/ops/ca.pem".to_owned()),
+                pem_root_certs: vec![
+                    "/etc/ssl/certs".to_owned(),
+                    "/opt/wezterm/ca.pem".to_owned(),
+                ],
+                accept_invalid_hostnames: true,
+                expected_cn: Some("ops.internal".to_owned()),
+                connect_automatically: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                overlay_lag_indicator: true,
+            }]),
             serial_ports: Some(vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -102015,6 +102604,36 @@ mod tests {
                 default_prog: Some(vec!["zsh".to_owned(), "-l".to_owned()]),
                 assume_shell: NativeShellAssumption::Posix,
             }],
+            tls_servers: vec![NativeTlsServerDomain {
+                bind_address: "127.0.0.1:8080".to_owned(),
+                pem_private_key: Some("/etc/wezterm/server.key".to_owned()),
+                pem_cert: Some("/etc/wezterm/server.crt".to_owned()),
+                pem_ca: Some("/etc/wezterm/ca.pem".to_owned()),
+                pem_root_certs: vec![
+                    "/etc/ssl/certs".to_owned(),
+                    "/opt/wezterm/ca.pem".to_owned(),
+                ],
+            }],
+            tls_clients: vec![NativeTlsClientDomain {
+                name: "ops-tls".to_owned(),
+                bootstrap_via_ssh: Some("ops@bastion.example.com:22".to_owned()),
+                remote_address: "ops.example.com:8443".to_owned(),
+                pem_private_key: Some("/home/ops/client.key".to_owned()),
+                pem_cert: Some("/home/ops/client.crt".to_owned()),
+                pem_ca: Some("/home/ops/ca.pem".to_owned()),
+                pem_root_certs: vec![
+                    "/etc/ssl/certs".to_owned(),
+                    "/opt/wezterm/ca.pem".to_owned(),
+                ],
+                accept_invalid_hostnames: true,
+                expected_cn: Some("ops.internal".to_owned()),
+                connect_automatically: true,
+                read_timeout_ms: 45_000,
+                write_timeout_ms: 30_000,
+                local_echo_threshold_ms: Some(12),
+                remote_wezterm_path: Some("/opt/wezterm/wezterm".to_owned()),
+                overlay_lag_indicator: true,
+            }],
             serial_ports: vec![NativeSerialDomain {
                 name: "ops-console".to_owned(),
                 port: Some("/dev/ttyUSB0".to_owned()),
@@ -102266,6 +102885,8 @@ mod tests {
             wsl_domains: Vec::new(),
             unix_domains: default_native_unix_domains(),
             ssh_domains: Vec::new(),
+            tls_servers: Vec::new(),
+            tls_clients: Vec::new(),
             serial_ports: Vec::new(),
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
             ssh_backend: NativeSshBackend::LibSsh,
