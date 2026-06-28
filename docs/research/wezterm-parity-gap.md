@@ -309,9 +309,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and columns. Native config overrides now expose `font_size`, `cell_width`,
   `cell_widths`,
   `line_height`, deprecated WezTerm-compatible `font_antialias`/`font_hinting`,
-  `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`,
-  `use_cap_height_to_scale_fallback_fonts`,
-  `custom_block_glyphs`,
+  `font_rasterizer`, `font_colr_rasterizer`, `font_shaper`,
+  `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`,
+  `ignore_svg_fonts`, `sort_fallback_fonts_by_coverage`,
+  `search_font_dirs_for_fallback`, `custom_block_glyphs`,
   `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`,
   `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`,
   `freetype_interpreter_version`, `freetype_pcf_long_family_names`,
@@ -324,14 +325,17 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `DEFAULT` below 100 DPI or `NO_HINTING` at 100 DPI or higher, plus
   top-level static table variables and `table.insert(config.font_dirs, ...)`
   appends for `config.font_dirs`. Custom block
-  glyph, square-glyph overflow, FreeType interpreter-version, PCF
-  long-family-name, display pixel-geometry, font-directory, font-locator, font
-  shaper, and fallback-font cap-height scaling options are retained in
+  glyph, square-glyph overflow, COLR font rasterizer, SVG-font ignore,
+  fallback-font coverage sorting and font-directory fallback-search, FreeType
+  interpreter-version, PCF long-family-name, display pixel-geometry,
+  font-directory, font-locator, font shaper, and fallback-font cap-height scaling options are retained in
   effective config with WezTerm defaults,
   while actual renderer glyph strategy, configured font-directory scanning,
-  font-locator application, shaping-engine application, FreeType interpreter
-  application, fallback-font cap-height scaling, subpixel geometry application,
-  PCF font-resolution changes, and full Lua config evaluation remain open.
+  font-locator application, COLR rasterizer selection, SVG font filtering,
+  fallback-font coverage sorting, font-directory fallback search,
+  shaping-engine application, FreeType interpreter application,
+  fallback-font cap-height scaling, subpixel geometry application, PCF
+  font-resolution changes, and full Lua config evaluation remain open.
 - Native window state now exposes WezTerm-style `ShowDebugOverlay`: the default
   `Ctrl+Shift+L` shortcut, command-palette `Show Debug Overlay` entry, and
   action-name `showdebugoverlay` query record debug-overlay state for the
@@ -2091,7 +2095,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `text_blink_rate`, `text_blink_rate_rapid`, `text_blink_ease_in`,
   `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`,
-  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `win32_acrylic_accent_color`,
+  `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_colr_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `ignore_svg_fonts`, `sort_fallback_fonts_by_coverage`, `search_font_dirs_for_fallback`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `win32_acrylic_accent_color`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `command_palette_rows`, `command_palette_font_size`,
   `command_palette_bg_color`, `command_palette_fg_color`,
@@ -2154,7 +2158,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `disable_default_quick_select_patterns`, `quick_select_remove_styling`, and
   `selection_word_boundary`, plus the implemented font/window/cursor subset:
   `font_size`, `cell_width`, `cell_widths`, `line_height`,
-  `use_cap_height_to_scale_fallback_fonts`, `unicode_version`, `initial_cols`, `initial_rows`,
+  `font_antialias`, `font_hinting`, `font_rasterizer`,
+  `font_colr_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`,
+  `use_cap_height_to_scale_fallback_fonts`, `ignore_svg_fonts`,
+  `sort_fallback_fonts_by_coverage`, `search_font_dirs_for_fallback`,
+  `unicode_version`, `initial_cols`, `initial_rows`,
   `adjust_window_size_when_changing_font_size`, `cursor_blink_rate`,
   `cursor_blink_ease_in`, `cursor_blink_ease_out`, `default_cursor_style`, and
   `force_reverse_video_cursor`, `window_decorations`, `window_frame`, `kde_window_background_blur`,
@@ -2219,7 +2227,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `status_update_interval`, `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`,
-  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_background_gradient`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `win32_acrylic_accent_color`, `window_decorations`, `integrated_title_buttons`, `integrated_title_button_alignment`, `integrated_title_button_color`, `integrated_title_button_style`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`, `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `send_composed_key_when_left_alt_is_pressed`, `send_composed_key_when_right_alt_is_pressed`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`, `use_dead_keys`, `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`, `xim_im_name`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
+  `text_blink_rapid_ease_in`, `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`, `font_antialias`, `font_hinting`, `font_rasterizer`, `font_colr_rasterizer`, `font_shaper`, `font_dirs`, `font_locator`, `use_cap_height_to_scale_fallback_fonts`, `ignore_svg_fonts`, `sort_fallback_fonts_by_coverage`, `search_font_dirs_for_fallback`, `custom_block_glyphs`, `anti_alias_custom_block_glyphs`, `allow_square_glyphs_to_overflow_width`, `freetype_load_target`, `freetype_render_target`, `freetype_load_flags`, `freetype_interpreter_version`, `freetype_pcf_long_family_names`, `display_pixel_geometry`, `dpi`, `foreground_text_hsb`, `bold_brightens_ansi_colors`, `text_background_opacity`, `window_background_opacity`, `window_background_gradient`, `kde_window_background_blur`, `macos_window_background_blur`, `win32_system_backdrop`, `win32_acrylic_accent_color`, `window_decorations`, `integrated_title_buttons`, `integrated_title_button_alignment`, `integrated_title_button_color`, `integrated_title_button_style`, `default_cursor_style`, `cursor_thickness`, `underline_thickness`, `underline_position`, `strikethrough_position`, `force_reverse_video_cursor`, `window_content_alignment`, `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`, `inactive_pane_hsb`, `command_palette_rows`, `command_palette_font_size`, `command_palette_bg_color`, `command_palette_fg_color`, `char_select_font_size`, `char_select_bg_color`, `char_select_fg_color`, `pane_select_font_size`, `pane_select_bg_color`, `pane_select_fg_color`, `launcher_alphabet`, `quick_select_alphabet`, `quick_select_patterns`, `disable_default_quick_select_patterns`, `quick_select_remove_styling`, `selection_word_boundary`, `term`, `enq_answerback`, `audible_bell`, `visual_bell`, `color_scheme_dirs`, `foreground_color`, `background_color`, `ansi_palette`, `indexed_palette`, `selection_fg_color`, `selection_bg_color`, `cursor_bg_color`, `cursor_border_color`, `cursor_fg_color`, `compose_cursor_color`, `visual_bell_color`, `notification_handling`, `default_prog`, `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `max_fps`, `animation_fps`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`, `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`, `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`, `send_composed_key_when_left_alt_is_pressed`, `send_composed_key_when_right_alt_is_pressed`, `treat_east_asian_ambiguous_width_as_wide`, `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`, `use_dead_keys`, `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`, `xim_im_name`, `scroll_to_bottom_on_input`, `alternate_buffer_wheel_scroll_speed`, `canonicalize_pasted_newlines`, `quote_dropped_files`, `disable_default_key_bindings`, `disable_default_mouse_bindings`, `hide_mouse_cursor_when_typing`, `pane_focus_follows_mouse`, `swallow_mouse_click_on_pane_focus`, `swallow_mouse_click_on_window_focus`, `bypass_mouse_reporting_modifiers`, `enable_scroll_bar`, `min_scroll_bar_height`, `enable_tab_bar`,
   `hide_tab_bar_if_only_one_tab`, `use_fancy_tab_bar`, `unzoom_on_switch_pane`,
   `tab_bar_at_bottom`,
   `tab_and_split_indices_are_zero_based`,

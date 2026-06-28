@@ -118,9 +118,13 @@ const DEFAULT_LINE_HEIGHT: NativeLineHeight = NativeLineHeight::from_per_mille(1
 const DEFAULT_FONT_ANTIALIAS: NativeFontAntialias = NativeFontAntialias::Greyscale;
 const DEFAULT_FONT_HINTING: NativeFontHinting = NativeFontHinting::Full;
 const DEFAULT_FONT_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::FreeType;
+const DEFAULT_FONT_COLR_RASTERIZER: NativeFontRasterizer = NativeFontRasterizer::Harfbuzz;
 const DEFAULT_FONT_SHAPER: NativeFontShaper = NativeFontShaper::Harfbuzz;
 const DEFAULT_FONT_LOCATOR: Option<NativeFontLocator> = None;
 const DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS: bool = false;
+const DEFAULT_IGNORE_SVG_FONTS: bool = false;
+const DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE: bool = false;
+const DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK: bool = false;
 const DEFAULT_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS: bool = true;
 const DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH: NativeSquareGlyphOverflow =
@@ -624,12 +628,14 @@ impl NativeFontHinting {
 #[allow(dead_code)]
 enum NativeFontRasterizer {
     FreeType,
+    Harfbuzz,
 }
 
 impl NativeFontRasterizer {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "FreeType" => Some(Self::FreeType),
+            "Harfbuzz" => Some(Self::Harfbuzz),
             _ => None,
         }
     }
@@ -2785,11 +2791,15 @@ struct NativeEffectiveConfig {
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
+    font_colr_rasterizer: NativeFontRasterizer,
     font_shaper: NativeFontShaper,
     harfbuzz_features: Vec<String>,
     font_dirs: Vec<String>,
     font_locator: Option<NativeFontLocator>,
     use_cap_height_to_scale_fallback_fonts: bool,
+    ignore_svg_fonts: bool,
+    sort_fallback_fonts_by_coverage: bool,
+    search_font_dirs_for_fallback: bool,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -2996,11 +3006,15 @@ struct NativeConfigOverrides {
     font_antialias: Option<NativeFontAntialias>,
     font_hinting: Option<NativeFontHinting>,
     font_rasterizer: Option<NativeFontRasterizer>,
+    font_colr_rasterizer: Option<NativeFontRasterizer>,
     font_shaper: Option<NativeFontShaper>,
     harfbuzz_features: Option<Vec<String>>,
     font_dirs: Option<Vec<String>>,
     font_locator: Option<NativeFontLocator>,
     use_cap_height_to_scale_fallback_fonts: Option<bool>,
+    ignore_svg_fonts: Option<bool>,
+    sort_fallback_fonts_by_coverage: Option<bool>,
+    search_font_dirs_for_fallback: Option<bool>,
     custom_block_glyphs: Option<bool>,
     anti_alias_custom_block_glyphs: Option<bool>,
     allow_square_glyphs_to_overflow_width: Option<NativeSquareGlyphOverflow>,
@@ -3454,6 +3468,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.font_rasterizer = Some(NativeFontRasterizer::parse(&font_rasterizer)?);
         parsed = true;
     }
+    if let Some(font_colr_rasterizer) =
+        lua_config_string_assignment_from_query(config, "font_colr_rasterizer")
+    {
+        overrides.font_colr_rasterizer = Some(NativeFontRasterizer::parse(&font_colr_rasterizer)?);
+        parsed = true;
+    }
     if let Some(font_shaper) = lua_config_string_assignment_from_query(config, "font_shaper") {
         overrides.font_shaper = Some(NativeFontShaper::parse(&font_shaper)?);
         parsed = true;
@@ -3490,6 +3510,24 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(font_locator) = lua_config_string_assignment_from_query(config, "font_locator") {
         overrides.font_locator = Some(NativeFontLocator::parse(&font_locator)?);
+        parsed = true;
+    }
+    if let Some(ignore_svg_fonts) =
+        lua_config_bool_assignment_from_query(config, "ignore_svg_fonts")
+    {
+        overrides.ignore_svg_fonts = Some(ignore_svg_fonts);
+        parsed = true;
+    }
+    if let Some(sort_fallback_fonts_by_coverage) =
+        lua_config_bool_assignment_from_query(config, "sort_fallback_fonts_by_coverage")
+    {
+        overrides.sort_fallback_fonts_by_coverage = Some(sort_fallback_fonts_by_coverage);
+        parsed = true;
+    }
+    if let Some(search_font_dirs_for_fallback) =
+        lua_config_bool_assignment_from_query(config, "search_font_dirs_for_fallback")
+    {
+        overrides.search_font_dirs_for_fallback = Some(search_font_dirs_for_fallback);
         parsed = true;
     }
     if let Some(custom_block_glyphs) =
@@ -15627,11 +15665,15 @@ struct NativeWindowApp {
     font_antialias: NativeFontAntialias,
     font_hinting: NativeFontHinting,
     font_rasterizer: NativeFontRasterizer,
+    font_colr_rasterizer: NativeFontRasterizer,
     font_shaper: NativeFontShaper,
     harfbuzz_features: Vec<String>,
     font_dirs: Vec<String>,
     font_locator: Option<NativeFontLocator>,
     use_cap_height_to_scale_fallback_fonts: bool,
+    ignore_svg_fonts: bool,
+    sort_fallback_fonts_by_coverage: bool,
+    search_font_dirs_for_fallback: bool,
     custom_block_glyphs: bool,
     anti_alias_custom_block_glyphs: bool,
     allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow,
@@ -17117,11 +17159,15 @@ impl NativeWindowApp {
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
+            font_colr_rasterizer: DEFAULT_FONT_COLR_RASTERIZER,
             font_shaper: DEFAULT_FONT_SHAPER,
             harfbuzz_features: Vec::new(),
             font_dirs: Vec::new(),
             font_locator: DEFAULT_FONT_LOCATOR,
             use_cap_height_to_scale_fallback_fonts: DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
+            ignore_svg_fonts: DEFAULT_IGNORE_SVG_FONTS,
+            sort_fallback_fonts_by_coverage: DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
+            search_font_dirs_for_fallback: DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
@@ -18305,6 +18351,10 @@ impl NativeWindowApp {
         detached_app.inactive_pane_hsb = self.inactive_pane_hsb;
         detached_app.use_cap_height_to_scale_fallback_fonts =
             self.use_cap_height_to_scale_fallback_fonts;
+        detached_app.font_colr_rasterizer = self.font_colr_rasterizer;
+        detached_app.ignore_svg_fonts = self.ignore_svg_fonts;
+        detached_app.sort_fallback_fonts_by_coverage = self.sort_fallback_fonts_by_coverage;
+        detached_app.search_font_dirs_for_fallback = self.search_font_dirs_for_fallback;
         detached_app.command_palette_rows = self.command_palette_rows;
         detached_app
             .command_palette_font
@@ -18532,10 +18582,15 @@ impl NativeWindowApp {
         self.font_antialias = source.font_antialias;
         self.font_hinting = source.font_hinting;
         self.font_rasterizer = source.font_rasterizer;
+        self.font_colr_rasterizer = source.font_colr_rasterizer;
         self.font_shaper = source.font_shaper;
         self.harfbuzz_features.clone_from(&source.harfbuzz_features);
         self.font_dirs.clone_from(&source.font_dirs);
         self.font_locator = source.font_locator;
+        self.use_cap_height_to_scale_fallback_fonts = source.use_cap_height_to_scale_fallback_fonts;
+        self.ignore_svg_fonts = source.ignore_svg_fonts;
+        self.sort_fallback_fonts_by_coverage = source.sort_fallback_fonts_by_coverage;
+        self.search_font_dirs_for_fallback = source.search_font_dirs_for_fallback;
         self.custom_block_glyphs = source.custom_block_glyphs;
         self.anti_alias_custom_block_glyphs = source.anti_alias_custom_block_glyphs;
         self.allow_square_glyphs_to_overflow_width = source.allow_square_glyphs_to_overflow_width;
@@ -26848,11 +26903,15 @@ impl NativeWindowApp {
             font_antialias: self.font_antialias,
             font_hinting: self.font_hinting,
             font_rasterizer: self.font_rasterizer,
+            font_colr_rasterizer: self.font_colr_rasterizer,
             font_shaper: self.font_shaper,
             harfbuzz_features: self.harfbuzz_features.clone(),
             font_dirs: self.font_dirs.clone(),
             font_locator: self.font_locator,
             use_cap_height_to_scale_fallback_fonts: self.use_cap_height_to_scale_fallback_fonts,
+            ignore_svg_fonts: self.ignore_svg_fonts,
+            sort_fallback_fonts_by_coverage: self.sort_fallback_fonts_by_coverage,
+            search_font_dirs_for_fallback: self.search_font_dirs_for_fallback,
             custom_block_glyphs: self.custom_block_glyphs,
             anti_alias_custom_block_glyphs: self.anti_alias_custom_block_glyphs,
             allow_square_glyphs_to_overflow_width: self.allow_square_glyphs_to_overflow_width,
@@ -27103,6 +27162,9 @@ impl NativeWindowApp {
         self.font_antialias = overrides.font_antialias.unwrap_or(DEFAULT_FONT_ANTIALIAS);
         self.font_hinting = overrides.font_hinting.unwrap_or(DEFAULT_FONT_HINTING);
         self.font_rasterizer = overrides.font_rasterizer.unwrap_or(DEFAULT_FONT_RASTERIZER);
+        self.font_colr_rasterizer = overrides
+            .font_colr_rasterizer
+            .unwrap_or(DEFAULT_FONT_COLR_RASTERIZER);
         self.font_shaper = overrides.font_shaper.unwrap_or(DEFAULT_FONT_SHAPER);
         self.harfbuzz_features = overrides.harfbuzz_features.clone().unwrap_or_default();
         self.font_dirs = overrides.font_dirs.clone().unwrap_or_default();
@@ -27110,6 +27172,15 @@ impl NativeWindowApp {
         self.use_cap_height_to_scale_fallback_fonts = overrides
             .use_cap_height_to_scale_fallback_fonts
             .unwrap_or(DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS);
+        self.ignore_svg_fonts = overrides
+            .ignore_svg_fonts
+            .unwrap_or(DEFAULT_IGNORE_SVG_FONTS);
+        self.sort_fallback_fonts_by_coverage = overrides
+            .sort_fallback_fonts_by_coverage
+            .unwrap_or(DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE);
+        self.search_font_dirs_for_fallback = overrides
+            .search_font_dirs_for_fallback
+            .unwrap_or(DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK);
         self.custom_block_glyphs = overrides
             .custom_block_glyphs
             .unwrap_or(DEFAULT_CUSTOM_BLOCK_GLYPHS);
@@ -52988,26 +53059,28 @@ mod tests {
         DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA, DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
         DEFAULT_ENABLE_KITTY_GRAPHICS, DEFAULT_ENABLE_KITTY_KEYBOARD,
         DEFAULT_ENABLE_TITLE_REPORTING, DEFAULT_ENABLE_WAYLAND, DEFAULT_ENQ_ANSWERBACK,
-        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_HINTING, DEFAULT_FONT_LOCATOR,
-        DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
+        DEFAULT_FONT_ANTIALIAS, DEFAULT_FONT_COLR_RASTERIZER, DEFAULT_FONT_HINTING,
+        DEFAULT_FONT_LOCATOR, DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
-        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IME_PREEDIT_RENDERING,
-        DEFAULT_INACTIVE_PANE_HSB, DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
-        DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR, DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE,
-        DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
-        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
-        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
-        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
-        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR,
-        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
-        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IGNORE_SVG_FONTS,
+        DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB,
+        DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT, DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
+        DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
+        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
+        DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
+        DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT, DEFAULT_MUX_ENABLE_SSH_AGENT,
+        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
+        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
-        DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
-        DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
-        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
+        DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE, DEFAULT_STRIKETHROUGH_POSITION,
+        DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
+        DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR, DEFAULT_UNDERLINE_POSITION,
+        DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
         DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_DEAD_KEYS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
@@ -67119,12 +67192,16 @@ mod tests {
                 font_antialias: DEFAULT_FONT_ANTIALIAS,
                 font_hinting: DEFAULT_FONT_HINTING,
                 font_rasterizer: DEFAULT_FONT_RASTERIZER,
+                font_colr_rasterizer: DEFAULT_FONT_COLR_RASTERIZER,
                 font_shaper: DEFAULT_FONT_SHAPER,
                 harfbuzz_features: Vec::new(),
                 font_dirs: Vec::new(),
                 font_locator: DEFAULT_FONT_LOCATOR,
                 use_cap_height_to_scale_fallback_fonts:
                     DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
+                ignore_svg_fonts: DEFAULT_IGNORE_SVG_FONTS,
+                sort_fallback_fonts_by_coverage: DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
+                search_font_dirs_for_fallback: DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
                 custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
                 anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
                 allow_square_glyphs_to_overflow_width:
@@ -90296,7 +90373,14 @@ mod tests {
         assert_eq!(effective.font_antialias, NativeFontAntialias::Greyscale);
         assert_eq!(effective.font_hinting, NativeFontHinting::Full);
         assert_eq!(effective.font_rasterizer, NativeFontRasterizer::FreeType);
+        assert_eq!(
+            effective.font_colr_rasterizer,
+            NativeFontRasterizer::Harfbuzz
+        );
         assert_eq!(effective.font_shaper, NativeFontShaper::Harfbuzz);
+        assert!(!effective.ignore_svg_fonts);
+        assert!(!effective.sort_fallback_fonts_by_coverage);
+        assert!(!effective.search_font_dirs_for_fallback);
         assert!(effective.custom_block_glyphs);
         assert!(effective.anti_alias_custom_block_glyphs);
         assert_eq!(
@@ -90327,6 +90411,34 @@ mod tests {
             NativeFreetypeLoadFlags::NO_HINTING
         );
         assert!(!effective.freetype_pcf_long_family_names);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_fallback_rasterizer_flags() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.font_colr_rasterizer = 'FreeType'
+            config.ignore_svg_fonts = true
+            config.sort_fallback_fonts_by_coverage = true
+            config.search_font_dirs_for_fallback = true
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font fallback config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_colr_rasterizer,
+            NativeFontRasterizer::FreeType
+        );
+        assert!(effective.ignore_svg_fonts);
+        assert!(effective.sort_fallback_fonts_by_coverage);
+        assert!(effective.search_font_dirs_for_fallback);
     }
 
     #[test]
@@ -98586,11 +98698,15 @@ mod tests {
             font_antialias: Some(NativeFontAntialias::Subpixel),
             font_hinting: Some(NativeFontHinting::VerticalSubpixel),
             font_rasterizer: Some(NativeFontRasterizer::FreeType),
+            font_colr_rasterizer: Some(NativeFontRasterizer::FreeType),
             font_shaper: Some(NativeFontShaper::Harfbuzz),
             harfbuzz_features: Some(vec!["kern".to_owned(), "liga=0".to_owned()]),
             font_dirs: Some(vec!["fonts".to_owned(), "vendor/fonts".to_owned()]),
             font_locator: Some(NativeFontLocator::ConfigDirsOnly),
             use_cap_height_to_scale_fallback_fonts: Some(true),
+            ignore_svg_fonts: Some(true),
+            sort_fallback_fonts_by_coverage: Some(true),
+            search_font_dirs_for_fallback: Some(true),
             custom_block_glyphs: Some(false),
             anti_alias_custom_block_glyphs: Some(false),
             allow_square_glyphs_to_overflow_width: Some(NativeSquareGlyphOverflow::Always),
@@ -98947,11 +99063,15 @@ mod tests {
             font_antialias: NativeFontAntialias::Subpixel,
             font_hinting: NativeFontHinting::VerticalSubpixel,
             font_rasterizer: NativeFontRasterizer::FreeType,
+            font_colr_rasterizer: NativeFontRasterizer::FreeType,
             font_shaper: NativeFontShaper::Harfbuzz,
             harfbuzz_features: vec!["kern".to_owned(), "liga=0".to_owned()],
             font_dirs: vec!["fonts".to_owned(), "vendor/fonts".to_owned()],
             font_locator: Some(NativeFontLocator::ConfigDirsOnly),
             use_cap_height_to_scale_fallback_fonts: true,
+            ignore_svg_fonts: true,
+            sort_fallback_fonts_by_coverage: true,
+            search_font_dirs_for_fallback: true,
             custom_block_glyphs: false,
             anti_alias_custom_block_glyphs: false,
             allow_square_glyphs_to_overflow_width: NativeSquareGlyphOverflow::Always,
@@ -99253,11 +99373,15 @@ mod tests {
             font_antialias: DEFAULT_FONT_ANTIALIAS,
             font_hinting: DEFAULT_FONT_HINTING,
             font_rasterizer: DEFAULT_FONT_RASTERIZER,
+            font_colr_rasterizer: DEFAULT_FONT_COLR_RASTERIZER,
             font_shaper: DEFAULT_FONT_SHAPER,
             harfbuzz_features: Vec::new(),
             font_dirs: Vec::new(),
             font_locator: DEFAULT_FONT_LOCATOR,
             use_cap_height_to_scale_fallback_fonts: DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
+            ignore_svg_fonts: DEFAULT_IGNORE_SVG_FONTS,
+            sort_fallback_fonts_by_coverage: DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
+            search_font_dirs_for_fallback: DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
             custom_block_glyphs: DEFAULT_CUSTOM_BLOCK_GLYPHS,
             anti_alias_custom_block_glyphs: DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
             allow_square_glyphs_to_overflow_width: DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH,
