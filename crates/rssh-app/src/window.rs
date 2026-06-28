@@ -73,6 +73,7 @@ const CELL_WIDTH: u32 = 8;
 const CELL_HEIGHT: u32 = 16;
 const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 const DEFAULT_DOMAIN_NAME: &str = "local";
+const DEFAULT_GUI_STARTUP_ARGS: &[&str] = &["start"];
 const DEFAULT_MUX_ENABLE_SSH_AGENT: bool = true;
 const DEFAULT_MUX_ENV_REMOVE: &[&str] = &["SSH_AUTH_SOCK", "SSH_CLIENT", "SSH_CONNECTION"];
 const DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND: u32 = 50;
@@ -81,6 +82,15 @@ const DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS: u64 = 3;
 const DEFAULT_PERIODIC_STAT_LOGGING: u64 = 0;
 const DEFAULT_ULIMIT_NOFILE: u64 = 2048;
 const DEFAULT_ULIMIT_NPROC: u64 = 2048;
+const DEFAULT_TILING_DESKTOP_ENVIRONMENTS: &[&str] = &[
+    "X11 LG3D",
+    "X11 Qtile",
+    "X11 awesome",
+    "X11 bspwm",
+    "X11 dwm",
+    "X11 i3",
+    "X11 xmonad",
+];
 const DEFAULT_WORKSPACE_NAME: &str = "default";
 const DEFAULT_AUTOMATICALLY_RELOAD_CONFIG: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES: bool = true;
@@ -522,6 +532,23 @@ impl NativeRenderFrontEnd {
             "OpenGL" => Some(Self::OpenGl),
             "Software" => Some(Self::Software),
             "WebGpu" => Some(Self::WebGpu),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+enum NativeSshBackend {
+    Ssh2,
+    LibSsh,
+}
+
+impl NativeSshBackend {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "Ssh2" => Some(Self::Ssh2),
+            "LibSsh" => Some(Self::LibSsh),
             _ => None,
         }
     }
@@ -2946,6 +2973,7 @@ struct NativeEffectiveConfig {
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
+    default_gui_startup_args: Vec<String>,
     default_domain: String,
     default_workspace: String,
     prefer_to_spawn_tabs: bool,
@@ -2963,6 +2991,7 @@ struct NativeEffectiveConfig {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     mux_enable_ssh_agent: bool,
+    ssh_backend: NativeSshBackend,
     ratelimit_mux_line_prefetches_per_second: u32,
     mux_output_parser_buffer_size: usize,
     mux_output_parser_coalesce_delay_ms: u64,
@@ -2970,6 +2999,7 @@ struct NativeEffectiveConfig {
     ulimit_nofile: u64,
     ulimit_nproc: u64,
     mux_env_remove: Vec<String>,
+    tiling_desktop_environments: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
     key_map_preference: NativeKeyMapPreference,
     ui_key_cap_rendering: NativeUiKeyCapRendering,
@@ -3182,6 +3212,7 @@ struct NativeConfigOverrides {
     visual_bell_color: Option<Color>,
     notification_handling: Option<NativeNotificationHandling>,
     default_prog: Option<Vec<String>>,
+    default_gui_startup_args: Option<Vec<String>>,
     default_domain: Option<String>,
     default_workspace: Option<String>,
     prefer_to_spawn_tabs: Option<bool>,
@@ -3199,6 +3230,7 @@ struct NativeConfigOverrides {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     mux_enable_ssh_agent: Option<bool>,
+    ssh_backend: Option<NativeSshBackend>,
     ratelimit_mux_line_prefetches_per_second: Option<u32>,
     mux_output_parser_buffer_size: Option<usize>,
     mux_output_parser_coalesce_delay_ms: Option<u64>,
@@ -3206,6 +3238,7 @@ struct NativeConfigOverrides {
     ulimit_nofile: Option<u64>,
     ulimit_nproc: Option<u64>,
     mux_env_remove: Option<Vec<String>>,
+    tiling_desktop_environments: Option<Vec<String>>,
     set_environment_variables: Option<BTreeMap<String, String>>,
     launch_menu: Option<Vec<NativeLaunchMenuItem>>,
     key_map_preference: Option<NativeKeyMapPreference>,
@@ -3304,6 +3337,21 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         )?);
         parsed = true;
     }
+    if let Some(default_gui_startup_args) =
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "default_gui_startup_args",
+        )
+    {
+        overrides.default_gui_startup_args = Some(split_lua_table_string_array_with_static_source(
+            Some(LuaStaticSource {
+                source: config,
+                max_start: default_gui_startup_args.max_start,
+            }),
+            &default_gui_startup_args.value,
+        )?);
+        parsed = true;
+    }
     if let Some(default_cwd) = lua_config_string_assignment_from_query(config, "default_cwd") {
         overrides.default_cwd = Some(non_empty_spawn_command_option_value(&default_cwd).ok()?);
         parsed = true;
@@ -3326,6 +3374,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "mux_enable_ssh_agent")
     {
         overrides.mux_enable_ssh_agent = Some(mux_enable_ssh_agent);
+        parsed = true;
+    }
+    if let Some(ssh_backend) = lua_config_string_assignment_from_query(config, "ssh_backend") {
+        overrides.ssh_backend = Some(NativeSshBackend::parse(&ssh_backend)?);
         parsed = true;
     }
     if let Some(ratelimit_mux_line_prefetches_per_second) =
@@ -3380,6 +3432,22 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             }),
             &mux_env_remove.value,
         )?);
+        parsed = true;
+    }
+    if let Some(tiling_desktop_environments) =
+        lua_config_string_array_assignment_with_insert_appends_with_max_start_from_query(
+            config,
+            "tiling_desktop_environments",
+        )
+    {
+        overrides.tiling_desktop_environments =
+            Some(split_lua_table_string_array_with_static_source(
+                Some(LuaStaticSource {
+                    source: config,
+                    max_start: tiling_desktop_environments.max_start,
+                }),
+                &tiling_desktop_environments.value,
+            )?);
         parsed = true;
     }
     if let Some(default_workspace) =
@@ -16045,6 +16113,7 @@ struct NativeWindowApp {
     visual_bell_color: Option<Color>,
     notification_handling: NativeNotificationHandling,
     default_prog: Option<Vec<String>>,
+    default_gui_startup_args: Vec<String>,
     default_domain: String,
     default_workspace: String,
     prefer_to_spawn_tabs: bool,
@@ -16062,6 +16131,7 @@ struct NativeWindowApp {
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
     mux_enable_ssh_agent: bool,
+    ssh_backend: NativeSshBackend,
     ratelimit_mux_line_prefetches_per_second: u32,
     mux_output_parser_buffer_size: usize,
     mux_output_parser_coalesce_delay_ms: u64,
@@ -16069,6 +16139,7 @@ struct NativeWindowApp {
     ulimit_nofile: u64,
     ulimit_nproc: u64,
     mux_env_remove: Vec<String>,
+    tiling_desktop_environments: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
     key_map_preference: NativeKeyMapPreference,
@@ -17566,6 +17637,7 @@ impl NativeWindowApp {
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
+            default_gui_startup_args: default_gui_startup_args(),
             default_domain: DEFAULT_DOMAIN_NAME.to_owned(),
             default_workspace: DEFAULT_WORKSPACE_NAME.to_owned(),
             prefer_to_spawn_tabs: DEFAULT_PREFER_TO_SPAWN_TABS,
@@ -17583,6 +17655,7 @@ impl NativeWindowApp {
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+            ssh_backend: NativeSshBackend::LibSsh,
             ratelimit_mux_line_prefetches_per_second:
                 DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
             mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
@@ -17591,6 +17664,7 @@ impl NativeWindowApp {
             ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
             ulimit_nproc: DEFAULT_ULIMIT_NPROC,
             mux_env_remove: default_mux_env_remove(),
+            tiling_desktop_environments: default_tiling_desktop_environments(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
@@ -18705,6 +18779,9 @@ impl NativeWindowApp {
         detached_app.visual_bell_color = self.visual_bell_color;
         detached_app.notification_handling = self.notification_handling;
         detached_app.default_prog.clone_from(&self.default_prog);
+        detached_app
+            .default_gui_startup_args
+            .clone_from(&self.default_gui_startup_args);
         detached_app.default_domain.clone_from(&self.default_domain);
         detached_app
             .default_workspace
@@ -18731,6 +18808,7 @@ impl NativeWindowApp {
             .default_mux_server_domain
             .clone_from(&self.default_mux_server_domain);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
+        detached_app.ssh_backend = self.ssh_backend;
         detached_app.ratelimit_mux_line_prefetches_per_second =
             self.ratelimit_mux_line_prefetches_per_second;
         detached_app.mux_output_parser_buffer_size = self.mux_output_parser_buffer_size;
@@ -18739,6 +18817,9 @@ impl NativeWindowApp {
         detached_app.ulimit_nofile = self.ulimit_nofile;
         detached_app.ulimit_nproc = self.ulimit_nproc;
         detached_app.mux_env_remove.clone_from(&self.mux_env_remove);
+        detached_app
+            .tiling_desktop_environments
+            .clone_from(&self.tiling_desktop_environments);
         detached_app
             .set_environment_variables
             .clone_from(&self.set_environment_variables);
@@ -19020,6 +19101,8 @@ impl NativeWindowApp {
         self.visual_bell_color = source.visual_bell_color;
         self.notification_handling = source.notification_handling;
         self.default_prog.clone_from(&source.default_prog);
+        self.default_gui_startup_args
+            .clone_from(&source.default_gui_startup_args);
         self.default_domain.clone_from(&source.default_domain);
         self.default_workspace.clone_from(&source.default_workspace);
         self.prefer_to_spawn_tabs = source.prefer_to_spawn_tabs;
@@ -19039,6 +19122,7 @@ impl NativeWindowApp {
         self.default_mux_server_domain
             .clone_from(&source.default_mux_server_domain);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
+        self.ssh_backend = source.ssh_backend;
         self.ratelimit_mux_line_prefetches_per_second =
             source.ratelimit_mux_line_prefetches_per_second;
         self.mux_output_parser_buffer_size = source.mux_output_parser_buffer_size;
@@ -19047,6 +19131,8 @@ impl NativeWindowApp {
         self.ulimit_nofile = source.ulimit_nofile;
         self.ulimit_nproc = source.ulimit_nproc;
         self.mux_env_remove.clone_from(&source.mux_env_remove);
+        self.tiling_desktop_environments
+            .clone_from(&source.tiling_desktop_environments);
         self.set_environment_variables
             .clone_from(&source.set_environment_variables);
         self.launch_menu.clone_from(&source.launch_menu);
@@ -27310,6 +27396,7 @@ impl NativeWindowApp {
             visual_bell_color: self.visual_bell_color,
             notification_handling: self.notification_handling,
             default_prog: self.default_prog.clone(),
+            default_gui_startup_args: self.default_gui_startup_args.clone(),
             default_domain: self.default_domain.clone(),
             default_workspace: self.default_workspace.clone(),
             prefer_to_spawn_tabs: self.prefer_to_spawn_tabs,
@@ -27327,6 +27414,7 @@ impl NativeWindowApp {
             default_ssh_auth_sock: self.default_ssh_auth_sock.clone(),
             default_mux_server_domain: self.default_mux_server_domain.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
+            ssh_backend: self.ssh_backend,
             ratelimit_mux_line_prefetches_per_second: self.ratelimit_mux_line_prefetches_per_second,
             mux_output_parser_buffer_size: self.mux_output_parser_buffer_size,
             mux_output_parser_coalesce_delay_ms: self.mux_output_parser_coalesce_delay_ms,
@@ -27334,6 +27422,7 @@ impl NativeWindowApp {
             ulimit_nofile: self.ulimit_nofile,
             ulimit_nproc: self.ulimit_nproc,
             mux_env_remove: self.mux_env_remove.clone(),
+            tiling_desktop_environments: self.tiling_desktop_environments.clone(),
             set_environment_variables: self.set_environment_variables.clone(),
             key_map_preference: self.key_map_preference,
             ui_key_cap_rendering: self.ui_key_cap_rendering,
@@ -27777,6 +27866,10 @@ impl NativeWindowApp {
             .notification_handling
             .unwrap_or(DEFAULT_NOTIFICATION_HANDLING);
         self.default_prog = overrides.default_prog.filter(|prog| !prog.is_empty());
+        self.default_gui_startup_args = overrides
+            .default_gui_startup_args
+            .filter(|args| !args.is_empty())
+            .unwrap_or_else(default_gui_startup_args);
         self.default_domain = default_domain_from_override(overrides.default_domain);
         self.default_workspace = overrides
             .default_workspace
@@ -27828,6 +27921,7 @@ impl NativeWindowApp {
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
             .unwrap_or(DEFAULT_MUX_ENABLE_SSH_AGENT);
+        self.ssh_backend = overrides.ssh_backend.unwrap_or(NativeSshBackend::LibSsh);
         self.ratelimit_mux_line_prefetches_per_second = overrides
             .ratelimit_mux_line_prefetches_per_second
             .unwrap_or(DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND);
@@ -27845,6 +27939,10 @@ impl NativeWindowApp {
         self.mux_env_remove = overrides
             .mux_env_remove
             .unwrap_or_else(default_mux_env_remove);
+        self.tiling_desktop_environments = overrides
+            .tiling_desktop_environments
+            .filter(|environments| !environments.is_empty())
+            .unwrap_or_else(default_tiling_desktop_environments);
         self.set_environment_variables = overrides.set_environment_variables.unwrap_or_default();
         self.apply_startup_default_workspace_before_spawn();
         self.apply_startup_default_prog_before_spawn();
@@ -53212,6 +53310,20 @@ fn default_mux_env_remove() -> Vec<String> {
         .collect()
 }
 
+fn default_gui_startup_args() -> Vec<String> {
+    DEFAULT_GUI_STARTUP_ARGS
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+fn default_tiling_desktop_environments() -> Vec<String> {
+    DEFAULT_TILING_DESKTOP_ENVIRONMENTS
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
 fn is_local_domain_name(domain: &str) -> bool {
     domain.eq_ignore_ascii_case(DEFAULT_DOMAIN_NAME)
 }
@@ -53475,13 +53587,13 @@ mod tests {
         NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
         NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePromptInputLine,
         NativeQuoteDroppedFiles, NativeRenderFrontEnd, NativeScrollBarHeight,
-        NativeSquareGlyphOverflow, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeUiKeyCapRendering, NativeUnderlinePosition, NativeUnderlineThickness,
-        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
-        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
+        NativeSquareGlyphOverflow, NativeSshBackend, NativeStrikethroughPosition,
+        NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity,
+        NativeTextMinContrastRatio, NativeUiKeyCapRendering, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUserKeyAssignment, NativeUserMouseAssignment,
+        NativeVerticalContentAlignment, NativeVisualBell, NativeVisualBellTarget,
+        NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop,
+        NativeWindowApp, NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
         NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
         NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
         NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
@@ -53504,11 +53616,11 @@ mod tests {
         WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
-        default_hyperlink_rules, default_integrated_title_buttons, default_mux_env_remove,
-        default_skip_close_confirmation_for_processes_named, demo_snapshot,
-        encode_window_focus_event, encode_window_key, encode_window_key_with_kitty,
-        encode_window_key_with_kitty_event, encode_window_mouse_event,
-        encode_window_mouse_event_with_pixels, encode_window_paste,
+        default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
+        default_mux_env_remove, default_skip_close_confirmation_for_processes_named,
+        default_tiling_desktop_environments, demo_snapshot, encode_window_focus_event,
+        encode_window_key, encode_window_key_with_kitty, encode_window_key_with_kitty_event,
+        encode_window_mouse_event, encode_window_mouse_event_with_pixels, encode_window_paste,
         input_selector_options_from_query, native_window_key_assignment_entries,
         native_window_resize_increments_supported, nerd_font_icon_for_name,
         pane_select_activate_alphabet_from_query,
@@ -67687,6 +67799,7 @@ mod tests {
                 visual_bell_color: None,
                 notification_handling: DEFAULT_NOTIFICATION_HANDLING,
                 default_prog: None,
+                default_gui_startup_args: default_gui_startup_args(),
                 default_domain: "local".to_owned(),
                 default_workspace: "default".to_owned(),
                 prefer_to_spawn_tabs: super::DEFAULT_PREFER_TO_SPAWN_TABS,
@@ -67704,6 +67817,7 @@ mod tests {
                 default_ssh_auth_sock: None,
                 default_mux_server_domain: None,
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+                ssh_backend: NativeSshBackend::LibSsh,
                 ratelimit_mux_line_prefetches_per_second:
                     DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
                 mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
@@ -67712,6 +67826,7 @@ mod tests {
                 ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
                 ulimit_nproc: DEFAULT_ULIMIT_NPROC,
                 mux_env_remove: default_mux_env_remove(),
+                tiling_desktop_environments: default_tiling_desktop_environments(),
                 set_environment_variables: BTreeMap::new(),
                 key_map_preference: NativeKeyMapPreference::Mapped,
                 ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
@@ -88989,6 +89104,56 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_startup_ssh_environment_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.default_gui_startup_args, vec!["start".to_owned()]);
+        assert_eq!(effective.ssh_backend, NativeSshBackend::LibSsh);
+        assert_eq!(
+            effective.tiling_desktop_environments,
+            vec![
+                "X11 LG3D".to_owned(),
+                "X11 Qtile".to_owned(),
+                "X11 awesome".to_owned(),
+                "X11 bspwm".to_owned(),
+                "X11 dwm".to_owned(),
+                "X11 i3".to_owned(),
+                "X11 xmonad".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_startup_ssh_environment_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.default_gui_startup_args = { 'connect', 'prod' }
+            config.ssh_backend = 'Ssh2'
+            config.tiling_desktop_environments = { 'X11 i3', 'Wayland Sway' }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm startup SSH environment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.default_gui_startup_args,
+            vec!["connect".to_owned(), "prod".to_owned()]
+        );
+        assert_eq!(effective.ssh_backend, NativeSshBackend::Ssh2);
+        assert_eq!(
+            effective.tiling_desktop_environments,
+            vec!["X11 i3".to_owned(), "Wayland Sway".to_owned()]
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_keyboard_protocol_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -99468,6 +99633,7 @@ mod tests {
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: Some(NativeNotificationHandling::SuppressFromFocusedWindow),
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
+            default_gui_startup_args: Some(vec!["connect".to_owned(), "prod".to_owned()]),
             default_domain: Some("local".to_owned()),
             default_workspace: Some("ops".to_owned()),
             prefer_to_spawn_tabs: Some(true),
@@ -99485,6 +99651,7 @@ mod tests {
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             default_mux_server_domain: Some("mux-main".to_owned()),
             mux_enable_ssh_agent: Some(false),
+            ssh_backend: Some(NativeSshBackend::Ssh2),
             ratelimit_mux_line_prefetches_per_second: Some(12),
             mux_output_parser_buffer_size: Some(4096),
             mux_output_parser_coalesce_delay_ms: Some(7),
@@ -99492,6 +99659,7 @@ mod tests {
             ulimit_nofile: Some(4096),
             ulimit_nproc: Some(8192),
             mux_env_remove: Some(vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()]),
+            tiling_desktop_environments: Some(vec!["X11 i3".to_owned(), "Wayland Sway".to_owned()]),
             set_environment_variables: Some(sample_environment()),
             key_map_preference: Some(NativeKeyMapPreference::Physical),
             ui_key_cap_rendering: Some(NativeUiKeyCapRendering::Emacs),
@@ -99853,6 +100021,7 @@ mod tests {
             visual_bell_color: Some(Color::Rgb(1, 2, 3)),
             notification_handling: NativeNotificationHandling::SuppressFromFocusedWindow,
             default_prog: Some(vec!["top".to_owned(), "-H".to_owned()]),
+            default_gui_startup_args: vec!["connect".to_owned(), "prod".to_owned()],
             default_domain: "local".to_owned(),
             default_workspace: "ops".to_owned(),
             prefer_to_spawn_tabs: true,
@@ -99870,6 +100039,7 @@ mod tests {
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
             default_mux_server_domain: Some("mux-main".to_owned()),
             mux_enable_ssh_agent: false,
+            ssh_backend: NativeSshBackend::Ssh2,
             ratelimit_mux_line_prefetches_per_second: 12,
             mux_output_parser_buffer_size: 4096,
             mux_output_parser_coalesce_delay_ms: 7,
@@ -99877,6 +100047,7 @@ mod tests {
             ulimit_nofile: 4096,
             ulimit_nproc: 8192,
             mux_env_remove: vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()],
+            tiling_desktop_environments: vec!["X11 i3".to_owned(), "Wayland Sway".to_owned()],
             set_environment_variables: sample_environment(),
             key_map_preference: NativeKeyMapPreference::Physical,
             ui_key_cap_rendering: NativeUiKeyCapRendering::Emacs,
@@ -100090,6 +100261,7 @@ mod tests {
             visual_bell_color: None,
             notification_handling: DEFAULT_NOTIFICATION_HANDLING,
             default_prog: None,
+            default_gui_startup_args: default_gui_startup_args(),
             default_domain: "local".to_owned(),
             default_workspace: "default".to_owned(),
             prefer_to_spawn_tabs: super::DEFAULT_PREFER_TO_SPAWN_TABS,
@@ -100107,6 +100279,7 @@ mod tests {
             default_ssh_auth_sock: None,
             default_mux_server_domain: None,
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+            ssh_backend: NativeSshBackend::LibSsh,
             ratelimit_mux_line_prefetches_per_second:
                 DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
             mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
@@ -100115,6 +100288,7 @@ mod tests {
             ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
             ulimit_nproc: DEFAULT_ULIMIT_NPROC,
             mux_env_remove: default_mux_env_remove(),
+            tiling_desktop_environments: default_tiling_desktop_environments(),
             set_environment_variables: BTreeMap::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
             ui_key_cap_rendering: super::DEFAULT_UI_KEY_CAP_RENDERING,
