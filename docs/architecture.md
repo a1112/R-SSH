@@ -621,8 +621,9 @@ keyboard, mouse, paste, resize
   table calls also skip trailing-comma fields and parse `description`, `prompt`,
   and `initial_value` fields inline or through top-level static string
   variables, with `description`/`prompt` also accepting top-level static
-  `wezterm.format` text variables and parenthesized calls accepting top-level
-  static options table variables. Static
+  `wezterm.format` text variables and text variables or inline values built
+  from top-level static `wezterm.format` aliases, and parenthesized calls
+  accepting top-level static options table variables. Static
   `action = wezterm.action_callback(...)` fields, top-level static callback
   variables, and callbacks built from top-level static
   `wezterm.action_callback` aliases are accepted as native-handler
@@ -649,8 +650,9 @@ keyboard, mouse, paste, resize
   `alphabet`, `description`, and `fuzzy_description` fields inline or through
   top-level static string variables, table `choices` inline or through
   top-level static table variables whose entries can resolve static string
-  labels and top-level static `wezterm.format` label variables, plus `fuzzy`
-  inline or through a top-level static bool variable. Parenthesized
+  labels, top-level static `wezterm.format` label variables, and label
+  variables built from top-level static `wezterm.format` aliases, plus
+  `fuzzy` inline or through a top-level static bool variable. Parenthesized
   `InputSelector(input_opts)` calls also accept top-level static options table
   variables. Static
   `action = wezterm.action_callback(...)` fields, top-level static callback
