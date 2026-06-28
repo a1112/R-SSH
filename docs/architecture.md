@@ -1125,7 +1125,10 @@ keyboard, mouse, paste, resize
   `webgpu_power_preference`, `webgpu_force_fallback_adapter`,
   `webgpu_preferred_adapter`, `prefer_egl`, `enable_wayland`,
   `enable_zwlr_output_manager`, `use_box_model_render`,
-  `experimental_pixel_positioning`, `cursor_blink_rate`, `cursor_blink_ease_in`,
+  `experimental_pixel_positioning`, `shape_cache_size`,
+  `line_state_cache_size`, `line_quad_cache_size`,
+  `line_to_ele_shape_cache_size`, `glyph_cache_image_cache_size`,
+  `cursor_blink_rate`, `cursor_blink_ease_in`,
   `cursor_blink_ease_out`, `text_blink_rate`, `text_blink_rate_rapid`,
   `text_blink_ease_in`, `text_blink_ease_out`, `text_blink_rapid_ease_in`,
   `text_blink_rapid_ease_out`, `font_size`, `cell_width`, `cell_widths`, `line_height`,
@@ -1211,12 +1214,15 @@ keyboard, mouse, paste, resize
   top-level static string/integer variables, plus top-level
   `config[static_name].backend`/`device`/`device_type`/`driver`/
   `driver_info`/`name`/`vendor` mutations where `static_name` resolves to
-  `webgpu_preferred_adapter`, `prefer_egl`/`enable_wayland` with `true`, and
+  `webgpu_preferred_adapter`, `prefer_egl`/`enable_wayland` with `true`,
   `enable_zwlr_output_manager`, `use_box_model_render`, and
-  `experimental_pixel_positioning` with `false`; actual renderer front-end,
+  `experimental_pixel_positioning` with `false`, render cache sizes
+  `shape_cache_size`, `line_state_cache_size`, `line_quad_cache_size`, and
+  `line_to_ele_shape_cache_size` with `1024`, plus
+  `glyph_cache_image_cache_size` with `256`; actual renderer front-end,
   WebGPU adapter, EGL, box-model render path, pixel-positioning behavior,
-  zwlr output-manager integration, and Wayland/X11 startup selection remain
-  future parity work.
+  cache sizing application, zwlr output-manager integration, and Wayland/X11
+  startup selection remain future parity work.
   `use_resize_increments` is
   stored with WezTerm's default `false`, parses inline or through top-level
   static bool variables, and is included in effective config snapshots; when

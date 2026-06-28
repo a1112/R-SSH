@@ -106,6 +106,11 @@ const DEFAULT_ENABLE_WAYLAND: bool = true;
 const DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER: bool = false;
 const DEFAULT_USE_BOX_MODEL_RENDER: bool = false;
 const DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING: bool = false;
+const DEFAULT_SHAPE_CACHE_SIZE: usize = 1_024;
+const DEFAULT_LINE_STATE_CACHE_SIZE: usize = 1_024;
+const DEFAULT_LINE_QUAD_CACHE_SIZE: usize = 1_024;
+const DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE: usize = 1_024;
+const DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE: usize = 256;
 const DEFAULT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(12_000);
 const DEFAULT_COMMAND_PALETTE_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(14_000);
 const DEFAULT_CHAR_SELECT_FONT_SIZE: NativeFontSize = NativeFontSize::from_millipoints(18_000);
@@ -2777,6 +2782,11 @@ struct NativeEffectiveConfig {
     enable_zwlr_output_manager: bool,
     use_box_model_render: bool,
     experimental_pixel_positioning: bool,
+    shape_cache_size: usize,
+    line_state_cache_size: usize,
+    line_quad_cache_size: usize,
+    line_to_ele_shape_cache_size: usize,
+    glyph_cache_image_cache_size: usize,
     cursor_blink_rate_ms: u64,
     cursor_blink_ease_in: NativeEasingFunction,
     cursor_blink_ease_out: NativeEasingFunction,
@@ -2995,6 +3005,11 @@ struct NativeConfigOverrides {
     enable_zwlr_output_manager: Option<bool>,
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
+    shape_cache_size: Option<usize>,
+    line_state_cache_size: Option<usize>,
+    line_quad_cache_size: Option<usize>,
+    line_to_ele_shape_cache_size: Option<usize>,
+    glyph_cache_image_cache_size: Option<usize>,
     cursor_blink_rate_ms: Option<u64>,
     cursor_blink_ease_in: Option<NativeEasingFunction>,
     cursor_blink_ease_out: Option<NativeEasingFunction>,
@@ -4020,6 +4035,36 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "experimental_pixel_positioning")
     {
         overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
+        parsed = true;
+    }
+    if let Some(shape_cache_size) =
+        lua_config_usize_assignment_from_query(config, "shape_cache_size")
+    {
+        overrides.shape_cache_size = Some(shape_cache_size);
+        parsed = true;
+    }
+    if let Some(line_state_cache_size) =
+        lua_config_usize_assignment_from_query(config, "line_state_cache_size")
+    {
+        overrides.line_state_cache_size = Some(line_state_cache_size);
+        parsed = true;
+    }
+    if let Some(line_quad_cache_size) =
+        lua_config_usize_assignment_from_query(config, "line_quad_cache_size")
+    {
+        overrides.line_quad_cache_size = Some(line_quad_cache_size);
+        parsed = true;
+    }
+    if let Some(line_to_ele_shape_cache_size) =
+        lua_config_usize_assignment_from_query(config, "line_to_ele_shape_cache_size")
+    {
+        overrides.line_to_ele_shape_cache_size = Some(line_to_ele_shape_cache_size);
+        parsed = true;
+    }
+    if let Some(glyph_cache_image_cache_size) =
+        lua_config_usize_assignment_from_query(config, "glyph_cache_image_cache_size")
+    {
+        overrides.glyph_cache_image_cache_size = Some(glyph_cache_image_cache_size);
         parsed = true;
     }
     if let Some(command_palette_rows) =
@@ -15962,6 +16007,11 @@ struct NativeWindowApp {
     enable_zwlr_output_manager: bool,
     use_box_model_render: bool,
     experimental_pixel_positioning: bool,
+    shape_cache_size: usize,
+    line_state_cache_size: usize,
+    line_quad_cache_size: usize,
+    line_to_ele_shape_cache_size: usize,
+    glyph_cache_image_cache_size: usize,
     last_status_update_at: Option<Instant>,
     cursor_blink_rate: Duration,
     cursor_blink_ease_in: NativeEasingFunction,
@@ -17469,6 +17519,11 @@ impl NativeWindowApp {
             enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
             use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
             experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
+            shape_cache_size: DEFAULT_SHAPE_CACHE_SIZE,
+            line_state_cache_size: DEFAULT_LINE_STATE_CACHE_SIZE,
+            line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
+            line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
+            glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
             last_status_update_at: None,
             cursor_blink_rate: DEFAULT_CURSOR_BLINK_RATE,
             cursor_blink_ease_in: DEFAULT_CURSOR_BLINK_EASE_IN,
@@ -18671,6 +18726,11 @@ impl NativeWindowApp {
         self.enable_zwlr_output_manager = source.enable_zwlr_output_manager;
         self.use_box_model_render = source.use_box_model_render;
         self.experimental_pixel_positioning = source.experimental_pixel_positioning;
+        self.shape_cache_size = source.shape_cache_size;
+        self.line_state_cache_size = source.line_state_cache_size;
+        self.line_quad_cache_size = source.line_quad_cache_size;
+        self.line_to_ele_shape_cache_size = source.line_to_ele_shape_cache_size;
+        self.glyph_cache_image_cache_size = source.glyph_cache_image_cache_size;
         self.last_status_update_at = None;
         self.use_cap_height_to_scale_fallback_fonts = source.use_cap_height_to_scale_fallback_fonts;
         self.command_palette_rows = source.command_palette_rows;
@@ -26920,6 +26980,11 @@ impl NativeWindowApp {
             enable_zwlr_output_manager: self.enable_zwlr_output_manager,
             use_box_model_render: self.use_box_model_render,
             experimental_pixel_positioning: self.experimental_pixel_positioning,
+            shape_cache_size: self.shape_cache_size,
+            line_state_cache_size: self.line_state_cache_size,
+            line_quad_cache_size: self.line_quad_cache_size,
+            line_to_ele_shape_cache_size: self.line_to_ele_shape_cache_size,
+            glyph_cache_image_cache_size: self.glyph_cache_image_cache_size,
             cursor_blink_rate_ms: u64::try_from(self.cursor_blink_rate.as_millis())
                 .unwrap_or(u64::MAX),
             cursor_blink_ease_in: self.cursor_blink_ease_in,
@@ -27186,6 +27251,21 @@ impl NativeWindowApp {
         self.experimental_pixel_positioning = overrides
             .experimental_pixel_positioning
             .unwrap_or(DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING);
+        self.shape_cache_size = overrides
+            .shape_cache_size
+            .unwrap_or(DEFAULT_SHAPE_CACHE_SIZE);
+        self.line_state_cache_size = overrides
+            .line_state_cache_size
+            .unwrap_or(DEFAULT_LINE_STATE_CACHE_SIZE);
+        self.line_quad_cache_size = overrides
+            .line_quad_cache_size
+            .unwrap_or(DEFAULT_LINE_QUAD_CACHE_SIZE);
+        self.line_to_ele_shape_cache_size = overrides
+            .line_to_ele_shape_cache_size
+            .unwrap_or(DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE);
+        self.glyph_cache_image_cache_size = overrides
+            .glyph_cache_image_cache_size
+            .unwrap_or(DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE);
         self.apply_cursor_blink_overrides(
             overrides.cursor_blink_rate_ms,
             overrides.cursor_blink_ease_in,
@@ -53112,38 +53192,40 @@ mod tests {
         DEFAULT_FONT_RASTERIZER, DEFAULT_FONT_SHAPER, DEFAULT_FONT_SIZE,
         DEFAULT_FORCE_REVERSE_VIDEO_CURSOR, DEFAULT_FOREGROUND_COLOR, DEFAULT_FOREGROUND_TEXT_HSB,
         DEFAULT_FREETYPE_LOAD_TARGET, DEFAULT_FREETYPE_PCF_LONG_FAMILY_NAMES,
-        DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING, DEFAULT_IGNORE_SVG_FONTS,
-        DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB,
+        DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE, DEFAULT_HIDE_MOUSE_CURSOR_WHEN_TYPING,
+        DEFAULT_IGNORE_SVG_FONTS, DEFAULT_IME_PREEDIT_RENDERING, DEFAULT_INACTIVE_PANE_HSB,
         DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT, DEFAULT_INTEGRATED_TITLE_BUTTON_COLOR,
         DEFAULT_INTEGRATED_TITLE_BUTTON_STYLE, DEFAULT_LAUNCHER_ALPHABET, DEFAULT_LINE_HEIGHT,
-        DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES, DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
-        DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH, DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR,
-        DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT, DEFAULT_MUX_ENABLE_SSH_AGENT,
-        DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE, DEFAULT_NOTIFICATION_HANDLING,
-        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
-        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
-        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
-        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
-        DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHOW_UPDATE_WINDOW,
-        DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE, DEFAULT_STRIKETHROUGH_POSITION,
-        DEFAULT_TEXT_BACKGROUND_OPACITY, DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE,
-        DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR, DEFAULT_UNDERLINE_POSITION,
-        DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION, DEFAULT_USE_BOX_MODEL_RENDER,
-        DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_DEAD_KEYS, DEFAULT_USE_IME,
-        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
-        DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
-        DEFAULT_WIN32_SYSTEM_BACKDROP, DEFAULT_WINDOW_BACKGROUND_OPACITY,
-        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
-        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
-        NativeAnsiColor, NativeAudibleBell, NativeBoldBrightensAnsiColors,
-        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeCellWidthOverride,
-        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
-        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
-        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
-        NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
-        NativeFontAntialias, NativeFontAttributes, NativeFontHinting, NativeFontLocator,
-        NativeFontRasterizer, NativeFontRule, NativeFontShaper, NativeFontSize,
+        DEFAULT_LINE_QUAD_CACHE_SIZE, DEFAULT_LINE_STATE_CACHE_SIZE,
+        DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
+        DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
+        DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
+        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR,
+        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
+        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
+        DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK, DEFAULT_SELECTION_WORD_BOUNDARY,
+        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHAPE_CACHE_SIZE,
+        DEFAULT_SHOW_UPDATE_WINDOW, DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
+        DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
+        DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
+        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
+        DEFAULT_USE_BOX_MODEL_RENDER, DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
+        DEFAULT_USE_DEAD_KEYS, DEFAULT_USE_IME, DEFAULT_USE_RESIZE_INCREMENTS,
+        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
+        DEFAULT_WEBGPU_POWER_PREFERENCE, DEFAULT_WIN32_SYSTEM_BACKDROP,
+        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
+        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
+        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
+        NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines, NativeCellWidth,
+        NativeCellWidthOverride, NativeColorSpec, NativeCommandPaletteAugment,
+        NativeCommandPaletteEntry, NativeConfigOverrides, NativeConfirmation, NativeContrastRatio,
+        NativeCubicBezier, NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry,
+        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
+        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontAttributes, NativeFontHinting,
+        NativeFontLocator, NativeFontRasterizer, NativeFontRule, NativeFontShaper, NativeFontSize,
         NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
         NativeFreetypeLoadFlags, NativeFreetypeTarget, NativeHorizontalContentAlignment,
         NativeHsbMultiplier, NativeHyperlinkRule, NativeImePreeditRendering, NativeInactivePaneHsb,
@@ -67224,6 +67306,11 @@ mod tests {
                 enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
                 use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
                 experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
+                shape_cache_size: DEFAULT_SHAPE_CACHE_SIZE,
+                line_state_cache_size: DEFAULT_LINE_STATE_CACHE_SIZE,
+                line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
+                line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
+                glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
                 cursor_blink_rate_ms: 800,
                 cursor_blink_ease_in: NativeEasingFunction::Linear,
                 cursor_blink_ease_out: NativeEasingFunction::Linear,
@@ -89735,6 +89822,18 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_render_cache_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.shape_cache_size, 1_024);
+        assert_eq!(effective.line_state_cache_size, 1_024);
+        assert_eq!(effective.line_quad_cache_size, 1_024);
+        assert_eq!(effective.line_to_ele_shape_cache_size, 1_024);
+        assert_eq!(effective.glyph_cache_image_cache_size, 256);
+    }
+
+    #[test]
     fn window_app_reports_default_wezterm_platform_backdrop_config() {
         let effective = NativeWindowApp::new(None).native_effective_config();
 
@@ -89834,6 +89933,33 @@ mod tests {
         assert!(effective.enable_zwlr_output_manager);
         assert!(effective.use_box_model_render);
         assert!(effective.experimental_pixel_positioning);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_render_cache_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.shape_cache_size = 2048
+            config.line_state_cache_size = 512
+            config.line_quad_cache_size = 768
+            config.line_to_ele_shape_cache_size = 1536
+            config.glyph_cache_image_cache_size = 128
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm render cache config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.shape_cache_size, 2_048);
+        assert_eq!(effective.line_state_cache_size, 512);
+        assert_eq!(effective.line_quad_cache_size, 768);
+        assert_eq!(effective.line_to_ele_shape_cache_size, 1_536);
+        assert_eq!(effective.glyph_cache_image_cache_size, 128);
     }
 
     #[test]
@@ -98727,6 +98853,11 @@ mod tests {
             enable_zwlr_output_manager: Some(true),
             use_box_model_render: Some(true),
             experimental_pixel_positioning: Some(true),
+            shape_cache_size: Some(2_048),
+            line_state_cache_size: Some(512),
+            line_quad_cache_size: Some(768),
+            line_to_ele_shape_cache_size: Some(1_536),
+            glyph_cache_image_cache_size: Some(128),
             cursor_blink_rate_ms: Some(375),
             cursor_blink_ease_in: Some(NativeEasingFunction::EaseIn),
             cursor_blink_ease_out: Some(NativeEasingFunction::EaseOut),
@@ -99095,6 +99226,11 @@ mod tests {
             enable_zwlr_output_manager: true,
             use_box_model_render: true,
             experimental_pixel_positioning: true,
+            shape_cache_size: 2_048,
+            line_state_cache_size: 512,
+            line_quad_cache_size: 768,
+            line_to_ele_shape_cache_size: 1_536,
+            glyph_cache_image_cache_size: 128,
             cursor_blink_rate_ms: 375,
             cursor_blink_ease_in: NativeEasingFunction::EaseIn,
             cursor_blink_ease_out: NativeEasingFunction::EaseOut,
@@ -99423,6 +99559,11 @@ mod tests {
             enable_zwlr_output_manager: DEFAULT_ENABLE_ZWLR_OUTPUT_MANAGER,
             use_box_model_render: DEFAULT_USE_BOX_MODEL_RENDER,
             experimental_pixel_positioning: DEFAULT_EXPERIMENTAL_PIXEL_POSITIONING,
+            shape_cache_size: DEFAULT_SHAPE_CACHE_SIZE,
+            line_state_cache_size: DEFAULT_LINE_STATE_CACHE_SIZE,
+            line_quad_cache_size: DEFAULT_LINE_QUAD_CACHE_SIZE,
+            line_to_ele_shape_cache_size: DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE,
+            glyph_cache_image_cache_size: DEFAULT_GLYPH_CACHE_IMAGE_CACHE_SIZE,
             cursor_blink_rate_ms: 800,
             cursor_blink_ease_in: NativeEasingFunction::Linear,
             cursor_blink_ease_out: NativeEasingFunction::Linear,
