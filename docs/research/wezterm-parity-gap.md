@@ -2333,7 +2333,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   overrides the native title; returning `None` keeps the default. The typed
   event carries the same effective config snapshot. Static
   `wezterm.on('format-window-title', function(...) return 'title' end)`
-  callbacks with literal string returns map onto the native title override
+  callbacks with literal string returns and top-level static
+  `local <alias> = wezterm.on` event aliases map onto the native title override
   path; arbitrary Lua callback execution plus the full Lua config object remain
   open.
 - Native window now dispatches typed `update-status` and deprecated

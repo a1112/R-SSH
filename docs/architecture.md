@@ -1802,8 +1802,9 @@ keyboard, mouse, paste, resize
   overrides the title; returning `None` falls back to the default. The typed
   event carries the same effective config snapshot. Static
   `wezterm.on('format-window-title', function(...) return 'title' end)` string
-  returns now map onto the same title override path; arbitrary Lua callback
-  execution and the full Lua config object remain future parity work.
+  returns and top-level static `local <alias> = wezterm.on` event aliases now
+  map onto the same title override path; arbitrary Lua callback execution and
+  the full Lua config object remain future parity work.
 - Implemented in v1: native window `about_to_wait` dispatches typed
   `update-status` and deprecated `update-right-status` hooks with the window id
   and active pane id, scheduled by a WezTerm-style 1000ms

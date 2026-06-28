@@ -5747,17 +5747,7 @@ fn lua_static_wezterm_status_update_event_from_statement(
     source: &str,
     start: usize,
 ) -> Option<NativeWindowStatusUpdate> {
-    let statement = lua_trim_start_comments(source.get(start..)?)?;
-    let rest = statement.strip_prefix("wezterm")?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-    let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')?;
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
     if !matches!(event_name.as_str(), "update-status" | "update-right-status") {
@@ -5798,17 +5788,7 @@ fn lua_static_wezterm_string_return_event_from_statement(
     start: usize,
     expected_event_name: &str,
 ) -> Option<String> {
-    let statement = lua_trim_start_comments(source.get(start..)?)?;
-    let rest = statement.strip_prefix("wezterm")?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-    let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')?;
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
     if event_name != expected_event_name {
@@ -5835,17 +5815,7 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
     source: &str,
     start: usize,
 ) -> Option<NativeTabTitle> {
-    let statement = lua_trim_start_comments(source.get(start..)?)?;
-    let rest = statement.strip_prefix("wezterm")?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-    let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')?;
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
     if event_name != "format-tab-title" {
@@ -5861,6 +5831,74 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
             max_start: start,
         }),
     )
+}
+
+fn lua_static_wezterm_on_event_args_from_statement<'a>(
+    source: &'a str,
+    start: usize,
+) -> Option<&'a str> {
+    let statement = lua_trim_start_comments(source.get(start..)?)?;
+    if let Some(rest) = lua_static_wezterm_on_event_args_from_wezterm_query(statement) {
+        return Some(rest);
+    }
+
+    let alias = lua_identifier_literal_from_query(statement)?;
+    let rest = statement.get(alias.len()..)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    if !lua_static_wezterm_on_alias_before_offset(source, alias, start)? {
+        return None;
+    }
+
+    lua_trim_start_comments(rest)?.strip_prefix('(')
+}
+
+fn lua_static_wezterm_on_event_args_from_wezterm_query(value: &str) -> Option<&str> {
+    let rest = value.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
+        return None;
+    }
+    lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')
+}
+
+fn lua_static_wezterm_on_alias_before_offset(
+    source: &str,
+    alias: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let mut selected = false;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(alias) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        selected = lua_top_level_statement_value_from_query(value)
+            .is_some_and(lua_static_wezterm_on_alias_value_from_query);
+    }
+
+    Some(selected)
+}
+
+fn lua_static_wezterm_on_alias_value_from_query(value: &str) -> bool {
+    value.trim() == "wezterm.on"
 }
 
 fn lua_anonymous_function_body_and_first_param_from_query<'a>(
@@ -72016,6 +72054,25 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_on_alias_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local on = wezterm.on
+
+            on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'ALIAS LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm on alias format-window-title event string return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "ALIAS LUA TITLE");
     }
 
     #[test]
