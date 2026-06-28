@@ -223,6 +223,7 @@ const DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE: bool = false;
 const DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC: bool = false;
 const DEFAULT_UNICODE_VERSION: u32 = 9;
 const DEFAULT_USE_IME: bool = true;
+const DEFAULT_USE_DEAD_KEYS: bool = true;
 const DEFAULT_IME_PREEDIT_RENDERING: NativeImePreeditRendering = NativeImePreeditRendering::Builtin;
 const DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK: ModifiersState = ModifiersState::SHIFT;
 const DEFAULT_UI_KEY_CAP_RENDERING: NativeUiKeyCapRendering = if cfg!(target_os = "macos") {
@@ -2914,6 +2915,7 @@ struct NativeEffectiveConfig {
     normalize_output_to_unicode_nfc: bool,
     unicode_version: u32,
     use_ime: bool,
+    use_dead_keys: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     macos_forward_to_ime_modifier_mask: ModifiersState,
     xim_im_name: Option<String>,
@@ -3121,6 +3123,7 @@ struct NativeConfigOverrides {
     normalize_output_to_unicode_nfc: Option<bool>,
     unicode_version: Option<u32>,
     use_ime: Option<bool>,
+    use_dead_keys: Option<bool>,
     ime_preedit_rendering: Option<NativeImePreeditRendering>,
     macos_forward_to_ime_modifier_mask: Option<ModifiersState>,
     xim_im_name: Option<String>,
@@ -4195,6 +4198,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(use_ime) = lua_config_bool_assignment_from_query(config, "use_ime") {
         overrides.use_ime = Some(use_ime);
+        parsed = true;
+    }
+    if let Some(use_dead_keys) = lua_config_bool_assignment_from_query(config, "use_dead_keys") {
+        overrides.use_dead_keys = Some(use_dead_keys);
         parsed = true;
     }
     if let Some(ime_preedit_rendering) =
@@ -15784,6 +15791,7 @@ struct NativeWindowApp {
     normalize_output_to_unicode_nfc: bool,
     unicode_version: u32,
     use_ime: bool,
+    use_dead_keys: bool,
     ime_preedit_rendering: NativeImePreeditRendering,
     macos_forward_to_ime_modifier_mask: ModifiersState,
     ime_preedit: Option<String>,
@@ -17278,6 +17286,7 @@ impl NativeWindowApp {
             normalize_output_to_unicode_nfc: DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
             unicode_version: DEFAULT_UNICODE_VERSION,
             use_ime: DEFAULT_USE_IME,
+            use_dead_keys: DEFAULT_USE_DEAD_KEYS,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
             ime_preedit: None,
@@ -18669,6 +18678,7 @@ impl NativeWindowApp {
         self.normalize_output_to_unicode_nfc = source.normalize_output_to_unicode_nfc;
         self.unicode_version = source.unicode_version;
         self.use_ime = source.use_ime;
+        self.use_dead_keys = source.use_dead_keys;
         self.ime_preedit_rendering = source.ime_preedit_rendering;
         self.macos_forward_to_ime_modifier_mask = source.macos_forward_to_ime_modifier_mask;
         self.ime_preedit = source.ime_preedit.clone();
@@ -26914,6 +26924,7 @@ impl NativeWindowApp {
             normalize_output_to_unicode_nfc: self.normalize_output_to_unicode_nfc,
             unicode_version: self.unicode_version,
             use_ime: self.use_ime,
+            use_dead_keys: self.use_dead_keys,
             ime_preedit_rendering: self.ime_preedit_rendering,
             macos_forward_to_ime_modifier_mask: self.macos_forward_to_ime_modifier_mask,
             xim_im_name: self.xim_im_name.clone(),
@@ -27381,6 +27392,10 @@ impl NativeWindowApp {
             .unwrap_or(DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC);
         self.unicode_version = overrides.unicode_version.unwrap_or(DEFAULT_UNICODE_VERSION);
         self.use_ime = overrides.use_ime.unwrap_or(DEFAULT_USE_IME);
+        self.use_dead_keys = overrides.use_dead_keys.unwrap_or(DEFAULT_USE_DEAD_KEYS);
+        if !self.use_dead_keys {
+            self.dead_key_active = false;
+        }
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
             .unwrap_or(DEFAULT_IME_PREEDIT_RENDERING);
@@ -29059,7 +29074,7 @@ impl NativeWindowApp {
             return Ok(());
         }
 
-        let is_dead_key = matches!(logical_key, Key::Dead(_));
+        let is_dead_key = self.use_dead_keys && matches!(logical_key, Key::Dead(_));
         if !is_dead_key {
             self.dead_key_active = false;
         }
@@ -52892,7 +52907,7 @@ mod tests {
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
         DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
-        DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_IME,
+        DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_DEAD_KEYS, DEFAULT_USE_IME,
         DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
         DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
         DEFAULT_WIN32_SYSTEM_BACKDROP, DEFAULT_WINDOW_BACKGROUND_OPACITY,
@@ -67047,6 +67062,7 @@ mod tests {
                 normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
                 unicode_version: DEFAULT_UNICODE_VERSION,
                 use_ime: DEFAULT_USE_IME,
+                use_dead_keys: DEFAULT_USE_DEAD_KEYS,
                 ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
                 macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
                 xim_im_name: None,
@@ -79603,6 +79619,38 @@ mod tests {
     }
 
     #[test]
+    fn window_app_honors_wezterm_use_dead_keys_false() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.use_dead_keys = false
+            config.colors = {
+              compose_cursor = '#010203',
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm use_dead_keys config");
+        app.set_config_overrides(overrides);
+
+        app.handle_keyboard_input_event(
+            &Key::Dead(Some('^')),
+            PhysicalKey::Code(WinitKeyCode::Quote),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        assert_eq!(snapshot.cursor_color(), None);
+    }
+
+    #[test]
     fn window_app_tracks_native_key_table_stack_actions() {
         let mut app = NativeWindowApp::new(None);
 
@@ -88582,6 +88630,7 @@ mod tests {
         let effective = app.native_effective_config();
 
         assert_eq!(effective.use_ime, DEFAULT_USE_IME);
+        assert_eq!(effective.use_dead_keys, DEFAULT_USE_DEAD_KEYS);
         assert_eq!(
             effective.ime_preedit_rendering,
             NativeImePreeditRendering::Builtin
@@ -88601,6 +88650,7 @@ mod tests {
             local config = {}
 
             config.use_ime = false
+            config.use_dead_keys = false
             config.ime_preedit_rendering = 'System'
             config.xim_im_name = 'fcitx'
             config.macos_forward_to_ime_modifier_mask = 'SHIFT|CTRL'
@@ -88613,6 +88663,7 @@ mod tests {
 
         let effective = app.native_effective_config();
         assert!(!effective.use_ime);
+        assert!(!effective.use_dead_keys);
         assert_eq!(
             effective.ime_preedit_rendering,
             NativeImePreeditRendering::System
@@ -88630,12 +88681,14 @@ mod tests {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
             local ime_field = 'use_ime'
+            local dead_keys_field = 'use_dead_keys'
             local preedit_field = 'ime_preedit_rendering'
             local xim_field = 'xim_im_name'
             local forward_field = 'macos_forward_to_ime_modifier_mask'
 
             return {
                 [ime_field] = false,
+                [dead_keys_field] = false,
                 [preedit_field] = 'System',
                 [xim_field] = 'fcitx',
                 [forward_field] = 'SHIFT|CTRL',
@@ -88647,6 +88700,7 @@ mod tests {
 
         let effective = app.native_effective_config();
         assert!(!effective.use_ime);
+        assert!(!effective.use_dead_keys);
         assert_eq!(
             effective.ime_preedit_rendering,
             NativeImePreeditRendering::System
@@ -98549,6 +98603,7 @@ mod tests {
             normalize_output_to_unicode_nfc: Some(true),
             unicode_version: Some(14),
             use_ime: Some(false),
+            use_dead_keys: Some(false),
             ime_preedit_rendering: Some(NativeImePreeditRendering::System),
             macos_forward_to_ime_modifier_mask: Some(ModifiersState::ALT),
             xim_im_name: Some("fcitx".to_owned()),
@@ -98904,6 +98959,7 @@ mod tests {
             normalize_output_to_unicode_nfc: true,
             unicode_version: 14,
             use_ime: false,
+            use_dead_keys: false,
             ime_preedit_rendering: NativeImePreeditRendering::System,
             macos_forward_to_ime_modifier_mask: ModifiersState::ALT,
             xim_im_name: Some("fcitx".to_owned()),
@@ -99114,6 +99170,7 @@ mod tests {
             normalize_output_to_unicode_nfc: super::DEFAULT_NORMALIZE_OUTPUT_TO_UNICODE_NFC,
             unicode_version: DEFAULT_UNICODE_VERSION,
             use_ime: DEFAULT_USE_IME,
+            use_dead_keys: DEFAULT_USE_DEAD_KEYS,
             ime_preedit_rendering: DEFAULT_IME_PREEDIT_RENDERING,
             macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
             xim_im_name: None,

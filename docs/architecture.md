@@ -331,7 +331,8 @@ keyboard, mouse, paste, resize
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`, and
+  `use_dead_keys`, `ime_preedit_rendering`,
+  `macos_forward_to_ime_modifier_mask`, and
   `xim_im_name` parse into the native override path, including returned config
   table initializers and direct
   `return { [static_name] = ... }` config tables whose static key variables
@@ -372,8 +373,10 @@ keyboard, mouse, paste, resize
   assignment matches first. Native winit IME preedit text renders through the
   Builtin overlay path at the active pane cursor, and
   static Lua `colors.compose_cursor` overrides the cursor color while Builtin
-  preedit text, the leader modifier, or a dead key is active. Platform IME/XIM
-  connection, broader dead-key expansion, and broader dynamic `cell_widths` Lua
+  preedit text, the leader modifier, or a dead key is active. The
+  `use_dead_keys` override disables the native dead-key pending-composition
+  state while retaining WezTerm's default `true`. Platform IME/XIM connection,
+  broader dead-key expansion, and broader dynamic `cell_widths` Lua
   parity remain future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
   `LEADER` modal modifier subset for native user `key_assignments`. Pressing
@@ -1134,7 +1137,8 @@ keyboard, mouse, paste, resize
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`,
+  `use_dead_keys`, `ime_preedit_rendering`,
+  `macos_forward_to_ime_modifier_mask`,
   `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
@@ -1227,7 +1231,7 @@ keyboard, mouse, paste, resize
   `WidenedIn9` characters narrow, Unicode 9+ widens them, and Unicode 14+
   emoji/text presentation selectors adjust the prior cell width for FE0F/FE0E
   sequences. `use_ime`
-  is stored with WezTerm's current default `true`,
+  and `use_dead_keys` are stored with WezTerm's current default `true`,
   `ime_preedit_rendering` with WezTerm's `Builtin` default,
   `macos_forward_to_ime_modifier_mask` with WezTerm's `SHIFT` default, and
   `xim_im_name` is retained as an optional XIM server name for X11-style IME
@@ -1241,8 +1245,8 @@ keyboard, mouse, paste, resize
   shortcut/input handling. Static Lua
   `colors.compose_cursor` overrides the cursor color while Builtin preedit text
   or the leader modifier is active, and dead-key input uses the same cursor
-  override while composition is pending. Deeper platform IME/XIM setup remains
-  future parity work.
+  override while composition is pending unless `use_dead_keys=false`. Deeper
+  platform IME/XIM setup remains future parity work.
   `detect_password_input` is stored
   with WezTerm's default `true`;
   actual Unix local-pane termios probing and lock-cursor rendering remain
@@ -1528,7 +1532,8 @@ keyboard, mouse, paste, resize
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
   `normalize_output_to_unicode_nfc`, `unicode_version`, `use_ime`,
-  `ime_preedit_rendering`, `macos_forward_to_ime_modifier_mask`,
+  `use_dead_keys`, `ime_preedit_rendering`,
+  `macos_forward_to_ime_modifier_mask`,
   `xim_im_name`,
   `scroll_to_bottom_on_input`,
   `alternate_buffer_wheel_scroll_speed`,
