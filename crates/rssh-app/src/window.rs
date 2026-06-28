@@ -6066,7 +6066,7 @@ fn lua_static_window_status_text_from_parenthesized_argument(argument: &str) -> 
             .is_empty()
             .then_some(status);
     }
-    wezterm_format_visible_text_from_query(argument)
+    wezterm_format_status_text_from_query(argument)
 }
 
 fn lua_inline_string_literal_value_and_len(value: &str) -> Option<(String, usize)> {
@@ -38494,6 +38494,79 @@ fn wezterm_format_visible_text_from_query(value: &str) -> Option<String> {
     })
 }
 
+fn wezterm_format_status_text_from_query(value: &str) -> Option<String> {
+    native_format_items_from_wezterm_format_query(value)
+        .map(|items| native_format_items_status_ansi_text(&items))
+}
+
+fn native_format_items_status_ansi_text(items: &[NativeFormatItem]) -> String {
+    let mut text = String::new();
+    for item in items {
+        match item {
+            NativeFormatItem::Text(value) => text.push_str(value),
+            NativeFormatItem::Foreground(color) => {
+                push_native_format_color_status_sgr(&mut text, 38, *color);
+            }
+            NativeFormatItem::Background(color) => {
+                push_native_format_color_status_sgr(&mut text, 48, *color);
+            }
+            NativeFormatItem::Attribute(attribute) => {
+                push_native_format_attribute_status_sgr(&mut text, attribute);
+            }
+            NativeFormatItem::ResetAttributes => text.push_str("\x1b[0m"),
+        }
+    }
+    text
+}
+
+fn push_native_format_color_status_sgr(text: &mut String, target: u16, color: Color) {
+    match color {
+        Color::Default => match target {
+            38 => text.push_str("\x1b[39m"),
+            48 => text.push_str("\x1b[49m"),
+            _ => {}
+        },
+        Color::Indexed(index) => {
+            text.push_str(&format!("\x1b[{target};5;{index}m"));
+        }
+        Color::Rgb(red, green, blue) | Color::Rgba(red, green, blue, _) => {
+            text.push_str(&format!("\x1b[{target};2;{red};{green};{blue}m"));
+        }
+    }
+}
+
+fn push_native_format_attribute_status_sgr(text: &mut String, attribute: &NativeFormatAttribute) {
+    match attribute {
+        NativeFormatAttribute::Intensity(NativeFormatIntensity::Normal) => {
+            text.push_str("\x1b[22m");
+        }
+        NativeFormatAttribute::Intensity(NativeFormatIntensity::Bold) => {
+            text.push_str("\x1b[1m");
+        }
+        NativeFormatAttribute::Intensity(NativeFormatIntensity::Half) => {
+            text.push_str("\x1b[2m");
+        }
+        NativeFormatAttribute::Italic(true) => text.push_str("\x1b[3m"),
+        NativeFormatAttribute::Italic(false) => text.push_str("\x1b[23m"),
+        NativeFormatAttribute::Underline(NativeFormatUnderline::None) => text.push_str("\x1b[24m"),
+        NativeFormatAttribute::Underline(NativeFormatUnderline::Single) => {
+            text.push_str("\x1b[4m");
+        }
+        NativeFormatAttribute::Underline(NativeFormatUnderline::Double) => {
+            text.push_str("\x1b[4:2m");
+        }
+        NativeFormatAttribute::Underline(NativeFormatUnderline::Curly) => {
+            text.push_str("\x1b[4:3m");
+        }
+        NativeFormatAttribute::Underline(NativeFormatUnderline::Dotted) => {
+            text.push_str("\x1b[4:4m");
+        }
+        NativeFormatAttribute::Underline(NativeFormatUnderline::Dashed) => {
+            text.push_str("\x1b[4:5m");
+        }
+    }
+}
+
 fn input_selector_options_from_query(query: &str) -> Option<WindowInputSelectorOptions> {
     input_selector_options_from_query_with_static_source(None, query)
 }
@@ -67320,6 +67393,66 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.ends_with("RIGHT-FORMAT"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_styled_wezterm_format_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(wezterm.format({
+                { Foreground = { Color = '#010203' } },
+                { Background = { Color = '#040506' } },
+                { Attribute = { Intensity = 'Bold' } },
+                { Attribute = { Italic = true } },
+                { Attribute = { Underline = 'Curly' } },
+                { Text = 'RIGHT-FORMAT' },
+                'ResetAttributes',
+                { Text = 'PLAIN' },
+              }))
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status event styled wezterm.format status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-FORMATPLAIN")
+            .expect("styled format status should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT-FORMAT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.ch, 'R');
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(styled_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert!(styled_cell.bold);
+        assert!(styled_cell.italic);
+        assert_eq!(
+            styled_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Curly
+        );
+        assert_eq!(plain_cell.ch, 'P');
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert!(!plain_cell.bold);
+        assert!(!plain_cell.italic);
+        assert_eq!(
+            plain_cell.underline_style,
+            rssh_terminal::UnderlineStyle::None
+        );
     }
 
     #[test]

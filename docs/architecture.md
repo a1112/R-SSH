@@ -1809,9 +1809,10 @@ keyboard, mouse, paste, resize
   `wezterm.on('update-status', function(window, pane) ... end)` and deprecated
   `update-right-status` static subsets map literal
   `window:set_left_status(...)` and `window:set_right_status(...)` calls plus
-  static `wezterm.format` Text-item visible-text composition onto that status
-  state. Arbitrary Lua status callbacks, styled `wezterm.format` SGR
-  composition, and broader window status API wiring remain future parity work.
+  inline static `wezterm.format` Text/Foreground/Background/ResetAttributes
+  and Attribute Intensity/Italic/Underline item composition onto that status
+  state. Arbitrary Lua status callbacks, dynamic `wezterm.format`
+  construction, and broader window status API wiring remain future parity work.
 - Implemented in v1: the tab bar `+` button dispatches a typed
   `new-tab-button-click` hook with the window id, active pane id, and mouse
   button for Left/Right/Middle clicks. Left click carries the default `NewTab`
