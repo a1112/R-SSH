@@ -11112,6 +11112,61 @@ fn lua_static_expression_variable_assignment_before_offset_from_query<'a>(
     selected
 }
 
+fn lua_static_wezterm_action_alias_query_from_query(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> Option<String> {
+    let query = query.trim_start();
+    let alias = lua_identifier_literal_from_query(query)?;
+    if !lua_static_wezterm_action_alias_before_offset(source, alias, max_start)? {
+        return None;
+    }
+
+    let rest = query.get(alias.len()..)?.trim_start();
+    let separator = match rest.chars().next()? {
+        '.' | '[' => "",
+        '{' | '(' => " ",
+        _ => return None,
+    };
+
+    Some(format!("wezterm.action{separator}{rest}"))
+}
+
+fn lua_static_wezterm_action_alias_before_offset(
+    source: &str,
+    alias: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let mut selected = false;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(alias) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        selected = lua_top_level_statement_value_from_query(value)
+            .is_some_and(lua_static_wezterm_action_alias_value_from_query);
+    }
+
+    Some(selected)
+}
+
+fn lua_static_wezterm_action_alias_value_from_query(value: &str) -> bool {
+    matches!(value.trim(), "wezterm.action" | "act")
+}
+
 fn lua_top_level_statement_value_from_query(value: &str) -> Option<&str> {
     let value = lua_trim_start_comments(value)?.trim_start();
     let mut quote = None;
@@ -17915,7 +17970,23 @@ fn native_key_assignment_command_from_query(
             static_source.max_start,
         )
     {
+        if let Some(value) = lua_static_wezterm_action_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        ) {
+            return native_key_assignment_command_from_query(Some(static_source), &value);
+        }
         return native_key_assignment_command_from_query(None, value);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_wezterm_action_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return native_key_assignment_command_from_query(Some(static_source), &value);
     }
     if let Some(static_source) = static_source
         && let Some(commands) =
@@ -87543,6 +87614,47 @@ mod tests {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("inserted".to_owned()),
             }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_action_alias() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local action = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = action.CopyTo('Clipboard'),
+              },
+              {
+                key = 'V',
+                mods = 'CTRL|SHIFT',
+                action = action["PasteFrom"]('PrimarySelection'),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static action alias key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|SHIFT+C".to_owned(),
+                    command: WindowCommand::CopyTo(WindowCopyDestination::Clipboard),
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|SHIFT+V".to_owned(),
+                    command: WindowCommand::PasteFrom(WindowPasteSource::PrimarySelection),
+                },
+            ])
         );
     }
 
