@@ -2449,8 +2449,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   top-level `config.keys` assignment `action` fields inline or through
   top-level static action variables, top-level static
   `local <alias> = wezterm.action` aliases for dot and string-index action
-  constructors, and static action variables inside `act.Multiple { ... }` and
-  `act.QuickSelectArgs { action = ... }` tables,
+  constructors, and static action variables inside `act.Multiple { ... }`
+  tables and nested `act.QuickSelectArgs { action = ... }` action fields,
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` through top-level static string
   variables,

@@ -435,8 +435,8 @@ keyboard, mouse, paste, resize
   Top-level `config.keys` assignment `action` fields parse inline or through
   top-level static action variables, including top-level static
   `local <alias> = wezterm.action` aliases for dot and string-index action
-  constructors, and static action variables inside `act.Multiple { ... }`
-  tables.
+  constructors, and static action variables inside `act.Multiple { ... }` and
+  `act.QuickSelectArgs { action = ... }` tables.
   Static `config.key_tables` `CopyMode` action payloads resolve top-level
   string variables for assignment names, `SetSelectionMode`, and semantic-zone
   type fields, top-level bool variables for nested `prev_char`, nested jump

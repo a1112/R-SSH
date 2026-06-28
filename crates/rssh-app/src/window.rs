@@ -46889,7 +46889,15 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
         return Some(action);
     }
 
-    let action = strip_wezterm_action_prefix(action).unwrap_or(action);
+    let indexed_action;
+    let action = if let Some(action) = strip_wezterm_action_prefix(action) {
+        action
+    } else if let Some(action) = strip_wezterm_action_index_prefix(action) {
+        indexed_action = action;
+        indexed_action.as_str()
+    } else {
+        action
+    };
     if let Some(action) = quick_select_no_arg_key_assignment_action_from_value(action) {
         return Some(action);
     }
@@ -47407,7 +47415,29 @@ fn quick_select_action_callback_or_key_assignment_from_query(
             static_source.max_start,
         )
     {
+        if let Some(value) = lua_static_wezterm_action_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        ) {
+            return quick_select_action_callback_or_key_assignment_from_query(
+                Some(static_source),
+                &value,
+            );
+        }
         return quick_select_action_callback_or_key_assignment_from_query(None, value);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_wezterm_action_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return quick_select_action_callback_or_key_assignment_from_query(
+            Some(static_source),
+            &value,
+        );
     }
     if lua_action_callback_from_query(value) {
         return Some(WindowQuickSelectAction::Nop);
@@ -91065,6 +91095,87 @@ mod tests {
                     patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
                     action: Some(WindowQuickSelectAction::CopyTo(
                         WindowCopyDestination::Clipboard
+                    )),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_action_alias() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local action = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  pattern = 'ticket-[0-9]+',
+                  action = action["CopyTo"]('PrimarySelection'),
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm quick select static action alias config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::CopyTo(
+                        WindowCopyDestination::PrimarySelection
+                    )),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_action_alias_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local action = wezterm.action
+            local config = {}
+            local quick_copy = action.CopyTo 'PrimarySelection'
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  pattern = 'ticket-[0-9]+',
+                  action = quick_copy,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm quick select static action alias variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::CopyTo(
+                        WindowCopyDestination::PrimarySelection
                     )),
                     ..WindowQuickSelectOptions::default()
                 }),
