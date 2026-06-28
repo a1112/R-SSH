@@ -435,8 +435,9 @@ keyboard, mouse, paste, resize
   Top-level `config.keys` assignment `action` fields parse inline or through
   top-level static action variables, including top-level static
   `local <alias> = wezterm.action` aliases for dot and string-index action
-  constructors, and static action variables inside `act.Multiple { ... }` and
-  `act.QuickSelectArgs { action = ... }` tables.
+  constructors, and static action variables inside `act.Multiple { ... }`,
+  `act.QuickSelectArgs { action = ... }`, and
+  `act.Confirmation { action = ..., cancel = ... }` tables.
   Static `config.key_tables` `CopyMode` action payloads resolve top-level
   string variables for assignment names, `SetSelectionMode`, and semantic-zone
   type fields, top-level bool variables for nested `prev_char`, nested jump
@@ -670,7 +671,8 @@ keyboard, mouse, paste, resize
   placeholders. WezTerm-style Lua table calls skip trailing-comma fields and
   parse `message` inline or through top-level static string variables or
   top-level static `wezterm.format` text variables, plus `action`/`cancel`
-  inline or through top-level static action variables. Parenthesized
+  inline or through top-level static action variables, including variables built
+  from top-level static `wezterm.action` aliases. Parenthesized
   `Confirmation(confirm_opts)` calls also accept top-level static options table
   variables. Styled confirmation rendering and actual Lua callback wiring
   remain future parity work.

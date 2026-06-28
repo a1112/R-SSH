@@ -39574,6 +39574,16 @@ fn confirmation_callback_or_nested_command_from_query_with_static_source(
             static_source.max_start,
         )
     {
+        if let Some(value) = lua_static_wezterm_action_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        ) {
+            return confirmation_callback_or_nested_command_from_query_with_static_source(
+                Some(static_source),
+                &value,
+            );
+        }
         return confirmation_callback_or_nested_command_from_query(value);
     }
     if lua_action_callback_from_query(value) {
@@ -90406,6 +90416,48 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm Confirmation static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::Confirmation(WindowConfirmationOptions {
+                    message: "Send command?".to_owned(),
+                    action: Box::new(WindowCommand::SendString("yes".to_owned())),
+                    cancel: Some(Box::new(WindowCommand::SendString("no".to_owned()))),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_confirmation_static_action_alias_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local action = wezterm.action
+            local config = {}
+            local confirm_message = 'Send command?'
+            local accept_action = action.SendString 'yes'
+            local cancel_action = action["SendString"]('no')
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.Confirmation {
+                  message = confirm_message,
+                  action = accept_action,
+                  cancel = cancel_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Confirmation static action alias variable config");
 
         assert_eq!(
             overrides.key_assignments,

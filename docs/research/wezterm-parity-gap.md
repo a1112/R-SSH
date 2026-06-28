@@ -1201,7 +1201,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   including bracketed string table keys with long-bracket values, and accept
   `message` inline or through top-level static string variables or top-level
   static `wezterm.format` text variables, `action`/`cancel` inline or through
-  top-level static action variables, parenthesized calls with top-level static
+  top-level static action variables including variables built from top-level
+  static `wezterm.action` aliases, parenthesized calls with top-level static
   options table variables, and static
   `action`/`cancel = wezterm.action_callback(...)` fields as
   native-handler placeholders. Static Lua
@@ -2450,7 +2451,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   top-level static action variables, top-level static
   `local <alias> = wezterm.action` aliases for dot and string-index action
   constructors, and static action variables inside `act.Multiple { ... }`
-  tables and nested `act.QuickSelectArgs { action = ... }` action fields,
+  tables, nested `act.QuickSelectArgs { action = ... }` action fields, and
+  nested `act.Confirmation { action = ..., cancel = ... }` action fields,
   `config.key_tables = { [name] = ... }` key-table names and nested insert
   targets such as `config.key_tables[name]` through top-level static string
   variables,
