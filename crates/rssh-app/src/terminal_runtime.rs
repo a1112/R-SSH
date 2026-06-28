@@ -27,6 +27,7 @@ pub struct TerminalRuntime {
     mode_tracker: TerminalModeTracker,
     enable_kitty_keyboard: bool,
     enable_checksum_rectangular_area: bool,
+    enable_title_reporting: bool,
     allow_win32_input_mode: bool,
     clipboard_tracker: TerminalClipboardTracker,
     notification_tracker: TerminalNotificationTracker,
@@ -65,6 +66,7 @@ impl TerminalRuntime {
             mode_tracker: TerminalModeTracker::default(),
             enable_kitty_keyboard: false,
             enable_checksum_rectangular_area: false,
+            enable_title_reporting: false,
             allow_win32_input_mode: true,
             clipboard_tracker: TerminalClipboardTracker::default(),
             notification_tracker: TerminalNotificationTracker::default(),
@@ -151,6 +153,7 @@ impl TerminalRuntime {
         match response {
             TerminalResponse::KittyKeyboardFlags => self.enable_kitty_keyboard,
             TerminalResponse::ChecksumRectangularArea(_) => self.enable_checksum_rectangular_area,
+            TerminalResponse::WindowTitle => self.enable_title_reporting,
             _ => true,
         }
     }
@@ -263,6 +266,10 @@ impl TerminalRuntime {
 
     pub(crate) fn set_enable_checksum_rectangular_area(&mut self, enabled: bool) {
         self.enable_checksum_rectangular_area = enabled;
+    }
+
+    pub(crate) fn set_enable_title_reporting(&mut self, enabled: bool) {
+        self.enable_title_reporting = enabled;
     }
 
     pub(crate) fn set_allow_win32_input_mode(&mut self, allowed: bool) {
@@ -949,6 +956,7 @@ enum TerminalResponse {
     WindowPixelSize,
     CharacterCellSize,
     TextAreaSize,
+    WindowTitle,
     PrivateModeStatus(u16),
     AnsiModeStatus(u16),
     OscColor(OscColorResponse),
@@ -1004,6 +1012,13 @@ impl TerminalResponse {
             .into_bytes(),
             TerminalResponse::TextAreaSize => {
                 format!("\x1b[8;{};{}t", size.rows, size.columns).into_bytes()
+            }
+            TerminalResponse::WindowTitle => {
+                let title = terminal
+                    .window_title()
+                    .or_else(|| terminal.title())
+                    .unwrap_or("");
+                format!("\x1b]l{title}\x1b\\").into_bytes()
             }
             TerminalResponse::PrivateModeStatus(mode) => {
                 format!("\x1b[?{};{}$y", mode, modes.private_mode_report_value(mode)).into_bytes()
@@ -1171,6 +1186,7 @@ fn wezterm_window_report_response(params: &[u8]) -> Option<TerminalResponse> {
         14 if second.is_none() => Some(TerminalResponse::WindowPixelSize),
         16 => Some(TerminalResponse::CharacterCellSize),
         18 => Some(TerminalResponse::TextAreaSize),
+        21 if second.is_none() => Some(TerminalResponse::WindowTitle),
         _ => None,
     }
 }
@@ -4173,6 +4189,19 @@ mod tests {
         let text = terminal_text(&runtime);
         assert!(text.contains("before middleafter"));
         assert!(!text.contains("[20t"));
+        assert!(!text.contains("[21t"));
+    }
+
+    #[test]
+    fn answers_window_title_query_when_title_reporting_enabled() {
+        let mut runtime = TerminalRuntime::new(TerminalSize::new(132, 43));
+        runtime.set_enable_title_reporting(true);
+
+        let responses = runtime.feed_pty_output(b"\x1b]0;ops\x07before\x1b[21tafter");
+
+        assert_eq!(responses, vec![b"\x1b]lops\x1b\\".to_vec()]);
+        let text = terminal_text(&runtime);
+        assert!(text.contains("beforeafter"));
         assert!(!text.contains("[21t"));
     }
 
