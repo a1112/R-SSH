@@ -1799,9 +1799,13 @@ keyboard, mouse, paste, resize
   strings, computes status layout from visible text, and right-aligns right
   status at the window edge, clipping over-wide right status from the left.
   Native `set_left_status` and `set_right_status` methods update the same
-  tab-bar state directly. Lua-configurable `status_update_interval` plus Lua
-  `window:set_left_status` / `set_right_status` wiring remain future parity
-  work.
+  tab-bar state directly. Lua-configurable `status_update_interval` parses into
+  the same native update interval path, and a static
+  `wezterm.on('update-status', function(window, pane) ... end)` subset maps
+  literal `window:set_left_status(...)` and `window:set_right_status(...)`
+  calls onto that status state. Arbitrary Lua status callbacks,
+  `wezterm.format` composition, and broader window status API wiring remain
+  future parity work.
 - Implemented in v1: the tab bar `+` button dispatches a typed
   `new-tab-button-click` hook with the window id, active pane id, and mouse
   button for Left/Right/Middle clicks. Left click carries the default `NewTab`

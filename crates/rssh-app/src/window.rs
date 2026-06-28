@@ -3766,6 +3766,7 @@ struct NativeConfigOverrides {
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
     mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
+    lua_update_status: Option<NativeWindowStatusUpdate>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
     canonicalize_pasted_newlines: Option<NativeCanonicalizePastedNewlines>,
@@ -3807,6 +3808,11 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     let mut parsed = false;
     let config_receiver =
         lua_config_static_return_identifier_from_query(config).unwrap_or("config");
+
+    if let Some(update_status) = lua_static_wezterm_status_update_event_from_query(config) {
+        overrides.lua_update_status = Some(update_status);
+        parsed = true;
+    }
 
     if let Some(dpi) = lua_config_f32_assignment_from_query(config, "dpi") {
         overrides.dpi = Some(native_dpi_from_f32(dpi)?);
@@ -5699,6 +5705,227 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
 
     parsed.then_some(overrides)
+}
+
+fn lua_static_wezterm_status_update_event_from_query(
+    source: &str,
+) -> Option<NativeWindowStatusUpdate> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(update) = lua_static_wezterm_status_update_event_from_statement(source, start) {
+            selected = Some(update);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_status_update_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeWindowStatusUpdate> {
+    let statement = lua_trim_start_comments(source.get(start..)?)?;
+    let rest = statement.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
+    if event_name != "update-status" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (body, window_name) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
+    lua_static_status_update_from_function_body(body, window_name)
+}
+
+fn lua_anonymous_function_body_and_first_param_from_query<'a>(
+    value: &'a str,
+) -> Option<(&'a str, &'a str)> {
+    if !lua_source_keyword_at(value, 0, "function") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let params_end = rest.find(')')?;
+    let params = rest.get(..params_end)?;
+    let first_param = params.split(',').next()?.trim();
+    let window_name = lua_identifier_literal_from_query(first_param)?;
+    if window_name.len() != first_param.len() {
+        return None;
+    }
+    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
+    Some((body, window_name))
+}
+
+fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut function_depth = 0usize;
+
+    for (index, character) in value.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if value[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index + 2..])
+            {
+                let content_and_rest = &value[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(value.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index..])
+        {
+            let content_and_rest = &value[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(value.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+            continue;
+        }
+
+        if lua_source_keyword_at(value, index, "function") {
+            function_depth = function_depth.saturating_add(1);
+            continue;
+        }
+
+        if lua_source_keyword_at(value, index, "end") {
+            if function_depth == 0 {
+                return value.get(..index).map(str::trim);
+            }
+            function_depth = function_depth.saturating_sub(1);
+        }
+    }
+
+    None
+}
+
+fn lua_static_status_update_from_function_body(
+    body: &str,
+    window_name: &str,
+) -> Option<NativeWindowStatusUpdate> {
+    let mut update = NativeWindowStatusUpdate {
+        left_status: None,
+        right_status: None,
+    };
+
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(left_status) = lua_static_window_status_setter_from_statement(
+            statement,
+            window_name,
+            "set_left_status",
+        ) {
+            update.left_status = Some(left_status);
+        }
+        if let Some(right_status) = lua_static_window_status_setter_from_statement(
+            statement,
+            window_name,
+            "set_right_status",
+        ) {
+            update.right_status = Some(right_status);
+        }
+    }
+
+    (update.left_status.is_some() || update.right_status.is_some()).then_some(update)
+}
+
+fn lua_static_window_status_setter_from_statement(
+    statement: &str,
+    window_name: &str,
+    method: &str,
+) -> Option<String> {
+    let rest = statement.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with(method) || !lua_config_assignment_field_has_boundaries(rest, 0, method) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    if let Some(rest) = rest.strip_prefix('(') {
+        let rest = lua_trim_start_comments(rest)?;
+        let (status, status_len) = lua_inline_string_literal_value_and_len(rest)?;
+        let rest = lua_trim_start_comments(rest.get(status_len..)?)?;
+        return rest.strip_prefix(')').map(|_| status);
+    }
+    lua_inline_string_literal_value_and_len(rest).map(|(status, _)| status)
+}
+
+fn lua_inline_string_literal_value_and_len(value: &str) -> Option<(String, usize)> {
+    let value = value.trim_start();
+    let literal = lua_quoted_string_literal_from_query(value)
+        .or_else(|| lua_long_bracket_literal_from_query(value))?;
+    let parsed = if literal.starts_with('[') {
+        parse_lua_long_bracket_query_text(literal)?
+    } else {
+        parse_lua_quoted_query_text(literal)?
+    };
+    Some((parsed, literal.len()))
 }
 
 enum NativeColorSchemeLuaSource<'a> {
@@ -18394,6 +18621,7 @@ struct NativeWindowApp {
     latest_notification: Option<TerminalNotification>,
     left_status: String,
     right_status: String,
+    lua_update_status: Option<NativeWindowStatusUpdate>,
     status_update_interval: Duration,
     max_fps: usize,
     animation_fps: usize,
@@ -19938,6 +20166,7 @@ impl NativeWindowApp {
             latest_notification: None,
             left_status: String::new(),
             right_status: String::new(),
+            lua_update_status: None,
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
@@ -21194,6 +21423,7 @@ impl NativeWindowApp {
         self.inactive_pane_hsb = source.inactive_pane_hsb;
         self.tab_max_width = source.tab_max_width;
         self.status_update_interval = source.status_update_interval;
+        self.lua_update_status.clone_from(&source.lua_update_status);
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
         self.last_redraw_request_at = source.last_redraw_request_at;
@@ -29821,6 +30051,7 @@ impl NativeWindowApp {
         self.apply_effective_window_dpi();
         self.tab_max_width = overrides.tab_max_width.unwrap_or(DEFAULT_TAB_MAX_WIDTH);
         self.apply_status_update_interval_override(overrides.status_update_interval_ms);
+        self.lua_update_status = overrides.lua_update_status.clone();
         self.max_fps = overrides
             .max_fps
             .filter(|fps| *fps > 0)
@@ -33771,6 +34002,14 @@ impl NativeWindowApp {
         }
         if let Some(right_status) = update.right_status {
             self.right_status = right_status;
+        }
+        if let Some(update) = self.lua_update_status.clone() {
+            if let Some(left_status) = update.left_status {
+                self.left_status = left_status;
+            }
+            if let Some(right_status) = update.right_status {
+                self.right_status = right_status;
+            }
         }
         if let Some(right_status) = (self.update_right_status_handler)(&event) {
             self.right_status = right_status;
@@ -66734,6 +66973,33 @@ mod tests {
                 pane: rssh_core::PaneId::new(1)
             }]
         );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_status_setters() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_left_status('LEFT-LUA')
+              window:set_right_status("RIGHT-LUA")
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm update-status event status setters");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("ws:default LEFT-LUA"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(tab_bar.ends_with("RIGHT-LUA"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
@@ -103172,6 +103438,10 @@ mod tests {
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
+            lua_update_status: Some(NativeWindowStatusUpdate {
+                left_status: Some("LEFT".to_owned()),
+                right_status: Some("RIGHT".to_owned()),
+            }),
             scroll_to_bottom_on_input: Some(false),
             adjust_window_size_when_changing_font_size: Some(false),
             canonicalize_pasted_newlines: Some(NativeCanonicalizePastedNewlines::LineFeed),
