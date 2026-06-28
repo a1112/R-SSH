@@ -2651,7 +2651,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   color-list `window_background_gradient` values are also treated as WezTerm's
   implicit prepended background layer when followed by a Color-only
   `config.background` stack, precomposing that Color layer into each Gradient
-  stop. Legacy `window_background_image` file paths now load as 100%-sized
+  stop while retaining that legacy Gradient as the first effective
+  `background` layer. Legacy `window_background_image` file paths now load as
+  100%-sized
   background image layers, with `window_background_image_hsb` transforms and
   `window_background_opacity` alpha applied to that image layer, and the
   legacy path plus optional HSB transform are retained in the effective native

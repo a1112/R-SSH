@@ -4619,12 +4619,22 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             "window_background_gradient",
         )
     {
-        overrides.window_background_gradient =
-            Some(native_window_background_gradient_lua_table_from_query(
-                config,
-                &window_background_gradient.value,
-                window_background_gradient.max_start,
-            )?);
+        let mut gradient = native_window_background_gradient_lua_table_from_query(
+            config,
+            &window_background_gradient.value,
+            window_background_gradient.max_start,
+        )?;
+        gradient.opacity_alpha = overrides
+            .window_background_opacity
+            .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY)
+            .as_alpha();
+        gradient.hsb = overrides
+            .window_background_image_hsb
+            .unwrap_or_else(native_identity_hsb);
+        overrides.background = Some(vec![NativeWindowBackgroundVisualLayer::Gradient(
+            gradient.clone(),
+        )]);
+        overrides.window_background_gradient = Some(gradient);
         parsed = true;
     }
     if let Some(background) =
@@ -15263,7 +15273,9 @@ fn apply_lua_background_table_overrides(
 ) -> Option<bool> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let layers = native_background_layers_lua_table_from_query(source, table, max_start)?;
-    overrides.background = Some(native_background_visual_layers_from_layers(&layers)?);
+    let mut background = overrides.background.take().unwrap_or_default();
+    background.extend(native_background_visual_layers_from_layers(&layers)?);
+    overrides.background = Some(background);
 
     match native_background_lua_table_from_layers(layers)? {
         NativeBackgroundLayer::Color(color) => {
@@ -58202,6 +58214,26 @@ mod tests {
         app.set_config_overrides(overrides);
         let mut frame = vec![0; usize::try_from(FRAME_WIDTH * FRAME_HEIGHT * 4).unwrap()];
 
+        assert_eq!(
+            app.native_effective_config().background,
+            vec![
+                super::NativeWindowBackgroundVisualLayer::Gradient(
+                    NativeWindowBackgroundGradient {
+                        orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                        interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                        blend: NativeWindowBackgroundGradientBlend::Rgb,
+                        noise: Some(0),
+                        segment: None,
+                        preset: None,
+                        opacity_alpha: u8::MAX,
+                        blend_with_background_color: false,
+                        hsb: super::native_identity_hsb(),
+                        colors: vec![Color::Rgb(255, 0, 0), Color::Rgb(255, 0, 0)],
+                    }
+                ),
+                super::NativeWindowBackgroundVisualLayer::Color(Color::Rgba(0, 0, 255, 127)),
+            ]
+        );
         assert_eq!(app.render_framebuffer(&mut frame), FrameRenderMode::Full);
 
         let terminal_origin_y = usize::from(TAB_BAR_ROWS) * CELL_HEIGHT as usize;

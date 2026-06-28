@@ -169,8 +169,9 @@ keyboard, mouse, paste, resize
   background color/gradient overrides, explicit
   color-list `window_background_gradient` values can be treated as WezTerm's
   implicit prepended layer below a following Color-only `config.background`
-  stack, legacy `window_background_image` files render as 100%-sized background
-  image layers with `window_background_image_hsb` and `window_background_opacity`
+  stack and retained as the first effective `background` layer, legacy
+  `window_background_image` files render as 100%-sized background image layers
+  with `window_background_image_hsb` and `window_background_opacity`
   and can serve as WezTerm's implicit prepended layer below a following
   Color-only `config.background` stack, while the legacy path and optional HSB
   transform are retained in the native effective config snapshot, and
