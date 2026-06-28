@@ -6094,7 +6094,11 @@ fn lua_static_window_status_text_from_parenthesized_argument(
             static_source.max_start,
         )
     {
-        return lua_static_window_status_text_from_query(value);
+        return lua_static_window_status_text_from_query(
+            Some(static_source),
+            outer_static_source,
+            value,
+        );
     }
     if let Some(outer_static_source) = outer_static_source
         && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
@@ -6103,19 +6107,23 @@ fn lua_static_window_status_text_from_parenthesized_argument(
             outer_static_source.max_start,
         )
     {
-        return lua_static_window_status_text_from_query(value);
+        return lua_static_window_status_text_from_query(None, Some(outer_static_source), value);
     }
-    lua_static_window_status_text_from_query(argument)
+    lua_static_window_status_text_from_query(static_source, outer_static_source, argument)
 }
 
-fn lua_static_window_status_text_from_query(value: &str) -> Option<String> {
+fn lua_static_window_status_text_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
     let argument = lua_trim_start_comments(value)?;
     if let Some((status, status_len)) = lua_inline_string_literal_value_and_len(argument) {
         return lua_trim_start_comments(argument.get(status_len..)?)?
             .is_empty()
             .then_some(status);
     }
-    wezterm_format_status_text_from_query(argument)
+    wezterm_format_status_text_from_query(static_source, outer_static_source, argument)
 }
 
 fn lua_inline_string_literal_value_and_len(value: &str) -> Option<(String, usize)> {
@@ -38543,9 +38551,17 @@ fn wezterm_format_visible_text_from_query(value: &str) -> Option<String> {
     })
 }
 
-fn wezterm_format_status_text_from_query(value: &str) -> Option<String> {
-    native_format_items_from_wezterm_format_query(value)
-        .map(|items| native_format_items_status_ansi_text(&items))
+fn wezterm_format_status_text_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    native_format_items_from_wezterm_format_query_with_static_sources(
+        static_source,
+        outer_static_source,
+        value,
+    )
+    .map(|items| native_format_items_status_ansi_text(&items))
 }
 
 fn native_format_items_status_ansi_text(items: &[NativeFormatItem]) -> String {
@@ -44391,6 +44407,50 @@ fn assign_tab_bar_style_edge(
 fn native_format_items_from_wezterm_format_query(value: &str) -> Option<Vec<NativeFormatItem>> {
     let table = wezterm_format_table_argument_from_query(value)?;
     native_format_items_from_lua_format_items_table_query(table)
+}
+
+fn native_format_items_from_wezterm_format_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<NativeFormatItem>> {
+    let table = wezterm_format_table_argument_from_query(value)?;
+    if let Some(items) = native_format_items_from_lua_format_items_table_query(table) {
+        return Some(items);
+    }
+
+    let variable = lua_identifier_literal_from_query(table)?;
+    let rest = table.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+
+    if let Some(static_source) = static_source
+        && let Some(items) =
+            native_format_items_from_static_lua_table_variable(static_source, variable)
+    {
+        return items;
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(items) =
+            native_format_items_from_static_lua_table_variable(outer_static_source, variable)
+    {
+        return items;
+    }
+
+    None
+}
+
+fn native_format_items_from_static_lua_table_variable(
+    static_source: LuaStaticSource<'_>,
+    variable: &str,
+) -> Option<Option<Vec<NativeFormatItem>>> {
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+    )?;
+    Some(native_format_items_from_lua_format_items_table_query(value))
 }
 
 fn native_format_items_from_lua_format_items_table_query(
@@ -67573,6 +67633,47 @@ mod tests {
         let start_column = tab_bar
             .find("RIGHT-TOP")
             .expect("top-level format status variable should render without escape bytes");
+        let styled_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
+        let plain_cell = snapshot_cell(
+            &snapshot,
+            0,
+            u16::try_from(start_column + "RIGHT".len()).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(styled_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_ne!(plain_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_local_format_items_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local items = {
+                { Foreground = { Color = '#010203' } },
+                { Text = 'RIGHT' },
+                'ResetAttributes',
+                { Text = '-ITEMS' },
+              }
+              window:set_right_status(wezterm.format(items))
+            end)
+            "##,
+        )
+        .expect("expected static WezTerm update-status event local format items variable");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let start_column = tab_bar
+            .find("RIGHT-ITEMS")
+            .expect("local format items status variable should render without escape bytes");
         let styled_cell =
             snapshot_cell(&snapshot, 0, u16::try_from(start_column).unwrap()).unwrap();
         let plain_cell = snapshot_cell(
