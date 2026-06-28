@@ -231,7 +231,9 @@ const DEFAULT_ENABLE_CHECKSUM_RECTANGULAR_AREA: bool = false;
 const DEFAULT_ENABLE_TITLE_REPORTING: bool = false;
 const DEFAULT_ENABLE_CSI_U_KEY_ENCODING: bool = false;
 const DEFAULT_ENABLE_KITTY_KEYBOARD: bool = false;
+const DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS: bool = true;
 const DEFAULT_ALLOW_WIN32_INPUT_MODE: bool = true;
+const DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION: usize = 1;
 const DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR: bool = false;
 const DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED: bool = false;
 const DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED: bool = true;
@@ -2941,6 +2943,10 @@ struct NativeEffectiveConfig {
     enable_title_reporting: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
+    allow_download_protocols: bool,
+    xcursor_theme: Option<String>,
+    xcursor_size: Option<u32>,
+    palette_max_key_assigments_for_action: usize,
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
     send_composed_key_when_left_alt_is_pressed: bool,
@@ -3165,6 +3171,10 @@ struct NativeConfigOverrides {
     enable_title_reporting: Option<bool>,
     enable_csi_u_key_encoding: Option<bool>,
     enable_kitty_keyboard: Option<bool>,
+    allow_download_protocols: Option<bool>,
+    xcursor_theme: Option<String>,
+    xcursor_size: Option<u32>,
+    palette_max_key_assigments_for_action: Option<usize>,
     allow_win32_input_mode: Option<bool>,
     treat_left_ctrlalt_as_altgr: Option<bool>,
     send_composed_key_when_left_alt_is_pressed: Option<bool>,
@@ -4292,6 +4302,30 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_config_bool_assignment_from_query(config, "enable_kitty_keyboard")
     {
         overrides.enable_kitty_keyboard = Some(enable_kitty_keyboard);
+        parsed = true;
+    }
+    if let Some(allow_download_protocols) =
+        lua_config_bool_assignment_from_query(config, "allow_download_protocols")
+    {
+        overrides.allow_download_protocols = Some(allow_download_protocols);
+        parsed = true;
+    }
+    if let Some(xcursor_theme) = lua_config_string_assignment_from_query(config, "xcursor_theme") {
+        overrides.xcursor_theme = Some(xcursor_theme);
+        parsed = true;
+    }
+    if let Some(xcursor_size) = lua_config_usize_assignment_from_query(config, "xcursor_size") {
+        let Ok(xcursor_size) = u32::try_from(xcursor_size) else {
+            return None;
+        };
+        overrides.xcursor_size = Some(xcursor_size);
+        parsed = true;
+    }
+    if let Some(palette_max_key_assigments_for_action) =
+        lua_config_usize_assignment_from_query(config, "palette_max_key_assigments_for_action")
+    {
+        overrides.palette_max_key_assigments_for_action =
+            Some(palette_max_key_assigments_for_action);
         parsed = true;
     }
     if let Some(allow_win32_input_mode) =
@@ -15936,6 +15970,10 @@ struct NativeWindowApp {
     enable_title_reporting: bool,
     enable_csi_u_key_encoding: bool,
     enable_kitty_keyboard: bool,
+    allow_download_protocols: bool,
+    xcursor_theme: Option<String>,
+    xcursor_size: Option<u32>,
+    palette_max_key_assigments_for_action: usize,
     allow_win32_input_mode: bool,
     treat_left_ctrlalt_as_altgr: bool,
     send_composed_key_when_left_alt_is_pressed: bool,
@@ -17444,6 +17482,10 @@ impl NativeWindowApp {
             enable_title_reporting: DEFAULT_ENABLE_TITLE_REPORTING,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
+            allow_download_protocols: DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
+            xcursor_theme: None,
+            xcursor_size: None,
+            palette_max_key_assigments_for_action: DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
             send_composed_key_when_left_alt_is_pressed:
@@ -18578,6 +18620,11 @@ impl NativeWindowApp {
         detached_app.enable_title_reporting = self.enable_title_reporting;
         detached_app.enable_csi_u_key_encoding = self.enable_csi_u_key_encoding;
         detached_app.enable_kitty_keyboard = self.enable_kitty_keyboard;
+        detached_app.allow_download_protocols = self.allow_download_protocols;
+        detached_app.xcursor_theme.clone_from(&self.xcursor_theme);
+        detached_app.xcursor_size = self.xcursor_size;
+        detached_app.palette_max_key_assigments_for_action =
+            self.palette_max_key_assigments_for_action;
         detached_app.allow_win32_input_mode = self.allow_win32_input_mode;
         detached_app.treat_left_ctrlalt_as_altgr = self.treat_left_ctrlalt_as_altgr;
         detached_app.send_composed_key_when_left_alt_is_pressed =
@@ -18869,6 +18916,10 @@ impl NativeWindowApp {
         self.enable_title_reporting = source.enable_title_reporting;
         self.enable_csi_u_key_encoding = source.enable_csi_u_key_encoding;
         self.enable_kitty_keyboard = source.enable_kitty_keyboard;
+        self.allow_download_protocols = source.allow_download_protocols;
+        self.xcursor_theme.clone_from(&source.xcursor_theme);
+        self.xcursor_size = source.xcursor_size;
+        self.palette_max_key_assigments_for_action = source.palette_max_key_assigments_for_action;
         self.allow_win32_input_mode = source.allow_win32_input_mode;
         self.treat_left_ctrlalt_as_altgr = source.treat_left_ctrlalt_as_altgr;
         self.send_composed_key_when_left_alt_is_pressed =
@@ -27141,6 +27192,10 @@ impl NativeWindowApp {
             enable_title_reporting: self.enable_title_reporting,
             enable_csi_u_key_encoding: self.enable_csi_u_key_encoding,
             enable_kitty_keyboard: self.enable_kitty_keyboard,
+            allow_download_protocols: self.allow_download_protocols,
+            xcursor_theme: self.xcursor_theme.clone(),
+            xcursor_size: self.xcursor_size,
+            palette_max_key_assigments_for_action: self.palette_max_key_assigments_for_action,
             allow_win32_input_mode: self.allow_win32_input_mode,
             treat_left_ctrlalt_as_altgr: self.treat_left_ctrlalt_as_altgr,
             send_composed_key_when_left_alt_is_pressed: self
@@ -27647,6 +27702,16 @@ impl NativeWindowApp {
         self.enable_kitty_keyboard = overrides
             .enable_kitty_keyboard
             .unwrap_or(DEFAULT_ENABLE_KITTY_KEYBOARD);
+        self.allow_download_protocols = overrides
+            .allow_download_protocols
+            .unwrap_or(DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS);
+        self.xcursor_theme = overrides
+            .xcursor_theme
+            .filter(|xcursor_theme| !xcursor_theme.is_empty());
+        self.xcursor_size = overrides.xcursor_size;
+        self.palette_max_key_assigments_for_action = overrides
+            .palette_max_key_assigments_for_action
+            .unwrap_or(DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION);
         self.allow_win32_input_mode = overrides
             .allow_win32_input_mode
             .unwrap_or(DEFAULT_ALLOW_WIN32_INPUT_MODE);
@@ -53171,7 +53236,7 @@ mod tests {
 
     use super::{
         AppAction, AppShellError, CELL_HEIGHT, CELL_WIDTH,
-        DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE,
+        DEFAULT_ADJUST_WINDOW_SIZE_WHEN_CHANGING_FONT_SIZE, DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
         DEFAULT_ALLOW_SQUARE_GLYPHS_TO_OVERFLOW_WIDTH, DEFAULT_ALLOW_WIN32_INPUT_MODE,
         DEFAULT_ALTERNATE_BUFFER_WHEEL_SCROLL_SPEED, DEFAULT_ANIMATION_FPS,
         DEFAULT_ANSI_PALETTE_COLORS, DEFAULT_ANTI_ALIAS_CUSTOM_BLOCK_GLYPHS,
@@ -53201,12 +53266,12 @@ mod tests {
         DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
         DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
         DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
-        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR,
-        DEFAULT_PANE_SELECT_FONT_SIZE, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
-        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RENDER_FRONT_END,
-        DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST, DEFAULT_SCROLLBACK_LIMIT,
-        DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK, DEFAULT_SELECTION_WORD_BOUNDARY,
-        DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
+        DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
+        DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
+        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
+        DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
+        DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
         DEFAULT_SEND_COMPOSED_KEY_WHEN_RIGHT_ALT_IS_PRESSED, DEFAULT_SHAPE_CACHE_SIZE,
         DEFAULT_SHOW_UPDATE_WINDOW, DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
@@ -67473,6 +67538,11 @@ mod tests {
                 enable_title_reporting: DEFAULT_ENABLE_TITLE_REPORTING,
                 enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
                 enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
+                allow_download_protocols: DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
+                xcursor_theme: None,
+                xcursor_size: None,
+                palette_max_key_assigments_for_action:
+                    DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
                 allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
                 treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
                 send_composed_key_when_left_alt_is_pressed:
@@ -88617,6 +88687,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_gui_input_misc_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert!(effective.allow_download_protocols);
+        assert_eq!(effective.xcursor_theme, None);
+        assert_eq!(effective.xcursor_size, None);
+        assert_eq!(effective.palette_max_key_assigments_for_action, 1);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_gui_input_misc_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.allow_download_protocols = false
+            config.xcursor_theme = 'Adwaita'
+            config.xcursor_size = 24
+            config.palette_max_key_assigments_for_action = 3
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm GUI/input misc config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert!(!effective.allow_download_protocols);
+        assert_eq!(effective.xcursor_theme, Some("Adwaita".to_owned()));
+        assert_eq!(effective.xcursor_size, Some(24));
+        assert_eq!(effective.palette_max_key_assigments_for_action, 3);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_keyboard_protocol_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -99122,6 +99228,10 @@ mod tests {
             enable_title_reporting: Some(true),
             enable_csi_u_key_encoding: Some(true),
             enable_kitty_keyboard: Some(true),
+            allow_download_protocols: Some(false),
+            xcursor_theme: Some("Adwaita".to_owned()),
+            xcursor_size: Some(24),
+            palette_max_key_assigments_for_action: Some(3),
             allow_win32_input_mode: Some(false),
             treat_left_ctrlalt_as_altgr: Some(true),
             send_composed_key_when_left_alt_is_pressed: Some(true),
@@ -99494,6 +99604,10 @@ mod tests {
             enable_title_reporting: true,
             enable_csi_u_key_encoding: true,
             enable_kitty_keyboard: true,
+            allow_download_protocols: false,
+            xcursor_theme: Some("Adwaita".to_owned()),
+            xcursor_size: Some(24),
+            palette_max_key_assigments_for_action: 3,
             allow_win32_input_mode: false,
             treat_left_ctrlalt_as_altgr: true,
             send_composed_key_when_left_alt_is_pressed: true,
@@ -99718,6 +99832,10 @@ mod tests {
             enable_title_reporting: DEFAULT_ENABLE_TITLE_REPORTING,
             enable_csi_u_key_encoding: DEFAULT_ENABLE_CSI_U_KEY_ENCODING,
             enable_kitty_keyboard: DEFAULT_ENABLE_KITTY_KEYBOARD,
+            allow_download_protocols: DEFAULT_ALLOW_DOWNLOAD_PROTOCOLS,
+            xcursor_theme: None,
+            xcursor_size: None,
+            palette_max_key_assigments_for_action: DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
             allow_win32_input_mode: DEFAULT_ALLOW_WIN32_INPUT_MODE,
             treat_left_ctrlalt_as_altgr: DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
             send_composed_key_when_left_alt_is_pressed:

@@ -331,13 +331,19 @@ keyboard, mouse, paste, resize
   window-title OSC when enabled. Native `enq_answerback` defaults to an empty
   string and, when configured, replies to top-level ENQ (`0x05`) controls with
   that answerback while ignoring ENQ bytes inside OSC/DCS strings. Native
+  `allow_download_protocols` defaults to true, while `xcursor_theme`,
+  `xcursor_size`, and `palette_max_key_assigments_for_action` are retained with
+  WezTerm defaults for future download-protocol gating, platform cursor theme/
+  size application, and palette assignment limiting. Native
   `allow_win32_input_mode` defaults to true, tracks ConPTY
   `CSI ? 9001 h/l` mode requests, and makes native-window and local console
   input emit Win32 key records for that mode before CSI-u/kitty encoding.
   Static Lua snippets for `key_map_preference`, `swap_backspace_and_delete`,
   `ui_key_cap_rendering`, `enable_csi_u_key_encoding`,
   `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`,
-  `enable_kitty_keyboard`, `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
+  `enable_kitty_keyboard`, `allow_download_protocols`, `xcursor_theme`,
+  `xcursor_size`, `palette_max_key_assigments_for_action`,
+  `allow_win32_input_mode`, `treat_left_ctrlalt_as_altgr`,
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
   `treat_east_asian_ambiguous_width_as_wide`,
@@ -1153,7 +1159,9 @@ keyboard, mouse, paste, resize
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`,
-  `enable_kitty_keyboard`, `allow_win32_input_mode`,
+  `enable_kitty_keyboard`, `allow_download_protocols`, `xcursor_theme`,
+  `xcursor_size`, `palette_max_key_assigments_for_action`,
+  `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
@@ -1555,7 +1563,9 @@ keyboard, mouse, paste, resize
   `default_domain`, `default_workspace`, `prefer_to_spawn_tabs`, `automatically_reload_config`, `check_for_updates`, `check_for_updates_interval_seconds`, `show_update_window`, `native_macos_fullscreen_mode`, `macos_fullscreen_extend_behind_notch`, `use_resize_increments`, `debug_key_events`, `log_unknown_escape_sequences`, `warn_about_missing_glyphs`, `default_cwd`, `detect_password_input`, `set_environment_variables`, `key_map_preference`,
   `ui_key_cap_rendering`, `swap_backspace_and_delete`, `enable_csi_u_key_encoding`,
   `enable_kitty_graphics`, `enable_checksum_rectangular_area`, `enable_title_reporting`,
-  `enable_kitty_keyboard`, `allow_win32_input_mode`,
+  `enable_kitty_keyboard`, `allow_download_protocols`, `xcursor_theme`,
+  `xcursor_size`, `palette_max_key_assigments_for_action`,
+  `allow_win32_input_mode`,
   `treat_left_ctrlalt_as_altgr`,
   `send_composed_key_when_left_alt_is_pressed`,
   `send_composed_key_when_right_alt_is_pressed`,
