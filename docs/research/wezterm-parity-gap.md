@@ -2648,9 +2648,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `config.background` stack, precomposing that Color layer into each Gradient
   stop. Legacy `window_background_image` file paths now load as 100%-sized
   background image layers, with `window_background_image_hsb` transforms and
-  `window_background_opacity` alpha applied to that image layer; when followed
-  by a Color-only `config.background` stack, the legacy image renders as
-  WezTerm's implicit prepended image layer below that Color layer. File image
+  `window_background_opacity` alpha applied to that image layer, and the
+  legacy path plus optional HSB transform are retained in the effective native
+  config snapshot; when followed by a Color-only `config.background` stack, the
+  legacy image renders as WezTerm's implicit prepended image layer below that
+  Color layer. File image
   layer stacks, including single `source = { File = ... }`, Color-below-File,
   Color-over-File, multiple File layers, and static ordered Gradient/File mixes
   such as Gradient-over-File, now load static PNG/JPEG/GIF/BMP/ICO/TIFF/PNM/DDS/TGA/farbfeld

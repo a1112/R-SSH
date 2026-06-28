@@ -3342,6 +3342,8 @@ struct NativeEffectiveConfig {
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    window_background_image: Option<String>,
+    window_background_image_hsb: Option<NativeInactivePaneHsb>,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
     window_background_images: Vec<NativeWindowBackgroundImage>,
     window_background_layers: Vec<NativeWindowBackgroundVisualLayer>,
@@ -3599,6 +3601,8 @@ struct NativeConfigOverrides {
     text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
+    window_background_image: Option<String>,
+    window_background_image_hsb: Option<NativeInactivePaneHsb>,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
     window_background_images: Option<Vec<NativeWindowBackgroundImage>>,
     window_background_layers: Option<Vec<NativeWindowBackgroundVisualLayer>>,
@@ -4579,10 +4583,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     } else {
         None
     };
+    overrides.window_background_image_hsb = window_background_image_hsb;
     if let Some(window_background_image) =
         lua_config_string_assignment_from_query(config, "window_background_image")
     {
         let data = fs::read(Path::new(&window_background_image)).ok()?;
+        overrides.window_background_image = Some(window_background_image);
         overrides.window_background_images = Some(vec![NativeWindowBackgroundImage {
             data,
             opacity_alpha: overrides
@@ -18151,6 +18157,8 @@ struct NativeWindowApp {
     bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors,
     text_background_opacity: NativeTextBackgroundOpacity,
     window_background_opacity: NativeTextBackgroundOpacity,
+    window_background_image: Option<String>,
+    window_background_image_hsb: Option<NativeInactivePaneHsb>,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
     window_background_images: Vec<NativeWindowBackgroundImage>,
     window_background_layers: Vec<NativeWindowBackgroundVisualLayer>,
@@ -19687,6 +19695,8 @@ impl NativeWindowApp {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            window_background_image: None,
+            window_background_image_hsb: None,
             window_background_gradient: None,
             window_background_images: Vec::new(),
             window_background_layers: Vec::new(),
@@ -20797,6 +20807,10 @@ impl NativeWindowApp {
             .apply_bold_brightens_ansi_colors_override(Some(self.bold_brightens_ansi_colors));
         detached_app.text_background_opacity = self.text_background_opacity;
         detached_app.window_background_opacity = self.window_background_opacity;
+        detached_app
+            .window_background_image
+            .clone_from(&self.window_background_image);
+        detached_app.window_background_image_hsb = self.window_background_image_hsb;
         detached_app.window_background_gradient = self.window_background_gradient.clone();
         detached_app.window_background_images = self.window_background_images.clone();
         detached_app.window_background_layers = self.window_background_layers.clone();
@@ -21108,6 +21122,9 @@ impl NativeWindowApp {
         self.text_min_contrast_ratio = source.text_min_contrast_ratio;
         self.text_background_opacity = source.text_background_opacity;
         self.window_background_opacity = source.window_background_opacity;
+        self.window_background_image
+            .clone_from(&source.window_background_image);
+        self.window_background_image_hsb = source.window_background_image_hsb;
         self.window_background_gradient = source.window_background_gradient.clone();
         self.window_background_images = source.window_background_images.clone();
         self.window_background_layers = source.window_background_layers.clone();
@@ -29515,6 +29532,8 @@ impl NativeWindowApp {
             text_min_contrast_ratio: self.text_min_contrast_ratio,
             text_background_opacity: self.text_background_opacity,
             window_background_opacity: self.window_background_opacity,
+            window_background_image: self.window_background_image.clone(),
+            window_background_image_hsb: self.window_background_image_hsb,
             window_background_gradient: self.window_background_gradient.clone(),
             window_background_images: self.window_background_images.clone(),
             window_background_layers: self.window_background_layers.clone(),
@@ -29862,6 +29881,8 @@ impl NativeWindowApp {
         self.window_background_opacity = overrides
             .window_background_opacity
             .unwrap_or(DEFAULT_WINDOW_BACKGROUND_OPACITY);
+        self.window_background_image = overrides.window_background_image.clone();
+        self.window_background_image_hsb = overrides.window_background_image_hsb;
         self.window_background_gradient = overrides.window_background_gradient.clone();
         self.renderer.set_default_background_gradient(
             self.window_background_gradient
@@ -58833,6 +58854,19 @@ mod tests {
             ),
             [69, 6, 6, 255]
         );
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.window_background_image,
+            Some(image_path.to_string_lossy().to_string())
+        );
+        assert_eq!(
+            effective.window_background_image_hsb,
+            Some(NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(1.0),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            })
+        );
 
         let _ = std::fs::remove_file(image_path);
     }
@@ -70099,6 +70133,8 @@ mod tests {
                 text_min_contrast_ratio: None,
                 text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
                 window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+                window_background_image: None,
+                window_background_image_hsb: None,
                 window_background_gradient: None,
                 window_background_images: Vec::new(),
                 window_background_layers: Vec::new(),
@@ -102650,6 +102686,12 @@ mod tests {
             bold_brightens_ansi_colors: Some(NativeBoldBrightensAnsiColors::BrightOnly),
             text_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.4)),
             window_background_opacity: Some(NativeTextBackgroundOpacity::from_f32(0.5)),
+            window_background_image: Some("wallpaper.png".to_owned()),
+            window_background_image_hsb: Some(NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.9),
+                brightness: NativeHsbMultiplier::from_f32(0.6),
+            }),
             window_background_gradient: Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
@@ -103136,6 +103178,12 @@ mod tests {
             bold_brightens_ansi_colors: NativeBoldBrightensAnsiColors::BrightOnly,
             text_background_opacity: NativeTextBackgroundOpacity::from_f32(0.4),
             window_background_opacity: NativeTextBackgroundOpacity::from_f32(0.5),
+            window_background_image: Some("wallpaper.png".to_owned()),
+            window_background_image_hsb: Some(NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.9),
+                brightness: NativeHsbMultiplier::from_f32(0.6),
+            }),
             window_background_gradient: Some(NativeWindowBackgroundGradient {
                 orientation: NativeWindowBackgroundGradientOrientation::Vertical,
                 interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
@@ -103592,6 +103640,8 @@ mod tests {
             bold_brightens_ansi_colors: DEFAULT_BOLD_BRIGHTENS_ANSI_COLORS,
             text_background_opacity: DEFAULT_TEXT_BACKGROUND_OPACITY,
             window_background_opacity: DEFAULT_WINDOW_BACKGROUND_OPACITY,
+            window_background_image: None,
+            window_background_image_hsb: None,
             window_background_gradient: None,
             window_background_images: Vec::new(),
             window_background_layers: Vec::new(),
