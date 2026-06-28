@@ -1777,10 +1777,10 @@ keyboard, mouse, paste, resize
   `show_close_tab_button_in_tabs`,
   `show_new_tab_button_in_tab_bar`, `show_tab_index_in_tab_bar`, and
   `show_tabs_in_tab_bar`. Static
-  `wezterm.on('format-tab-title', function(...) return 'title' end)` string
-  returns now map onto the same tab-title override path; arbitrary Lua
-  callbacks, Lua FormatItem tables, and the full Lua config object remain
-  future parity work.
+  `wezterm.on('format-tab-title', function(...) return ... end)` string and
+  FormatItem table returns now map onto the same tab-title override path;
+  arbitrary Lua callbacks and the full Lua config object remain future parity
+  work.
 - Implemented in v1: native window title recomputation now passes the computed
   default title, active tab id, active pane id, tab count, and active-tab pane
   count plus the active key-table stack top through a typed

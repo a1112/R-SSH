@@ -3766,7 +3766,7 @@ struct NativeConfigOverrides {
     key_assignments: Option<Vec<NativeUserKeyAssignment>>,
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
     mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
-    lua_tab_title: Option<String>,
+    lua_tab_title: Option<NativeTabTitle>,
     lua_window_title: Option<String>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     scroll_to_bottom_on_input: Option<bool>,
@@ -3821,9 +3821,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.lua_window_title = Some(window_title);
         parsed = true;
     }
-    if let Some(tab_title) =
-        lua_static_wezterm_string_return_event_from_query(config, "format-tab-title")
-    {
+    if let Some(tab_title) = lua_static_wezterm_tab_title_return_event_from_query(config) {
         overrides.lua_tab_title = Some(tab_title);
         parsed = true;
     }
@@ -5803,6 +5801,43 @@ fn lua_static_wezterm_string_return_event_from_statement(
     lua_static_string_return_from_function_body(body)
 }
 
+fn lua_static_wezterm_tab_title_return_event_from_query(source: &str) -> Option<NativeTabTitle> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(value) = lua_static_wezterm_tab_title_return_event_from_statement(source, start)
+        {
+            selected = Some(value);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_tab_title_return_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeTabTitle> {
+    let statement = lua_trim_start_comments(source.get(start..)?)?;
+    let rest = statement.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
+    if event_name != "format-tab-title" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (body, _) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
+    lua_static_tab_title_return_from_function_body(body)
+}
+
 fn lua_anonymous_function_body_and_first_param_from_query<'a>(
     value: &'a str,
 ) -> Option<(&'a str, &'a str)> {
@@ -5941,6 +5976,31 @@ fn lua_static_string_return_from_statement(statement: &str) -> Option<String> {
     let rest = lua_trim_start_comments(rest.get(value_len..)?)?;
     let rest = rest.strip_prefix(';').unwrap_or(rest);
     lua_trim_start_comments(rest)?.is_empty().then_some(value)
+}
+
+fn lua_static_tab_title_return_from_function_body(body: &str) -> Option<NativeTabTitle> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(value) = lua_static_tab_title_return_from_statement(statement) {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+fn lua_static_tab_title_return_from_statement(statement: &str) -> Option<NativeTabTitle> {
+    lua_static_string_return_from_statement(statement)
+        .map(NativeTabTitle::Text)
+        .or_else(|| {
+            let rest = statement.strip_prefix("return")?;
+            if rest.chars().next().is_some_and(is_lua_identifier_character) {
+                return None;
+            }
+            let rest = lua_trim_start_comments(rest)?;
+            let rest = rest.strip_suffix(';').unwrap_or(rest).trim();
+            native_format_items_from_lua_format_items_table_query(rest).map(NativeTabTitle::Format)
+        })
 }
 
 fn lua_static_status_update_from_function_body(
@@ -18702,7 +18762,7 @@ struct NativeWindowApp {
     latest_notification: Option<TerminalNotification>,
     left_status: String,
     right_status: String,
-    lua_tab_title: Option<String>,
+    lua_tab_title: Option<NativeTabTitle>,
     lua_window_title: Option<String>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     status_update_interval: Duration,
@@ -29791,7 +29851,7 @@ impl NativeWindowApp {
         );
 
         (self.tab_title_formatter)(&second_pass)
-            .or_else(|| self.lua_tab_title.clone().map(NativeTabTitle::Text))
+            .or_else(|| self.lua_tab_title.clone())
             .or_else(|| default_title.map(NativeTabTitle::Text))
     }
 
@@ -44196,7 +44256,13 @@ fn assign_tab_bar_style_edge(
 
 fn native_format_items_from_wezterm_format_query(value: &str) -> Option<Vec<NativeFormatItem>> {
     let table = wezterm_format_table_argument_from_query(value)?;
-    let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    native_format_items_from_lua_format_items_table_query(table)
+}
+
+fn native_format_items_from_lua_format_items_table_query(
+    value: &str,
+) -> Option<Vec<NativeFormatItem>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut items = Vec::new();
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -68550,6 +68616,37 @@ mod tests {
             "tab bar was {tab_bar:?}"
         );
         assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_format_item_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return {
+                { Foreground = { Color = '#010203' } },
+                { Background = { Color = '#040506' } },
+                { Text = 'STATIC LUA FORMAT' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title event format item return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let title_column = tab_bar
+            .find("STATIC LUA FORMAT")
+            .expect("formatted Lua title should render in the tab bar");
+        let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
+
+        assert_eq!(title_cell.ch, 'S');
+        assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
     }
 
     #[test]
@@ -103599,7 +103696,7 @@ mod tests {
                 alt_screen: NativeMouseAssignmentAltScreen::Any,
                 command: WindowCommand::StartWindowDrag,
             }]),
-            lua_tab_title: Some("Lua Tab".to_owned()),
+            lua_tab_title: Some(NativeTabTitle::Text("Lua Tab".to_owned())),
             lua_window_title: Some("Lua Title".to_owned()),
             lua_update_status: Some(NativeWindowStatusUpdate {
                 left_status: Some("LEFT".to_owned()),
