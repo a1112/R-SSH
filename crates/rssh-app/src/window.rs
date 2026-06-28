@@ -3352,6 +3352,7 @@ struct NativeEffectiveConfig {
     win32_system_backdrop: NativeWin32SystemBackdrop,
     win32_acrylic_accent_color: Option<Color>,
     window_decorations: NativeWindowDecorations,
+    window_frame: NativeWindowFrameAppearance,
     window_frame_appearance: NativeWindowFrameAppearance,
     integrated_title_buttons: Vec<NativeIntegratedTitleButton>,
     integrated_title_button_alignment: NativeIntegratedTitleButtonAlignment,
@@ -29542,6 +29543,7 @@ impl NativeWindowApp {
             win32_system_backdrop: self.win32_system_backdrop,
             win32_acrylic_accent_color: self.win32_acrylic_accent_color,
             window_decorations: self.window_decorations,
+            window_frame: self.window_frame_appearance.clone(),
             window_frame_appearance: self.window_frame_appearance.clone(),
             integrated_title_buttons: self.integrated_title_buttons.clone(),
             integrated_title_button_alignment: self.integrated_title_button_alignment,
@@ -70143,6 +70145,7 @@ mod tests {
                 win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
                 win32_acrylic_accent_color: None,
                 window_decorations: DEFAULT_WINDOW_DECORATIONS,
+                window_frame: NativeWindowFrameAppearance::default(),
                 window_frame_appearance: NativeWindowFrameAppearance::default(),
                 integrated_title_buttons: default_integrated_title_buttons(),
                 integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,
@@ -96025,7 +96028,9 @@ mod tests {
         .expect("expected WezTerm window_frame color config");
         app.set_config_overrides(overrides);
 
-        let effective = app.native_effective_config().window_frame_appearance;
+        let effective = app.native_effective_config();
+        assert_eq!(&effective.window_frame, &effective.window_frame_appearance);
+        let effective = effective.window_frame_appearance;
         assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
         assert_eq!(effective.active_titlebar_bg, Some(Color::Rgb(4, 5, 6)));
         assert_eq!(effective.inactive_titlebar_fg, Some(Color::Rgb(7, 8, 9)));
@@ -102590,6 +102595,31 @@ mod tests {
         HashMap::from([("Project Scheme".to_owned(), sample_resolved_palette())])
     }
 
+    fn sample_window_frame_appearance() -> NativeWindowFrameAppearance {
+        NativeWindowFrameAppearance {
+            inactive_titlebar_bg: Some(Color::Rgb(1, 2, 3)),
+            active_titlebar_bg: Some(Color::Rgb(4, 5, 6)),
+            inactive_titlebar_fg: Some(Color::Rgb(7, 8, 9)),
+            active_titlebar_fg: Some(Color::Rgb(10, 11, 12)),
+            inactive_titlebar_border_bottom: Some(Color::Rgb(13, 14, 15)),
+            active_titlebar_border_bottom: Some(Color::Rgb(16, 17, 18)),
+            button_fg: Some(Color::Rgb(19, 20, 21)),
+            button_bg: Some(Color::Rgb(22, 23, 24)),
+            button_hover_fg: Some(Color::Rgb(25, 26, 27)),
+            button_hover_bg: Some(Color::Rgb(28, 29, 30)),
+            border_left_width: Some(NativeWindowPaddingDimension::Pixels(3)),
+            border_right_width: Some(NativeWindowPaddingDimension::Pixels(4)),
+            border_top_height: Some(NativeWindowPaddingDimension::Pixels(5)),
+            border_bottom_height: Some(NativeWindowPaddingDimension::Pixels(6)),
+            border_left_color: Some(Color::Rgb(31, 32, 33)),
+            border_right_color: Some(Color::Rgb(34, 35, 36)),
+            border_top_color: Some(Color::Rgb(37, 38, 39)),
+            border_bottom_color: Some(Color::Rgb(40, 41, 42)),
+            font: Some("Monaco".to_owned()),
+            font_size: Some(NativeFontSize::from_millipoints(13_000)),
+        }
+    }
+
     fn sample_native_config_overrides() -> NativeConfigOverrides {
         NativeConfigOverrides {
             dpi: Some(144),
@@ -102719,28 +102749,7 @@ mod tests {
                 macos_force_square_corners: false,
                 macos_use_background_color_as_titlebar_color: true,
             }),
-            window_frame_appearance: Some(NativeWindowFrameAppearance {
-                inactive_titlebar_bg: Some(Color::Rgb(1, 2, 3)),
-                active_titlebar_bg: Some(Color::Rgb(4, 5, 6)),
-                inactive_titlebar_fg: Some(Color::Rgb(7, 8, 9)),
-                active_titlebar_fg: Some(Color::Rgb(10, 11, 12)),
-                inactive_titlebar_border_bottom: Some(Color::Rgb(13, 14, 15)),
-                active_titlebar_border_bottom: Some(Color::Rgb(16, 17, 18)),
-                button_fg: Some(Color::Rgb(19, 20, 21)),
-                button_bg: Some(Color::Rgb(22, 23, 24)),
-                button_hover_fg: Some(Color::Rgb(25, 26, 27)),
-                button_hover_bg: Some(Color::Rgb(28, 29, 30)),
-                border_left_width: Some(NativeWindowPaddingDimension::Pixels(3)),
-                border_right_width: Some(NativeWindowPaddingDimension::Pixels(4)),
-                border_top_height: Some(NativeWindowPaddingDimension::Pixels(5)),
-                border_bottom_height: Some(NativeWindowPaddingDimension::Pixels(6)),
-                border_left_color: Some(Color::Rgb(31, 32, 33)),
-                border_right_color: Some(Color::Rgb(34, 35, 36)),
-                border_top_color: Some(Color::Rgb(37, 38, 39)),
-                border_bottom_color: Some(Color::Rgb(40, 41, 42)),
-                font: Some("Monaco".to_owned()),
-                font_size: Some(NativeFontSize::from_millipoints(13_000)),
-            }),
+            window_frame_appearance: Some(sample_window_frame_appearance()),
             integrated_title_buttons: Some(vec![
                 NativeIntegratedTitleButton::Close,
                 NativeIntegratedTitleButton::Hide,
@@ -103211,28 +103220,8 @@ mod tests {
                 macos_force_square_corners: false,
                 macos_use_background_color_as_titlebar_color: true,
             },
-            window_frame_appearance: NativeWindowFrameAppearance {
-                inactive_titlebar_bg: Some(Color::Rgb(1, 2, 3)),
-                active_titlebar_bg: Some(Color::Rgb(4, 5, 6)),
-                inactive_titlebar_fg: Some(Color::Rgb(7, 8, 9)),
-                active_titlebar_fg: Some(Color::Rgb(10, 11, 12)),
-                inactive_titlebar_border_bottom: Some(Color::Rgb(13, 14, 15)),
-                active_titlebar_border_bottom: Some(Color::Rgb(16, 17, 18)),
-                button_fg: Some(Color::Rgb(19, 20, 21)),
-                button_bg: Some(Color::Rgb(22, 23, 24)),
-                button_hover_fg: Some(Color::Rgb(25, 26, 27)),
-                button_hover_bg: Some(Color::Rgb(28, 29, 30)),
-                border_left_width: Some(NativeWindowPaddingDimension::Pixels(3)),
-                border_right_width: Some(NativeWindowPaddingDimension::Pixels(4)),
-                border_top_height: Some(NativeWindowPaddingDimension::Pixels(5)),
-                border_bottom_height: Some(NativeWindowPaddingDimension::Pixels(6)),
-                border_left_color: Some(Color::Rgb(31, 32, 33)),
-                border_right_color: Some(Color::Rgb(34, 35, 36)),
-                border_top_color: Some(Color::Rgb(37, 38, 39)),
-                border_bottom_color: Some(Color::Rgb(40, 41, 42)),
-                font: Some("Monaco".to_owned()),
-                font_size: Some(NativeFontSize::from_millipoints(13_000)),
-            },
+            window_frame: sample_window_frame_appearance(),
+            window_frame_appearance: sample_window_frame_appearance(),
             integrated_title_buttons: vec![
                 NativeIntegratedTitleButton::Close,
                 NativeIntegratedTitleButton::Hide,
@@ -103650,6 +103639,7 @@ mod tests {
             win32_system_backdrop: DEFAULT_WIN32_SYSTEM_BACKDROP,
             win32_acrylic_accent_color: None,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            window_frame: NativeWindowFrameAppearance::default(),
             window_frame_appearance: NativeWindowFrameAppearance::default(),
             integrated_title_buttons: default_integrated_title_buttons(),
             integrated_title_button_alignment: DEFAULT_INTEGRATED_TITLE_BUTTON_ALIGNMENT,

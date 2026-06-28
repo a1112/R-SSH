@@ -2835,7 +2835,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   also now retains `border_left_width`, `border_right_width`,
   `border_top_height`, `border_bottom_height`, `border_left_color`,
   `border_right_color`, `border_top_color`, `border_bottom_color`, `font`,
-  and `font_size` in native/effective config;
+  and `font_size` in native/effective config, with the effective snapshot also
+  exposing WezTerm's `window_frame` field name alongside the internal
+  `window_frame_appearance` alias;
   top-level `command_palette_font_size` parses into native/effective config,
   while `command_palette_bg_color`/`command_palette_fg_color` parse and apply
   to normal command-palette candidate rows; top-level
