@@ -75,6 +75,12 @@ const DEFAULT_WINDOW_TITLE: &str = "R-SSH";
 const DEFAULT_DOMAIN_NAME: &str = "local";
 const DEFAULT_MUX_ENABLE_SSH_AGENT: bool = true;
 const DEFAULT_MUX_ENV_REMOVE: &[&str] = &["SSH_AUTH_SOCK", "SSH_CLIENT", "SSH_CONNECTION"];
+const DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND: u32 = 50;
+const DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE: usize = 128 * 1024;
+const DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS: u64 = 3;
+const DEFAULT_PERIODIC_STAT_LOGGING: u64 = 0;
+const DEFAULT_ULIMIT_NOFILE: u64 = 2048;
+const DEFAULT_ULIMIT_NPROC: u64 = 2048;
 const DEFAULT_WORKSPACE_NAME: &str = "default";
 const DEFAULT_AUTOMATICALLY_RELOAD_CONFIG: bool = true;
 const DEFAULT_CHECK_FOR_UPDATES: bool = true;
@@ -2955,7 +2961,14 @@ struct NativeEffectiveConfig {
     warn_about_missing_glyphs: bool,
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
+    default_mux_server_domain: Option<String>,
     mux_enable_ssh_agent: bool,
+    ratelimit_mux_line_prefetches_per_second: u32,
+    mux_output_parser_buffer_size: usize,
+    mux_output_parser_coalesce_delay_ms: u64,
+    periodic_stat_logging: u64,
+    ulimit_nofile: u64,
+    ulimit_nproc: u64,
     mux_env_remove: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
     key_map_preference: NativeKeyMapPreference,
@@ -3184,7 +3197,14 @@ struct NativeConfigOverrides {
     warn_about_missing_glyphs: Option<bool>,
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
+    default_mux_server_domain: Option<String>,
     mux_enable_ssh_agent: Option<bool>,
+    ratelimit_mux_line_prefetches_per_second: Option<u32>,
+    mux_output_parser_buffer_size: Option<usize>,
+    mux_output_parser_coalesce_delay_ms: Option<u64>,
+    periodic_stat_logging: Option<u64>,
+    ulimit_nofile: Option<u64>,
+    ulimit_nproc: Option<u64>,
     mux_env_remove: Option<Vec<String>>,
     set_environment_variables: Option<BTreeMap<String, String>>,
     launch_menu: Option<Vec<NativeLaunchMenuItem>>,
@@ -3295,10 +3315,56 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             Some(non_empty_spawn_command_option_value(&default_ssh_auth_sock).ok()?);
         parsed = true;
     }
+    if let Some(default_mux_server_domain) =
+        lua_config_string_assignment_from_query(config, "default_mux_server_domain")
+    {
+        overrides.default_mux_server_domain =
+            Some(non_empty_spawn_command_option_value(&default_mux_server_domain).ok()?);
+        parsed = true;
+    }
     if let Some(mux_enable_ssh_agent) =
         lua_config_bool_assignment_from_query(config, "mux_enable_ssh_agent")
     {
         overrides.mux_enable_ssh_agent = Some(mux_enable_ssh_agent);
+        parsed = true;
+    }
+    if let Some(ratelimit_mux_line_prefetches_per_second) =
+        lua_config_usize_assignment_from_query(config, "ratelimit_mux_line_prefetches_per_second")
+    {
+        let Ok(ratelimit_mux_line_prefetches_per_second) =
+            u32::try_from(ratelimit_mux_line_prefetches_per_second)
+        else {
+            return None;
+        };
+        overrides.ratelimit_mux_line_prefetches_per_second =
+            Some(ratelimit_mux_line_prefetches_per_second);
+        parsed = true;
+    }
+    if let Some(mux_output_parser_buffer_size) =
+        lua_config_usize_assignment_from_query(config, "mux_output_parser_buffer_size")
+    {
+        overrides.mux_output_parser_buffer_size = Some(mux_output_parser_buffer_size);
+        parsed = true;
+    }
+    if let Some(mux_output_parser_coalesce_delay_ms) =
+        lua_config_usize_assignment_from_query(config, "mux_output_parser_coalesce_delay_ms")
+    {
+        overrides.mux_output_parser_coalesce_delay_ms =
+            Some(u64::try_from(mux_output_parser_coalesce_delay_ms).ok()?);
+        parsed = true;
+    }
+    if let Some(periodic_stat_logging) =
+        lua_config_usize_assignment_from_query(config, "periodic_stat_logging")
+    {
+        overrides.periodic_stat_logging = Some(u64::try_from(periodic_stat_logging).ok()?);
+        parsed = true;
+    }
+    if let Some(ulimit_nofile) = lua_config_usize_assignment_from_query(config, "ulimit_nofile") {
+        overrides.ulimit_nofile = Some(u64::try_from(ulimit_nofile).ok()?);
+        parsed = true;
+    }
+    if let Some(ulimit_nproc) = lua_config_usize_assignment_from_query(config, "ulimit_nproc") {
+        overrides.ulimit_nproc = Some(u64::try_from(ulimit_nproc).ok()?);
         parsed = true;
     }
     if let Some(mux_env_remove) =
@@ -15994,7 +16060,14 @@ struct NativeWindowApp {
     warn_about_missing_glyphs: bool,
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
+    default_mux_server_domain: Option<String>,
     mux_enable_ssh_agent: bool,
+    ratelimit_mux_line_prefetches_per_second: u32,
+    mux_output_parser_buffer_size: usize,
+    mux_output_parser_coalesce_delay_ms: u64,
+    periodic_stat_logging: u64,
+    ulimit_nofile: u64,
+    ulimit_nproc: u64,
     mux_env_remove: Vec<String>,
     set_environment_variables: BTreeMap<String, String>,
     launch_menu: Vec<NativeLaunchMenuItem>,
@@ -17508,7 +17581,15 @@ impl NativeWindowApp {
             warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
             default_cwd: None,
             default_ssh_auth_sock: None,
+            default_mux_server_domain: None,
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+            ratelimit_mux_line_prefetches_per_second:
+                DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
+            mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
+            mux_output_parser_coalesce_delay_ms: DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS,
+            periodic_stat_logging: DEFAULT_PERIODIC_STAT_LOGGING,
+            ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
+            ulimit_nproc: DEFAULT_ULIMIT_NPROC,
             mux_env_remove: default_mux_env_remove(),
             set_environment_variables: BTreeMap::new(),
             launch_menu: Vec::new(),
@@ -18646,7 +18727,17 @@ impl NativeWindowApp {
         detached_app
             .default_ssh_auth_sock
             .clone_from(&self.default_ssh_auth_sock);
+        detached_app
+            .default_mux_server_domain
+            .clone_from(&self.default_mux_server_domain);
         detached_app.mux_enable_ssh_agent = self.mux_enable_ssh_agent;
+        detached_app.ratelimit_mux_line_prefetches_per_second =
+            self.ratelimit_mux_line_prefetches_per_second;
+        detached_app.mux_output_parser_buffer_size = self.mux_output_parser_buffer_size;
+        detached_app.mux_output_parser_coalesce_delay_ms = self.mux_output_parser_coalesce_delay_ms;
+        detached_app.periodic_stat_logging = self.periodic_stat_logging;
+        detached_app.ulimit_nofile = self.ulimit_nofile;
+        detached_app.ulimit_nproc = self.ulimit_nproc;
         detached_app.mux_env_remove.clone_from(&self.mux_env_remove);
         detached_app
             .set_environment_variables
@@ -18945,7 +19036,16 @@ impl NativeWindowApp {
         self.default_cwd.clone_from(&source.default_cwd);
         self.default_ssh_auth_sock
             .clone_from(&source.default_ssh_auth_sock);
+        self.default_mux_server_domain
+            .clone_from(&source.default_mux_server_domain);
         self.mux_enable_ssh_agent = source.mux_enable_ssh_agent;
+        self.ratelimit_mux_line_prefetches_per_second =
+            source.ratelimit_mux_line_prefetches_per_second;
+        self.mux_output_parser_buffer_size = source.mux_output_parser_buffer_size;
+        self.mux_output_parser_coalesce_delay_ms = source.mux_output_parser_coalesce_delay_ms;
+        self.periodic_stat_logging = source.periodic_stat_logging;
+        self.ulimit_nofile = source.ulimit_nofile;
+        self.ulimit_nproc = source.ulimit_nproc;
         self.mux_env_remove.clone_from(&source.mux_env_remove);
         self.set_environment_variables
             .clone_from(&source.set_environment_variables);
@@ -27225,7 +27325,14 @@ impl NativeWindowApp {
             warn_about_missing_glyphs: self.warn_about_missing_glyphs,
             default_cwd: self.default_cwd.clone(),
             default_ssh_auth_sock: self.default_ssh_auth_sock.clone(),
+            default_mux_server_domain: self.default_mux_server_domain.clone(),
             mux_enable_ssh_agent: self.mux_enable_ssh_agent,
+            ratelimit_mux_line_prefetches_per_second: self.ratelimit_mux_line_prefetches_per_second,
+            mux_output_parser_buffer_size: self.mux_output_parser_buffer_size,
+            mux_output_parser_coalesce_delay_ms: self.mux_output_parser_coalesce_delay_ms,
+            periodic_stat_logging: self.periodic_stat_logging,
+            ulimit_nofile: self.ulimit_nofile,
+            ulimit_nproc: self.ulimit_nproc,
             mux_env_remove: self.mux_env_remove.clone(),
             set_environment_variables: self.set_environment_variables.clone(),
             key_map_preference: self.key_map_preference,
@@ -27715,9 +27822,26 @@ impl NativeWindowApp {
         self.default_ssh_auth_sock = overrides
             .default_ssh_auth_sock
             .filter(|ssh_auth_sock| !ssh_auth_sock.is_empty());
+        self.default_mux_server_domain = overrides
+            .default_mux_server_domain
+            .filter(|default_mux_server_domain| !default_mux_server_domain.is_empty());
         self.mux_enable_ssh_agent = overrides
             .mux_enable_ssh_agent
             .unwrap_or(DEFAULT_MUX_ENABLE_SSH_AGENT);
+        self.ratelimit_mux_line_prefetches_per_second = overrides
+            .ratelimit_mux_line_prefetches_per_second
+            .unwrap_or(DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND);
+        self.mux_output_parser_buffer_size = overrides
+            .mux_output_parser_buffer_size
+            .unwrap_or(DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE);
+        self.mux_output_parser_coalesce_delay_ms = overrides
+            .mux_output_parser_coalesce_delay_ms
+            .unwrap_or(DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS);
+        self.periodic_stat_logging = overrides
+            .periodic_stat_logging
+            .unwrap_or(DEFAULT_PERIODIC_STAT_LOGGING);
+        self.ulimit_nofile = overrides.ulimit_nofile.unwrap_or(DEFAULT_ULIMIT_NOFILE);
+        self.ulimit_nproc = overrides.ulimit_nproc.unwrap_or(DEFAULT_ULIMIT_NPROC);
         self.mux_env_remove = overrides
             .mux_env_remove
             .unwrap_or_else(default_mux_env_remove);
@@ -53313,10 +53437,12 @@ mod tests {
         DEFAULT_LINE_TO_ELE_SHAPE_CACHE_SIZE, DEFAULT_LOG_UNKNOWN_ESCAPE_SEQUENCES,
         DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK, DEFAULT_MACOS_FULLSCREEN_EXTEND_BEHIND_NOTCH,
         DEFAULT_MACOS_WINDOW_BACKGROUND_BLUR, DEFAULT_MAX_FPS, DEFAULT_MIN_SCROLL_BAR_HEIGHT,
-        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
+        DEFAULT_MUX_ENABLE_SSH_AGENT, DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
+        DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS, DEFAULT_NATIVE_MACOS_FULLSCREEN_MODE,
         DEFAULT_NOTIFICATION_HANDLING, DEFAULT_PALETTE_MAX_KEY_ASSIGMENTS_FOR_ACTION,
         DEFAULT_PANE_SELECT_BG_COLOR, DEFAULT_PANE_SELECT_FG_COLOR, DEFAULT_PANE_SELECT_FONT_SIZE,
-        DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET, DEFAULT_QUOTE_DROPPED_FILES,
+        DEFAULT_PERIODIC_STAT_LOGGING, DEFAULT_PREFER_EGL, DEFAULT_QUICK_SELECT_ALPHABET,
+        DEFAULT_QUOTE_DROPPED_FILES, DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
         DEFAULT_RENDER_FRONT_END, DEFAULT_REVERSE_VIDEO_CURSOR_MIN_CONTRAST,
         DEFAULT_SCROLLBACK_LIMIT, DEFAULT_SEARCH_FONT_DIRS_FOR_FALLBACK,
         DEFAULT_SELECTION_WORD_BOUNDARY, DEFAULT_SEND_COMPOSED_KEY_WHEN_LEFT_ALT_IS_PRESSED,
@@ -53324,21 +53450,22 @@ mod tests {
         DEFAULT_SHOW_UPDATE_WINDOW, DEFAULT_SORT_FALLBACK_FONTS_BY_COVERAGE,
         DEFAULT_STRIKETHROUGH_POSITION, DEFAULT_TEXT_BACKGROUND_OPACITY,
         DEFAULT_TREAT_EAST_ASIAN_AMBIGUOUS_WIDTH_AS_WIDE, DEFAULT_TREAT_LEFT_CTRLALT_AS_ALTGR,
-        DEFAULT_UNDERLINE_POSITION, DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION,
-        DEFAULT_USE_BOX_MODEL_RENDER, DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS,
-        DEFAULT_USE_DEAD_KEYS, DEFAULT_USE_IME, DEFAULT_USE_RESIZE_INCREMENTS,
-        DEFAULT_WARN_ABOUT_MISSING_GLYPHS, DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER,
-        DEFAULT_WEBGPU_POWER_PREFERENCE, DEFAULT_WIN32_SYSTEM_BACKDROP,
-        DEFAULT_WINDOW_BACKGROUND_OPACITY, DEFAULT_WINDOW_CONTENT_ALIGNMENT,
-        DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING, DamageRegion, FRAME_HEIGHT,
-        FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind, NativeAnsiColor, NativeAudibleBell,
-        NativeBidiDirection, NativeBoldBrightensAnsiColors, NativeCanonicalizePastedNewlines,
-        NativeCellWidth, NativeCellWidthOverride, NativeColorSpec, NativeCommandPaletteAugment,
-        NativeCommandPaletteEntry, NativeConfigOverrides, NativeConfirmation, NativeContrastRatio,
-        NativeCubicBezier, NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry,
-        NativeEasingFunction, NativeEffectiveConfig, NativeExitBehavior,
-        NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontAttributes, NativeFontHinting,
-        NativeFontLocator, NativeFontRasterizer, NativeFontRule, NativeFontShaper, NativeFontSize,
+        DEFAULT_ULIMIT_NOFILE, DEFAULT_ULIMIT_NPROC, DEFAULT_UNDERLINE_POSITION,
+        DEFAULT_UNDERLINE_THICKNESS, DEFAULT_UNICODE_VERSION, DEFAULT_USE_BOX_MODEL_RENDER,
+        DEFAULT_USE_CAP_HEIGHT_TO_SCALE_FALLBACK_FONTS, DEFAULT_USE_DEAD_KEYS, DEFAULT_USE_IME,
+        DEFAULT_USE_RESIZE_INCREMENTS, DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
+        DEFAULT_WEBGPU_FORCE_FALLBACK_ADAPTER, DEFAULT_WEBGPU_POWER_PREFERENCE,
+        DEFAULT_WIN32_SYSTEM_BACKDROP, DEFAULT_WINDOW_BACKGROUND_OPACITY,
+        DEFAULT_WINDOW_CONTENT_ALIGNMENT, DEFAULT_WINDOW_DECORATIONS, DEFAULT_WINDOW_PADDING,
+        DamageRegion, FRAME_HEIGHT, FRAME_WIDTH, FrameRenderMode, KittyKeyEventKind,
+        NativeAnsiColor, NativeAudibleBell, NativeBidiDirection, NativeBoldBrightensAnsiColors,
+        NativeCanonicalizePastedNewlines, NativeCellWidth, NativeCellWidthOverride,
+        NativeColorSpec, NativeCommandPaletteAugment, NativeCommandPaletteEntry,
+        NativeConfigOverrides, NativeConfirmation, NativeContrastRatio, NativeCubicBezier,
+        NativeCursorStyle, NativeCursorThickness, NativeDisplayPixelGeometry, NativeEasingFunction,
+        NativeEffectiveConfig, NativeExitBehavior, NativeExitBehaviorMessaging,
+        NativeFontAntialias, NativeFontAttributes, NativeFontHinting, NativeFontLocator,
+        NativeFontRasterizer, NativeFontRule, NativeFontShaper, NativeFontSize,
         NativeFormatAttribute, NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline,
         NativeFreetypeLoadFlags, NativeFreetypeTarget, NativeHorizontalContentAlignment,
         NativeHsbMultiplier, NativeHyperlinkRule, NativeImePreeditRendering, NativeInactivePaneHsb,
@@ -67575,7 +67702,15 @@ mod tests {
                 warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
                 default_cwd: None,
                 default_ssh_auth_sock: None,
+                default_mux_server_domain: None,
                 mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+                ratelimit_mux_line_prefetches_per_second:
+                    DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
+                mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
+                mux_output_parser_coalesce_delay_ms: DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS,
+                periodic_stat_logging: DEFAULT_PERIODIC_STAT_LOGGING,
+                ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
+                ulimit_nproc: DEFAULT_ULIMIT_NPROC,
                 mux_env_remove: default_mux_env_remove(),
                 set_environment_variables: BTreeMap::new(),
                 key_map_preference: NativeKeyMapPreference::Mapped,
@@ -88806,6 +88941,54 @@ mod tests {
     }
 
     #[test]
+    fn window_app_reports_default_wezterm_mux_diagnostic_config() {
+        let app = NativeWindowApp::new(None);
+        let effective = app.native_effective_config();
+
+        assert_eq!(effective.default_mux_server_domain, None);
+        assert_eq!(effective.ratelimit_mux_line_prefetches_per_second, 50);
+        assert_eq!(effective.mux_output_parser_buffer_size, 128 * 1024);
+        assert_eq!(effective.mux_output_parser_coalesce_delay_ms, 3);
+        assert_eq!(effective.periodic_stat_logging, 0);
+        assert_eq!(effective.ulimit_nofile, 2048);
+        assert_eq!(effective.ulimit_nproc, 2048);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mux_diagnostic_overrides() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+
+            config.default_mux_server_domain = 'mux-main'
+            config.ratelimit_mux_line_prefetches_per_second = 12
+            config.mux_output_parser_buffer_size = 4096
+            config.mux_output_parser_coalesce_delay_ms = 7
+            config.periodic_stat_logging = 15
+            config.ulimit_nofile = 4096
+            config.ulimit_nproc = 8192
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mux diagnostic config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.default_mux_server_domain,
+            Some("mux-main".to_owned())
+        );
+        assert_eq!(effective.ratelimit_mux_line_prefetches_per_second, 12);
+        assert_eq!(effective.mux_output_parser_buffer_size, 4096);
+        assert_eq!(effective.mux_output_parser_coalesce_delay_ms, 7);
+        assert_eq!(effective.periodic_stat_logging, 15);
+        assert_eq!(effective.ulimit_nofile, 4096);
+        assert_eq!(effective.ulimit_nproc, 8192);
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_keyboard_protocol_overrides() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -99300,7 +99483,14 @@ mod tests {
             warn_about_missing_glyphs: Some(false),
             default_cwd: Some("/tmp/default".to_owned()),
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
+            default_mux_server_domain: Some("mux-main".to_owned()),
             mux_enable_ssh_agent: Some(false),
+            ratelimit_mux_line_prefetches_per_second: Some(12),
+            mux_output_parser_buffer_size: Some(4096),
+            mux_output_parser_coalesce_delay_ms: Some(7),
+            periodic_stat_logging: Some(15),
+            ulimit_nofile: Some(4096),
+            ulimit_nproc: Some(8192),
             mux_env_remove: Some(vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()]),
             set_environment_variables: Some(sample_environment()),
             key_map_preference: Some(NativeKeyMapPreference::Physical),
@@ -99678,7 +99868,14 @@ mod tests {
             warn_about_missing_glyphs: false,
             default_cwd: Some("/tmp/default".to_owned()),
             default_ssh_auth_sock: Some("/tmp/wezterm-agent.sock".to_owned()),
+            default_mux_server_domain: Some("mux-main".to_owned()),
             mux_enable_ssh_agent: false,
+            ratelimit_mux_line_prefetches_per_second: 12,
+            mux_output_parser_buffer_size: 4096,
+            mux_output_parser_coalesce_delay_ms: 7,
+            periodic_stat_logging: 15,
+            ulimit_nofile: 4096,
+            ulimit_nproc: 8192,
             mux_env_remove: vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()],
             set_environment_variables: sample_environment(),
             key_map_preference: NativeKeyMapPreference::Physical,
@@ -99908,7 +100105,15 @@ mod tests {
             warn_about_missing_glyphs: DEFAULT_WARN_ABOUT_MISSING_GLYPHS,
             default_cwd: None,
             default_ssh_auth_sock: None,
+            default_mux_server_domain: None,
             mux_enable_ssh_agent: DEFAULT_MUX_ENABLE_SSH_AGENT,
+            ratelimit_mux_line_prefetches_per_second:
+                DEFAULT_RATELIMIT_MUX_LINE_PREFETCHES_PER_SECOND,
+            mux_output_parser_buffer_size: DEFAULT_MUX_OUTPUT_PARSER_BUFFER_SIZE,
+            mux_output_parser_coalesce_delay_ms: DEFAULT_MUX_OUTPUT_PARSER_COALESCE_DELAY_MS,
+            periodic_stat_logging: DEFAULT_PERIODIC_STAT_LOGGING,
+            ulimit_nofile: DEFAULT_ULIMIT_NOFILE,
+            ulimit_nproc: DEFAULT_ULIMIT_NPROC,
             mux_env_remove: default_mux_env_remove(),
             set_environment_variables: BTreeMap::new(),
             key_map_preference: NativeKeyMapPreference::Mapped,
