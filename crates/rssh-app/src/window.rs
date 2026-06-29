@@ -18075,7 +18075,9 @@ fn parse_wezterm_font_families_value(source: &str, value: &str) -> Option<Vec<St
 
 fn parse_wezterm_font_config_value(source: &str, value: &str) -> Option<NativeFontConfig> {
     let resolved_value = lua_source_slice_start_offset(source, value).and_then(|max_start| {
-        lua_static_wezterm_font_alias_query_from_query(source, value, max_start)
+        lua_static_wezterm_font_value_assignment_before_offset_from_query(source, value, max_start)
+            .map(str::to_owned)
+            .or_else(|| lua_static_wezterm_font_alias_query_from_query(source, value, max_start))
     });
     let value = resolved_value.as_deref().unwrap_or(value);
     Some(NativeFontConfig {
@@ -98541,6 +98543,41 @@ mod tests {
                 && effective.contains("font: Some(\"Terminus\")")
                 && effective.contains("font_fallbacks: [\"Noto Color Emoji\"]"),
             "effective config should expose the fallback font rule: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_rule_static_font_value() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local rule_font = wezterm.font {
+              family = 'Victor Mono',
+              weight = 'Bold',
+            }
+
+            config.font_rules = {
+              {
+                italic = true,
+                intensity = 'Bold',
+                font = rule_font,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font rule static font value config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font_rules.len(), 1);
+        assert_eq!(effective.font_rules[0].font.as_deref(), Some("Victor Mono"));
+        assert_eq!(
+            effective.font_rules[0].font_attributes.weight.as_deref(),
+            Some("Bold")
         );
     }
 

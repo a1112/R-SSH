@@ -330,6 +330,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and `wezterm.font_with_fallback` calls, including top-level static helper
   aliases and static font value variables, retaining the primary family,
   fallback families, and supported font attributes in effective config.
+  `config.font_rules[*].font` uses the same static font value variable
+  expansion so rule-specific attributes are retained.
   `window_frame.font` also accepts top-level
   static `wezterm.font` helper aliases, static `wezterm.font(...)` value
   variables, and `wezterm.font { family = ... }` static family variables for
