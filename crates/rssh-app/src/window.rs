@@ -4714,10 +4714,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(win32_acrylic_accent_color) =
-        lua_config_string_assignment_from_query(config, "win32_acrylic_accent_color")
+        lua_config_opaque_color_assignment_from_query(config, "win32_acrylic_accent_color")
     {
-        overrides.win32_acrylic_accent_color =
-            Some(lua_opaque_color_from_query(&win32_acrylic_accent_color)?);
+        overrides.win32_acrylic_accent_color = Some(win32_acrylic_accent_color);
         parsed = true;
     }
     if let Some(window_decorations) =
@@ -8251,6 +8250,12 @@ fn lua_config_color_assignment_from_query(source: &str, field: &str) -> Option<C
         }),
         &value,
     )
+}
+
+fn lua_config_opaque_color_assignment_from_query(source: &str, field: &str) -> Option<Color> {
+    Some(opaque_color(lua_config_color_assignment_from_query(
+        source, field,
+    )?))
 }
 
 #[allow(dead_code)]
@@ -96877,6 +96882,29 @@ mod tests {
         );
         assert_eq!(
             effective.win32_acrylic_accent_color,
+            Some(Color::Rgb(17, 34, 51))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_win32_acrylic_accent_color() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.win32_acrylic_accent_color = parse_color('rgba(17,34,51,0.5)')
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse Win32 acrylic accent color config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().win32_acrylic_accent_color,
             Some(Color::Rgb(17, 34, 51))
         );
     }
