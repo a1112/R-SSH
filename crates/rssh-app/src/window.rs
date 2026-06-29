@@ -6598,6 +6598,14 @@ fn apply_lua_color_scheme_entry_mutation_overrides(
         mutation_max_start,
         overrides,
     )?;
+    parsed |= apply_lua_color_scheme_entry_color_spec_mutation_overrides(
+        source,
+        color_scheme,
+        target,
+        mutation_start,
+        mutation_max_start,
+        overrides,
+    )?;
 
     Some(parsed)
 }
@@ -6838,6 +6846,61 @@ fn apply_lua_color_scheme_entry_tab_bar_mutation_overrides(
         }
 
         if apply_lua_tab_bar_color_mutation_rest(source, rest, start, overrides)? {
+            parsed = true;
+        }
+    }
+
+    Some(parsed)
+}
+
+fn apply_lua_color_scheme_entry_color_spec_mutation_overrides(
+    source: &str,
+    color_scheme: &str,
+    target: NativeColorSchemeEntryMutationTarget<'_>,
+    min_start: usize,
+    max_start: usize,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
+        let Some(rest) = lua_color_scheme_entry_mutation_rest_from_query(
+            source.get(start..)?,
+            color_scheme,
+            target,
+        ) else {
+            continue;
+        };
+        let Some((field_name, rest)) =
+            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
+        else {
+            continue;
+        };
+        if !lua_color_spec_field_name(&field_name) {
+            continue;
+        }
+        let Some((variant_name, rest)) =
+            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
+        else {
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        let color = lua_color_spec_from_query_with_static_source(
+            Some(LuaStaticSource {
+                source,
+                max_start: start,
+            }),
+            &format!("{{ {variant_name} = {value} }}"),
+        )?;
+
+        if apply_lua_color_spec_field_override(overrides, &field_name, color) {
             parsed = true;
         }
     }
@@ -63175,6 +63238,54 @@ mod tests {
         assert_eq!(
             effective.tab_bar_active_tab_colors.fg_color,
             Some(Color::Rgb(19, 20, 21))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_color_scheme_entry_color_spec_nested_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                copy_mode_active_highlight_bg = { Color = '#202122' },
+                copy_mode_active_highlight_fg = { AnsiColor = 'White' },
+                quick_select_match_bg = { AnsiColor = 'Black' },
+                quick_select_match_fg = { Color = '#232425' },
+              },
+            }
+            config.color_schemes['Project Scheme'].copy_mode_active_highlight_bg.Color = parse_color('#010203')
+            config.color_schemes['Project Scheme'].copy_mode_active_highlight_fg.AnsiColor = 'Black'
+            config.color_schemes['Project Scheme'].quick_select_match_bg.AnsiColor = 'Navy'
+            config.color_schemes['Project Scheme'].quick_select_match_fg.Color = parse_color('#040506')
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color scheme entry nested color spec mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.copy_mode_active_highlight_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3)))
+        );
+        assert_eq!(
+            effective.copy_mode_active_highlight_fg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black))
+        );
+        assert_eq!(
+            effective.quick_select_match_bg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy))
+        );
+        assert_eq!(
+            effective.quick_select_match_fg,
+            Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6)))
         );
     }
 

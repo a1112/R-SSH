@@ -2737,7 +2737,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   slot mutations such as
   `config.color_schemes['Name'].ansi[2] = '#101010'` and tab-bar nested
   top-level mutations such as
-  `config.color_schemes['Name'].tab_bar.active_tab.bg_color = '#101010'`.
+  `config.color_schemes['Name'].tab_bar.active_tab.bg_color = '#101010'`,
+  and ColorSpec nested mutations such as
+  `config.color_schemes['Name'].quick_select_match_fg.Color = '#101010'`.
   Helper-function-local assignments and mutations are ignored. Mutations are
   applied after the final selected static scheme definition, so later full
   `config.color_schemes['Name'] = { ... }` assignments replace earlier entry
