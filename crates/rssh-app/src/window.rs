@@ -4731,14 +4731,33 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             "window_frame",
         )
         .and_then(|window_frame| {
-            native_window_frame_appearance_lua_table_from_query(config, &window_frame.value)
-                .flatten()
+            let static_source = Some(LuaStaticSource {
+                source: config,
+                max_start: window_frame.max_start,
+            });
+            native_window_frame_appearance_lua_table_from_query(
+                config,
+                &window_frame.value,
+                static_source,
+            )
+            .flatten()
         })
         .or_else(|| {
             lua_config_table_or_static_variable_assignment_from_query(config, "window_frame")
                 .and_then(|window_frame| {
-                    native_window_frame_appearance_lua_table_from_query(config, window_frame)
-                        .flatten()
+                    let static_source =
+                        lua_source_slice_start_offset(config, window_frame).map(|max_start| {
+                            LuaStaticSource {
+                                source: config,
+                                max_start,
+                            }
+                        });
+                    native_window_frame_appearance_lua_table_from_query(
+                        config,
+                        window_frame,
+                        static_source,
+                    )
+                    .flatten()
                 })
         })
     {
@@ -17801,6 +17820,7 @@ fn native_window_content_alignment_lua_table_from_query<'a>(
 fn native_window_frame_appearance_lua_table_from_query(
     source: &str,
     value: &str,
+    static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<Option<NativeWindowFrameAppearance>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut appearance = NativeWindowFrameAppearance::default();
@@ -17891,7 +17911,7 @@ fn native_window_frame_appearance_lua_table_from_query(
             "border_top_color" => &mut appearance.border_top_color,
             "border_bottom_color" => &mut appearance.border_bottom_color,
             "font" => {
-                appearance.font = parse_wezterm_font_value(source, value.trim());
+                appearance.font = parse_wezterm_font_value(static_source, source, value.trim());
                 parsed = true;
                 continue;
             }
@@ -17946,7 +17966,22 @@ fn native_window_frame_opaque_color_lua_value_from_query(
     )
 }
 
-fn parse_wezterm_font_value(source: &str, value: &str) -> Option<String> {
+fn parse_wezterm_font_value(
+    static_source: Option<LuaStaticSource<'_>>,
+    source: &str,
+    value: &str,
+) -> Option<String> {
+    let value_source = lua_source_slice_start_offset(source, value)
+        .map(|max_start| LuaStaticSource { source, max_start });
+    let resolved_value = static_source.or(value_source).and_then(|static_source| {
+        lua_static_wezterm_font_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    });
+    let value = resolved_value.as_deref().unwrap_or(value);
+
     lua_static_string_assignment_value_from_query(source, value)
         .and_then(parse_maybe_quoted_query_text)
         .or_else(|| parse_wezterm_font_table_family_value(source, value))
@@ -17973,7 +18008,7 @@ fn parse_wezterm_font_table_family_value(source: &str, value: &str) -> Option<St
 
 fn parse_wezterm_font_families_value(source: &str, value: &str) -> Option<Vec<String>> {
     parse_wezterm_font_with_fallback_families_value(source, value)
-        .or_else(|| parse_wezterm_font_value(source, value).map(|family| vec![family]))
+        .or_else(|| parse_wezterm_font_value(None, source, value).map(|family| vec![family]))
 }
 
 fn parse_wezterm_font_config_value(source: &str, value: &str) -> Option<NativeFontConfig> {
@@ -100415,6 +100450,31 @@ mod tests {
         let effective = app.native_effective_config().window_frame_appearance;
         assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
         assert_eq!(effective.border_left_color, Some(Color::Rgb(4, 5, 6)));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_font_static_alias_for_lua_window_frame_font() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local frame_font = wezterm.font
+
+            config.window_frame = {
+              font = frame_font 'Roboto Mono',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font static alias window_frame font config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_frame_appearance.font,
+            Some("Roboto Mono".to_owned())
+        );
     }
 
     #[test]
