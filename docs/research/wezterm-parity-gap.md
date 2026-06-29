@@ -2659,8 +2659,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Radial `16` defaults as stable per-pixel negative position offsets, and
   presets sampled through the same `colorgrad` crate family WezTerm uses.
   `colors = wezterm.color.gradient(...)` and the legacy
-  `colors = wezterm.gradient_colors(...)` helper forms now parse for static
-  inline gradient specs or static top-level gradient table variables.
+  `colors = wezterm.gradient_colors(...)` helper forms now parse directly or
+  through top-level static helper aliases for static inline gradient specs or
+  static top-level gradient table variables.
   Static Lua snippets for that subset now parse into native/effective config.
   Static WezTerm `config.background` tables now parse inline Color layer tables
   or top-level static Color layer table variables with source-over alpha
