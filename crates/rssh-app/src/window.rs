@@ -8305,10 +8305,23 @@ fn lua_config_font_assignment_from_query(source: &str, field: &str) -> Option<Na
 
 fn lua_config_font_rules_assignment_from_query(source: &str) -> Option<Vec<NativeFontRule>> {
     lua_config_table_assignment_with_insert_appends_with_max_start_from_query(source, "font_rules")
-        .and_then(|rules| native_font_rules_lua_table_from_query(source, &rules.value))
+        .and_then(|rules| {
+            native_font_rules_lua_table_from_query(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: rules.max_start,
+                }),
+                source,
+                &rules.value,
+            )
+        })
         .or_else(|| {
             lua_config_table_or_static_variable_assignment_from_query(source, "font_rules")
-                .and_then(|rules| native_font_rules_lua_table_from_query(source, rules))
+                .and_then(|rules| {
+                    let static_source = lua_source_slice_start_offset(source, rules)
+                        .map(|max_start| LuaStaticSource { source, max_start });
+                    native_font_rules_lua_table_from_query(static_source, source, rules)
+                })
         })
 }
 
@@ -18074,10 +18087,30 @@ fn parse_wezterm_font_families_value(source: &str, value: &str) -> Option<Vec<St
 }
 
 fn parse_wezterm_font_config_value(source: &str, value: &str) -> Option<NativeFontConfig> {
-    let resolved_value = lua_source_slice_start_offset(source, value).and_then(|max_start| {
-        lua_static_wezterm_font_value_assignment_before_offset_from_query(source, value, max_start)
-            .map(str::to_owned)
-            .or_else(|| lua_static_wezterm_font_alias_query_from_query(source, value, max_start))
+    parse_wezterm_font_config_value_with_static_source(None, source, value)
+}
+
+fn parse_wezterm_font_config_value_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    source: &str,
+    value: &str,
+) -> Option<NativeFontConfig> {
+    let value_source = lua_source_slice_start_offset(source, value)
+        .map(|max_start| LuaStaticSource { source, max_start });
+    let resolved_value = static_source.or(value_source).and_then(|static_source| {
+        lua_static_wezterm_font_value_assignment_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+        .map(str::to_owned)
+        .or_else(|| {
+            lua_static_wezterm_font_alias_query_from_query(
+                static_source.source,
+                value,
+                static_source.max_start,
+            )
+        })
     });
     let value = resolved_value.as_deref().unwrap_or(value);
     Some(NativeFontConfig {
@@ -18305,6 +18338,7 @@ fn parse_wezterm_font_with_fallback_families_value(
 }
 
 fn native_font_rules_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     source: &str,
     value: &str,
 ) -> Option<Vec<NativeFontRule>> {
@@ -18316,13 +18350,21 @@ fn native_font_rules_lua_table_from_query(
         if field.is_empty() {
             continue;
         }
-        rules.push(native_font_rule_lua_table_from_query(source, field)?);
+        rules.push(native_font_rule_lua_table_from_query(
+            static_source,
+            source,
+            field,
+        )?);
     }
 
     (!rules.is_empty()).then_some(rules)
 }
 
-fn native_font_rule_lua_table_from_query(source: &str, value: &str) -> Option<NativeFontRule> {
+fn native_font_rule_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    source: &str,
+    value: &str,
+) -> Option<NativeFontRule> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut rule = NativeFontRule::default();
 
@@ -18381,7 +18423,11 @@ fn native_font_rule_lua_table_from_query(source: &str, value: &str) -> Option<Na
                 );
             }
             "font" => {
-                let font_config = parse_wezterm_font_config_value(source, value)?;
+                let font_config = parse_wezterm_font_config_value_with_static_source(
+                    static_source,
+                    source,
+                    value,
+                )?;
                 let mut families = font_config.families.into_iter();
                 rule.font = families.next();
                 rule.font_fallbacks = families.collect();
@@ -98570,6 +98616,40 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font rule static font value config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font_rules.len(), 1);
+        assert_eq!(effective.font_rules[0].font.as_deref(), Some("Victor Mono"));
+        assert_eq!(
+            effective.font_rules[0].font_attributes.weight.as_deref(),
+            Some("Bold")
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_rule_insert_static_font_value() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local rule_font = wezterm.font {
+              family = 'Victor Mono',
+              weight = 'Bold',
+            }
+
+            config.font_rules = {}
+            table.insert(config.font_rules, {
+              italic = true,
+              intensity = 'Bold',
+              font = rule_font,
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm inserted font rule static font value config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
