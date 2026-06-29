@@ -1891,9 +1891,10 @@ keyboard, mouse, paste, resize
   `CompleteSelection` and `CompleteSelectionOrOpenLinkAtMouseCursor`
   destinations. Static WezTerm-style `config.hyperlink_rules` tables parse
   `regex`, `format`, and `highlight` fields, `table.insert` appends custom
-  rules, and direct, config-assignment static-alias, or return-table static-alias
-  `wezterm.default_hyperlink_rules()` values preserve default rules before
-  appended custom rules. Lua event wiring remains future parity work.
+  rules, and direct, config-assignment static-alias, return-table static-alias,
+  or returned-config-variable static-alias `wezterm.default_hyperlink_rules()`
+  values preserve default rules before appended custom rules. Lua event wiring
+  remains future parity work.
 - Implemented in v1: command-palette Reset Terminal injects RIS (`ESC c`) into
   the active pane output side, matching WezTerm-style `ResetTerminal`.
   Action-name `resetterminal` queries dispatch the same command.
