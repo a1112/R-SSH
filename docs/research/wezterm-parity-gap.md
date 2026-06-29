@@ -330,8 +330,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   and `wezterm.font_with_fallback` calls, including top-level static helper
   aliases, retaining the primary family, fallback families, and supported font
   attributes in effective config. `window_frame.font` also accepts top-level
-  static `wezterm.font` helper aliases and `wezterm.font { family = ... }`
-  static family variables for retained native titlebar font settings. Custom block
+  static `wezterm.font` helper aliases, static `wezterm.font(...)` value
+  variables, and `wezterm.font { family = ... }` static family variables for
+  retained native titlebar font settings. Custom block
   glyph, square-glyph overflow, COLR font rasterizer, SVG-font ignore,
   fallback-font coverage sorting and font-directory fallback-search, FreeType
   interpreter-version, PCF long-family-name, display pixel-geometry,
@@ -2909,8 +2910,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   active/inactive highlight plus quick-select label/match colors apply to
   overlay rendering, while input-selector/launcher label colors apply to
   default-mode shortcut labels. `window_frame.font` accepts top-level static
-  `wezterm.font` helper aliases and `wezterm.font { family = ... }` static
-  family variables for retained native titlebar font settings.
+  `wezterm.font` helper aliases, static `wezterm.font(...)` value variables,
+  and `wezterm.font { family = ... }` static family variables for retained
+  native titlebar font settings.
   Applying retained native/fancy titlebar colors, `window_frame` border
   widths/colors, font fields, and other non-terminal color fields to rendering
   remain later parity work.

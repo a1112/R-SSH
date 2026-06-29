@@ -8448,6 +8448,42 @@ fn lua_static_wezterm_font_alias_query_from_query(
     Some(format!("{}{}", kind.normalized_prefix(), rest))
 }
 
+fn lua_static_wezterm_font_value_assignment_before_offset_from_query<'a>(
+    source: &'a str,
+    query: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let variable = lua_identifier_literal_from_query(query)?;
+    let rest = query.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(variable) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        selected = lua_top_level_statement_value_from_query(value).and_then(|value| {
+            lua_wezterm_font_call_assignment_value_from_query_with_static_source(source, value)
+        });
+    }
+
+    selected
+}
+
 fn lua_static_wezterm_font_alias_kind_before_offset(
     source: &str,
     alias: &str,
@@ -17974,11 +18010,19 @@ fn parse_wezterm_font_value(
     let value_source = lua_source_slice_start_offset(source, value)
         .map(|max_start| LuaStaticSource { source, max_start });
     let resolved_value = static_source.or(value_source).and_then(|static_source| {
-        lua_static_wezterm_font_alias_query_from_query(
+        lua_static_wezterm_font_value_assignment_before_offset_from_query(
             static_source.source,
             value,
             static_source.max_start,
         )
+        .map(str::to_owned)
+        .or_else(|| {
+            lua_static_wezterm_font_alias_query_from_query(
+                static_source.source,
+                value,
+                static_source.max_start,
+            )
+        })
     });
     let value = resolved_value.as_deref().unwrap_or(value);
 
@@ -100507,6 +100551,33 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font table static family window_frame font config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_frame_appearance.font,
+            Some("Roboto Mono".to_owned())
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_font_static_value_for_lua_window_frame_font() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local frame_font = wezterm.font {
+              family = 'Roboto Mono',
+            }
+
+            config.window_frame = {
+              font = frame_font,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static font value window_frame font config");
         app.set_config_overrides(overrides);
 
         assert_eq!(
