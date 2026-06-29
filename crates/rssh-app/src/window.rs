@@ -7625,7 +7625,9 @@ fn apply_lua_colors_table_overrides(
         overrides.background_color = Some(background_color);
         parsed = true;
     }
-    if let Some(ansi_colors) = color_array_lua_table_field_from_query(colors, "ansi")? {
+    if let Some(ansi_colors) =
+        color_array_lua_table_field_from_query_with_static_source(static_source, colors, "ansi")?
+    {
         let mut palette = overrides
             .ansi_palette
             .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
@@ -7633,7 +7635,9 @@ fn apply_lua_colors_table_overrides(
         overrides.ansi_palette = Some(palette);
         parsed = true;
     }
-    if let Some(bright_colors) = color_array_lua_table_field_from_query(colors, "brights")? {
+    if let Some(bright_colors) =
+        color_array_lua_table_field_from_query_with_static_source(static_source, colors, "brights")?
+    {
         let mut palette = overrides
             .ansi_palette
             .unwrap_or(DEFAULT_ANSI_PALETTE_COLORS);
@@ -7641,15 +7645,21 @@ fn apply_lua_colors_table_overrides(
         overrides.ansi_palette = Some(palette);
         parsed = true;
     }
-    if let Some(indexed_palette) = indexed_palette_lua_table_field_from_query(colors)? {
+    if let Some(indexed_palette) =
+        indexed_palette_lua_table_field_from_query_with_static_source(static_source, colors)?
+    {
         overrides.indexed_palette = Some(indexed_palette);
         parsed = true;
     }
-    if let Some(selection_fg_color) = selection_fg_lua_table_field_from_query(colors)? {
+    if let Some(selection_fg_color) =
+        selection_fg_lua_table_field_from_query_with_static_source(static_source, colors)?
+    {
         overrides.selection_fg_color = Some(selection_fg_color);
         parsed = true;
     }
-    if let Some(selection_bg_color) = selection_bg_lua_table_field_from_query(colors)? {
+    if let Some(selection_bg_color) =
+        selection_bg_lua_table_field_from_query_with_static_source(static_source, colors)?
+    {
         overrides.selection_bg_color = Some(selection_bg_color);
         parsed = true;
     }
@@ -7734,59 +7744,99 @@ fn apply_lua_colors_table_overrides(
         overrides.visual_bell_color = Some(visual_bell_color);
         parsed = true;
     }
-    if let Some(color) =
-        color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_bg")?
-    {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "copy_mode_active_highlight_bg",
+    )? {
         overrides.copy_mode_active_highlight_bg = Some(color);
         parsed = true;
     }
-    if let Some(color) =
-        color_spec_lua_table_field_from_query(colors, "copy_mode_active_highlight_fg")?
-    {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "copy_mode_active_highlight_fg",
+    )? {
         overrides.copy_mode_active_highlight_fg = Some(color);
         parsed = true;
     }
-    if let Some(color) =
-        color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_bg")?
-    {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "copy_mode_inactive_highlight_bg",
+    )? {
         overrides.copy_mode_inactive_highlight_bg = Some(color);
         parsed = true;
     }
-    if let Some(color) =
-        color_spec_lua_table_field_from_query(colors, "copy_mode_inactive_highlight_fg")?
-    {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "copy_mode_inactive_highlight_fg",
+    )? {
         overrides.copy_mode_inactive_highlight_fg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_bg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "quick_select_label_bg",
+    )? {
         overrides.quick_select_label_bg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_label_fg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "quick_select_label_fg",
+    )? {
         overrides.quick_select_label_fg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_bg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "quick_select_match_bg",
+    )? {
         overrides.quick_select_match_bg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "quick_select_match_fg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "quick_select_match_fg",
+    )? {
         overrides.quick_select_match_fg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "input_selector_label_bg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "input_selector_label_bg",
+    )? {
         overrides.input_selector_label_bg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "input_selector_label_fg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "input_selector_label_fg",
+    )? {
         overrides.input_selector_label_fg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_bg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "launcher_label_bg",
+    )? {
         overrides.launcher_label_bg = Some(color);
         parsed = true;
     }
-    if let Some(color) = color_spec_lua_table_field_from_query(colors, "launcher_label_fg")? {
+    if let Some(color) = color_spec_lua_table_field_from_query_with_static_source(
+        static_source,
+        colors,
+        "launcher_label_fg",
+    )? {
         overrides.launcher_label_fg = Some(color);
         parsed = true;
     }
@@ -45487,6 +45537,30 @@ fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Opt
     color_lua_table_field_from_query_with_static_source(None, value, field_name)
 }
 
+fn lua_color_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> String {
+    lua_static_wezterm_color_parse_alias_query_from_query(static_source, value)
+        .unwrap_or_else(|| value.to_owned())
+}
+
+fn lua_color_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Color> {
+    let value = lua_color_query_with_static_source(static_source, value);
+    lua_color_from_query(&value)
+}
+
+fn lua_opaque_color_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Color> {
+    let value = lua_color_query_with_static_source(static_source, value);
+    lua_opaque_color_from_query(&value)
+}
+
 fn color_lua_table_field_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -45511,9 +45585,10 @@ fn color_lua_table_field_from_query_with_static_source(
             return None;
         }
         let value = parse_maybe_quoted_query_text(value.trim())?;
-        let value = lua_static_wezterm_color_parse_alias_query_from_query(static_source, &value)
-            .unwrap_or(value);
-        color = Some(lua_opaque_color_from_query(&value)?);
+        color = Some(lua_opaque_color_from_query_with_static_source(
+            static_source,
+            &value,
+        )?);
     }
 
     Some(color)
@@ -45571,7 +45646,8 @@ fn lua_static_wezterm_color_parse_alias_before_offset(
     Some(selected)
 }
 
-fn color_spec_lua_table_field_from_query(
+fn color_spec_lua_table_field_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     field_name: &str,
 ) -> Option<Option<NativeColorSpec>> {
@@ -45593,13 +45669,23 @@ fn color_spec_lua_table_field_from_query(
         if color.is_some() {
             return None;
         }
-        color = Some(lua_color_spec_from_query(value.trim())?);
+        color = Some(lua_color_spec_from_query_with_static_source(
+            static_source,
+            value.trim(),
+        )?);
     }
 
     Some(color)
 }
 
 fn lua_color_spec_from_query(value: &str) -> Option<NativeColorSpec> {
+    lua_color_spec_from_query_with_static_source(None, value)
+}
+
+fn lua_color_spec_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeColorSpec> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut color = None;
 
@@ -45615,7 +45701,10 @@ fn lua_color_spec_from_query(value: &str) -> Option<NativeColorSpec> {
         }
         let value = parse_maybe_quoted_query_text(value.trim())?;
         color = Some(match key.as_str() {
-            "Color" => NativeColorSpec::Color(lua_opaque_color_from_query(&value)?),
+            "Color" => NativeColorSpec::Color(lua_opaque_color_from_query_with_static_source(
+                static_source,
+                &value,
+            )?),
             "AnsiColor" => NativeColorSpec::AnsiColor(NativeAnsiColor::parse(&value)?),
             _ => return None,
         });
@@ -45624,7 +45713,10 @@ fn lua_color_spec_from_query(value: &str) -> Option<NativeColorSpec> {
     color
 }
 
-fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<Color>>> {
+fn selection_fg_lua_table_field_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Option<Option<Color>>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut color = None;
 
@@ -45644,6 +45736,7 @@ fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<
             return None;
         }
         let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = lua_color_query_with_static_source(static_source, &value);
         color = Some(if value.eq_ignore_ascii_case("none") {
             None
         } else {
@@ -45654,7 +45747,10 @@ fn selection_fg_lua_table_field_from_query(value: &str) -> Option<Option<Option<
     Some(color)
 }
 
-fn selection_bg_lua_table_field_from_query(value: &str) -> Option<Option<Color>> {
+fn selection_bg_lua_table_field_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Option<Color>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut color = None;
 
@@ -45674,13 +45770,17 @@ fn selection_bg_lua_table_field_from_query(value: &str) -> Option<Option<Color>>
             return None;
         }
         let value = parse_maybe_quoted_query_text(value.trim())?;
-        color = Some(lua_color_from_query(&value)?);
+        color = Some(lua_color_from_query_with_static_source(
+            static_source,
+            &value,
+        )?);
     }
 
     Some(color)
 }
 
-fn color_array_lua_table_field_from_query(
+fn color_array_lua_table_field_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     field_name: &str,
 ) -> Option<Option<[Color; 8]>> {
@@ -45702,10 +45802,10 @@ fn color_array_lua_table_field_from_query(
         if colors.is_some() {
             return None;
         }
-        let values = split_lua_table_string_array(value.trim())?;
+        let values = split_lua_table_string_array_with_static_source(static_source, value.trim())?;
         let parsed = values
             .iter()
-            .map(|value| lua_opaque_color_from_query(value))
+            .map(|value| lua_opaque_color_from_query_with_static_source(static_source, value))
             .collect::<Option<Vec<_>>>()?;
         colors = Some(<[Color; 8]>::try_from(parsed).ok()?);
     }
@@ -45713,7 +45813,10 @@ fn color_array_lua_table_field_from_query(
     Some(colors)
 }
 
-fn indexed_palette_lua_table_field_from_query(value: &str) -> Option<Option<[Option<Color>; 256]>> {
+fn indexed_palette_lua_table_field_from_query_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Option<[Option<Color>; 256]>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut indexed_palette = None;
 
@@ -45746,7 +45849,10 @@ fn indexed_palette_lua_table_field_from_query(value: &str) -> Option<Option<[Opt
                 return None;
             }
             let color = parse_maybe_quoted_query_text(color.trim())?;
-            palette[index] = Some(lua_opaque_color_from_query(&color)?);
+            palette[index] = Some(lua_opaque_color_from_query_with_static_source(
+                static_source,
+                &color,
+            )?);
         }
         indexed_palette = Some(palette);
     }
@@ -61719,6 +61825,56 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(16, 17, 18));
         assert_eq!(effective.background_color, Color::Rgb(19, 20, 21));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(22, 23, 24));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_palette_and_color_spec_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.colors = {
+              ansi = {
+                parse_color('#010203'), parse_color('#040506'),
+                parse_color('#070809'), parse_color('#0a0b0c'),
+                parse_color('#0d0e0f'), parse_color('#101112'),
+                parse_color('#131415'), parse_color('#161718'),
+              },
+              brights = {
+                parse_color('#191a1b'), parse_color('#1c1d1e'),
+                parse_color('#1f2021'), parse_color('#222324'),
+                parse_color('#252627'), parse_color('#28292a'),
+                parse_color('#2b2c2d'), parse_color('#2e2f30'),
+              },
+              indexed = {
+                [16] = parse_color('#313233'),
+                [136] = parse_color('rgb(64,65,66)'),
+              },
+              copy_mode_active_highlight_bg = { Color = parse_color('#434445') },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse static alias palette config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let palette = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(palette[0], Color::Rgb(1, 2, 3));
+        assert_eq!(palette[7], Color::Rgb(22, 23, 24));
+        assert_eq!(palette[8], Color::Rgb(25, 26, 27));
+        assert_eq!(palette[15], Color::Rgb(46, 47, 48));
+        let indexed = effective.indexed_palette.expect("expected indexed palette");
+        assert_eq!(indexed[16], Some(Color::Rgb(49, 50, 51)));
+        assert_eq!(indexed[136], Some(Color::Rgb(64, 65, 66)));
+        assert_eq!(
+            effective.copy_mode_active_highlight_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(67, 68, 69)))
+        );
     }
 
     #[test]
