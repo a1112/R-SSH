@@ -5179,7 +5179,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             &hyperlink_rules.value,
             hyperlink_rules.max_start,
         )?;
-        if lua_config_hyperlink_rules_extends_default_rules_before_offset(
+        if let Some(default_rules) = lua_config_hyperlink_rules_default_rules_with_static_inserts(
+            config,
+            hyperlink_rules.max_start,
+        ) {
+            overrides.hyperlink_rules = Some(default_rules);
+        } else if lua_config_hyperlink_rules_extends_default_rules_before_offset(
             config,
             hyperlink_rules.max_start,
         )
@@ -16545,6 +16550,106 @@ fn lua_config_hyperlink_rules_extends_default_rules_before_offset(
     }
 
     Some(extends_default)
+}
+
+fn lua_config_hyperlink_rules_default_rules_with_static_inserts(
+    source: &str,
+    max_start: usize,
+) -> Option<Vec<NativeHyperlinkRule>> {
+    let variable =
+        lua_config_hyperlink_rules_static_value_variable_before_offset(source, max_start)?;
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        source, variable, max_start,
+    )?;
+    if !lua_wezterm_default_hyperlink_rules_value_from_query(value) {
+        return None;
+    }
+
+    let mut rules = default_hyperlink_rules();
+    let mut inserted = false;
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let Some(insert) =
+            lua_static_table_variable_insert_append_value_from_query(source, start, variable)
+        else {
+            continue;
+        };
+        let rule = native_hyperlink_rule_lua_table_from_query(source, &insert.value, start)?;
+        if let Some(position) = insert.position {
+            let index = position.saturating_sub(1).min(rules.len());
+            rules.insert(index, rule);
+        } else {
+            rules.push(rule);
+        }
+        inserted = true;
+    }
+
+    inserted.then_some(rules)
+}
+
+fn lua_config_hyperlink_rules_static_value_variable_before_offset<'a>(
+    source: &'a str,
+    max_start: usize,
+) -> Option<&'a str> {
+    if let Some(table) = lua_config_static_return_table_from_query(source)
+        && lua_source_slice_start_offset(source, table) == Some(max_start)
+        && let Some(variable) =
+            lua_config_table_hyperlink_rules_static_value_variable(table, source, max_start)
+    {
+        return Some(variable);
+    }
+
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    if let Some(returned_table) =
+        lua_static_table_variable_assignment_before_offset_from_query(source, receiver, max_start)
+            .or_else(|| {
+                lua_static_table_variable_assignment_at_offset_from_query(
+                    source, receiver, max_start,
+                )
+            })
+        && let Some(variable) = lua_config_table_hyperlink_rules_static_value_variable(
+            returned_table
+                .trim()
+                .strip_prefix('{')?
+                .strip_suffix('}')?
+                .trim(),
+            source,
+            max_start,
+        )
+    {
+        return Some(variable);
+    }
+
+    None
+}
+
+fn lua_config_table_hyperlink_rules_static_value_variable<'a>(
+    table: &'a str,
+    source: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let static_source = Some(LuaStaticSource { source, max_start });
+
+    for table_field in split_lua_table_top_level_fields(table)? {
+        let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
+            continue;
+        };
+        let Some(key) =
+            split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+        else {
+            continue;
+        };
+        if key != "hyperlink_rules" {
+            continue;
+        }
+        let value = lua_trim_start_comments(value)?;
+        let variable = lua_identifier_literal_from_query(value)?;
+        let rest = value.get(variable.len()..)?;
+        if lua_static_identifier_value_rest_is_statement_end(rest) {
+            return Some(variable);
+        }
+    }
+
+    None
 }
 
 fn lua_static_table_variable_assignment_at_offset_from_query<'a>(
@@ -97994,6 +98099,41 @@ mod tests {
                 highlight: 1,
             })
         );
+    }
+
+    #[test]
+    fn window_app_preserves_positioned_default_hyperlink_rule_insert_from_wezterm_lua_config() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local rules = wezterm.default_hyperlink_rules()
+            table.insert(rules, 1, {
+              regex = [[\bPR-(\d+)\b]],
+              format = 'https://reviews.example/$1',
+              highlight = 1,
+            })
+
+            return {
+              hyperlink_rules = rules,
+            }
+            "#,
+        )
+        .expect("expected WezTerm positioned default hyperlink_rules extension config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let defaults = default_hyperlink_rules();
+        assert_eq!(effective.hyperlink_rules.len(), defaults.len() + 1);
+        assert_eq!(
+            effective.hyperlink_rules.first(),
+            Some(&NativeHyperlinkRule {
+                regex: r"\bPR-(\d+)\b".to_owned(),
+                format: "https://reviews.example/$1".to_owned(),
+                highlight: 1,
+            })
+        );
+        assert_eq!(&effective.hyperlink_rules[1..], defaults.as_slice());
     }
 
     #[test]
