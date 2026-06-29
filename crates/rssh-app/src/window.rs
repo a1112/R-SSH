@@ -4771,11 +4771,9 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(integrated_title_button_color) =
-        lua_config_string_assignment_from_query(config, "integrated_title_button_color")
+        lua_config_integrated_title_button_color_assignment_from_query(config)
     {
-        overrides.integrated_title_button_color = Some(NativeIntegratedTitleButtonColor::parse(
-            &integrated_title_button_color,
-        )?);
+        overrides.integrated_title_button_color = Some(integrated_title_button_color);
         parsed = true;
     }
     if let Some(integrated_title_button_style) =
@@ -8256,6 +8254,17 @@ fn lua_config_opaque_color_assignment_from_query(source: &str, field: &str) -> O
     Some(opaque_color(lua_config_color_assignment_from_query(
         source, field,
     )?))
+}
+
+fn lua_config_integrated_title_button_color_assignment_from_query(
+    source: &str,
+) -> Option<NativeIntegratedTitleButtonColor> {
+    lua_config_string_assignment_from_query(source, "integrated_title_button_color")
+        .and_then(|value| NativeIntegratedTitleButtonColor::parse(&value))
+        .or_else(|| {
+            lua_config_opaque_color_assignment_from_query(source, "integrated_title_button_color")
+                .map(NativeIntegratedTitleButtonColor::Color)
+        })
 }
 
 #[allow(dead_code)]
@@ -100368,6 +100377,29 @@ mod tests {
         assert_eq!(
             effective.integrated_title_button_style,
             NativeIntegratedTitleButtonStyle::Gnome
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_integrated_title_button_color() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.integrated_title_button_color = parse_color('rgba(4,5,6,0.5)')
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse integrated title button color config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().integrated_title_button_color,
+            NativeIntegratedTitleButtonColor::Color(Color::Rgb(4, 5, 6))
         );
     }
 
