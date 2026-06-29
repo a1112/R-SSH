@@ -2663,9 +2663,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   through top-level static helper aliases for static inline gradient specs or
   static top-level gradient table variables.
   Static `config.colors` scalar, ANSI/bright/indexed palette, selection,
-  tab-bar, visual-bell, and ColorSpec fields plus static `config.colors`
-  variable mutations now also accept `wezterm.color.parse(...)` calls,
-  including top-level static aliases such as
+  tab-bar, visual-bell, selector overlay colors, and ColorSpec fields plus
+  static `config.colors` variable mutations now also accept
+  `wezterm.color.parse(...)` calls, including top-level static aliases such as
   `local parse_color = wezterm.color.parse`.
   Static Lua snippets for that subset now parse into native/effective config.
   Static WezTerm `config.background` tables now parse inline Color layer tables

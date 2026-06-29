@@ -5042,27 +5042,27 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(command_palette_bg_color) =
-        lua_config_string_assignment_from_query(config, "command_palette_bg_color")
+        lua_config_color_assignment_from_query(config, "command_palette_bg_color")
     {
-        overrides.command_palette_bg_color = Some(lua_color_from_query(&command_palette_bg_color)?);
+        overrides.command_palette_bg_color = Some(command_palette_bg_color);
         parsed = true;
     }
     if let Some(command_palette_fg_color) =
-        lua_config_string_assignment_from_query(config, "command_palette_fg_color")
+        lua_config_color_assignment_from_query(config, "command_palette_fg_color")
     {
-        overrides.command_palette_fg_color = Some(lua_color_from_query(&command_palette_fg_color)?);
+        overrides.command_palette_fg_color = Some(command_palette_fg_color);
         parsed = true;
     }
     if let Some(char_select_bg_color) =
-        lua_config_string_assignment_from_query(config, "char_select_bg_color")
+        lua_config_color_assignment_from_query(config, "char_select_bg_color")
     {
-        overrides.char_select_bg_color = Some(lua_color_from_query(&char_select_bg_color)?);
+        overrides.char_select_bg_color = Some(char_select_bg_color);
         parsed = true;
     }
     if let Some(char_select_fg_color) =
-        lua_config_string_assignment_from_query(config, "char_select_fg_color")
+        lua_config_color_assignment_from_query(config, "char_select_fg_color")
     {
-        overrides.char_select_fg_color = Some(lua_color_from_query(&char_select_fg_color)?);
+        overrides.char_select_fg_color = Some(char_select_fg_color);
         parsed = true;
     }
     if let Some(char_select_font) =
@@ -5092,15 +5092,15 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         parsed = true;
     }
     if let Some(pane_select_bg_color) =
-        lua_config_string_assignment_from_query(config, "pane_select_bg_color")
+        lua_config_color_assignment_from_query(config, "pane_select_bg_color")
     {
-        overrides.pane_select_bg_color = Some(lua_color_from_query(&pane_select_bg_color)?);
+        overrides.pane_select_bg_color = Some(pane_select_bg_color);
         parsed = true;
     }
     if let Some(pane_select_fg_color) =
-        lua_config_string_assignment_from_query(config, "pane_select_fg_color")
+        lua_config_color_assignment_from_query(config, "pane_select_fg_color")
     {
-        overrides.pane_select_fg_color = Some(lua_color_from_query(&pane_select_fg_color)?);
+        overrides.pane_select_fg_color = Some(pane_select_fg_color);
         parsed = true;
     }
     if let Some(use_cap_height_to_scale_fallback_fonts) =
@@ -8226,6 +8226,31 @@ fn lua_config_string_assignment_from_query(source: &str, field: &str) -> Option<
         lua_static_string_assignment_value_from_query(source, value)
     })
     .and_then(parse_maybe_quoted_query_text)
+}
+
+fn lua_config_color_assignment_from_query(source: &str, field: &str) -> Option<Color> {
+    let value =
+        lua_config_assignment_from_query(source, field, lua_top_level_statement_value_from_query)?;
+    let max_start = lua_source_slice_start_offset(source, value)?;
+    let mut value_max_start = max_start;
+
+    let value = if let Some(value) =
+        lua_static_string_assignment_value_before_offset_from_query(source, value, max_start)
+    {
+        value_max_start = lua_source_slice_start_offset(source, value).unwrap_or(value_max_start);
+        value
+    } else {
+        value
+    };
+
+    let value = parse_maybe_quoted_query_text(value)?;
+    lua_color_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: value_max_start,
+        }),
+        &value,
+    )
 }
 
 #[allow(dead_code)]
@@ -97168,6 +97193,46 @@ mod tests {
             effective.pane_select_fg_color,
             Some(Color::Rgb(0x44, 0x55, 0x66))
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_selector_overlay_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.command_palette_bg_color = parse_color('#010203')
+            config.command_palette_fg_color = parse_color('#040506')
+            config.char_select_bg_color = parse_color('#070809')
+            config.char_select_fg_color = parse_color('#0a0b0c')
+            config.pane_select_bg_color = parse_color('rgba(13,14,15,0.5)')
+            config.pane_select_fg_color = parse_color('#101112')
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse selector overlay color config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.command_palette_bg_color,
+            Some(Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.command_palette_fg_color,
+            Some(Color::Rgb(4, 5, 6))
+        );
+        assert_eq!(effective.char_select_bg_color, Some(Color::Rgb(7, 8, 9)));
+        assert_eq!(effective.char_select_fg_color, Some(Color::Rgb(10, 11, 12)));
+        assert_eq!(
+            effective.pane_select_bg_color,
+            Some(Color::Rgba(13, 14, 15, 127))
+        );
+        assert_eq!(effective.pane_select_fg_color, Some(Color::Rgb(16, 17, 18)));
     }
 
     #[test]
