@@ -7703,44 +7703,50 @@ fn apply_lua_colors_table_overrides(
         overrides.scrollbar_thumb_color = Some(scrollbar_thumb_color);
         parsed = true;
     }
-    if let Some(tab_bar_background_color) = tab_bar_background_lua_table_from_query(colors)? {
+    if let Some(tab_bar_background_color) =
+        tab_bar_background_lua_table_from_query(static_source, colors)?
+    {
         overrides.tab_bar_background_color = Some(tab_bar_background_color);
         parsed = true;
     }
     if let Some(tab_bar_inactive_tab_edge_color) =
-        tab_bar_inactive_tab_edge_lua_table_from_query(colors)?
+        tab_bar_inactive_tab_edge_lua_table_from_query(static_source, colors)?
     {
         overrides.tab_bar_inactive_tab_edge_color = Some(tab_bar_inactive_tab_edge_color);
         parsed = true;
     }
-    if let Some(active_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "active_tab")?
+    if let Some(active_tab_colors) =
+        tab_bar_item_colors_lua_table_from_query(static_source, colors, "active_tab")?
     {
         overrides.tab_bar_active_tab_colors = active_tab_colors;
         parsed = true;
     }
     if let Some(inactive_tab_colors) =
-        tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab")?
+        tab_bar_item_colors_lua_table_from_query(static_source, colors, "inactive_tab")?
     {
         overrides.tab_bar_inactive_tab_colors = inactive_tab_colors;
         parsed = true;
     }
     if let Some(inactive_tab_hover_colors) =
-        tab_bar_item_colors_lua_table_from_query(colors, "inactive_tab_hover")?
+        tab_bar_item_colors_lua_table_from_query(static_source, colors, "inactive_tab_hover")?
     {
         overrides.tab_bar_inactive_tab_hover_colors = inactive_tab_hover_colors;
         parsed = true;
     }
-    if let Some(new_tab_colors) = tab_bar_item_colors_lua_table_from_query(colors, "new_tab")? {
+    if let Some(new_tab_colors) =
+        tab_bar_item_colors_lua_table_from_query(static_source, colors, "new_tab")?
+    {
         overrides.tab_bar_new_tab_colors = new_tab_colors;
         parsed = true;
     }
     if let Some(new_tab_hover_colors) =
-        tab_bar_item_colors_lua_table_from_query(colors, "new_tab_hover")?
+        tab_bar_item_colors_lua_table_from_query(static_source, colors, "new_tab_hover")?
     {
         overrides.tab_bar_new_tab_hover_colors = new_tab_hover_colors;
         parsed = true;
     }
-    if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(colors)? {
+    if let Some(visual_bell_color) = visual_bell_color_lua_table_from_query(static_source, colors)?
+    {
         overrides.visual_bell_color = Some(visual_bell_color);
         parsed = true;
     }
@@ -44887,19 +44893,29 @@ fn native_visual_bell_lua_table_from_query<'a>(
     Some(visual_bell)
 }
 
-fn visual_bell_color_lua_table_from_query(value: &str) -> Option<Option<Color>> {
-    color_lua_table_field_from_query(value, "visual_bell")
+fn visual_bell_color_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Option<Color>> {
+    color_lua_table_field_from_query_with_static_source(static_source, value, "visual_bell")
 }
 
-fn tab_bar_background_lua_table_from_query(value: &str) -> Option<Option<Color>> {
-    tab_bar_color_lua_table_field_from_query(value, "background")
+fn tab_bar_background_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Option<Color>> {
+    tab_bar_color_lua_table_field_from_query(static_source, value, "background")
 }
 
-fn tab_bar_inactive_tab_edge_lua_table_from_query(value: &str) -> Option<Option<Color>> {
-    tab_bar_color_lua_table_field_from_query(value, "inactive_tab_edge")
+fn tab_bar_inactive_tab_edge_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Option<Color>> {
+    tab_bar_color_lua_table_field_from_query(static_source, value, "inactive_tab_edge")
 }
 
 fn tab_bar_color_lua_table_field_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     field_name: &str,
 ) -> Option<Option<Color>> {
@@ -44921,13 +44937,18 @@ fn tab_bar_color_lua_table_field_from_query(
         if color.is_some() {
             return None;
         }
-        color = color_lua_table_field_from_query(value.trim(), field_name)?;
+        color = color_lua_table_field_from_query_with_static_source(
+            static_source,
+            value.trim(),
+            field_name,
+        )?;
     }
 
     Some(color)
 }
 
 fn tab_bar_item_colors_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     item_name: &str,
 ) -> Option<Option<NativeTabBarItemColors>> {
@@ -44955,12 +44976,14 @@ fn tab_bar_item_colors_lua_table_from_query(
         let value = value.trim();
         match key.as_str() {
             "fg_color" => {
-                colors.fg_color = Some(lua_opaque_color_from_query(
+                colors.fg_color = Some(lua_opaque_color_from_query_with_static_source(
+                    static_source,
                     &parse_maybe_quoted_query_text(value)?,
                 )?);
             }
             "bg_color" => {
-                colors.bg_color = Some(lua_opaque_color_from_query(
+                colors.bg_color = Some(lua_opaque_color_from_query_with_static_source(
+                    static_source,
                     &parse_maybe_quoted_query_text(value)?,
                 )?);
             }
@@ -45531,10 +45554,6 @@ fn lua_table_field_value_from_query<'a>(
     }
 
     Some(found)
-}
-
-fn color_lua_table_field_from_query(value: &str, field_name: &str) -> Option<Option<Color>> {
-    color_lua_table_field_from_query_with_static_source(None, value, field_name)
 }
 
 fn lua_color_query_with_static_source(
@@ -61875,6 +61894,53 @@ mod tests {
             effective.copy_mode_active_highlight_bg,
             Some(NativeColorSpec::Color(Color::Rgb(67, 68, 69)))
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_tab_bar_and_visual_bell_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.colors = {
+              tab_bar = {
+                background = parse_color('#010203'),
+                inactive_tab_edge = parse_color('#040506'),
+                active_tab = {
+                  bg_color = parse_color('#070809'),
+                  fg_color = parse_color('#0a0b0c'),
+                },
+              },
+              visual_bell = parse_color('#0d0e0f'),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse static alias tab_bar config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.tab_bar_background_color,
+            Some(Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.tab_bar_inactive_tab_edge_color,
+            Some(Color::Rgb(4, 5, 6))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.bg_color,
+            Some(Color::Rgb(7, 8, 9))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.fg_color,
+            Some(Color::Rgb(10, 11, 12))
+        );
+        assert_eq!(effective.visual_bell_color, Some(Color::Rgb(13, 14, 15)));
     }
 
     #[test]
