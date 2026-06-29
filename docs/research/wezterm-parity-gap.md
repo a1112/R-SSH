@@ -2833,7 +2833,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   alpha blending over the current cell background. Copy-mode/quick-select
   label/match `Color`/`AnsiColor` tables now parse into native/effective config,
   including top-level `config.colors = colors` table variables with supported
-  static field mutations and static string variable bracket keys,
+  static field mutations, static string variable bracket keys, and direct
+  nested `config.colors.quick_select_match_bg.Color = '#101010'`-style
+  ColorSpec mutations,
   `copy_mode_active_highlight_bg`/`copy_mode_active_highlight_fg` apply to
   copy-mode selections, `copy_mode_inactive_highlight_bg`/
   `copy_mode_inactive_highlight_fg` apply to non-current copy-mode search

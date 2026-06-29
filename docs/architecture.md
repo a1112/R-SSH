@@ -1621,7 +1621,9 @@ keyboard, mouse, paste, resize
   `colors.ansi[2] = '#101010'`, tab-bar nested mutations such as
   `colors.tab_bar.active_tab.bg_color = '#101010'`, static-key config
   mutations such as `config[colors_field].tab_bar[tab_field].bg_color` where
-  the keys resolve to `colors` and a supported tab-bar item, or multiline table
+  the keys resolve to `colors` and a supported tab-bar item, direct ColorSpec
+  nested mutations such as
+  `config.colors.quick_select_match_bg.Color = '#101010'`, or multiline table
   mutations such as `colors.ansi = { ... }` before assignment. When complete
   `config.colors`
   table assignments, static table-variable `config.colors = colors`
