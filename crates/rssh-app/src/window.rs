@@ -16509,11 +16509,27 @@ fn lua_config_hyperlink_rules_extends_default_rules_before_offset(
         let Some(value) = after_field.strip_prefix('=') else {
             continue;
         };
-        extends_default =
-            lua_wezterm_default_hyperlink_rules_value_from_query(lua_trim_start_comments(value)?);
+        extends_default = lua_wezterm_default_hyperlink_rules_value_from_query_with_static_source(
+            source,
+            lua_trim_start_comments(value)?,
+            start,
+        );
     }
 
     Some(extends_default)
+}
+
+fn lua_wezterm_default_hyperlink_rules_value_from_query_with_static_source(
+    source: &str,
+    query: &str,
+    max_start: usize,
+) -> bool {
+    if lua_wezterm_default_hyperlink_rules_value_from_query(query) {
+        return true;
+    }
+
+    lua_static_expression_assignment_value_before_offset_from_query(source, query, max_start)
+        .is_some_and(lua_wezterm_default_hyperlink_rules_value_from_query)
 }
 
 fn lua_wezterm_default_hyperlink_rules_value_from_query(query: &str) -> bool {
@@ -97790,6 +97806,45 @@ mod tests {
                 && rule.format == "https://tickets.example/$1"
                 && rule.highlight == 1
         }));
+    }
+
+    #[test]
+    fn window_app_extends_static_default_hyperlink_rules_from_wezterm_lua_config() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local rules = wezterm.default_hyperlink_rules()
+
+            config.hyperlink_rules = rules
+            table.insert(config.hyperlink_rules, {
+              regex = [[\bBUG-(\d+)\b]],
+              format = 'https://bugs.example/$1',
+              highlight = 1,
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static default hyperlink_rules extension config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let defaults = default_hyperlink_rules();
+        assert_eq!(effective.hyperlink_rules.len(), defaults.len() + 1);
+        assert_eq!(
+            &effective.hyperlink_rules[..defaults.len()],
+            defaults.as_slice()
+        );
+        assert_eq!(
+            effective.hyperlink_rules.last(),
+            Some(&NativeHyperlinkRule {
+                regex: r"\bBUG-(\d+)\b".to_owned(),
+                format: "https://bugs.example/$1".to_owned(),
+                highlight: 1,
+            })
+        );
     }
 
     #[test]
