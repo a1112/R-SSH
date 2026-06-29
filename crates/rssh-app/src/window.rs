@@ -13151,6 +13151,18 @@ fn lua_color_variable_mutation_table_from_query(
         if value.is_empty() {
             continue;
         }
+        if matches!(field_name.as_str(), "ansi" | "brights") {
+            let value = value.trim();
+            if value.starts_with('{')
+                && value
+                    .strip_prefix('{')?
+                    .strip_suffix('}')?
+                    .trim()
+                    .is_empty()
+            {
+                continue;
+            }
+        }
         if field_name == "indexed" {
             let indexed_table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
             for entry in split_lua_table_top_level_fields(indexed_table)? {
@@ -13220,16 +13232,46 @@ fn apply_lua_color_variable_palette_slot_mutation_overrides(
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             let value = parse_maybe_quoted_query_text(value)?;
-            palette[offset + index - 1] = lua_opaque_color_from_query(&value)?;
+            palette[offset + index - 1] = lua_opaque_color_from_query_with_static_source(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+                &value,
+            )?;
         } else {
             let Some(value) = rest.strip_prefix('=') else {
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            let values = split_lua_table_string_array(value)?;
+            let trimmed_value = value.trim();
+            if trimmed_value.starts_with('{')
+                && trimmed_value
+                    .strip_prefix('{')?
+                    .strip_suffix('}')?
+                    .trim()
+                    .is_empty()
+            {
+                continue;
+            }
+            let values = split_lua_table_string_array_with_static_source(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+                value,
+            )?;
             let colors = values
                 .iter()
-                .map(|value| lua_opaque_color_from_query(value))
+                .map(|value| {
+                    lua_opaque_color_from_query_with_static_source(
+                        Some(LuaStaticSource {
+                            source,
+                            max_start: start,
+                        }),
+                        value,
+                    )
+                })
                 .collect::<Option<Vec<_>>>()?;
             let colors = <[Color; 8]>::try_from(colors).ok()?;
             palette[offset..offset + 8].copy_from_slice(&colors);
@@ -13301,7 +13343,10 @@ fn apply_lua_tab_bar_color_mutation_rest(
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         let value = parse_maybe_quoted_query_text(value)?;
-        overrides.tab_bar_background_color = Some(lua_opaque_color_from_query(&value)?);
+        overrides.tab_bar_background_color = Some(lua_opaque_color_from_query_with_static_source(
+            Some(LuaStaticSource { source, max_start }),
+            &value,
+        )?);
         return Some(true);
     }
     if tab_bar_field == "inactive_tab_edge" {
@@ -13310,7 +13355,11 @@ fn apply_lua_tab_bar_color_mutation_rest(
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         let value = parse_maybe_quoted_query_text(value)?;
-        overrides.tab_bar_inactive_tab_edge_color = Some(lua_opaque_color_from_query(&value)?);
+        overrides.tab_bar_inactive_tab_edge_color =
+            Some(lua_opaque_color_from_query_with_static_source(
+                Some(LuaStaticSource { source, max_start }),
+                &value,
+            )?);
         return Some(true);
     }
 
@@ -13336,7 +13385,13 @@ fn apply_lua_tab_bar_color_mutation_rest(
         return Some(false);
     };
     let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-    apply_lua_tab_bar_item_color_mutation(overrides, &tab_bar_field, &item_field, value)
+    apply_lua_tab_bar_item_color_mutation(
+        Some(LuaStaticSource { source, max_start }),
+        overrides,
+        &tab_bar_field,
+        &item_field,
+        value,
+    )
 }
 
 fn lua_tab_bar_item_color_name(value: &str) -> bool {
@@ -13347,6 +13402,7 @@ fn lua_tab_bar_item_color_name(value: &str) -> bool {
 }
 
 fn apply_lua_tab_bar_item_color_mutation(
+    static_source: Option<LuaStaticSource<'_>>,
     overrides: &mut NativeConfigOverrides,
     item_name: &str,
     field_name: &str,
@@ -13364,11 +13420,17 @@ fn apply_lua_tab_bar_item_color_mutation(
     match field_name {
         "fg_color" => {
             let value = parse_maybe_quoted_query_text(value)?;
-            colors.fg_color = Some(lua_opaque_color_from_query(&value)?);
+            colors.fg_color = Some(lua_opaque_color_from_query_with_static_source(
+                static_source,
+                &value,
+            )?);
         }
         "bg_color" => {
             let value = parse_maybe_quoted_query_text(value)?;
-            colors.bg_color = Some(lua_opaque_color_from_query(&value)?);
+            colors.bg_color = Some(lua_opaque_color_from_query_with_static_source(
+                static_source,
+                &value,
+            )?);
         }
         "intensity" => {
             let value = parse_maybe_quoted_query_text(value)?;
@@ -61941,6 +62003,51 @@ mod tests {
             Some(Color::Rgb(10, 11, 12))
         );
         assert_eq!(effective.visual_bell_color, Some(Color::Rgb(13, 14, 15)));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_color_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+            local colors = {}
+
+            colors.ansi = {}
+            colors.ansi[2] = parse_color('#010203')
+            colors.brights = {}
+            colors.brights[8] = parse_color('#040506')
+            colors.tab_bar = {}
+            colors.tab_bar.background = parse_color('#070809')
+            colors.tab_bar.active_tab = {}
+            colors.tab_bar.active_tab.bg_color = parse_color('#0a0b0c')
+            colors.tab_bar.active_tab.fg_color = parse_color('#0d0e0f')
+            config.colors = colors
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse static alias color mutations");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let palette = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(palette[1], Color::Rgb(1, 2, 3));
+        assert_eq!(palette[15], Color::Rgb(4, 5, 6));
+        assert_eq!(
+            effective.tab_bar_background_color,
+            Some(Color::Rgb(7, 8, 9))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.bg_color,
+            Some(Color::Rgb(10, 11, 12))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.fg_color,
+            Some(Color::Rgb(13, 14, 15))
+        );
     }
 
     #[test]
