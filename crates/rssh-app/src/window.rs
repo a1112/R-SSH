@@ -18360,6 +18360,45 @@ fn native_font_rules_lua_table_from_query(
     (!rules.is_empty()).then_some(rules)
 }
 
+fn parse_lua_static_bool_value_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    source: &str,
+    value: &str,
+) -> Option<bool> {
+    if let Some(value) = lua_static_bool_assignment_value_from_query(source, value) {
+        return value.parse().ok();
+    }
+
+    let static_source = static_source?;
+    lua_static_bool_assignment_value_before_offset_from_query(
+        static_source.source,
+        value,
+        static_source.max_start,
+    )?
+    .parse()
+    .ok()
+}
+
+fn parse_lua_static_string_value_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    source: &str,
+    value: &str,
+) -> Option<String> {
+    if let Some(value) = lua_static_string_assignment_value_from_query(source, value)
+        .and_then(parse_maybe_quoted_query_text)
+    {
+        return Some(value);
+    }
+
+    let static_source = static_source?;
+    lua_static_string_assignment_value_before_offset_from_query(
+        static_source.source,
+        value,
+        static_source.max_start,
+    )
+    .and_then(parse_maybe_quoted_query_text)
+}
+
 fn native_font_rule_lua_table_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     source: &str,
@@ -18380,47 +18419,47 @@ fn native_font_rule_lua_table_from_query(
         let value = lua_trim_start_comments(value)?;
         match key.as_str() {
             "italic" => {
-                rule.italic = Some(
-                    lua_static_bool_assignment_value_from_query(source, value)?
-                        .parse()
-                        .ok()?,
-                );
+                rule.italic = Some(parse_lua_static_bool_value_with_static_source(
+                    static_source,
+                    source,
+                    value,
+                )?);
             }
             "intensity" => {
-                let value = lua_static_string_assignment_value_from_query(source, value)
-                    .and_then(parse_maybe_quoted_query_text)?;
+                let value =
+                    parse_lua_static_string_value_with_static_source(static_source, source, value)?;
                 rule.intensity = Some(tab_bar_item_intensity_from_query(&value)?);
             }
             "underline" => {
-                let value = lua_static_string_assignment_value_from_query(source, value)
-                    .and_then(parse_maybe_quoted_query_text)?;
+                let value =
+                    parse_lua_static_string_value_with_static_source(static_source, source, value)?;
                 rule.underline = Some(native_format_underline_from_query(&value)?);
             }
             "blink" => {
-                let value = lua_static_string_assignment_value_from_query(source, value)
-                    .and_then(parse_maybe_quoted_query_text)?;
+                let value =
+                    parse_lua_static_string_value_with_static_source(static_source, source, value)?;
                 rule.blink = Some(NativeFontRuleBlink::parse(&value)?);
             }
             "reverse" => {
-                rule.reverse = Some(
-                    lua_static_bool_assignment_value_from_query(source, value)?
-                        .parse()
-                        .ok()?,
-                );
+                rule.reverse = Some(parse_lua_static_bool_value_with_static_source(
+                    static_source,
+                    source,
+                    value,
+                )?);
             }
             "strikethrough" => {
-                rule.strikethrough = Some(
-                    lua_static_bool_assignment_value_from_query(source, value)?
-                        .parse()
-                        .ok()?,
-                );
+                rule.strikethrough = Some(parse_lua_static_bool_value_with_static_source(
+                    static_source,
+                    source,
+                    value,
+                )?);
             }
             "invisible" => {
-                rule.invisible = Some(
-                    lua_static_bool_assignment_value_from_query(source, value)?
-                        .parse()
-                        .ok()?,
-                );
+                rule.invisible = Some(parse_lua_static_bool_value_with_static_source(
+                    static_source,
+                    source,
+                    value,
+                )?);
             }
             "font" => {
                 let font_config = parse_wezterm_font_config_value_with_static_source(
@@ -58495,10 +58534,10 @@ mod tests {
         NativeEasingFunction, NativeEffectiveConfig, NativeExecDomain, NativeExecDomainLabel,
         NativeExitBehavior, NativeExitBehaviorMessaging, NativeFontAntialias, NativeFontAttributes,
         NativeFontHinting, NativeFontLocator, NativeFontRasterizer, NativeFontRule,
-        NativeFontShaper, NativeFontSize, NativeFormatAttribute, NativeFormatIntensity,
-        NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags, NativeFreetypeTarget,
-        NativeHorizontalContentAlignment, NativeHsbMultiplier, NativeHyperlinkRule,
-        NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
+        NativeFontRuleBlink, NativeFontShaper, NativeFontSize, NativeFormatAttribute,
+        NativeFormatIntensity, NativeFormatItem, NativeFormatUnderline, NativeFreetypeLoadFlags,
+        NativeFreetypeTarget, NativeHorizontalContentAlignment, NativeHsbMultiplier,
+        NativeHyperlinkRule, NativeImePreeditRendering, NativeInactivePaneHsb, NativeInputSelector,
         NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
@@ -98659,6 +98698,49 @@ mod tests {
             effective.font_rules[0].font_attributes.weight.as_deref(),
             Some("Bold")
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_rule_insert_static_matcher_fields() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local rule_italic = true
+            local rule_intensity = 'Bold'
+            local rule_underline = 'Single'
+            local rule_blink = 'Slow'
+            local rule_reverse = true
+            local rule_strikethrough = true
+            local rule_invisible = false
+
+            config.font_rules = {}
+            table.insert(config.font_rules, {
+              italic = rule_italic,
+              intensity = rule_intensity,
+              underline = rule_underline,
+              blink = rule_blink,
+              reverse = rule_reverse,
+              strikethrough = rule_strikethrough,
+              invisible = rule_invisible,
+              font = wezterm.font { family = 'Victor Mono' },
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm inserted font rule static matcher fields config");
+        app.set_config_overrides(overrides);
+
+        let rule = &app.native_effective_config().font_rules[0];
+        assert_eq!(rule.italic, Some(true));
+        assert_eq!(rule.intensity, Some(NativeFormatIntensity::Bold));
+        assert_eq!(rule.underline, Some(NativeFormatUnderline::Single));
+        assert_eq!(rule.blink, Some(NativeFontRuleBlink::Slow));
+        assert_eq!(rule.reverse, Some(true));
+        assert_eq!(rule.strikethrough, Some(true));
+        assert_eq!(rule.invisible, Some(false));
     }
 
     #[test]
