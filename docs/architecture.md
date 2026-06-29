@@ -1050,7 +1050,8 @@ keyboard, mouse, paste, resize
   calls, including top-level static helper aliases, retaining the primary
   family, fallback families, and supported font attributes in effective config.
   `window_frame.font` also accepts top-level static `wezterm.font` helper
-  aliases for retained native titlebar font settings.
+  aliases and `wezterm.font { family = ... }` static family variables for
+  retained native titlebar font settings.
   Custom block glyph,
   square-glyph overflow, COLR font rasterizer, SVG-font ignore, fallback-font
   coverage sorting and font-directory fallback-search, FreeType

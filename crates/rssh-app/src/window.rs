@@ -17984,7 +17984,7 @@ fn parse_wezterm_font_value(
 
     lua_static_string_assignment_value_from_query(source, value)
         .and_then(parse_maybe_quoted_query_text)
-        .or_else(|| parse_wezterm_font_table_family_value(source, value))
+        .or_else(|| parse_wezterm_font_table_family_value(static_source, source, value))
         .or_else(|| {
             let value = value.trim();
             let call = value.find(".font")?;
@@ -17998,12 +17998,23 @@ fn parse_wezterm_font_value(
         })
 }
 
-fn parse_wezterm_font_table_family_value(source: &str, value: &str) -> Option<String> {
+fn parse_wezterm_font_table_family_value(
+    static_source: Option<LuaStaticSource<'_>>,
+    source: &str,
+    value: &str,
+) -> Option<String> {
     let table = wezterm_font_table_literal_from_query(value)?;
-    lua_table_field_value_from_query(table, "family")?.and_then(|value| {
-        lua_static_string_assignment_value_from_query(source, value)
-            .and_then(parse_maybe_quoted_query_text)
-    })
+    let value = lua_table_field_value_from_query(table, "family")??;
+    lua_static_string_assignment_value_from_query(source, value)
+        .or_else(|| {
+            let static_source = static_source?;
+            lua_static_string_assignment_value_before_offset_from_query(
+                static_source.source,
+                value,
+                static_source.max_start,
+            )
+        })
+        .and_then(parse_maybe_quoted_query_text)
 }
 
 fn parse_wezterm_font_families_value(source: &str, value: &str) -> Option<Vec<String>> {
@@ -100469,6 +100480,33 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font static alias window_frame font config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_frame_appearance.font,
+            Some("Roboto Mono".to_owned())
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_font_table_static_family_for_lua_window_frame_font() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local frame_family = 'Roboto Mono'
+
+            config.window_frame = {
+              font = wezterm.font {
+                family = frame_family,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font table static family window_frame font config");
         app.set_config_overrides(overrides);
 
         assert_eq!(
