@@ -7956,6 +7956,12 @@ fn apply_lua_color_variable_mutation_overrides(
         mutation_max_start,
         overrides,
     )?;
+    parsed |= apply_lua_color_variable_color_spec_mutation_overrides(
+        source,
+        variable,
+        mutation_max_start,
+        overrides,
+    )?;
 
     Some(parsed)
 }
@@ -7992,6 +7998,56 @@ fn apply_lua_config_colors_tab_bar_mutation_overrides(
         }
 
         if apply_lua_tab_bar_color_mutation_rest(source, rest, start, overrides)? {
+            parsed = true;
+        }
+    }
+
+    Some(parsed)
+}
+
+fn apply_lua_color_variable_color_spec_mutation_overrides(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+    overrides: &mut NativeConfigOverrides,
+) -> Option<bool> {
+    let mut parsed = false;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let Some(rest) = source.get(start..)?.strip_prefix(variable) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = source.get(start + variable.len()..)?.trim_start();
+        let Some((field_name, rest)) =
+            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
+        else {
+            continue;
+        };
+        if !lua_color_spec_field_name(&field_name) {
+            continue;
+        }
+        let Some((variant_name, rest)) =
+            lua_color_variable_mutation_field_from_query_with_static_key(source, rest, start)
+        else {
+            continue;
+        };
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let value = lua_color_variable_mutation_value_literal_from_query(value)?;
+        let color = lua_color_spec_from_query_with_static_source(
+            Some(LuaStaticSource {
+                source,
+                max_start: start,
+            }),
+            &format!("{{ {variant_name} = {value} }}"),
+        )?;
+
+        if apply_lua_color_spec_field_override(overrides, &field_name, color) {
             parsed = true;
         }
     }
@@ -13329,6 +13385,18 @@ fn lua_color_variable_mutation_table_from_query(
             continue;
         }
         if matches!(field_name.as_str(), "ansi" | "brights") {
+            let value = value.trim();
+            if value.starts_with('{')
+                && value
+                    .strip_prefix('{')?
+                    .strip_suffix('}')?
+                    .trim()
+                    .is_empty()
+            {
+                continue;
+            }
+        }
+        if lua_color_spec_field_name(&field_name) {
             let value = value.trim();
             if value.starts_with('{')
                 && value
@@ -97434,6 +97502,53 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_color_spec_variable_nested_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+            local colors = {}
+            local active_bg = 'copy_mode_active_highlight_bg'
+            local quick_match_fg = 'quick_select_match_fg'
+
+            colors[active_bg] = {}
+            colors[active_bg].Color = parse_color('#010203')
+            colors.copy_mode_active_highlight_fg = {}
+            colors.copy_mode_active_highlight_fg.AnsiColor = 'Black'
+            colors.quick_select_match_bg = {}
+            colors.quick_select_match_bg.AnsiColor = 'Navy'
+            colors[quick_match_fg] = {}
+            colors[quick_match_fg].Color = parse_color('#040506')
+            config.colors = colors
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm variable nested color spec mutation config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.copy_mode_active_highlight_bg,
+            Some(NativeColorSpec::Color(Color::Rgb(1, 2, 3)))
+        );
+        assert_eq!(
+            effective.copy_mode_active_highlight_fg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Black))
+        );
+        assert_eq!(
+            effective.quick_select_match_bg,
+            Some(NativeColorSpec::AnsiColor(NativeAnsiColor::Navy))
+        );
+        assert_eq!(
+            effective.quick_select_match_fg,
+            Some(NativeColorSpec::Color(Color::Rgb(4, 5, 6)))
+        );
+    }
+
+    #[test]
     fn window_app_ignores_unsupported_lua_config_colors_nested_mutations() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -97450,6 +97565,32 @@ mod tests {
             "##,
         )
         .expect("expected unsupported nested colors mutation to be ignored");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().foreground_color,
+            Color::Rgb(1, 2, 3)
+        );
+    }
+
+    #[test]
+    fn window_app_ignores_unsupported_lua_colors_variable_nested_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local colors = {
+              foreground = '#010203',
+            }
+
+            colors.unhandled_nested_color.Color = not_a_static_color()
+            config.colors = colors
+
+            return config
+            "##,
+        )
+        .expect("expected unsupported nested colors variable mutation to be ignored");
         app.set_config_overrides(overrides);
 
         assert_eq!(
