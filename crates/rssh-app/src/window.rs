@@ -17419,7 +17419,7 @@ fn native_background_source_lua_table_from_query(
             let color = parse_maybe_static_query_text(static_source, value.trim())?;
             Some(NativeBackgroundLayer::Color(
                 lua_background_color_with_hsb_and_opacity(
-                    lua_color_from_query(&color)?,
+                    lua_color_from_query_with_static_source(static_source, &color)?,
                     hsb,
                     opacity,
                 ),
@@ -99917,6 +99917,38 @@ mod tests {
             "##,
         )
         .expect("expected WezTerm background color layer config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.background,
+            vec![super::NativeWindowBackgroundVisualLayer::Color(
+                Color::Rgba(10, 20, 30, 127)
+            )]
+        );
+        assert_eq!(effective.background_color, Color::Rgba(10, 20, 30, 127));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_background_color_layer() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.background = {
+              {
+                source = { Color = parse_color('#0a141e') },
+                opacity = 0.5,
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse background color layer config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
