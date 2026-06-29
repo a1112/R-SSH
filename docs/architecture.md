@@ -161,9 +161,10 @@ keyboard, mouse, paste, resize
   top-level static helper aliases, `wezterm.color.parse(...)` color helpers
   through direct calls or top-level static helper aliases for scalar,
   palette, indexed, tab-bar, visual-bell, and ColorSpec `colors.*` fields plus
-  static `config.colors` variable mutations, and colorgrad preset fills for
-  default window backgrounds, and WezTerm `config.background` Color layers composed
-  with source-over alpha plus single Gradient layers inline or through top-level
+  static `config.colors` variable mutations and static `config.color_schemes`
+  entry mutations, and colorgrad preset fills for default window backgrounds,
+  and WezTerm `config.background` Color layers composed with source-over alpha
+  plus single Gradient layers inline or through top-level
   static layer tables, with Color sources from inline or top-level static source
   tables plus explicit-color and preset Gradient sources mapped onto the same
   native background color/gradient paths with layer opacity and inline or

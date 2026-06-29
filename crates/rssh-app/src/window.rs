@@ -4245,15 +4245,18 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         in_file_color_scheme_found = true;
         parsed |=
             apply_lua_color_scheme_source_overrides(config, color_scheme, source, &mut overrides)?;
-        let mutation_source = color_scheme_lua_mutation_source_from_config_query(
+        let (mutation_start, mutation_max_start) =
+            color_scheme_lua_mutation_range_from_config_query(
+                config,
+                color_scheme,
+                config_receiver,
+            )?;
+        parsed |= apply_lua_selected_color_scheme_mutation_overrides(
             config,
             color_scheme,
             config_receiver,
-        )?;
-        parsed |= apply_lua_selected_color_scheme_mutation_overrides(
-            mutation_source,
-            color_scheme,
-            config_receiver,
+            mutation_start,
+            mutation_max_start,
             &mut overrides,
         )?;
     }
@@ -6492,11 +6495,11 @@ fn native_color_schemes_from_wezterm_lua_config(
     Some(parsed.then_some(schemes))
 }
 
-fn color_scheme_lua_mutation_source_from_config_query<'a>(
-    source: &'a str,
+fn color_scheme_lua_mutation_range_from_config_query(
+    source: &str,
     color_scheme: &str,
     receiver: &str,
-) -> Option<&'a str> {
+) -> Option<(usize, usize)> {
     let mut mutation_start = 0usize;
 
     if let Some(color_schemes) =
@@ -6512,21 +6515,23 @@ fn color_scheme_lua_mutation_source_from_config_query<'a>(
         mutation_start = assignment_end;
     }
 
-    source.get(mutation_start..)
+    Some((mutation_start, source.len()))
 }
 
 fn apply_lua_selected_color_scheme_mutation_overrides(
     source: &str,
     color_scheme: &str,
     receiver: &str,
+    mutation_start: usize,
+    mutation_max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     apply_lua_color_scheme_entry_mutation_overrides(
         source,
         color_scheme,
         NativeColorSchemeEntryMutationTarget::Config { receiver },
-        0,
-        source.len(),
+        mutation_start,
+        mutation_max_start,
         overrides,
     )
 }
@@ -6539,19 +6544,19 @@ fn apply_lua_color_scheme_entry_mutation_overrides(
     mutation_max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
-    let source = source.get(mutation_start..mutation_max_start)?;
     let mut parsed = false;
     let colors = lua_color_scheme_entry_mutation_table_from_query(
         source,
         color_scheme,
         target,
-        source.len(),
+        mutation_start,
+        mutation_max_start,
     )?;
     if let Some(colors) = colors {
         parsed |= apply_lua_colors_table_overrides(
             Some(LuaStaticSource {
                 source,
-                max_start: source.len(),
+                max_start: mutation_max_start,
             }),
             &colors,
             overrides,
@@ -6561,21 +6566,24 @@ fn apply_lua_color_scheme_entry_mutation_overrides(
         source,
         color_scheme,
         target,
-        source.len(),
+        mutation_start,
+        mutation_max_start,
         overrides,
     )?;
     parsed |= apply_lua_color_scheme_entry_palette_slot_mutation_overrides(
         source,
         color_scheme,
         target,
-        source.len(),
+        mutation_start,
+        mutation_max_start,
         overrides,
     )?;
     parsed |= apply_lua_color_scheme_entry_tab_bar_mutation_overrides(
         source,
         color_scheme,
         target,
-        source.len(),
+        mutation_start,
+        mutation_max_start,
         overrides,
     )?;
 
@@ -6586,11 +6594,15 @@ fn lua_color_scheme_entry_mutation_table_from_query(
     source: &str,
     color_scheme: &str,
     target: NativeColorSchemeEntryMutationTarget<'_>,
+    min_start: usize,
     max_start: usize,
 ) -> Option<Option<String>> {
     let mut fields = Vec::new();
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = lua_color_scheme_entry_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
@@ -6622,12 +6634,16 @@ fn apply_lua_color_scheme_entry_indexed_mutation_overrides(
     source: &str,
     color_scheme: &str,
     target: NativeColorSchemeEntryMutationTarget<'_>,
+    min_start: usize,
     max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = lua_color_scheme_entry_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
@@ -6654,7 +6670,13 @@ fn apply_lua_color_scheme_entry_indexed_mutation_overrides(
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             let value = parse_maybe_quoted_query_text(value)?;
             let mut palette = overrides.indexed_palette.unwrap_or([None; 256]);
-            palette[index] = Some(lua_opaque_color_from_query(&value)?);
+            palette[index] = Some(lua_opaque_color_from_query_with_static_source(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+                &value,
+            )?);
             overrides.indexed_palette = Some(palette);
             parsed = true;
             continue;
@@ -6665,7 +6687,10 @@ fn apply_lua_color_scheme_entry_indexed_mutation_overrides(
         };
         let value = lua_color_variable_mutation_value_literal_from_query(value)?;
         parsed |= apply_lua_colors_table_overrides(
-            Some(LuaStaticSource { source, max_start }),
+            Some(LuaStaticSource {
+                source,
+                max_start: start,
+            }),
             &format!("{{\nindexed = {value}\n}}"),
             overrides,
         )?;
@@ -6678,12 +6703,16 @@ fn apply_lua_color_scheme_entry_palette_slot_mutation_overrides(
     source: &str,
     color_scheme: &str,
     target: NativeColorSchemeEntryMutationTarget<'_>,
+    min_start: usize,
     max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = lua_color_scheme_entry_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
@@ -6716,16 +6745,46 @@ fn apply_lua_color_scheme_entry_palette_slot_mutation_overrides(
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
             let value = parse_maybe_quoted_query_text(value)?;
-            palette[offset + index - 1] = lua_opaque_color_from_query(&value)?;
+            palette[offset + index - 1] = lua_opaque_color_from_query_with_static_source(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+                &value,
+            )?;
         } else {
             let Some(value) = rest.strip_prefix('=') else {
                 continue;
             };
             let value = lua_color_variable_mutation_value_literal_from_query(value)?;
-            let values = split_lua_table_string_array(value)?;
+            let trimmed_value = value.trim();
+            if trimmed_value.starts_with('{')
+                && trimmed_value
+                    .strip_prefix('{')?
+                    .strip_suffix('}')?
+                    .trim()
+                    .is_empty()
+            {
+                continue;
+            }
+            let values = split_lua_table_string_array_with_static_source(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+                value,
+            )?;
             let colors = values
                 .iter()
-                .map(|value| lua_opaque_color_from_query(value))
+                .map(|value| {
+                    lua_opaque_color_from_query_with_static_source(
+                        Some(LuaStaticSource {
+                            source,
+                            max_start: start,
+                        }),
+                        value,
+                    )
+                })
                 .collect::<Option<Vec<_>>>()?;
             let colors = <[Color; 8]>::try_from(colors).ok()?;
             palette[offset..offset + 8].copy_from_slice(&colors);
@@ -6742,12 +6801,16 @@ fn apply_lua_color_scheme_entry_tab_bar_mutation_overrides(
     source: &str,
     color_scheme: &str,
     target: NativeColorSchemeEntryMutationTarget<'_>,
+    min_start: usize,
     max_start: usize,
     overrides: &mut NativeConfigOverrides,
 ) -> Option<bool> {
     let mut parsed = false;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        if start < min_start {
+            continue;
+        }
         let Some(rest) = lua_color_scheme_entry_mutation_rest_from_query(
             source.get(start..)?,
             color_scheme,
@@ -62850,6 +62913,86 @@ mod tests {
         assert_eq!(
             effective.tab_bar_active_tab_colors.intensity,
             Some(NativeFormatIntensity::Bold)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_color_scheme_entry_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#202122',
+                ansi = {
+                  '#000001',
+                  '#000002',
+                  '#000003',
+                  '#000004',
+                  '#000005',
+                  '#000006',
+                  '#000007',
+                  '#000008',
+                },
+                brights = {
+                  '#000009',
+                  '#00000a',
+                  '#00000b',
+                  '#00000c',
+                  '#00000d',
+                  '#00000e',
+                  '#00000f',
+                  '#000010',
+                },
+                indexed = {
+                  [136] = '#232425',
+                },
+                tab_bar = {
+                  background = '#262728',
+                  active_tab = {
+                    fg_color = '#292a2b',
+                    bg_color = '#2c2d2e',
+                  },
+                },
+              },
+            }
+            config.color_schemes['Project Scheme'].foreground = parse_color('#010203')
+            config.color_schemes['Project Scheme'].ansi[2] = parse_color('#040506')
+            config.color_schemes['Project Scheme'].brights[8] = parse_color('#070809')
+            config.color_schemes['Project Scheme'].indexed[137] = parse_color('#0a0b0c')
+            config.color_schemes['Project Scheme'].tab_bar.background = parse_color('#0d0e0f')
+            config.color_schemes['Project Scheme'].tab_bar.active_tab.bg_color = parse_color('#101112')
+            config.color_schemes['Project Scheme'].tab_bar.active_tab.fg_color = parse_color('#131415')
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse static alias color_scheme entry mutations");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(1, 2, 3));
+        let palette = effective.ansi_palette.expect("expected ANSI palette");
+        assert_eq!(palette[1], Color::Rgb(4, 5, 6));
+        assert_eq!(palette[15], Color::Rgb(7, 8, 9));
+        let indexed = effective.indexed_palette.expect("expected indexed palette");
+        assert_eq!(indexed[137], Some(Color::Rgb(10, 11, 12)));
+        assert_eq!(
+            effective.tab_bar_background_color,
+            Some(Color::Rgb(13, 14, 15))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.bg_color,
+            Some(Color::Rgb(16, 17, 18))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.fg_color,
+            Some(Color::Rgb(19, 20, 21))
         );
     }
 
