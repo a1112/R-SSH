@@ -16619,6 +16619,20 @@ fn lua_config_hyperlink_rules_default_rules_with_config_inserts(
         apply_hyperlink_rule_insert(&mut rules, source, &insert, max_start)?;
         inserted = true;
     }
+    if let Some(assignment) = lua_config_table_index_or_append_assignment_from_query(
+        source,
+        max_start,
+        receiver,
+        "hyperlink_rules",
+    ) {
+        apply_hyperlink_rule_index_or_append_assignment(
+            &mut rules,
+            source,
+            &assignment,
+            max_start,
+        )?;
+        inserted = true;
+    }
 
     inserted.then_some(rules)
 }
@@ -16633,6 +16647,26 @@ fn apply_hyperlink_rule_insert(
     if let Some(position) = insert.position {
         let index = position.saturating_sub(1).min(rules.len());
         rules.insert(index, rule);
+    } else {
+        rules.push(rule);
+    }
+    Some(())
+}
+
+fn apply_hyperlink_rule_index_or_append_assignment(
+    rules: &mut Vec<NativeHyperlinkRule>,
+    source: &str,
+    assignment: &LuaTableIndexOrAppendAssignment<String>,
+    max_start: usize,
+) -> Option<()> {
+    let rule = native_hyperlink_rule_lua_table_from_query(source, &assignment.value, max_start)?;
+    if let Some(position) = assignment.index {
+        let index = position.saturating_sub(1);
+        if index < rules.len() {
+            rules[index] = rule;
+        } else {
+            rules.push(rule);
+        }
     } else {
         rules.push(rule);
     }
@@ -98222,6 +98256,37 @@ mod tests {
             })
         );
         assert_eq!(&effective.hyperlink_rules[1..], defaults.as_slice());
+    }
+
+    #[test]
+    fn window_app_replaces_indexed_config_default_hyperlink_rule() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.hyperlink_rules = wezterm.default_hyperlink_rules()
+            config.hyperlink_rules[1] = {
+              regex = [[\bRUN-(\d+)\b]],
+              format = 'https://runs.example/$1',
+              highlight = 1,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm indexed config default hyperlink_rules config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let mut expected = default_hyperlink_rules();
+        expected[0] = NativeHyperlinkRule {
+            regex: r"\bRUN-(\d+)\b".to_owned(),
+            format: "https://runs.example/$1".to_owned(),
+            highlight: 1,
+        };
+        assert_eq!(effective.hyperlink_rules, expected);
     }
 
     #[test]
