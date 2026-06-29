@@ -16672,7 +16672,9 @@ fn native_window_background_gradient_lua_table_from_query<'a>(
                 let parsed_colors =
                     split_lua_gradient_color_array_with_static_source(static_source, value)?
                         .into_iter()
-                        .map(|color| lua_opaque_color_from_query(&color))
+                        .map(|color| {
+                            lua_opaque_color_from_query_with_static_source(static_source, &color)
+                        })
                         .collect::<Option<Vec<_>>>()?;
                 if parsed_colors.len() < 2 {
                     return None;
@@ -62034,6 +62036,46 @@ mod tests {
                 blend_with_background_color: false,
                 hsb: super::native_identity_hsb(),
                 colors: vec![Color::Rgb(18, 19, 20), Color::Rgb(34, 35, 36)],
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_window_background_gradient_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.window_background_gradient = {
+              colors = {
+                parse_color('#010203'),
+                parse_color('rgba(17,18,19,0.5)'),
+              },
+              noise = 0,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse window_background_gradient colors");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_background_gradient,
+            Some(NativeWindowBackgroundGradient {
+                orientation: NativeWindowBackgroundGradientOrientation::Horizontal,
+                interpolation: NativeWindowBackgroundGradientInterpolation::Linear,
+                blend: NativeWindowBackgroundGradientBlend::Rgb,
+                noise: Some(0),
+                segment: None,
+                preset: None,
+                opacity_alpha: u8::MAX,
+                blend_with_background_color: false,
+                hsb: super::native_identity_hsb(),
+                colors: vec![Color::Rgb(1, 2, 3), Color::Rgb(17, 18, 19)],
             })
         );
     }
