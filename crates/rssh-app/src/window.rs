@@ -16485,6 +16485,14 @@ fn lua_config_hyperlink_rules_extends_default_rules_before_offset(
     let starts = lua_top_level_statement_start_indices_before_offset(source, max_start)?;
     let mut extends_default = false;
 
+    if let Some(table) = lua_config_static_return_table_from_query(source)
+        && lua_source_slice_start_offset(source, table) == Some(max_start)
+    {
+        extends_default |=
+            lua_config_table_hyperlink_rules_extends_default_rules(source, table, max_start)
+                .unwrap_or(false);
+    }
+
     for (position, start) in starts.iter().copied().enumerate() {
         let statement_end = starts.get(position + 1).copied().unwrap_or(max_start);
         let statement = source.get(start..statement_end)?;
@@ -16514,6 +16522,36 @@ fn lua_config_hyperlink_rules_extends_default_rules_before_offset(
             lua_trim_start_comments(value)?,
             start,
         );
+    }
+
+    Some(extends_default)
+}
+
+fn lua_config_table_hyperlink_rules_extends_default_rules(
+    source: &str,
+    table: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let mut extends_default = false;
+    let static_source = Some(LuaStaticSource { source, max_start });
+
+    for table_field in split_lua_table_top_level_fields(table)? {
+        let Some((key, value)) = split_lua_table_assignment_from_field(table_field.trim()) else {
+            continue;
+        };
+        let Some(key) =
+            split_lua_table_key_from_query_with_static_source(static_source, key.trim())
+        else {
+            continue;
+        };
+        if key == "hyperlink_rules" {
+            extends_default =
+                lua_wezterm_default_hyperlink_rules_value_from_query_with_static_source(
+                    source,
+                    lua_trim_start_comments(value)?,
+                    max_start,
+                );
+        }
     }
 
     Some(extends_default)
@@ -97842,6 +97880,44 @@ mod tests {
             Some(&NativeHyperlinkRule {
                 regex: r"\bBUG-(\d+)\b".to_owned(),
                 format: "https://bugs.example/$1".to_owned(),
+                highlight: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_extends_returned_static_default_hyperlink_rules_from_wezterm_lua_config() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local rules = wezterm.default_hyperlink_rules()
+            table.insert(rules, {
+              regex = [[\bINC-(\d+)\b]],
+              format = 'https://incidents.example/$1',
+              highlight = 1,
+            })
+
+            return {
+              hyperlink_rules = rules,
+            }
+            "#,
+        )
+        .expect("expected WezTerm returned static default hyperlink_rules extension config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let defaults = default_hyperlink_rules();
+        assert_eq!(effective.hyperlink_rules.len(), defaults.len() + 1);
+        assert_eq!(
+            &effective.hyperlink_rules[..defaults.len()],
+            defaults.as_slice()
+        );
+        assert_eq!(
+            effective.hyperlink_rules.last(),
+            Some(&NativeHyperlinkRule {
+                regex: r"\bINC-(\d+)\b".to_owned(),
+                format: "https://incidents.example/$1".to_owned(),
                 highlight: 1,
             })
         );
