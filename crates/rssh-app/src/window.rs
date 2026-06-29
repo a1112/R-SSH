@@ -8289,9 +8289,16 @@ fn lua_config_integrated_title_button_color_assignment_from_query(
 #[allow(dead_code)]
 fn lua_config_font_assignment_from_query(source: &str, field: &str) -> Option<NativeFontConfig> {
     lua_config_assignment_from_query(source, field, |value| {
-        lua_static_string_assignment_value_from_query(source, value).or_else(|| {
-            lua_wezterm_font_call_assignment_value_from_query_with_static_source(source, value)
-        })
+        lua_static_string_assignment_value_from_query(source, value)
+            .or_else(|| {
+                lua_wezterm_font_call_assignment_value_from_query_with_static_source(source, value)
+            })
+            .or_else(|| {
+                let max_start = lua_source_slice_start_offset(source, value)?;
+                lua_static_wezterm_font_value_assignment_before_offset_from_query(
+                    source, value, max_start,
+                )
+            })
     })
     .and_then(|value| parse_wezterm_font_config_value(source, value))
 }
@@ -98095,6 +98102,43 @@ mod tests {
             effective.font_attributes,
             NativeFontAttributes {
                 weight: Some("Bold".to_owned()),
+                stretch: None,
+                style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_static_value() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local app_font = wezterm.font('JetBrains Mono', {
+              weight = 'DemiBold',
+              style = 'Italic',
+            })
+
+            config.font = app_font
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static font value config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("DemiBold".to_owned()),
                 stretch: None,
                 style: Some("Italic".to_owned()),
                 harfbuzz_features: Vec::new(),

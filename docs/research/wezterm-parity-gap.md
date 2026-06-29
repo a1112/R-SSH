@@ -328,8 +328,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   top-level static table variables and `table.insert(config.font_dirs, ...)`
   appends for `config.font_dirs`. `config.font` accepts static `wezterm.font`
   and `wezterm.font_with_fallback` calls, including top-level static helper
-  aliases, retaining the primary family, fallback families, and supported font
-  attributes in effective config. `window_frame.font` also accepts top-level
+  aliases and static font value variables, retaining the primary family,
+  fallback families, and supported font attributes in effective config.
+  `window_frame.font` also accepts top-level
   static `wezterm.font` helper aliases, static `wezterm.font(...)` value
   variables, and `wezterm.font { family = ... }` static family variables for
   retained native titlebar font settings. Custom block
