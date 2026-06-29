@@ -158,8 +158,10 @@ keyboard, mouse, paste, resize
   Horizontal/Vertical/Linear-angle/Radial color-list fills with colorgrad
   interpolation/blend/segment controls, `wezterm.color.gradient(...)` and legacy
   `wezterm.gradient_colors(...)` color helpers through direct calls or
-  top-level static helper aliases, and colorgrad preset fills for default
-  window backgrounds, and WezTerm `config.background` Color layers composed
+  top-level static helper aliases, `wezterm.color.parse(...)` scalar color
+  helpers through direct calls or top-level static helper aliases for
+  `colors.*` fields, and colorgrad preset fills for default window backgrounds,
+  and WezTerm `config.background` Color layers composed
   with source-over alpha plus single Gradient layers inline or through top-level
   static layer tables, with Color sources from inline or top-level static source
   tables plus explicit-color and preset Gradient sources mapped onto the same
