@@ -17910,12 +17910,38 @@ fn native_window_frame_appearance_lua_table_from_query(
             }
             _ => continue,
         };
-        let value = lua_static_string_assignment_value_from_query(source, value.trim())
-            .and_then(parse_maybe_quoted_query_text)?;
-        *slot = Some(lua_opaque_color_from_query(&value)?);
+        *slot = Some(native_window_frame_opaque_color_lua_value_from_query(
+            source,
+            value.trim(),
+        )?);
+        parsed = true;
     }
 
     Some(parsed.then_some(appearance))
+}
+
+fn native_window_frame_opaque_color_lua_value_from_query(
+    source: &str,
+    value: &str,
+) -> Option<Color> {
+    let mut color_max_start = lua_source_slice_start_offset(source, value);
+    let value = if let Some(max_start) = color_max_start {
+        if let Some(value) =
+            lua_static_string_assignment_value_before_offset_from_query(source, value, max_start)
+        {
+            color_max_start = lua_source_slice_start_offset(source, value).or(color_max_start);
+            value
+        } else {
+            value
+        }
+    } else {
+        lua_static_string_assignment_value_from_query(source, value).unwrap_or(value)
+    };
+    let value = parse_maybe_quoted_query_text(value)?;
+    lua_opaque_color_from_query_with_static_source(
+        color_max_start.map(|max_start| LuaStaticSource { source, max_start }),
+        &value,
+    )
 }
 
 fn parse_wezterm_font_value(source: &str, value: &str) -> Option<String> {
@@ -100290,6 +100316,31 @@ mod tests {
             effective.font_size,
             Some(NativeFontSize::from_millipoints(13_500))
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_color_parse_static_alias_for_lua_window_frame_colors() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local parse_color = wezterm.color.parse
+
+            config.window_frame = {
+              inactive_titlebar_bg = parse_color('rgba(1,2,3,0.5)'),
+              border_left_color = parse_color('#040506'),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm color.parse window_frame color config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config().window_frame_appearance;
+        assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(effective.border_left_color, Some(Color::Rgb(4, 5, 6)));
     }
 
     #[test]
