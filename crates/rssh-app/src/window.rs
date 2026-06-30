@@ -16575,13 +16575,26 @@ fn lua_config_hyperlink_rules_default_rules_with_static_inserts(
     let mut rules = default_hyperlink_rules();
     let mut inserted = false;
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        let Some(insert) =
+        if let Some(insert) =
             lua_static_table_variable_insert_append_value_from_query(source, start, variable)
-        else {
-            continue;
-        };
-        apply_hyperlink_rule_insert(&mut rules, source, &insert, start)?;
-        inserted = true;
+        {
+            apply_hyperlink_rule_insert(&mut rules, source, &insert, start)?;
+            inserted = true;
+        } else if let Some(assignment) =
+            lua_static_table_variable_index_assignment_from_query(source, start, variable)
+        {
+            let assignment = LuaTableIndexOrAppendAssignment {
+                index: Some(assignment.index),
+                value: assignment.value,
+            };
+            apply_hyperlink_rule_index_or_append_assignment(
+                &mut rules,
+                source,
+                &assignment,
+                start,
+            )?;
+            inserted = true;
+        }
     }
 
     inserted.then_some(rules)
@@ -98284,6 +98297,38 @@ mod tests {
         expected[0] = NativeHyperlinkRule {
             regex: r"\bRUN-(\d+)\b".to_owned(),
             format: "https://runs.example/$1".to_owned(),
+            highlight: 1,
+        };
+        assert_eq!(effective.hyperlink_rules, expected);
+    }
+
+    #[test]
+    fn window_app_replaces_indexed_static_default_hyperlink_rule() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local rules = wezterm.default_hyperlink_rules()
+
+            rules[1] = {
+              regex = [[\bDEPLOY-(\d+)\b]],
+              format = 'https://deploys.example/$1',
+              highlight = 1,
+            }
+
+            return {
+              hyperlink_rules = rules,
+            }
+            "#,
+        )
+        .expect("expected WezTerm indexed static default hyperlink_rules config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let mut expected = default_hyperlink_rules();
+        expected[0] = NativeHyperlinkRule {
+            regex: r"\bDEPLOY-(\d+)\b".to_owned(),
+            format: "https://deploys.example/$1".to_owned(),
             highlight: 1,
         };
         assert_eq!(effective.hyperlink_rules, expected);
