@@ -5177,6 +5177,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             overrides.hyperlink_rules = Some(default_rules);
             parsed = true;
             parsed_hyperlink_rules = true;
+        } else if lua_config_hyperlink_rules_static_default_alias_before_offset(config, max_start)
+            .unwrap_or(false)
+        {
+            overrides.hyperlink_rules = Some(default_hyperlink_rules());
+            parsed = true;
+            parsed_hyperlink_rules = true;
         }
     }
     if !parsed_hyperlink_rules
@@ -16640,6 +16646,18 @@ fn lua_config_hyperlink_rules_default_rules_with_static_inserts(
     }
 
     inserted.then_some(rules)
+}
+
+fn lua_config_hyperlink_rules_static_default_alias_before_offset(
+    source: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let variable =
+        lua_config_hyperlink_rules_static_value_variable_before_offset(source, max_start)?;
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        source, variable, max_start,
+    )?;
+    Some(lua_wezterm_default_hyperlink_rules_value_from_query(value))
 }
 
 fn lua_config_hyperlink_rules_default_rules_with_config_inserts(
@@ -98219,6 +98237,26 @@ mod tests {
             "#,
         )
         .expect("expected explicit WezTerm default hyperlink_rules config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.hyperlink_rules, default_hyperlink_rules());
+    }
+
+    #[test]
+    fn window_app_accepts_returned_static_default_hyperlink_rules_from_wezterm_lua_config() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local rules = wezterm.default_hyperlink_rules()
+
+            return {
+              hyperlink_rules = rules,
+            }
+            "#,
+        )
+        .expect("expected returned static WezTerm default hyperlink_rules config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
