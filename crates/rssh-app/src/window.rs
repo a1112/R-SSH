@@ -5956,12 +5956,14 @@ fn lua_static_wezterm_window_title_return_event_from_statement(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
-    let (body, tab_param, pane_param) =
-        lua_anonymous_function_body_and_first_two_params_from_query(rest)?;
+    let (body, tab_param, pane_param, tabs_param) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
+    let tabs_param = tabs_param.unwrap_or("tabs");
     lua_static_window_title_return_from_function_body(
         body,
         tab_param,
         pane_param,
+        tabs_param,
         Some(LuaStaticSource {
             source,
             max_start: start,
@@ -6234,9 +6236,9 @@ fn lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query<'a
     Some((body, first_param, fifth_param))
 }
 
-fn lua_anonymous_function_body_and_first_two_params_from_query<'a>(
+fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query<'a>(
     value: &'a str,
-) -> Option<(&'a str, &'a str, &'a str)> {
+) -> Option<(&'a str, &'a str, &'a str, Option<&'a str>)> {
     if !lua_source_keyword_at(value, 0, "function") {
         return None;
     }
@@ -6247,8 +6249,9 @@ fn lua_anonymous_function_body_and_first_two_params_from_query<'a>(
     let mut params = params.split(',');
     let first_param = lua_function_param_identifier(params.next()?)?;
     let second_param = lua_function_param_identifier(params.next()?)?;
+    let third_param = params.next().and_then(lua_function_param_identifier);
     let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
-    Some((body, first_param, second_param))
+    Some((body, first_param, second_param, third_param))
 }
 
 fn lua_function_param_identifier(value: &str) -> Option<&str> {
@@ -6371,6 +6374,7 @@ fn lua_static_window_title_return_from_function_body(
     body: &str,
     tab_param: &str,
     pane_param: &str,
+    tabs_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitle> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
@@ -6403,9 +6407,50 @@ fn lua_static_window_title_return_from_function_body(
         ) {
             return Some(NativeLuaWindowTitle::Static(value));
         }
+        if let Some(value) = lua_dynamic_window_title_return_from_statement(
+            body,
+            start,
+            statement,
+            tab_param,
+            pane_param,
+            tabs_param,
+            outer_static_source,
+        ) {
+            return Some(value);
+        }
     }
 
     None
+}
+
+fn lua_dynamic_window_title_return_from_statement(
+    source: &str,
+    start: usize,
+    statement: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowTitle> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_end_statement_separator(rest)?;
+    let static_source = LuaStaticSource {
+        source,
+        max_start: start,
+    };
+    let parts = lua_window_title_text_parts_from_expression(
+        rest,
+        tab_param,
+        pane_param,
+        tabs_param,
+        Some(static_source),
+        outer_static_source,
+    )?;
+    Some(NativeLuaWindowTitle::Concat(parts))
 }
 
 fn lua_window_title_event_field_return_from_statement(
@@ -6443,6 +6488,253 @@ fn lua_window_title_event_field_return_from_statement(
     }
 
     Some(NativeLuaWindowTitle::ActivePaneTitle)
+}
+
+fn lua_window_title_text_parts_from_expression(
+    expression: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+    if let Some(part) =
+        lua_window_title_text_part_from_expression(expression, tab_param, pane_param, tabs_param)
+    {
+        return Some(vec![part]);
+    }
+
+    if let Some(static_source) = static_source
+        && let Some(parts) = lua_window_title_conditional_assignment_parts_before_offset(
+            static_source.source,
+            expression,
+            static_source.max_start,
+            tab_param,
+            pane_param,
+            tabs_param,
+            outer_static_source,
+        )
+    {
+        return Some(parts);
+    }
+
+    if let Some(value) =
+        lua_static_string_value_from_expression(static_source, outer_static_source, expression)
+    {
+        return Some(vec![NativeLuaWindowTitlePart::Static(value)]);
+    }
+
+    if !expression.contains("..") {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    for segment in split_lua_string_concat_segments(expression)? {
+        let segment = lua_trim_start_comments(segment.trim())?;
+        let segment = lua_trim_end_statement_separator(segment)?;
+        parts.extend(lua_window_title_text_parts_from_expression(
+            segment,
+            tab_param,
+            pane_param,
+            tabs_param,
+            static_source,
+            outer_static_source,
+        )?);
+    }
+
+    Some(parts)
+}
+
+fn lua_window_title_text_part_from_expression(
+    expression: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+) -> Option<NativeLuaWindowTitlePart> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+    let pane_title = format!("{pane_param}.title");
+    if let Some(rest) = expression.strip_prefix(&pane_title)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneTitle);
+    }
+
+    let tab_title = format!("{tab_param}.tab_title");
+    if let Some(rest) = expression.strip_prefix(&tab_title)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActiveTabTitle);
+    }
+
+    let tab_active_pane_title = format!("{tab_param}.active_pane.title");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_title)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneTitle);
+    }
+
+    lua_window_title_tab_index_format_part_from_expression(expression, tab_param, tabs_param)
+}
+
+fn lua_window_title_conditional_assignment_parts_before_offset(
+    source: &str,
+    expression: &str,
+    max_start: usize,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    let variable = lua_identifier_literal_from_query(expression)?;
+    if !lua_static_identifier_value_rest_is_statement_end(expression.get(variable.len()..)?) {
+        return None;
+    }
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        let Some((branches, _)) =
+            lua_static_if_condition_and_body_branches_from_statement(statement)
+        else {
+            continue;
+        };
+        for (condition, body) in branches {
+            let Some(condition) =
+                lua_window_title_condition_from_expression(condition, tab_param, tabs_param)
+            else {
+                continue;
+            };
+            let Some(value) = lua_static_expression_variable_assignment_before_offset_from_query(
+                body,
+                variable,
+                body.len(),
+            ) else {
+                continue;
+            };
+            let branch_static_source = LuaStaticSource {
+                source: body,
+                max_start: body.len(),
+            };
+            let parts = lua_window_title_text_parts_from_expression(
+                value,
+                tab_param,
+                pane_param,
+                tabs_param,
+                Some(branch_static_source),
+                outer_static_source,
+            )?;
+            return Some(vec![NativeLuaWindowTitlePart::Conditional {
+                condition,
+                parts,
+            }]);
+        }
+    }
+
+    None
+}
+
+fn lua_window_title_condition_from_expression(
+    condition: &str,
+    tab_param: &str,
+    tabs_param: &str,
+) -> Option<NativeLuaWindowTitleCondition> {
+    let condition = lua_trim_start_comments(condition.trim())?;
+    let zoomed = format!("{tab_param}.active_pane.is_zoomed");
+    if let Some(rest) = condition.strip_prefix(&zoomed)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitleCondition::ActivePaneIsZoomed);
+    }
+
+    let tab_count = condition.strip_prefix('#')?;
+    let Some(rest) = tab_count.strip_prefix(tabs_param) else {
+        return None;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('>')?)?;
+    let count = lua_unsigned_integer_literal_from_query(rest)?;
+    let after_count = lua_trim_start_comments(rest.get(count.len()..)?)?;
+    if !lua_static_identifier_value_rest_is_statement_end(after_count) {
+        return None;
+    }
+    Some(NativeLuaWindowTitleCondition::TabCountGreaterThan(
+        count.parse().ok()?,
+    ))
+}
+
+fn lua_window_title_tab_index_format_part_from_expression(
+    expression: &str,
+    tab_param: &str,
+    tabs_param: &str,
+) -> Option<NativeLuaWindowTitlePart> {
+    let rest = expression.strip_prefix("string")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("format") || !lua_config_assignment_field_has_boundaries(rest, 0, "format")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("format".len()..)?)?.strip_prefix('(')?;
+    let (argument_list, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let arguments = split_lua_top_level_arguments(argument_list)?;
+    let [
+        format_expression,
+        tab_index_expression,
+        tab_count_expression,
+    ] = arguments.as_slice()
+    else {
+        return None;
+    };
+    let (format, _) = lua_inline_string_literal_value_and_len(format_expression.trim())?;
+    let format = NativeLuaWindowTitleNumberPairFormat::parse(&format)?;
+    let tab_index_offset =
+        lua_window_title_tab_index_offset_from_expression(tab_index_expression.trim(), tab_param)?;
+    lua_window_title_tab_count_expression(tab_count_expression.trim(), tabs_param)?;
+    Some(NativeLuaWindowTitlePart::TabIndexAndCount {
+        format,
+        tab_index_offset,
+    })
+}
+
+fn lua_window_title_tab_index_offset_from_expression(
+    expression: &str,
+    tab_param: &str,
+) -> Option<usize> {
+    let tab_index = format!("{tab_param}.tab_index");
+    let Some(rest) = expression.strip_prefix(&tab_index) else {
+        return None;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    if lua_static_identifier_value_rest_is_statement_end(rest) {
+        return Some(0);
+    }
+    let rest = lua_trim_start_comments(rest.strip_prefix('+')?)?;
+    let offset = lua_unsigned_integer_literal_from_query(rest)?;
+    let after_offset = lua_trim_start_comments(rest.get(offset.len()..)?)?;
+    lua_static_identifier_value_rest_is_statement_end(after_offset).then(|| offset.parse().ok())?
+}
+
+fn lua_window_title_tab_count_expression(expression: &str, tabs_param: &str) -> Option<()> {
+    let rest = expression.strip_prefix('#')?;
+    let Some(rest) = rest.strip_prefix(tabs_param) else {
+        return None;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    lua_static_identifier_value_rest_is_statement_end(rest).then_some(())
 }
 
 fn lua_static_string_return_from_statement(statement: &str) -> Option<String> {
@@ -22443,6 +22735,7 @@ enum NativeLuaWindowTitle {
     Static(String),
     ActiveTabTitle,
     ActivePaneTitle,
+    Concat(Vec<NativeLuaWindowTitlePart>),
 }
 
 impl NativeLuaWindowTitle {
@@ -22451,7 +22744,108 @@ impl NativeLuaWindowTitle {
             Self::Static(title) => Some(title.clone()),
             Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
+            Self::Concat(parts) => {
+                let mut title = String::new();
+                for part in parts {
+                    title.push_str(&part.resolve(event)?);
+                }
+                Some(title)
+            }
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaWindowTitlePart {
+    Static(String),
+    ActiveTabTitle,
+    ActivePaneTitle,
+    Conditional {
+        condition: NativeLuaWindowTitleCondition,
+        parts: Vec<NativeLuaWindowTitlePart>,
+    },
+    TabIndexAndCount {
+        format: NativeLuaWindowTitleNumberPairFormat,
+        tab_index_offset: usize,
+    },
+}
+
+impl NativeLuaWindowTitlePart {
+    fn resolve(&self, event: &NativeWindowTitleFormat) -> Option<String> {
+        match self {
+            Self::Static(value) => Some(value.clone()),
+            Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
+            Self::ActivePaneTitle => event.active_pane_info.title.clone(),
+            Self::Conditional { condition, parts } => {
+                if !condition.matches(event) {
+                    return Some(String::new());
+                }
+                let mut title = String::new();
+                for part in parts {
+                    title.push_str(&part.resolve(event)?);
+                }
+                Some(title)
+            }
+            Self::TabIndexAndCount {
+                format,
+                tab_index_offset,
+            } => Some(
+                format.format(
+                    event
+                        .active_tab_info
+                        .tab_index
+                        .saturating_add(*tab_index_offset),
+                    event.tab_count,
+                ),
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaWindowTitleCondition {
+    ActivePaneIsZoomed,
+    TabCountGreaterThan(usize),
+}
+
+impl NativeLuaWindowTitleCondition {
+    fn matches(self, event: &NativeWindowTitleFormat) -> bool {
+        match self {
+            Self::ActivePaneIsZoomed => event.active_pane_info.is_zoomed,
+            Self::TabCountGreaterThan(count) => event.tab_count > count,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaWindowTitleNumberPairFormat {
+    prefix: String,
+    middle: String,
+    suffix: String,
+}
+
+impl NativeLuaWindowTitleNumberPairFormat {
+    fn parse(value: &str) -> Option<Self> {
+        let first = value.find("%d")?;
+        let after_first = first.checked_add("%d".len())?;
+        let second = value.get(after_first..)?.find("%d")?;
+        let second = after_first.checked_add(second)?;
+        let after_second = second.checked_add("%d".len())?;
+        if value.get(after_second..)?.contains("%d") {
+            return None;
+        }
+        Some(Self {
+            prefix: value.get(..first)?.to_owned(),
+            middle: value.get(after_first..second)?.to_owned(),
+            suffix: value.get(after_second..)?.to_owned(),
+        })
+    }
+
+    fn format(&self, first: usize, second: usize) -> String {
+        format!(
+            "{}{}{}{}{}",
+            self.prefix, first, self.middle, second, self.suffix
+        )
     }
 }
 
@@ -79245,6 +79639,26 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_format_window_title_two_param_pane_title_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane)
+              return pane.title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title two-param pane title return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
     fn window_app_parses_static_wezterm_format_window_title_tab_title_return() {
         let mut app = NativeWindowApp::new(None);
         app.window_title = "Window Fallback".to_owned();
@@ -79286,6 +79700,46 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_documented_default_example() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local zoomed = ''
+              if tab.active_pane.is_zoomed then
+                zoomed = '[Z] '
+              end
+
+              local index = ''
+              if #tabs > 1 then
+                index = string.format('[%d/%d] ', tab.tab_index + 1, #tabs)
+              end
+
+              return zoomed .. index .. tab.active_pane.title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title documented default example");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]2;First Pane\x07").unwrap();
+        assert_eq!(app.effective_window_title(), "First Pane");
+
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.handle_pty_output(b"\x1b]2;Second Pane\x07").unwrap();
+        assert_eq!(app.effective_window_title(), "[2/2] Second Pane");
+
+        app.dispatch_app_action(AppAction::SetPaneZoomState {
+            pane: app.active_pane_id(),
+            zoomed: true,
+        })
+        .unwrap();
+        assert_eq!(app.effective_window_title(), "[Z] [2/2] Second Pane");
     }
 
     #[test]
