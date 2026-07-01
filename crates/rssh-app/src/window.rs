@@ -6553,6 +6553,15 @@ fn lua_static_tab_title_return_from_function_body(
         if let Some(value) = lua_tab_title_event_field_return_from_statement(statement, tab_param) {
             return Some(value);
         }
+        if let Some(value) = lua_dynamic_tab_title_concat_return_from_statement(
+            body,
+            start,
+            statement,
+            tab_param,
+            outer_static_source,
+        ) {
+            return Some(value);
+        }
         if let Some(value) = lua_static_tab_title_return_from_statement(
             statement,
             static_source,
@@ -6637,6 +6646,93 @@ fn lua_tab_title_event_field_return_from_statement(
     }
 
     Some(NativeLuaTabTitle::ActivePaneTitle)
+}
+
+fn lua_dynamic_tab_title_concat_return_from_statement(
+    source: &str,
+    start: usize,
+    statement: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitle> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = rest.strip_suffix(';').unwrap_or(rest).trim();
+    if !rest.contains("..") {
+        return None;
+    }
+
+    let static_source = LuaStaticSource {
+        source,
+        max_start: start,
+    };
+    let mut parts = Vec::new();
+    let mut has_dynamic_part = false;
+    for segment in split_lua_string_concat_segments(rest)? {
+        let segment = lua_trim_start_comments(segment.trim())?;
+        let segment = lua_trim_end_statement_separator(segment)?;
+        if let Some(part) = lua_tab_title_text_part_from_expression(segment, tab_param) {
+            has_dynamic_part = true;
+            parts.push(part);
+            continue;
+        }
+        let value = lua_static_string_value_from_expression(
+            Some(static_source),
+            outer_static_source,
+            segment,
+        )?;
+        parts.push(NativeLuaTabTitleTextPart::Static(value));
+    }
+
+    has_dynamic_part.then_some(NativeLuaTabTitle::Concat(parts))
+}
+
+fn lua_tab_title_text_part_from_expression(
+    expression: &str,
+    tab_param: &str,
+) -> Option<NativeLuaTabTitleTextPart> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+    for (field, part) in [
+        ("tab_title", NativeLuaTabTitleTextPart::ActiveTabTitle),
+        ("window_title", NativeLuaTabTitleTextPart::WindowTitle),
+    ] {
+        let path = format!("{tab_param}.{field}");
+        if let Some(rest) = expression.strip_prefix(&path)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+        {
+            return Some(part);
+        }
+    }
+
+    for (field, part) in [
+        ("pane_id", NativeLuaTabTitleTextPart::ActivePaneId),
+        (
+            "domain_name",
+            NativeLuaTabTitleTextPart::ActivePaneDomainName,
+        ),
+        (
+            "foreground_process_name",
+            NativeLuaTabTitleTextPart::ActivePaneForegroundProcessName,
+        ),
+        (
+            "current_working_dir",
+            NativeLuaTabTitleTextPart::ActivePaneCurrentWorkingDir,
+        ),
+        ("tty_name", NativeLuaTabTitleTextPart::ActivePaneTtyName),
+        ("title", NativeLuaTabTitleTextPart::ActivePaneTitle),
+    ] {
+        let path = format!("{tab_param}.active_pane.{field}");
+        if let Some(rest) = expression.strip_prefix(&path)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+        {
+            return Some(part);
+        }
+    }
+
+    None
 }
 
 fn lua_static_tab_title_return_from_statement(
@@ -20768,6 +20864,7 @@ enum NativeLuaTabTitle {
     Static(NativeTabTitle),
     ActiveTabTitle,
     WindowTitle,
+    Concat(Vec<NativeLuaTabTitleTextPart>),
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
@@ -20781,6 +20878,13 @@ impl NativeLuaTabTitle {
             Self::Static(title) => Some(title.clone()),
             Self::ActiveTabTitle => event.tab_title.clone().map(NativeTabTitle::Text),
             Self::WindowTitle => Some(NativeTabTitle::Text(event.window_title.clone())),
+            Self::Concat(parts) => {
+                let mut title = String::new();
+                for part in parts {
+                    title.push_str(&part.resolve(event)?);
+                }
+                Some(NativeTabTitle::Text(title))
+            }
             Self::ActivePaneDomainName => Some(NativeTabTitle::Text(
                 event.active_pane_info.domain_name.clone(),
             )),
@@ -20802,6 +20906,37 @@ impl NativeLuaTabTitle {
                 .title
                 .clone()
                 .map(NativeTabTitle::Text),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaTabTitleTextPart {
+    Static(String),
+    ActiveTabTitle,
+    WindowTitle,
+    ActivePaneId,
+    ActivePaneDomainName,
+    ActivePaneForegroundProcessName,
+    ActivePaneCurrentWorkingDir,
+    ActivePaneTtyName,
+    ActivePaneTitle,
+}
+
+impl NativeLuaTabTitleTextPart {
+    fn resolve(&self, event: &NativeTabTitleFormat) -> Option<String> {
+        match self {
+            Self::Static(value) => Some(value.clone()),
+            Self::ActiveTabTitle => event.tab_title.clone(),
+            Self::WindowTitle => Some(event.window_title.clone()),
+            Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
+            Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
+            Self::ActivePaneForegroundProcessName => {
+                Some(event.active_pane_info.foreground_process_name.clone())
+            }
+            Self::ActivePaneCurrentWorkingDir => event.active_pane_info.current_working_dir.clone(),
+            Self::ActivePaneTtyName => event.active_pane_info.tty_name.clone(),
+            Self::ActivePaneTitle => event.active_pane_info.title.clone(),
         }
     }
 }
@@ -73895,6 +74030,38 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(
             tab_bar.contains("foreground-proc"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_dynamic_concat_return() {
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("foreground-proc"));
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return tab.active_pane.foreground_process_name .. ':' .. tab.active_pane.pane_id
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title dynamic concat return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("foreground-proc:1"),
             "tab bar was {tab_bar:?}"
         );
         assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
