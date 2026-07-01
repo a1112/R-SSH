@@ -11659,7 +11659,13 @@ fn lua_static_table_variable_indexed_field_assignment_from_query<'a>(
     }
     let after_variable = lua_trim_start_comments(after_variable)?;
     let (index, rest) = lua_table_array_index_access_rest_from_query(after_variable)?;
-    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        rest,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableIndexedFieldAssignment {
@@ -90867,6 +90873,39 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+H".to_owned(),
                 command: WindowCommand::SendString("from-variable-index-fields".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_key_static_variable_index_static_field_name_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_field = 'key'
+            local mods_field = 'mods'
+            local action_field = 'action'
+
+            local user_keys = {}
+            user_keys[1] = {}
+            user_keys[1][key_field] = 'H'
+            user_keys[1][mods_field] = 'CTRL|SHIFT'
+            user_keys[1][action_field] = act.SendString 'from-variable-index-static-fields'
+
+            config.keys = user_keys
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable indexed static field keys config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+H".to_owned(),
+                command: WindowCommand::SendString("from-variable-index-static-fields".to_owned()),
             }])
         );
     }
