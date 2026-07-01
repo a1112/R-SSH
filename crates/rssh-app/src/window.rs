@@ -19030,7 +19030,7 @@ fn native_font_rule_lua_table_from_query(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = lua_trim_start_comments(value)?;
         match key.as_str() {
             "italic" => {
@@ -101341,6 +101341,40 @@ mod tests {
         assert_eq!(rule.reverse, Some(true));
         assert_eq!(rule.strikethrough, Some(true));
         assert_eq!(rule.invisible, Some(false));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_rule_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local italic_field = 'italic'
+            local intensity_field = 'intensity'
+            local underline_field = 'underline'
+            local font_field = 'font'
+
+            config.font_rules = {
+              {
+                [italic_field] = true,
+                [intensity_field] = 'Bold',
+                [underline_field] = 'Single',
+                [font_field] = wezterm.font { family = 'Victor Mono' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font rule static field-name config");
+        app.set_config_overrides(overrides);
+
+        let rule = &app.native_effective_config().font_rules[0];
+        assert_eq!(rule.italic, Some(true));
+        assert_eq!(rule.intensity, Some(NativeFormatIntensity::Bold));
+        assert_eq!(rule.underline, Some(NativeFormatUnderline::Single));
+        assert_eq!(rule.font.as_deref(), Some("Victor Mono"));
     }
 
     #[test]

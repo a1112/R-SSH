@@ -342,8 +342,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   aliases and static font value variables, retaining the primary family,
   fallback families, and supported font attributes in effective config.
   Direct or `table.insert`-appended `config.font_rules[*]` entries use the same
-  static variable expansion for font values and matcher fields so rule-specific
-  attributes are retained.
+  static variable expansion for static field-name keys, font values, and
+  matcher fields so rule-specific attributes are retained.
   `window_frame.font` also accepts top-level
   static `wezterm.font` helper aliases, static `wezterm.font(...)` value
   variables, and `wezterm.font { family = ... }` static family variables for
