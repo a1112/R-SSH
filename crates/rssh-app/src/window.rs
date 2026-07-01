@@ -42406,7 +42406,7 @@ fn activate_key_table_lua_table_from_query(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = value.trim();
         match name.to_ascii_lowercase().as_str() {
             "name" => {
@@ -94274,6 +94274,56 @@ mod tests {
                     one_shot: false,
                     replace_current: false,
                     until_unknown: false,
+                    prevent_fallback: true,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_activate_key_table_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local name_field = 'name'
+            local timeout_field = 'timeout_milliseconds'
+            local one_shot_field = 'one_shot'
+            local replace_field = 'replace_current'
+            local until_field = 'until_unknown'
+            local prevent_field = 'prevent_fallback'
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|ALT',
+                action = act.ActivateKeyTable {
+                  [name_field] = 'resize_pane',
+                  [timeout_field] = 1000,
+                  [one_shot_field] = false,
+                  [replace_field] = true,
+                  [until_field] = true,
+                  [prevent_field] = true,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ActivateKeyTable static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+Space".to_owned(),
+                command: WindowCommand::ActivateKeyTable(WindowActivateKeyTable {
+                    name: "resize_pane".to_owned(),
+                    timeout_milliseconds: Some(1000),
+                    one_shot: false,
+                    replace_current: true,
+                    until_unknown: true,
                     prevent_fallback: true,
                 }),
             }])

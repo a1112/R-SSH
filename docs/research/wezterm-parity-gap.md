@@ -1276,7 +1276,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   same implemented activation payload fields, including bracketed string table
   keys with long-bracket values and trailing comma table fields, with
   table-call `name` string, `timeout_milliseconds` number, and boolean option
-  fields inline or through top-level static variables. Parenthesized
+  fields inline or through top-level static variables, plus static string
+  field-name variables. Parenthesized
   `ActivateKeyTable(key_table_opts)` calls also accept top-level static options
   table variables. Action-name
   `activatekeytable ...`, `popkeytable`, and `clearkeytablestack` aliases
