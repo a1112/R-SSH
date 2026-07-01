@@ -6545,6 +6545,33 @@ fn lua_static_tab_title_return_from_statement(
             if !lua_static_identifier_value_rest_is_statement_end(variable_rest) {
                 return None;
             }
+            if let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+                static_source.source,
+                rest,
+                static_source.max_start,
+            )
+                && let Some(items) = native_format_items_from_wezterm_format_query_with_static_sources(
+                    Some(static_source),
+                    outer_static_source,
+                    value,
+                )
+            {
+                return Some(NativeTabTitle::Format(items));
+            }
+            if let Some(outer_static_source) = outer_static_source
+                && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+                    outer_static_source.source,
+                    rest,
+                    outer_static_source.max_start,
+                )
+                && let Some(items) = native_format_items_from_wezterm_format_query_with_static_sources(
+                    None,
+                    Some(outer_static_source),
+                    value,
+                )
+            {
+                return Some(NativeTabTitle::Format(items));
+            }
             if let Some(items) =
                 native_format_items_from_static_lua_table_variable(static_source, variable)
             {
@@ -73487,6 +73514,40 @@ mod tests {
         let title_column = tab_bar
             .find("STATIC LUA TOP FORMAT")
             .expect("top-level formatted Lua variable title should render in the tab bar");
+        let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
+
+        assert_eq!(title_cell.ch, 'S');
+        assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+    }
+
+    #[test]
+    fn window_app_parses_format_tab_title_top_level_wezterm_format_result_variable_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local title = wezterm.format({
+              { Foreground = { Color = '#010203' } },
+              { Background = { Color = '#040506' } },
+              { Text = 'STATIC LUA TOP FORMAT RESULT' },
+            })
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return title
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-tab-title event top-level format result variable return",
+        );
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let title_column = tab_bar
+            .find("STATIC LUA TOP FORMAT RESULT")
+            .expect("top-level formatted Lua result variable title should render in the tab bar");
         let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
 
         assert_eq!(title_cell.ch, 'S');
