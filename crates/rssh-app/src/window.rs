@@ -4566,12 +4566,20 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             "foreground_text_hsb",
         )
         .and_then(|foreground_text_hsb| {
-            native_hsb_lua_table_from_query(config, &foreground_text_hsb.value)
+            native_hsb_lua_table_from_query(
+                config,
+                &foreground_text_hsb.value,
+                Some(foreground_text_hsb.max_start),
+            )
         })
         .or_else(|| {
             lua_config_table_or_static_variable_assignment_from_query(config, "foreground_text_hsb")
                 .and_then(|foreground_text_hsb| {
-                    native_hsb_lua_table_from_query(config, foreground_text_hsb)
+                    native_hsb_lua_table_from_query(
+                        config,
+                        foreground_text_hsb,
+                        lua_source_slice_start_offset(config, foreground_text_hsb),
+                    )
                 })
         })
     {
@@ -4584,12 +4592,20 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             "inactive_pane_hsb",
         )
         .and_then(|inactive_pane_hsb| {
-            native_hsb_lua_table_from_query(config, &inactive_pane_hsb.value)
+            native_hsb_lua_table_from_query(
+                config,
+                &inactive_pane_hsb.value,
+                Some(inactive_pane_hsb.max_start),
+            )
         })
         .or_else(|| {
             lua_config_table_or_static_variable_assignment_from_query(config, "inactive_pane_hsb")
                 .and_then(|inactive_pane_hsb| {
-                    native_hsb_lua_table_from_query(config, inactive_pane_hsb)
+                    native_hsb_lua_table_from_query(
+                        config,
+                        inactive_pane_hsb,
+                        lua_source_slice_start_offset(config, inactive_pane_hsb),
+                    )
                 })
         })
     {
@@ -4629,6 +4645,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         Some(native_hsb_lua_table_from_query(
             config,
             window_background_image_hsb,
+            lua_source_slice_start_offset(config, window_background_image_hsb),
         )?)
     } else {
         None
@@ -17216,8 +17233,10 @@ fn default_freetype_load_flags_for_dpi(dpi: u32) -> NativeFreetypeLoadFlags {
 fn native_hsb_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: Option<usize>,
 ) -> Option<NativeInactivePaneHsb> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = max_start.map(|max_start| LuaStaticSource { source, max_start });
     let mut hue = None;
     let mut saturation = None;
     let mut brightness = None;
@@ -17228,7 +17247,7 @@ fn native_hsb_lua_table_from_query<'a>(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = lua_static_number_assignment_value_from_query(
             source,
             value.trim(),
@@ -18030,7 +18049,7 @@ fn native_hsb_lua_value_from_query(
 ) -> Option<NativeInactivePaneHsb> {
     let value = value.trim();
     if value.starts_with('{') {
-        return native_hsb_lua_table_from_query(source, value);
+        return native_hsb_lua_table_from_query(source, value, Some(max_start));
     }
 
     let variable = lua_identifier_literal_from_query(value)?;
@@ -18040,7 +18059,7 @@ fn native_hsb_lua_value_from_query(
     }
     let value =
         lua_static_table_variable_assignment_before_offset_from_query(source, variable, max_start)?;
-    native_hsb_lua_table_from_query(source, value)
+    native_hsb_lua_table_from_query(source, value, lua_source_slice_start_offset(source, value))
 }
 
 fn native_background_source_lua_table_from_query(
@@ -102752,6 +102771,54 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm HSB static field variable config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.foreground_text_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.9),
+                brightness: NativeHsbMultiplier::from_f32(0.6),
+            }
+        );
+        assert_eq!(
+            effective.inactive_pane_hsb,
+            NativeInactivePaneHsb {
+                hue: NativeHsbMultiplier::from_f32(1.0),
+                saturation: NativeHsbMultiplier::from_f32(0.7),
+                brightness: NativeHsbMultiplier::from_f32(0.5),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_hsb_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local hue_field = 'hue'
+            local saturation_field = 'saturation'
+            local brightness_field = 'brightness'
+            local foreground_saturation = 0.9
+            local inactive_brightness = 0.5
+
+            config.foreground_text_hsb = {
+              [hue_field] = 1.0,
+              [saturation_field] = foreground_saturation,
+              [brightness_field] = 0.6,
+            }
+            config.inactive_pane_hsb = {
+              [hue_field] = 1.0,
+              [saturation_field] = 0.7,
+              [brightness_field] = inactive_brightness,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm HSB static field-name config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
