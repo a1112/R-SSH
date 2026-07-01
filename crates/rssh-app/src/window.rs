@@ -6562,6 +6562,15 @@ fn lua_static_tab_title_return_from_function_body(
         ) {
             return Some(value);
         }
+        if let Some(value) = lua_dynamic_tab_title_format_return_from_statement(
+            body,
+            start,
+            statement,
+            tab_param,
+            outer_static_source,
+        ) {
+            return Some(value);
+        }
         if let Some(value) = lua_static_tab_title_return_from_statement(
             statement,
             static_source,
@@ -6733,6 +6742,158 @@ fn lua_tab_title_text_part_from_expression(
     }
 
     None
+}
+
+fn lua_dynamic_tab_title_format_return_from_statement(
+    source: &str,
+    start: usize,
+    statement: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitle> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = rest.strip_suffix(';').unwrap_or(rest).trim();
+    let static_source = Some(LuaStaticSource {
+        source,
+        max_start: start,
+    });
+    let (items, has_dynamic_item) = native_lua_format_items_from_lua_format_items_table_query(
+        static_source,
+        outer_static_source,
+        rest,
+        tab_param,
+    )?;
+    has_dynamic_item.then_some(NativeLuaTabTitle::Format(items))
+}
+
+fn native_lua_format_items_from_lua_format_items_table_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    tab_param: &str,
+) -> Option<(Vec<NativeLuaFormatItem>, bool)> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut items = Vec::new();
+    let mut has_dynamic_item = false;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some(item) = native_lua_format_item_from_lua_table_query(
+            static_source,
+            outer_static_source,
+            field,
+            tab_param,
+        ) {
+            has_dynamic_item = true;
+            items.push(item);
+            continue;
+        }
+        if let Some(text) = parse_maybe_static_query_text_with_static_sources(
+            static_source,
+            outer_static_source,
+            field,
+        ) && text == "ResetAttributes"
+        {
+            items.push(NativeLuaFormatItem::Static(
+                NativeFormatItem::ResetAttributes,
+            ));
+            continue;
+        }
+        if let Some(item) = native_format_item_lua_table_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            field,
+        )
+        .or_else(|| {
+            native_format_item_from_static_lua_table_variable_with_static_sources(
+                static_source,
+                outer_static_source,
+                field,
+            )
+        }) {
+            items.push(NativeLuaFormatItem::Static(item));
+        } else {
+            return None;
+        }
+    }
+
+    Some((items, has_dynamic_item))
+}
+
+fn native_lua_format_item_from_lua_table_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    tab_param: &str,
+) -> Option<NativeLuaFormatItem> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut item = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            key.trim(),
+        )?;
+        if key != "Text" || item.is_some() {
+            return None;
+        }
+        item = Some(NativeLuaFormatItem::Text(
+            lua_tab_title_text_parts_from_expression(
+                value.trim(),
+                tab_param,
+                static_source,
+                outer_static_source,
+            )?,
+        ));
+    }
+
+    item
+}
+
+fn lua_tab_title_text_parts_from_expression(
+    expression: &str,
+    tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+    if let Some(part) = lua_tab_title_text_part_from_expression(expression, tab_param) {
+        return Some(vec![part]);
+    }
+
+    if !expression.contains("..") {
+        return None;
+    }
+
+    let mut parts = Vec::new();
+    let mut has_dynamic_part = false;
+    for segment in split_lua_string_concat_segments(expression)? {
+        let segment = lua_trim_start_comments(segment.trim())?;
+        let segment = lua_trim_end_statement_separator(segment)?;
+        if let Some(part) = lua_tab_title_text_part_from_expression(segment, tab_param) {
+            has_dynamic_part = true;
+            parts.push(part);
+            continue;
+        }
+        let value =
+            lua_static_string_value_from_expression(static_source, outer_static_source, segment)?;
+        parts.push(NativeLuaTabTitleTextPart::Static(value));
+    }
+
+    has_dynamic_part.then_some(parts)
 }
 
 fn lua_static_tab_title_return_from_statement(
@@ -20865,6 +21026,7 @@ enum NativeLuaTabTitle {
     ActiveTabTitle,
     WindowTitle,
     Concat(Vec<NativeLuaTabTitleTextPart>),
+    Format(Vec<NativeLuaFormatItem>),
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
@@ -20884,6 +21046,13 @@ impl NativeLuaTabTitle {
                     title.push_str(&part.resolve(event)?);
                 }
                 Some(NativeTabTitle::Text(title))
+            }
+            Self::Format(items) => {
+                let mut resolved = Vec::new();
+                for item in items {
+                    resolved.push(item.resolve(event)?);
+                }
+                Some(NativeTabTitle::Format(resolved))
             }
             Self::ActivePaneDomainName => Some(NativeTabTitle::Text(
                 event.active_pane_info.domain_name.clone(),
@@ -20906,6 +21075,27 @@ impl NativeLuaTabTitle {
                 .title
                 .clone()
                 .map(NativeTabTitle::Text),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaFormatItem {
+    Static(NativeFormatItem),
+    Text(Vec<NativeLuaTabTitleTextPart>),
+}
+
+impl NativeLuaFormatItem {
+    fn resolve(&self, event: &NativeTabTitleFormat) -> Option<NativeFormatItem> {
+        match self {
+            Self::Static(item) => Some(item.clone()),
+            Self::Text(parts) => {
+                let mut text = String::new();
+                for part in parts {
+                    text.push_str(&part.resolve(event)?);
+                }
+                Some(NativeFormatItem::Text(text))
+            }
         }
     }
 }
@@ -73767,6 +73957,44 @@ mod tests {
         assert_eq!(title_cell.ch, 'S');
         assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
         assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_dynamic_text_format_item_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return {
+                { Foreground = { Color = '#010203' } },
+                { Background = { Color = '#040506' } },
+                { Text = ' ' .. tab.active_pane.title .. ' ' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title dynamic Text item return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let title_column = tab_bar
+            .find(" PaneShell ")
+            .expect("formatted dynamic Lua title should render in the tab bar");
+        let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
+
+        assert_eq!(title_cell.ch, ' ');
+        assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
