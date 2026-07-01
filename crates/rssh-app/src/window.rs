@@ -6556,16 +6556,17 @@ fn lua_static_tab_title_return_from_function_body(
     tab_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
+    if let Some(value) = lua_static_tab_title_conditional_return_from_function_body(
+        body,
+        tab_param,
+        outer_static_source,
+    ) {
+        return Some(value);
+    }
+
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
-        let static_source = LuaStaticSource {
-            source: body,
-            max_start: start,
-        };
-        if let Some(value) = lua_tab_title_event_field_return_from_statement(statement, tab_param) {
-            return Some(value);
-        }
-        if let Some(value) = lua_dynamic_tab_title_concat_return_from_statement(
+        if let Some(value) = lua_static_tab_title_return_from_statement_as_lua_title(
             body,
             start,
             statement,
@@ -6574,30 +6575,148 @@ fn lua_static_tab_title_return_from_function_body(
         ) {
             return Some(value);
         }
-        if let Some(value) = lua_dynamic_tab_title_format_return_from_statement(
+    }
+
+    None
+}
+
+fn lua_static_tab_title_return_from_statement_as_lua_title(
+    source: &str,
+    start: usize,
+    statement: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitle> {
+    let static_source = LuaStaticSource {
+        source,
+        max_start: start,
+    };
+    if let Some(value) = lua_tab_title_event_field_return_from_statement(statement, tab_param) {
+        return Some(value);
+    }
+    if let Some(value) = lua_dynamic_tab_title_concat_return_from_statement(
+        source,
+        start,
+        statement,
+        tab_param,
+        outer_static_source,
+    ) {
+        return Some(value);
+    }
+    if let Some(value) = lua_dynamic_tab_title_format_return_from_statement(
+        source,
+        start,
+        statement,
+        tab_param,
+        outer_static_source,
+    ) {
+        return Some(value);
+    }
+    if let Some(value) = lua_dynamic_tab_title_text_return_from_statement(
+        source,
+        start,
+        statement,
+        tab_param,
+        outer_static_source,
+    ) {
+        return Some(value);
+    }
+    if let Some(value) =
+        lua_static_tab_title_return_from_statement(statement, static_source, outer_static_source)
+    {
+        return Some(NativeLuaTabTitle::Static(value));
+    }
+
+    None
+}
+
+fn lua_static_tab_title_conditional_return_from_function_body(
+    body: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitle> {
+    let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
+    let mut branches = Vec::new();
+    let mut fallback = None;
+
+    for start in starts {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some((condition, if_body)) =
+            lua_static_if_condition_and_body_from_statement(statement)
+        {
+            let condition = lua_tab_title_condition_from_expression(condition, tab_param)?;
+            let title = lua_static_tab_title_first_return_from_nested_body(
+                body,
+                if_body,
+                tab_param,
+                outer_static_source,
+            )?;
+            branches.push(NativeLuaTabTitleConditionalBranch { condition, title });
+            continue;
+        }
+
+        if branches.is_empty() {
+            continue;
+        }
+
+        if let Some(title) = lua_static_tab_title_return_from_statement_as_lua_title(
             body,
             start,
             statement,
             tab_param,
             outer_static_source,
         ) {
-            return Some(value);
+            fallback = Some(Box::new(title));
+            break;
         }
-        if let Some(value) = lua_dynamic_tab_title_text_return_from_statement(
-            body,
-            start,
+    }
+
+    Some(NativeLuaTabTitle::Conditional {
+        branches,
+        fallback: fallback?,
+    })
+}
+
+fn lua_static_tab_title_first_return_from_nested_body(
+    outer_body: &str,
+    nested_body: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitle> {
+    let nested_body_start = lua_source_slice_start_offset(outer_body, nested_body)?;
+    for start in
+        lua_top_level_statement_start_indices_before_offset(nested_body, nested_body.len())?
+    {
+        let statement = lua_trim_start_comments(nested_body.get(start..)?)?;
+        let outer_start = nested_body_start.checked_add(start)?;
+        if let Some(title) = lua_static_tab_title_return_from_statement_as_lua_title(
+            outer_body,
+            outer_start,
             statement,
             tab_param,
             outer_static_source,
         ) {
-            return Some(value);
+            return Some(title);
         }
-        if let Some(value) = lua_static_tab_title_return_from_statement(
-            statement,
-            static_source,
-            outer_static_source,
-        ) {
-            return Some(NativeLuaTabTitle::Static(value));
+    }
+
+    None
+}
+
+fn lua_tab_title_condition_from_expression(
+    condition: &str,
+    tab_param: &str,
+) -> Option<NativeLuaTabTitleCondition> {
+    let condition = lua_trim_start_comments(condition.trim())?;
+    for (field, parsed) in [
+        ("is_active", NativeLuaTabTitleCondition::IsActive),
+        ("is_last_active", NativeLuaTabTitleCondition::IsLastActive),
+    ] {
+        let path = format!("{tab_param}.{field}");
+        if let Some(rest) = condition.strip_prefix(&path)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+        {
+            return Some(parsed);
         }
     }
 
@@ -21680,6 +21799,10 @@ enum NativeLuaTabTitle {
     Static(NativeTabTitle),
     ActiveTabTitle,
     WindowTitle,
+    Conditional {
+        branches: Vec<NativeLuaTabTitleConditionalBranch>,
+        fallback: Box<NativeLuaTabTitle>,
+    },
     Concat(Vec<NativeLuaTabTitleTextPart>),
     Format(Vec<NativeLuaFormatItem>),
     ActivePaneDomainName,
@@ -21695,6 +21818,14 @@ impl NativeLuaTabTitle {
             Self::Static(title) => Some(title.clone()),
             Self::ActiveTabTitle => event.tab_title.clone().map(NativeTabTitle::Text),
             Self::WindowTitle => Some(NativeTabTitle::Text(event.window_title.clone())),
+            Self::Conditional { branches, fallback } => {
+                for branch in branches {
+                    if branch.condition.matches(event) {
+                        return branch.title.resolve(event);
+                    }
+                }
+                fallback.resolve(event)
+            }
             Self::Concat(parts) => {
                 let mut title = String::new();
                 for part in parts {
@@ -21730,6 +21861,27 @@ impl NativeLuaTabTitle {
                 .title
                 .clone()
                 .map(NativeTabTitle::Text),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaTabTitleConditionalBranch {
+    condition: NativeLuaTabTitleCondition,
+    title: NativeLuaTabTitle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaTabTitleCondition {
+    IsActive,
+    IsLastActive,
+}
+
+impl NativeLuaTabTitleCondition {
+    fn matches(self, event: &NativeTabTitleFormat) -> bool {
+        match self {
+            Self::IsActive => event.is_active,
+            Self::IsLastActive => event.is_last_active,
         }
     }
 }
@@ -74716,6 +74868,122 @@ mod tests {
             parsed.contains("ActiveTabTitleOrActivePaneTitle"),
             "parsed lua tab title was {parsed}"
         );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_active_and_last_active_branches() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              if tab.is_active then
+                return {
+                  { Background = { Color = 'blue' } },
+                  { Text = ' ' .. title .. ' ' },
+                }
+              end
+              if tab.is_last_active then
+                return {
+                  { Background = { Color = 'green' } },
+                  { Text = ' ' .. title .. '*' },
+                }
+              end
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active/last-active branches");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("IsActive"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("IsLastActive"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("ActiveTabTitleOrActivePaneTitle"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_and_last_active_branches() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              if tab.is_active then
+                return {
+                  { Background = { Color = 'blue' } },
+                  { Text = ' ' .. title .. ' ' },
+                }
+              end
+              if tab.is_last_active then
+                return {
+                  { Background = { Color = 'green' } },
+                  { Text = ' ' .. title .. '*' },
+                }
+              end
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active/last-active branches");
+        app.set_config_overrides(overrides);
+
+        let first_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: first_tab,
+            title: "first".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let second_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: second_tab,
+            title: "second".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let first_column = tab_bar
+            .find(" first*")
+            .expect("last-active formatted Lua tab title should render in the tab bar");
+        let second_column = tab_bar
+            .find(" second ")
+            .expect("active formatted Lua tab title should render in the tab bar");
+        let first_cell = snapshot_cell(&snapshot, 0, u16::try_from(first_column).unwrap()).unwrap();
+        let second_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(second_column).unwrap()).unwrap();
+
+        assert_eq!(first_cell.background, rssh_terminal::Color::Rgb(0, 128, 0));
+        assert_eq!(second_cell.background, rssh_terminal::Color::Rgb(0, 0, 255));
     }
 
     #[test]
