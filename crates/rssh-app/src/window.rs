@@ -6188,6 +6188,10 @@ fn lua_static_string_return_from_function_body(body: &str) -> Option<String> {
         if let Some(value) = lua_static_string_return_from_statement(statement) {
             return Some(value);
         }
+        if let Some(value) = lua_static_string_concat_return_from_statement(body, start, statement)
+        {
+            return Some(value);
+        }
     }
 
     None
@@ -6203,6 +6207,145 @@ fn lua_static_string_return_from_statement(statement: &str) -> Option<String> {
     let rest = lua_trim_start_comments(rest.get(value_len..)?)?;
     let rest = rest.strip_prefix(';').unwrap_or(rest);
     lua_trim_start_comments(rest)?.is_empty().then_some(value)
+}
+
+fn lua_static_string_concat_return_from_statement(
+    source: &str,
+    start: usize,
+    statement: &str,
+) -> Option<String> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = rest.strip_suffix(';').unwrap_or(rest).trim();
+    if !rest.contains("..") {
+        return None;
+    }
+
+    let static_source = LuaStaticSource {
+        source,
+        max_start: start,
+    };
+    let mut value = String::new();
+    for segment in split_lua_string_concat_segments(rest)? {
+        let segment = lua_trim_start_comments(segment.trim())?;
+        let segment = lua_trim_end_statement_separator(segment)?;
+        value.push_str(&parse_maybe_static_query_text(
+            Some(static_source),
+            segment,
+        )?);
+    }
+    (!value.is_empty()).then_some(value)
+}
+
+fn split_lua_string_concat_segments(value: &str) -> Option<Vec<&str>> {
+    let mut segments = Vec::new();
+    let mut start = 0;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+
+    for (index, character) in value.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if value[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index + 2..])
+            {
+                let content_and_rest = &value[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(value.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '.' if value[index..].starts_with("..") => {
+                let segment = value.get(start..index)?.trim();
+                if segment.is_empty() {
+                    return None;
+                }
+                segments.push(segment);
+                start = index + "..".len();
+            }
+            _ => {}
+        }
+
+        if character == '['
+            && let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index..])
+        {
+            let content_and_rest = &value[index + content_start..];
+            long_bracket_end = Some(
+                content_and_rest
+                    .find(&closing)
+                    .map_or(value.len(), |close_index| {
+                        index + content_start + close_index + closing.len()
+                    }),
+            );
+        }
+    }
+
+    let segment = value.get(start..)?.trim();
+    if segment.is_empty() {
+        return None;
+    }
+    segments.push(segment);
+
+    (segments.len() > 1).then_some(segments)
+}
+
+fn lua_trim_end_statement_separator(value: &str) -> Option<&str> {
+    let value = value.trim_end();
+    if let Some(value) = value.strip_suffix(';') {
+        return Some(value.trim_end());
+    }
+    Some(value)
 }
 
 fn lua_static_tab_title_return_from_function_body(
@@ -75033,6 +75176,27 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title event string return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_event_string_variable_concat_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local prefix = 'STATIC '
+              local subject = 'LUA '
+              local suffix = 'TITLE'
+              return prefix .. subject .. suffix
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title string concat return");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
