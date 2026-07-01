@@ -39638,7 +39638,7 @@ fn copy_mode_assignment_lua_table_from_query_with_static_source(
     }
 
     if let Some((name, value)) = split_lua_table_assignment_from_field(field) {
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         match normalized_action_name_query(&name).as_str() {
             "movebypage" => parse_maybe_static_query_f64(static_source, value.trim())
                 .and_then(scroll_by_page_amount_from_f64)
@@ -39709,7 +39709,7 @@ fn copy_mode_jump_assignment_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         match normalized_action_name_query(&name).as_str() {
             "prevchar" => {
                 if prev_char.is_some() {
@@ -89020,6 +89020,56 @@ mod tests {
                             super::WindowCopyModeAssignment::MoveByPage(
                                 WindowScrollByPageAmount::from_per_mille(-500),
                             )
+                        ),
+                    },
+                ],
+            )]))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_copy_mode_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local selection_field = 'SetSelectionMode'
+            local jump_field = 'JumpForward'
+            local prev_char_field = 'prev_char'
+
+            config.key_tables = {
+              copy_mode = {
+                { key = 'v', action = act.CopyMode { [selection_field] = 'Line' } },
+                { key = 'f', action = act.CopyMode { [jump_field] = { [prev_char_field] = true } } },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyMode static field-name variable config");
+
+        assert_eq!(
+            overrides.key_tables,
+            Some(BTreeMap::from([(
+                "copy_mode".to_owned(),
+                vec![
+                    NativeUserKeyAssignment {
+                        keys: "v".to_owned(),
+                        command: WindowCommand::CopyMode(
+                            super::WindowCopyModeAssignment::SetSelectionMode(
+                                super::WindowCopySelectionMode::Line,
+                            ),
+                        ),
+                    },
+                    NativeUserKeyAssignment {
+                        keys: "f".to_owned(),
+                        command: WindowCommand::CopyMode(
+                            super::WindowCopyModeAssignment::StartJump {
+                                forward: true,
+                                prev_char: true,
+                            },
                         ),
                     },
                 ],

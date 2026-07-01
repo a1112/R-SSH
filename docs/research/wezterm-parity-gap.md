@@ -2443,8 +2443,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   route the documented `Cell`, `Word`, `Line`, `Block`, and `SemanticZone`
   selection modes, including bracketed string table keys with long-bracket
   values, and static `config.key_tables` actions resolve top-level string
-  variables for single-name assignments and `SetSelectionMode` fields plus
-  parenthesized static assignment table variables. Search
+  variables for single-name assignments, `SetSelectionMode` fields, static
+  string field-name variables, and parenthesized static assignment table
+  variables. Search
   `NextMatch`, `PriorMatch`, `NextMatchPage`, `PriorMatchPage`, `ClearPattern`,
   and `CycleMatchType` assignment values dispatch the same copy-mode search
   helpers as the default key table. `PageUp`, `PageDown`, and
@@ -2456,7 +2457,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   target-character jump flow as `f`/`t`/`F`/`T`, including bracketed string
   table keys with long-bracket values and optional trailing commas in the
   nested jump option table, plus top-level static bool variables for
-  `prev_char` and top-level static nested jump option table variables when
+  `prev_char`, static string field-name variables for nested `prev_char`
+  option keys, and top-level static nested jump option table variables when
   parsed from static `config.key_tables`.
   `MoveForwardSemanticZoneOfType = 'Input'` and
   `MoveBackwardSemanticZoneOfType = 'Prompt'` assignment values reuse the
