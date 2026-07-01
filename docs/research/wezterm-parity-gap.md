@@ -1275,8 +1275,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Lua snippets for `config.keys`, `config.key_tables`, and `config.leader`
   now parse native key assignment tables and leader configuration into the same
   override/runtime path for the implemented action subset, including bracketed
-  string table keys with long-bracket values for leader fields, key-table names,
-  and nested assignment fields, static table variable assignments such as
+  string table keys with long-bracket values and top-level static string
+  field-name variables for leader fields, key-table names, and nested
+  assignment fields, static table variable assignments such as
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
   `config.leader = user_leader`, and leader `key`, `mods`, and
   `timeout_milliseconds` fields inline or through top-level static scalar
@@ -1510,8 +1511,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   before normal input resumes. Static WezTerm-style `config.leader` snippets
   now parse `key`, `mods`, and optional `timeout_milliseconds` into the same
   native leader runtime, including bracketed string table keys with
-  long-bracket values and field values supplied through top-level static
-  scalar variables, direct top-level config field mutations such as
+  long-bracket values, field names supplied through top-level static string
+  variables, and field values supplied through top-level static scalar
+  variables, direct top-level config field mutations such as
   `config.leader.key = 'a'`, and post-assignment top-level field mutations
   after `config.leader = user_leader`; full keys config-file wiring remains
   open.
@@ -2452,7 +2454,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   static Lua snippets for `config.keys`, `config.key_tables`, and
   `config.leader` now parse the implemented native assignment subset and
   leader configuration into runtime key-table overrides, including bracketed
-  string table keys with long-bracket values for key-table names and nested
+  string table keys with long-bracket values and top-level static string
+  field-name variables for leader fields, key-table names, and nested
   assignment fields, static table variable assignments such as
   `config.keys = user_keys`, `config.key_tables = user_key_tables`, or
   `config.leader = user_leader`, and leader `key`, `mods`, and

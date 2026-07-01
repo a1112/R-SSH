@@ -19194,6 +19194,7 @@ fn native_leader_lua_table_from_query<'a>(
     let mut key = None;
     let mut mods = None;
     let mut timeout_milliseconds = None;
+    let static_source = Some(LuaStaticSource { source, max_start });
 
     for field in split_lua_table_top_level_fields(table)? {
         let field = field.trim();
@@ -19201,24 +19202,18 @@ fn native_leader_lua_table_from_query<'a>(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = value.trim();
         if name.eq_ignore_ascii_case("key") {
             if key.is_some() {
                 return None;
             }
-            key = Some(parse_maybe_static_query_text(
-                Some(LuaStaticSource { source, max_start }),
-                value,
-            )?);
+            key = Some(parse_maybe_static_query_text(static_source, value)?);
         } else if name.eq_ignore_ascii_case("mods") {
             if mods.is_some() {
                 return None;
             }
-            mods = Some(parse_maybe_static_query_text(
-                Some(LuaStaticSource { source, max_start }),
-                value,
-            )?);
+            mods = Some(parse_maybe_static_query_text(static_source, value)?);
         } else if name.eq_ignore_ascii_case("timeout_milliseconds")
             || name.eq_ignore_ascii_case("timeout-milliseconds")
         {
@@ -94563,6 +94558,62 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm leader static field variable config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert!(!app.debug_overlay_active_for_test());
+
+        app.modifiers = ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("|".into()),
+            PhysicalKey::Code(WinitKeyCode::Backslash),
+            Some("|"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert!(app.debug_overlay_active_for_test());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_leader_static_field_name_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_field = 'key'
+            local mods_field = 'mods'
+            local timeout_field = 'timeout_milliseconds'
+
+            config.leader = {
+              [key_field] = 'a',
+              [mods_field] = 'CTRL',
+              [timeout_field] = 1000,
+            }
+
+            config.keys = {
+              {
+                key = '|',
+                mods = 'LEADER|SHIFT',
+                action = act.ShowDebugOverlay,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm leader static field-name variable config");
         app.set_config_overrides(overrides);
 
         app.modifiers = ModifiersState::CONTROL;
