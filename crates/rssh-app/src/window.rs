@@ -6670,10 +6670,10 @@ fn lua_static_window_status_text_from_query(
     value: &str,
 ) -> Option<String> {
     let argument = lua_trim_start_comments(value)?;
-    if let Some((status, status_len)) = lua_inline_string_literal_value_and_len(argument) {
-        return lua_trim_start_comments(argument.get(status_len..)?)?
-            .is_empty()
-            .then_some(status);
+    if let Some(status) =
+        lua_static_string_value_from_expression(static_source, outer_static_source, argument)
+    {
+        return Some(status);
     }
     wezterm_format_status_text_from_query(static_source, outer_static_source, argument)
 }
@@ -70977,6 +70977,37 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm update-status event status setters");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("ws:default LEFT-LUA"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(tab_bar.ends_with("RIGHT-LUA"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_update_status_event_string_concat_status_setters() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local event_prefix = 'update-'
+            local event_kind = 'status'
+
+            wezterm.on(event_prefix .. event_kind, function(window, pane)
+              local left_prefix = 'LEFT-'
+              local right_prefix = 'RIGHT-'
+              window:set_left_status(left_prefix .. 'LUA')
+              window:set_right_status(right_prefix .. 'LUA')
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm update-status string concat status setters");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
