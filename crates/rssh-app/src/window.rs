@@ -41599,7 +41599,7 @@ fn emit_event_lua_table_from_query(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "name" => {
@@ -93905,6 +93905,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm EmitEvent static name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+E".to_owned(),
+                command: WindowCommand::EmitEvent(WindowEmitEvent {
+                    name: "session-ready".to_owned(),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_emit_event_static_field_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local name_field = 'name'
+            local event_name = 'session-ready'
+
+            config.keys = {
+              {
+                key = 'E',
+                mods = 'CTRL|SHIFT',
+                action = act.EmitEvent {
+                  [name_field] = event_name,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm EmitEvent static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,

@@ -1245,8 +1245,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.EmitEvent({ name = ... })` table-call queries dispatch the
   same typed payload path, including bracketed string table keys with
   long-bracket values, trailing comma table fields, and top-level static string
-  variables for the table-call `name` field. Parenthesized `EmitEvent(event_opts)`
-  calls also accept top-level static options table variables. Lua
+  field-name variables plus top-level static string variables for the
+  table-call `name` field. Parenthesized `EmitEvent(event_opts)` calls also
+  accept top-level static options table variables. Lua
   `wezterm.on`/`wezterm.emit` wiring remains open.
 - Native `ActivateKeyTable`, `PopKeyTable`, and `ClearKeyTableStack` action
   payloads now maintain a per-window key-table activation stack and show the
