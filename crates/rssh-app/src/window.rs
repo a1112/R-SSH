@@ -46385,7 +46385,11 @@ fn native_format_items_from_wezterm_format_query_with_static_sources(
         });
     let value = resolved_value.as_deref().unwrap_or(value);
     let table = wezterm_format_table_argument_from_query(value)?;
-    if let Some(items) = native_format_items_from_lua_format_items_table_query(table) {
+    if let Some(items) = native_format_items_from_lua_format_items_table_query_with_static_sources(
+        static_source,
+        outer_static_source,
+        table,
+    ) {
         return Some(items);
     }
 
@@ -46425,7 +46429,11 @@ fn native_format_items_from_static_lua_table_variable(
         variable,
         static_source.max_start,
     )?;
-    let items = native_format_items_from_lua_format_items_table_query(&value);
+    let items = native_format_items_from_lua_format_items_table_query_with_static_sources(
+        Some(static_source),
+        None,
+        &value,
+    );
     Some(items)
 }
 
@@ -46676,6 +46684,14 @@ fn lua_format_item_insert_argument_value_from_query(
 fn native_format_items_from_lua_format_items_table_query(
     value: &str,
 ) -> Option<Vec<NativeFormatItem>> {
+    native_format_items_from_lua_format_items_table_query_with_static_sources(None, None, value)
+}
+
+fn native_format_items_from_lua_format_items_table_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<NativeFormatItem>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut items = Vec::new();
 
@@ -46690,7 +46706,11 @@ fn native_format_items_from_lua_format_items_table_query(
             items.push(NativeFormatItem::ResetAttributes);
             continue;
         }
-        items.push(native_format_item_lua_table_from_query(field)?);
+        items.push(native_format_item_lua_table_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            field,
+        )?);
     }
 
     Some(items)
@@ -46708,7 +46728,11 @@ fn wezterm_format_table_argument_from_query(value: &str) -> Option<&str> {
     Some(rest)
 }
 
-fn native_format_item_lua_table_from_query(value: &str) -> Option<NativeFormatItem> {
+fn native_format_item_lua_table_from_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeFormatItem> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut item = None;
 
@@ -46718,21 +46742,37 @@ fn native_format_item_lua_table_from_query(value: &str) -> Option<NativeFormatIt
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            key.trim(),
+        )?;
         if item.is_some() {
             return None;
         }
         item = Some(match key.as_str() {
             "Text" => NativeFormatItem::Text(parse_maybe_quoted_query_text(value.trim())?),
             "Foreground" => NativeFormatItem::Foreground(native_color_spec_to_render_color(
-                lua_color_spec_from_query(value.trim())?,
+                lua_color_spec_from_query_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value.trim(),
+                )?,
             )),
             "Background" => NativeFormatItem::Background(native_color_spec_to_render_color(
-                lua_color_spec_from_query(value.trim())?,
+                lua_color_spec_from_query_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value.trim(),
+                )?,
             )),
-            "Attribute" => {
-                NativeFormatItem::Attribute(native_format_attribute_lua_table_from_query(value)?)
-            }
+            "Attribute" => NativeFormatItem::Attribute(
+                native_format_attribute_lua_table_from_query_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value,
+                )?,
+            ),
             _ => return None,
         });
     }
@@ -46740,7 +46780,11 @@ fn native_format_item_lua_table_from_query(value: &str) -> Option<NativeFormatIt
     item
 }
 
-fn native_format_attribute_lua_table_from_query(value: &str) -> Option<NativeFormatAttribute> {
+fn native_format_attribute_lua_table_from_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeFormatAttribute> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut attribute = None;
 
@@ -46750,7 +46794,11 @@ fn native_format_attribute_lua_table_from_query(value: &str) -> Option<NativeFor
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            key.trim(),
+        )?;
         if attribute.is_some() {
             return None;
         }
@@ -46960,10 +47008,6 @@ fn color_spec_lua_table_field_from_query_with_static_source(
     Some(color)
 }
 
-fn lua_color_spec_from_query(value: &str) -> Option<NativeColorSpec> {
-    lua_color_spec_from_query_with_static_source(None, value)
-}
-
 fn lua_color_spec_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -46993,6 +47037,15 @@ fn lua_color_spec_from_query_with_static_source(
     }
 
     color
+}
+
+fn lua_color_spec_from_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeColorSpec> {
+    lua_color_spec_from_query_with_static_source(static_source, value)
+        .or_else(|| lua_color_spec_from_query_with_static_source(outer_static_source, value))
 }
 
 fn selection_fg_lua_table_field_from_query_with_static_source(
@@ -47596,6 +47649,15 @@ fn split_lua_table_key_from_query_with_static_source(
         return non_empty_spawn_command_option_value(&value).ok();
     }
     non_empty_spawn_command_option_value(key).ok()
+}
+
+fn split_lua_table_key_from_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    key: &str,
+) -> Option<String> {
+    split_lua_table_key_from_query_with_static_source(static_source, key)
+        .or_else(|| split_lua_table_key_from_query_with_static_source(outer_static_source, key))
 }
 
 fn split_lua_table_string_array(value: &str) -> Option<Vec<String>> {
@@ -71530,6 +71592,59 @@ mod tests {
         assert!(
             tab_bar.contains("{ + }"),
             "new-tab button should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_style_static_format_item_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local text_field = 'Text'
+            local foreground_field = 'Foreground'
+            local color_field = 'Color'
+
+            config.tab_bar_style = {
+              active_tab_left = wezterm.format({
+                { [foreground_field] = { [color_field] = '#010203' } },
+                { [text_field] = '[' },
+              }),
+              active_tab_right = wezterm.format({ { [text_field] = ']' } }),
+              inactive_tab_left = wezterm.format({ { [text_field] = '<' } }),
+              inactive_tab_right = wezterm.format({ { [text_field] = '>' } }),
+              new_tab_left = wezterm.format({ { [text_field] = '{' } }),
+              new_tab_right = wezterm.format({ { [text_field] = '}' } }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style static format-item field-name config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let active_column = tab_bar
+            .find("[ 2:2*")
+            .expect("active tab should use static format item text field");
+        let active_left_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should use static format item text fields: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("{ + }"),
+            "new-tab button should use static format item text fields: {tab_bar:?}"
+        );
+        assert_eq!(
+            active_left_cell.foreground,
+            rssh_terminal::Color::Rgb(1, 2, 3)
         );
     }
 
