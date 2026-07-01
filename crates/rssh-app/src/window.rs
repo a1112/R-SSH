@@ -19976,7 +19976,7 @@ fn native_mouse_assignment_event_payload_from_query(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = value.trim();
         match name.to_ascii_lowercase().as_str() {
             "button" => {
@@ -84730,6 +84730,45 @@ mod tests {
         assert!(app.window_drag_requested_for_test());
         assert!(app.selection.is_none());
         assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_event_payload_field_names() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local button_field = 'button'
+            local streak_field = 'streak'
+
+            config.mouse_bindings = {
+              {
+                event = { Drag = { [streak_field] = 1, [button_field] = 'Left' } },
+                mods = 'ALT',
+                action = act.StartWindowDrag,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static event payload field-name config");
+
+        assert_eq!(
+            overrides.mouse_assignments,
+            Some(vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Drag,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                    streak: 1,
+                },
+                modifiers: ModifiersState::ALT,
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::StartWindowDrag,
+            }])
+        );
     }
 
     #[test]
