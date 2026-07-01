@@ -6194,7 +6194,18 @@ fn lua_static_string_return_from_function_body(
 ) -> Option<String> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let static_source = LuaStaticSource {
+            source: body,
+            max_start: start,
+        };
         if let Some(value) = lua_static_string_return_from_statement(statement) {
+            return Some(value);
+        }
+        if let Some(value) = lua_static_string_variable_return_from_statement(
+            statement,
+            static_source,
+            outer_static_source,
+        ) {
             return Some(value);
         }
         if let Some(value) = lua_static_string_concat_return_from_statement(
@@ -6220,6 +6231,36 @@ fn lua_static_string_return_from_statement(statement: &str) -> Option<String> {
     let rest = lua_trim_start_comments(rest.get(value_len..)?)?;
     let rest = rest.strip_prefix(';').unwrap_or(rest);
     lua_trim_start_comments(rest)?.is_empty().then_some(value)
+}
+
+fn lua_static_string_variable_return_from_statement(
+    statement: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<String> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    if let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+        static_source.source,
+        rest,
+        static_source.max_start,
+    ) {
+        return lua_inline_string_literal_value_and_len(value).map(|(value, _)| value);
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            rest,
+            outer_static_source.max_start,
+        )
+    {
+        return lua_inline_string_literal_value_and_len(value).map(|(value, _)| value);
+    }
+
+    None
 }
 
 fn lua_static_string_concat_return_from_statement(
@@ -75233,6 +75274,45 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title top-level string concat return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_event_top_level_string_variable_return()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local static_title = 'STATIC LUA TITLE'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return static_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title top-level string variable return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_event_string_variable_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local static_title = 'STATIC LUA TITLE'
+              return static_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title string variable return");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
