@@ -5229,6 +5229,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             parsed = true;
         }
     }
+    if !parsed_hyperlink_rules
+        && lua_config_hyperlink_rules_direct_default_assignment_before_offset(config, config.len())
+            .unwrap_or(false)
+    {
+        overrides.hyperlink_rules = Some(default_hyperlink_rules());
+        parsed = true;
+    }
     if let Some(selection_word_boundary) =
         lua_config_string_assignment_from_query(config, "selection_word_boundary")
     {
@@ -16656,6 +16663,49 @@ fn lua_config_hyperlink_rules_default_rules_with_config_inserts(
     }
 
     inserted.then_some(rules)
+}
+
+fn lua_config_hyperlink_rules_direct_default_assignment_before_offset(
+    source: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let receiver = lua_config_static_return_identifier_from_query(source).unwrap_or("config");
+    let starts = lua_top_level_statement_start_indices_before_offset(source, max_start)?;
+
+    for (position, start) in starts.iter().copied().enumerate() {
+        let statement_end = starts.get(position + 1).copied().unwrap_or(max_start);
+        let statement = source.get(start..statement_end)?;
+        let after_receiver = if lua_source_keyword_at(source, start, "local") {
+            let rest = lua_trim_start_comments(source.get(start + "local".len()..)?)?;
+            lua_config_receiver_prefix_rest(rest, receiver)
+        } else {
+            lua_config_receiver_prefix_rest(statement, receiver)
+        };
+        let Some(after_receiver) = after_receiver else {
+            continue;
+        };
+        let Some(after_field) = lua_config_field_access_rest_from_query_with_static_key(
+            source,
+            after_receiver,
+            "hyperlink_rules",
+            start,
+        ) else {
+            continue;
+        };
+        let after_field = lua_trim_start_comments(after_field)?;
+        let Some(value) = after_field.strip_prefix('=') else {
+            continue;
+        };
+        if lua_wezterm_default_hyperlink_rules_value_from_query_with_static_source(
+            source,
+            lua_trim_start_comments(value)?,
+            start,
+        ) {
+            return Some(true);
+        }
+    }
+
+    Some(false)
 }
 
 fn apply_config_hyperlink_rule_assignment_at_start(
@@ -98153,6 +98203,26 @@ mod tests {
                 && rule.format == "https://tickets.example/$1"
                 && rule.highlight == 1
         }));
+    }
+
+    #[test]
+    fn window_app_accepts_explicit_default_hyperlink_rules_from_wezterm_lua_config() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.hyperlink_rules = wezterm.default_hyperlink_rules()
+
+            return config
+            "#,
+        )
+        .expect("expected explicit WezTerm default hyperlink_rules config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.hyperlink_rules, default_hyperlink_rules());
     }
 
     #[test]
