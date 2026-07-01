@@ -2946,8 +2946,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `active_titlebar_fg`, `inactive_titlebar_border_bottom`,
   `active_titlebar_border_bottom`, `button_fg`, `button_bg`,
   `button_hover_fg`, and `button_hover_bg`) parse into native/effective config
-  and are retained for the future native/fancy titlebar renderer, with color
-  fields accepting `wezterm.color.parse(...)` direct or static alias calls;
+  and are retained for the future native/fancy titlebar renderer, with static
+  field-name keys and color fields accepting `wezterm.color.parse(...)` direct
+  or static alias calls;
   `window_frame` also now retains `border_left_width`, `border_right_width`,
   `border_top_height`, `border_bottom_height`, `border_left_color`,
   `border_right_color`, `border_top_color`, `border_bottom_color`, `font`,

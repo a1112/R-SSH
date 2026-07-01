@@ -18505,7 +18505,7 @@ fn native_window_frame_appearance_lua_table_from_query(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let slot = match key.as_str() {
             "inactive_titlebar_bg" => &mut appearance.inactive_titlebar_bg,
             "active_titlebar_bg" => &mut appearance.active_titlebar_bg,
@@ -103409,6 +103409,45 @@ mod tests {
         assert_eq!(effective.border_right_color, Some(Color::Rgb(34, 35, 36)));
         assert_eq!(effective.border_top_color, Some(Color::Rgb(37, 38, 39)));
         assert_eq!(effective.border_bottom_color, Some(Color::Rgb(40, 41, 42)));
+        assert_eq!(effective.font, Some("Roboto".to_owned()));
+        assert_eq!(
+            effective.font_size,
+            Some(NativeFontSize::from_millipoints(13_500))
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_frame_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local bg_field = 'inactive_titlebar_bg'
+            local width_field = 'border_left_width'
+            local font_field = 'font'
+            local font_size_field = 'font_size'
+            local frame_font_size = 13.5
+
+            config.window_frame = {
+              [bg_field] = '#010203',
+              [width_field] = '0.5cell',
+              [font_field] = wezterm.font 'Roboto',
+              [font_size_field] = frame_font_size,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window_frame static field-name config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config().window_frame_appearance;
+        assert_eq!(effective.inactive_titlebar_bg, Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(
+            effective.border_left_width,
+            Some(NativeWindowPaddingDimension::CellFractionPerMille(500))
+        );
         assert_eq!(effective.font, Some("Roboto".to_owned()));
         assert_eq!(
             effective.font_size,
