@@ -227,7 +227,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   nested `Down`/`Up`/`Drag` payloads inline or through top-level static table
   variables, `WheelUp`/`WheelDown` button tables inline or through top-level
   static table variables with amount fields inline or through top-level static
-  number variables, event `button`/`streak` fields inline or through top-level
+  number variables and static string field-name variables for wheel button keys,
+  event `button`/`streak` fields inline or through top-level
   static variables, static string field-name variables for event
   `button`/`streak` fields, and `action` payloads inline or through top-level
   static action variables, so custom bindings such as `ALT` + left drag can dispatch
@@ -996,6 +997,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `Down`/`Up`/`Drag` event kinds, top-level static table variables for nested event payloads,
   top-level static table variables for `WheelUp`/`WheelDown` button payloads,
   top-level static number variables for wheel button amounts, top-level static
+  string field-name variables for wheel button keys, top-level static
   variables plus static string field-name variables for event `button`/`streak`
   fields, and top-level static action variables for action payloads, parsed mouse bindings are retained in native
   effective config snapshots, and

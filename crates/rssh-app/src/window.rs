@@ -20052,7 +20052,8 @@ fn native_mouse_assignment_button_from_lua_value(
                 return None;
             }
             let (name, value) = split_lua_table_assignment_from_field(field)?;
-            let name = split_lua_table_key_from_query(name.trim())?;
+            let name =
+                split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
             let value = value.trim();
             let amount = if let Some(static_source) = static_source {
                 lua_static_number_assignment_value_before_offset_from_query(
@@ -85374,6 +85375,44 @@ mod tests {
         );
 
         assert!((app.font_size_scale_for_test() - 1.1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_wheel_button_field_name() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local wheel_field = 'WheelUp'
+
+            config.mouse_bindings = {
+              {
+                event = { Down = { streak = 1, button = { [wheel_field] = 1 } } },
+                mods = 'CTRL',
+                action = act.IncreaseFontSize,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static wheel button field-name config");
+
+        assert_eq!(
+            overrides.mouse_assignments,
+            Some(vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Down,
+                    button: NativeMouseAssignmentButton::WheelUp,
+                    streak: 1,
+                },
+                modifiers: ModifiersState::CONTROL,
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::IncreaseFontSize,
+            }])
+        );
     }
 
     #[test]
