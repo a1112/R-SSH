@@ -772,8 +772,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   subset, including bracketed string table keys with long-bracket values for
   nested commandless spawn options and `set_environment_variables` entries;
   static WezTerm-style `config.keys` actions also resolve top-level static
-  variables for `name` and nested spawn `args`/`cwd` fields, plus
-  parenthesized top-level static options table variables.
+  variables for `name` and nested spawn `args`/`cwd` fields, static string
+  field-name variables for top-level `name`/`spawn` keys, plus parenthesized
+  top-level static options table variables.
   Native `ShowLauncher` opens the default Launcher Menu for
   local-domain spawning plus native
   launch-menu items. Native `ShowLauncherArgs` accepts WezTerm-style

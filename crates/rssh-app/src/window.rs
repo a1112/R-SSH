@@ -43146,7 +43146,7 @@ fn switch_workspace_options_lua_table_from_query_with_static_source(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = value.trim().trim_end_matches(',').trim();
         if key.eq_ignore_ascii_case("name") {
             if name.is_some() {
@@ -94959,6 +94959,58 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+W".to_owned(),
+                command: WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
+                    name: Some("monitoring".to_owned()),
+                    command: Some(WindowSpawnCommandQuery {
+                        program: "top".to_owned(),
+                        args: vec!["-d".to_owned(), "1".to_owned()],
+                        cwd: Some("C:/Mon".to_owned()),
+                        environment: BTreeMap::new(),
+                        domain: None,
+                        window_position: None,
+                    }),
+                    command_options: None,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_switch_to_workspace_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local name_field = 'name'
+            local spawn_field = 'spawn'
+            local workspace_name = 'monitoring'
+            local spawn_args = { 'top', '-d', '1' }
+            local spawn_cwd = 'C:/Mon'
+
+            config.keys = {
+              {
+                key = 'W',
+                mods = 'CTRL|SHIFT',
+                action = act.SwitchToWorkspace {
+                  [name_field] = workspace_name,
+                  [spawn_field] = {
+                    args = spawn_args,
+                    cwd = spawn_cwd,
+                  },
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SwitchToWorkspace static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+W".to_owned(),
                 command: WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
                     name: Some("monitoring".to_owned()),
                     command: Some(WindowSpawnCommandQuery {
