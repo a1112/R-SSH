@@ -1145,8 +1145,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.PromptInputLine { description = ..., prompt = ...,
   initial_value = ... }` table-call queries also dispatch that native field
   subset, including bracketed string table keys with long-bracket values and
-  top-level static string variables for `description`/`prompt`/`initial_value`
-  fields, plus top-level static `wezterm.format` text variables for
+  top-level static string field-name variables for
+  `description`/`prompt`/`initial_value`/`action`, top-level static string
+  variables for `description`/`prompt`/`initial_value` fields, plus top-level
+  static `wezterm.format` text variables for
   `description`/`prompt` and text variables or inline values built from
   top-level static `wezterm.format` aliases.
   Static Lua `wezterm.format { { Text = ... } }` values for `description` and

@@ -40172,7 +40172,7 @@ fn prompt_input_line_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "description" => {
                 let value =
@@ -92541,6 +92541,49 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm PromptInputLine static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Rename tab".to_owned(),
+                    prompt: Some("name: ".to_owned()),
+                    initial_value: Some("old name".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_prompt_input_line_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local description_field = 'description'
+            local prompt_field = 'prompt'
+            local initial_field = 'initial_value'
+            local action_field = 'action'
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine {
+                  [description_field] = 'Rename tab',
+                  [prompt_field] = 'name: ',
+                  [initial_field] = 'old name',
+                  [action_field] = wezterm.action_callback(function(window, pane, line) end),
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,
