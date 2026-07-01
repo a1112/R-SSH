@@ -6598,6 +6598,19 @@ fn lua_tab_title_event_field_return_from_statement(
         return Some(NativeLuaTabTitle::ActivePaneDomainName);
     }
 
+    let active_pane_foreground_process_name =
+        format!("{tab_param}.active_pane.foreground_process_name");
+    if let Some(after_active_pane_foreground_process_name) =
+        rest.strip_prefix(&active_pane_foreground_process_name)
+    {
+        if !lua_static_identifier_value_rest_is_statement_end(
+            after_active_pane_foreground_process_name,
+        ) {
+            return None;
+        }
+        return Some(NativeLuaTabTitle::ActivePaneForegroundProcessName);
+    }
+
     let active_pane_title = format!("{tab_param}.active_pane.title");
     let after_active_pane_title = rest.strip_prefix(&active_pane_title)?;
     if !lua_static_identifier_value_rest_is_statement_end(after_active_pane_title) {
@@ -20737,6 +20750,7 @@ enum NativeLuaTabTitle {
     ActiveTabTitle,
     WindowTitle,
     ActivePaneDomainName,
+    ActivePaneForegroundProcessName,
     ActivePaneTitle,
 }
 
@@ -20748,6 +20762,9 @@ impl NativeLuaTabTitle {
             Self::WindowTitle => Some(NativeTabTitle::Text(event.window_title.clone())),
             Self::ActivePaneDomainName => Some(NativeTabTitle::Text(
                 event.active_pane_info.domain_name.clone(),
+            )),
+            Self::ActivePaneForegroundProcessName => Some(NativeTabTitle::Text(
+                event.active_pane_info.foreground_process_name.clone(),
             )),
             Self::ActivePaneTitle => event
                 .active_pane_info
@@ -73817,6 +73834,38 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("local"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_foreground_process_return() {
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("foreground-proc"));
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return tab.active_pane.foreground_process_name
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active pane foreground process return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("foreground-proc"),
+            "tab bar was {tab_bar:?}"
+        );
         assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
     }
