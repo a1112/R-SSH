@@ -6012,18 +6012,67 @@ fn lua_static_wezterm_on_event_name_and_rest_from_args<'a>(
     args: &'a str,
 ) -> Option<(String, &'a str)> {
     let args = lua_trim_start_comments(args)?;
-    if let Some((event_name, event_len)) = lua_inline_string_literal_value_and_len(args) {
-        return Some((event_name, args.get(event_len..)?));
+    let (argument_list, _) = lua_parenthesized_argument_list_prefix_from_query(args)?;
+    let arguments = split_lua_top_level_arguments(argument_list)?;
+    let event_arg = arguments.first()?;
+    let event_start = lua_source_slice_start_offset(argument_list, event_arg)?;
+    let event_end = event_start.checked_add(event_arg.len())?;
+    let rest = args.get(event_end..)?;
+    let event_name = lua_static_string_value_from_expression(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        None,
+        event_arg,
+    )?;
+    Some((event_name, rest))
+}
+
+fn lua_static_string_value_from_expression(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    let value = lua_trim_start_comments(value.trim())?;
+    if let Some((literal, literal_len)) = lua_inline_string_literal_value_and_len(value) {
+        return lua_trim_start_comments(value.get(literal_len..)?)?
+            .is_empty()
+            .then_some(literal);
     }
 
-    let variable = lua_identifier_literal_from_query(args)?;
-    let rest = args.get(variable.len()..)?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
+    if value.contains("..") {
+        let mut resolved = String::new();
+        for segment in split_lua_string_concat_segments(value)? {
+            resolved.push_str(&lua_static_string_value_from_expression(
+                static_source,
+                outer_static_source,
+                segment,
+            )?);
+        }
+        return (!resolved.is_empty()).then_some(resolved);
     }
-    let value =
-        lua_static_string_variable_assignment_before_offset_from_query(source, variable, start)?;
-    Some((parse_maybe_quoted_query_text(value)?, rest))
+
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return parse_maybe_quoted_query_text(value);
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            value,
+            outer_static_source.max_start,
+        )
+    {
+        return parse_maybe_quoted_query_text(value);
+    }
+
+    None
 }
 
 fn lua_static_wezterm_on_event_args_from_statement<'a>(
@@ -73151,6 +73200,33 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_name_concat() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local event_prefix = 'format-'
+            local event_kind = 'tab-title'
+
+            wezterm.on(event_prefix .. event_kind, function(tab, tabs, panes, config, hover, max_width)
+              return 'STATIC LUA TAB'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title event-name concat");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("STATIC LUA TAB"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
     fn window_app_parses_static_wezterm_format_tab_title_event_string_variable_return() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
@@ -75425,6 +75501,26 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title event-name variable");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_event_name_concat() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local event_prefix = 'format-'
+            local event_kind = 'window-title'
+
+            wezterm.on(event_prefix .. event_kind, function(tab, pane, tabs, panes, config)
+              return 'STATIC LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title event-name concat");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
