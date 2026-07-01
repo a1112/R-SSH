@@ -1733,7 +1733,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   PrimarySelection, or both copy targets without requiring an active selection,
   including WezTerm-style `wezterm.action.CopyTextTo { text = ...,
   destination = ... }` and `wezterm.action { CopyTextTo = { ... } }`
-  query/config forms with top-level static string variables for both fields.
+  query/config forms with top-level static string field-name variables and
+  top-level static string variables for both fields.
 - Command palette and native action payloads now expose WezTerm-style
   `CopyTo('PrimarySelection')` and `CopyTo('ClipboardAndPrimarySelection')`
   routing for the active selection.

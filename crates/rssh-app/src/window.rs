@@ -44669,7 +44669,7 @@ fn copy_text_to_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         match normalized_action_name_query(&name).as_str() {
             "text" => {
                 if text.is_some() {
@@ -92047,6 +92047,46 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm CopyTextTo static variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::CopyTextTo {
+                    text: "literal text".to_owned(),
+                    destination: WindowCopyDestination::ClipboardAndPrimarySelection,
+                },
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_copy_text_to_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local text_field = 'text'
+            local destination_field = 'destination'
+            local copied_text = 'literal text'
+            local destination = 'ClipboardAndPrimarySelection'
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.CopyTextTo {
+                  [text_field] = copied_text,
+                  [destination_field] = destination,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CopyTextTo static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,
