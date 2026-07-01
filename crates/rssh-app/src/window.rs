@@ -6032,6 +6032,18 @@ fn lua_static_string_value_from_expression(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<String> {
+    lua_static_string_value_from_expression_with_depth(static_source, outer_static_source, value, 0)
+}
+
+fn lua_static_string_value_from_expression_with_depth(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    depth: usize,
+) -> Option<String> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
     let value = lua_trim_start_comments(value.trim())?;
     if let Some((literal, literal_len)) = lua_inline_string_literal_value_and_len(value) {
         return lua_trim_start_comments(value.get(literal_len..)?)?
@@ -6039,38 +6051,81 @@ fn lua_static_string_value_from_expression(
             .then_some(literal);
     }
 
+    if let Some(value) = lua_static_wezterm_nerdfonts_value_from_expression(value) {
+        return Some(value);
+    }
+
     if value.contains("..") {
         let mut resolved = String::new();
         for segment in split_lua_string_concat_segments(value)? {
-            resolved.push_str(&lua_static_string_value_from_expression(
+            resolved.push_str(&lua_static_string_value_from_expression_with_depth(
                 static_source,
                 outer_static_source,
                 segment,
+                depth + 1,
             )?);
         }
         return (!resolved.is_empty()).then_some(resolved);
     }
 
     if let Some(static_source) = static_source
-        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
             static_source.source,
             value,
             static_source.max_start,
         )
     {
-        return parse_maybe_quoted_query_text(value);
+        return lua_static_string_value_from_expression_with_depth(
+            Some(static_source),
+            outer_static_source,
+            value,
+            depth + 1,
+        );
     }
     if let Some(outer_static_source) = outer_static_source
-        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
             outer_static_source.source,
             value,
             outer_static_source.max_start,
         )
     {
-        return parse_maybe_quoted_query_text(value);
+        return lua_static_string_value_from_expression_with_depth(
+            static_source,
+            Some(outer_static_source),
+            value,
+            depth + 1,
+        );
     }
 
     None
+}
+
+fn lua_static_wezterm_nerdfonts_value_from_expression(value: &str) -> Option<String> {
+    let rest = value.trim().strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("nerdfonts")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "nerdfonts")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("nerdfonts".len()..)?)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let name = lua_identifier_literal_from_query(rest)?;
+    let name_rest = rest.get(name.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(name_rest) {
+        return None;
+    }
+
+    let value = match name {
+        "pl_left_hard_divider" => "\u{e0b0}",
+        "pl_right_hard_divider" => "\u{e0b2}",
+        _ => return None,
+    };
+    Some(value.to_owned())
 }
 
 fn lua_static_wezterm_on_event_args_from_statement<'a>(
@@ -46699,14 +46754,8 @@ fn parse_maybe_static_query_text(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<String> {
-    if let Some(static_source) = static_source
-        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
-            static_source.source,
-            value,
-            static_source.max_start,
-        )
-    {
-        return parse_maybe_quoted_query_text(value);
+    if let Some(value) = lua_static_string_value_from_expression(static_source, None, value) {
+        return (!value.is_empty()).then_some(value);
     }
 
     parse_maybe_quoted_query_text(value)
@@ -46717,23 +46766,10 @@ fn parse_maybe_static_query_text_with_static_sources(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<String> {
-    if let Some(static_source) = static_source
-        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
-            static_source.source,
-            value,
-            static_source.max_start,
-        )
+    if let Some(value) =
+        lua_static_string_value_from_expression(static_source, outer_static_source, value)
     {
-        return parse_maybe_quoted_query_text(value);
-    }
-    if let Some(outer_static_source) = outer_static_source
-        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
-            outer_static_source.source,
-            value,
-            outer_static_source.max_start,
-        )
-    {
-        return parse_maybe_quoted_query_text(value);
+        return (!value.is_empty()).then_some(value);
     }
 
     parse_maybe_quoted_query_text(value)
@@ -75348,6 +75384,103 @@ mod tests {
         );
         assert!(
             !tab_bar.contains("<abcdefghijklmnopqr>"),
+            "tab bar was {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_nerdfont_dividers() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local SOLID_LEFT_ARROW = wezterm.nerdfonts.pl_right_hard_divider
+            local SOLID_RIGHT_ARROW = wezterm.nerdfonts.pl_left_hard_divider
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return {
+                { Text = SOLID_LEFT_ARROW },
+                { Text = title },
+                { Text = SOLID_RIGHT_ARROW },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title nerdfont dividers");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        let solid_left_arrow = char::from_u32(0xe0b2).unwrap().to_string();
+        let solid_right_arrow = char::from_u32(0xe0b0).unwrap().to_string();
+        assert!(
+            parsed.contains("TruncateRight"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains(&solid_left_arrow) || parsed.contains("\\u{e0b2}"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains(&solid_right_arrow) || parsed.contains("\\u{e0b0}"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_nerdfont_dividers() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local SOLID_LEFT_ARROW = wezterm.nerdfonts.pl_right_hard_divider
+            local SOLID_RIGHT_ARROW = wezterm.nerdfonts.pl_left_hard_divider
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return {
+                { Text = SOLID_LEFT_ARROW },
+                { Text = title },
+                { Text = SOLID_RIGHT_ARROW },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title nerdfont dividers");
+        app.set_config_overrides(overrides);
+        let active_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: active_tab,
+            title: "abcdefghijklmnopqr".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let expected = format!(
+            "{}abcdefghijklmn{}",
+            char::from_u32(0xe0b2).unwrap(),
+            char::from_u32(0xe0b0).unwrap()
+        );
+        assert!(tab_bar.contains(&expected), "tab bar was {tab_bar:?}");
+        assert!(
+            !tab_bar.contains("abcdefghijklmnopqr"),
             "tab bar was {tab_bar:?}"
         );
     }
