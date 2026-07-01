@@ -6574,6 +6574,14 @@ fn lua_tab_title_event_field_return_from_statement(
         return None;
     }
     let rest = lua_trim_start_comments(rest)?;
+    let tab_title = format!("{tab_param}.tab_title");
+    if let Some(after_tab_title) = rest.strip_prefix(&tab_title) {
+        if !lua_static_identifier_value_rest_is_statement_end(after_tab_title) {
+            return None;
+        }
+        return Some(NativeLuaTabTitle::ActiveTabTitle);
+    }
+
     let active_pane_title = format!("{tab_param}.active_pane.title");
     let after_active_pane_title = rest.strip_prefix(&active_pane_title)?;
     if !lua_static_identifier_value_rest_is_statement_end(after_active_pane_title) {
@@ -20710,6 +20718,7 @@ impl From<String> for NativeTabTitle {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaTabTitle {
     Static(NativeTabTitle),
+    ActiveTabTitle,
     ActivePaneTitle,
 }
 
@@ -20717,6 +20726,7 @@ impl NativeLuaTabTitle {
     fn resolve(&self, event: &NativeTabTitleFormat) -> Option<NativeTabTitle> {
         match self {
             Self::Static(title) => Some(title.clone()),
+            Self::ActiveTabTitle => event.tab_title.clone().map(NativeTabTitle::Text),
             Self::ActivePaneTitle => event
                 .active_pane_info
                 .title
@@ -73711,6 +73721,22 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn lua_parses_static_wezterm_format_tab_title_tab_title_return() {
+        let title = super::lua_static_wezterm_tab_title_return_event_from_query(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title tab title return");
+
+        assert_eq!(format!("{title:?}"), "ActiveTabTitle");
     }
 
     #[test]
