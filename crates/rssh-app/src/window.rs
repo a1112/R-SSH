@@ -6217,6 +6217,7 @@ fn lua_anonymous_function_body_and_first_param_from_query<'a>(
 fn lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query<'a>(
     value: &'a str,
 ) -> Option<(&'a str, &'a str, Option<&'a str>)> {
+    let value = lua_trim_start_comments(value)?;
     if !lua_source_keyword_at(value, 0, "function") {
         return None;
     }
@@ -6339,7 +6340,7 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
         }
 
         if lua_source_keyword_at(value, index, "function")
-            || lua_source_keyword_at(value, index, "then")
+            || lua_source_keyword_at(value, index, "if")
             || lua_source_keyword_at(value, index, "do")
             || lua_source_keyword_at(value, index, "repeat")
         {
@@ -6720,18 +6721,31 @@ fn lua_static_tab_title_conditional_return_from_function_body(
 
     for start in starts {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
-        if let Some((condition, if_body)) =
-            lua_static_if_condition_and_body_from_statement(statement)
+        if let Some((if_branches, rest_after_if)) =
+            lua_static_if_condition_and_body_branches_from_statement(statement)
         {
-            let condition =
-                lua_tab_title_condition_from_expression(condition, tab_param, hover_param)?;
-            let title = lua_static_tab_title_first_return_from_nested_body(
-                body,
-                if_body,
-                tab_param,
-                outer_static_source,
-            )?;
-            branches.push(NativeLuaTabTitleConditionalBranch { condition, title });
+            for (condition, if_body) in if_branches {
+                let condition =
+                    lua_tab_title_condition_from_expression(condition, tab_param, hover_param)?;
+                let title = lua_static_tab_title_first_return_from_nested_body(
+                    body,
+                    if_body,
+                    tab_param,
+                    outer_static_source,
+                )?;
+                branches.push(NativeLuaTabTitleConditionalBranch { condition, title });
+            }
+            if fallback.is_none()
+                && let Some(title) = lua_static_tab_title_fallback_return_after_if(
+                    body,
+                    rest_after_if,
+                    tab_param,
+                    outer_static_source,
+                )
+            {
+                fallback = Some(Box::new(title));
+                break;
+            }
             continue;
         }
 
@@ -6755,6 +6769,29 @@ fn lua_static_tab_title_conditional_return_from_function_body(
         branches,
         fallback: fallback?,
     })
+}
+
+fn lua_static_tab_title_fallback_return_after_if(
+    outer_body: &str,
+    rest_after_if: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitle> {
+    let starts =
+        lua_top_level_statement_start_indices_before_offset(rest_after_if, rest_after_if.len())?;
+    let start = *starts.first()?;
+    let statement = lua_trim_start_comments(rest_after_if.get(start..)?)?;
+    if lua_static_if_condition_and_body_branches_from_statement(statement).is_some() {
+        return None;
+    }
+    let rest_start = lua_source_slice_start_offset(outer_body, rest_after_if)?;
+    lua_static_tab_title_return_from_statement_as_lua_title(
+        outer_body,
+        rest_start.checked_add(start)?,
+        statement,
+        tab_param,
+        outer_static_source,
+    )
 }
 
 fn lua_static_tab_title_first_return_from_nested_body(
@@ -7644,7 +7681,9 @@ fn lua_tab_title_explicit_title_fallback_parts_from_function_body(
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
     for (position, start) in starts.iter().enumerate() {
         let statement = lua_trim_start_comments(body.get(*start..)?)?;
-        let Some((condition, if_body)) = lua_static_if_condition_and_body_from_statement(statement)
+        let Some((condition, if_body)) =
+            lua_static_if_condition_and_body_branches_from_statement(statement)
+                .and_then(|(branches, _)| branches.first().copied())
         else {
             continue;
         };
@@ -7744,16 +7783,159 @@ fn lua_static_return_expression_from_statement(statement: &str) -> Option<&str> 
     lua_trim_end_statement_separator(rest)
 }
 
-fn lua_static_if_condition_and_body_from_statement(statement: &str) -> Option<(&str, &str)> {
+fn lua_static_if_condition_and_body_branches_from_statement(
+    statement: &str,
+) -> Option<(Vec<(&str, &str)>, &str)> {
+    let statement = lua_trim_start_comments(statement)?;
     if !lua_source_keyword_at(statement, 0, "if") {
         return None;
     }
+    let mut branches = Vec::new();
     let rest = lua_trim_start_comments(statement.get("if".len()..)?)?;
     let then = lua_static_if_then_index_from_query(rest)?;
     let condition = rest.get(..then)?.trim();
     let body_start = lua_trim_start_comments(rest.get(then + "then".len()..)?)?;
-    let body = lua_static_function_body_until_end(body_start)?;
-    Some((condition, body))
+    let (body, mut rest) = lua_static_if_branch_body_and_rest_from_query(body_start)?;
+    branches.push((condition, body));
+
+    loop {
+        rest = lua_trim_start_comments(rest)?;
+        if !lua_source_keyword_at(rest, 0, "elseif") {
+            break;
+        }
+        let branch = lua_trim_start_comments(rest.get("elseif".len()..)?)?;
+        let then = lua_static_if_then_index_from_query(branch)?;
+        let condition = branch.get(..then)?.trim();
+        let body_start = lua_trim_start_comments(branch.get(then + "then".len()..)?)?;
+        let (body, branch_rest) = lua_static_if_branch_body_and_rest_from_query(body_start)?;
+        branches.push((condition, body));
+        rest = branch_rest;
+    }
+
+    let rest = lua_trim_start_comments(rest)?;
+    if !lua_source_keyword_at(rest, 0, "end") {
+        return None;
+    }
+    Some((branches, rest.get("end".len()..)?))
+}
+
+fn lua_static_if_branch_body_and_rest_from_query(value: &str) -> Option<(&str, &str)> {
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut table_depth = 0usize;
+
+    for (index, character) in value.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if value[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index + 2..])
+            {
+                let content_and_rest = &value[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(value.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&value[index..])
+                {
+                    let content_and_rest = &value[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(value.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                    continue;
+                }
+            }
+            '{' => {
+                table_depth = table_depth.saturating_add(1);
+                continue;
+            }
+            '}' => {
+                table_depth = table_depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if lua_source_keyword_at(value, index, "function")
+            || lua_source_keyword_at(value, index, "if")
+            || lua_source_keyword_at(value, index, "do")
+            || lua_source_keyword_at(value, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+
+        if lua_block_depth == 0 && table_depth == 0 {
+            if lua_source_keyword_at(value, index, "elseif")
+                || lua_source_keyword_at(value, index, "else")
+                || lua_source_keyword_at(value, index, "end")
+            {
+                return Some((value.get(..index)?.trim(), value.get(index..)?));
+            }
+        }
+
+        if lua_source_keyword_at(value, index, "end")
+            || lua_source_keyword_at(value, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+        }
+    }
+
+    None
 }
 
 fn lua_static_if_then_index_from_query(value: &str) -> Option<usize> {
@@ -50118,7 +50300,7 @@ fn split_lua_top_level_arguments(arguments: &str) -> Option<Vec<&str>> {
         }
 
         if lua_source_keyword_at(arguments, index, "function")
-            || lua_source_keyword_at(arguments, index, "then")
+            || lua_source_keyword_at(arguments, index, "if")
             || lua_source_keyword_at(arguments, index, "do")
             || lua_source_keyword_at(arguments, index, "repeat")
         {
@@ -50226,7 +50408,7 @@ fn lua_parenthesized_argument_list_prefix_from_query(value: &str) -> Option<(&st
         }
 
         if lua_source_keyword_at(value, index, "function")
-            || lua_source_keyword_at(value, index, "then")
+            || lua_source_keyword_at(value, index, "if")
             || lua_source_keyword_at(value, index, "do")
             || lua_source_keyword_at(value, index, "repeat")
         {
@@ -75206,6 +75388,186 @@ mod tests {
             parsed.contains("IsHover"),
             "parsed lua tab title was {parsed}"
         );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_elseif_hover_branch() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if tab.is_active then
+                return {
+                  { Text = 'active:' .. tab.tab_title },
+                }
+              elseif hover then
+                return {
+                  { Text = 'hover:' .. tab.tab_title },
+                }
+              end
+              return {
+                { Text = 'plain:' .. tab.tab_title },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title elseif hover branch");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("IsActive"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("IsHover"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn lua_splits_if_elseif_tab_title_branches() {
+        let statement = r#"
+              if tab.is_active then
+                return {
+                  { Text = 'active:' .. tab.tab_title },
+                }
+              elseif hover then
+                return {
+                  { Text = 'hover:' .. tab.tab_title },
+                }
+              end
+              return {
+                { Text = 'plain:' .. tab.tab_title },
+              }
+            "#;
+
+        let (branches, rest_after_if) =
+            super::lua_static_if_condition_and_body_branches_from_statement(statement)
+                .expect("expected if/elseif branches");
+
+        assert_eq!(branches.len(), 2);
+        assert_eq!(branches[0].0, "tab.is_active");
+        assert_eq!(branches[1].0, "hover");
+        assert!(branches[0].1.contains("active:"));
+        assert!(branches[1].1.contains("hover:"));
+        assert!(rest_after_if.contains("plain:"));
+
+        let active = super::lua_static_tab_title_first_return_from_nested_body(
+            statement,
+            branches[0].1,
+            "tab",
+            None,
+        )
+        .expect("expected active branch title");
+        let hover = super::lua_static_tab_title_first_return_from_nested_body(
+            statement,
+            branches[1].1,
+            "tab",
+            None,
+        )
+        .expect("expected hover branch title");
+        let fallback = super::lua_static_tab_title_first_return_from_nested_body(
+            statement,
+            rest_after_if,
+            "tab",
+            None,
+        )
+        .expect("expected fallback title");
+        assert!(format!("{active:?}").contains("active:"));
+        assert!(format!("{hover:?}").contains("hover:"));
+        assert!(format!("{fallback:?}").contains("plain:"));
+        let parsed = super::lua_static_tab_title_conditional_return_from_function_body(
+            statement,
+            "tab",
+            Some("hover"),
+            None,
+        )
+        .expect("expected conditional title");
+        let parsed = format!("{parsed:?}");
+        assert!(parsed.contains("IsActive"), "parsed was {parsed}");
+        assert!(parsed.contains("IsHover"), "parsed was {parsed}");
+    }
+
+    #[test]
+    fn lua_extracts_function_body_with_elseif_branch() {
+        let callback = r#"
+            function(tab, tabs, panes, config, hover, max_width)
+              if tab.is_active then
+                return {
+                  { Text = 'active:' .. tab.tab_title },
+                }
+              elseif hover then
+                return {
+                  { Text = 'hover:' .. tab.tab_title },
+                }
+              end
+              return {
+                { Text = 'plain:' .. tab.tab_title },
+              }
+            end
+            "#;
+
+        let (body, tab_param, hover_param) =
+            super::lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query(
+                callback,
+            )
+            .expect("expected function body");
+
+        assert_eq!(tab_param, "tab");
+        assert_eq!(hover_param, Some("hover"));
+        assert!(body.contains("elseif hover"));
+        assert!(body.contains("plain:"));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_elseif_hover_branch() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if tab.is_active then
+                return {
+                  { Text = 'active:' .. tab.tab_title },
+                }
+              elseif hover then
+                return {
+                  { Text = 'hover:' .. tab.tab_title },
+                }
+              end
+              return {
+                { Text = 'plain:' .. tab.tab_title },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title elseif hover branch");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "first".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(2),
+            title: "second".to_owned(),
+        })
+        .unwrap();
+
+        let first_tab_column = app.tab_bar_workspace_label().chars().count() + 1;
+        let x = u32::try_from(first_tab_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("hover:first"), "tab bar was {tab_bar:?}");
+        assert!(tab_bar.contains("active:second"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("plain:first"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
