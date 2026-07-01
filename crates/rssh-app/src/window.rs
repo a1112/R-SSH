@@ -46759,8 +46759,11 @@ fn native_format_items_from_lua_format_items_table_query_with_static_sources(
         if field.is_empty() {
             continue;
         }
-        if let Some(text) = parse_maybe_quoted_query_text(field)
-            && text == "ResetAttributes"
+        if let Some(text) = parse_maybe_static_query_text_with_static_sources(
+            static_source,
+            outer_static_source,
+            field,
+        ) && text == "ResetAttributes"
         {
             items.push(NativeFormatItem::ResetAttributes);
             continue;
@@ -71786,6 +71789,54 @@ mod tests {
         assert_eq!(
             active_left_cell.underline_style,
             rssh_terminal::UnderlineStyle::Single
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_style_static_reset_attribute_item() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local reset = 'ResetAttributes'
+
+            config.tab_bar_style = {
+              active_tab_left = wezterm.format({
+                { Foreground = { Color = '#010203' } },
+                reset,
+                { Text = '[' },
+              }),
+              active_tab_right = wezterm.format({ { Text = ']' } }),
+              inactive_tab_left = wezterm.format({ { Text = '<' } }),
+              inactive_tab_right = wezterm.format({ { Text = '>' } }),
+              new_tab_left = wezterm.format({ { Text = '{' } }),
+              new_tab_right = wezterm.format({ { Text = '}' } }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style static reset attribute item config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let active_column = tab_bar
+            .find("[ 2:2*")
+            .expect("active tab should use static ResetAttributes item");
+        let active_left_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should render around active reset test: {tab_bar:?}"
+        );
+        assert_ne!(
+            active_left_cell.foreground,
+            rssh_terminal::Color::Rgb(1, 2, 3)
         );
     }
 
