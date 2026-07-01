@@ -5956,9 +5956,11 @@ fn lua_static_wezterm_window_title_return_event_from_statement(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
-    let (body, _, pane_param) = lua_anonymous_function_body_and_first_two_params_from_query(rest)?;
+    let (body, tab_param, pane_param) =
+        lua_anonymous_function_body_and_first_two_params_from_query(rest)?;
     lua_static_window_title_return_from_function_body(
         body,
+        tab_param,
         pane_param,
         Some(LuaStaticSource {
             source,
@@ -6278,13 +6280,14 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
 
 fn lua_static_window_title_return_from_function_body(
     body: &str,
+    tab_param: &str,
     pane_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitle> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
         if let Some(value) =
-            lua_window_title_event_field_return_from_statement(statement, pane_param)
+            lua_window_title_event_field_return_from_statement(statement, tab_param, pane_param)
         {
             return Some(value);
         }
@@ -6318,6 +6321,7 @@ fn lua_static_window_title_return_from_function_body(
 
 fn lua_window_title_event_field_return_from_statement(
     statement: &str,
+    tab_param: &str,
     pane_param: &str,
 ) -> Option<NativeLuaWindowTitle> {
     let rest = statement.strip_prefix("return")?;
@@ -6325,6 +6329,15 @@ fn lua_window_title_event_field_return_from_statement(
         return None;
     }
     let rest = lua_trim_start_comments(rest)?;
+    let tab_title = format!("{tab_param}.tab_title");
+    if let Some(after_tab_title) = rest.strip_prefix(&tab_title) {
+        if !lua_static_identifier_value_rest_is_statement_end(after_tab_title) {
+            return None;
+        }
+
+        return Some(NativeLuaWindowTitle::ActiveTabTitle);
+    }
+
     let pane_title = format!("{pane_param}.title");
     let after_pane_title = rest.strip_prefix(&pane_title)?;
     if !lua_static_identifier_value_rest_is_statement_end(after_pane_title) {
@@ -20707,6 +20720,7 @@ impl NativeLuaTabTitle {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaWindowTitle {
     Static(String),
+    ActiveTabTitle,
     ActivePaneTitle,
 }
 
@@ -20714,6 +20728,7 @@ impl NativeLuaWindowTitle {
     fn resolve(&self, event: &NativeWindowTitleFormat) -> Option<String> {
         match self {
             Self::Static(title) => Some(title.clone()),
+            Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
         }
     }
@@ -75870,6 +75885,30 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_tab_title_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title tab title return");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "Explicit Tab".to_owned(),
+        })
+        .unwrap();
+
+        assert_eq!(app.effective_window_title(), "Explicit Tab");
     }
 
     #[test]
