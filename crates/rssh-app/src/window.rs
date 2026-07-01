@@ -44899,6 +44899,33 @@ fn parse_maybe_static_query_text(
     parse_maybe_quoted_query_text(value)
 }
 
+fn parse_maybe_static_query_text_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<String> {
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return parse_maybe_quoted_query_text(value);
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_string_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            value,
+            outer_static_source.max_start,
+        )
+    {
+        return parse_maybe_quoted_query_text(value);
+    }
+
+    parse_maybe_quoted_query_text(value)
+}
+
 fn parse_maybe_static_query_bool(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -44914,6 +44941,38 @@ fn parse_maybe_static_query_bool(
     }
 
     let value = parse_maybe_static_query_text(static_source, value)?;
+    bool_from_query(&value)
+}
+
+fn parse_maybe_static_query_bool_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<bool> {
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_bool_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return bool_from_query(value);
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_bool_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            value,
+            outer_static_source.max_start,
+        )
+    {
+        return bool_from_query(value);
+    }
+
+    let value = parse_maybe_static_query_text_with_static_sources(
+        static_source,
+        outer_static_source,
+        value,
+    )?;
     bool_from_query(&value)
 }
 
@@ -46751,7 +46810,11 @@ fn native_format_item_lua_table_from_query_with_static_sources(
             return None;
         }
         item = Some(match key.as_str() {
-            "Text" => NativeFormatItem::Text(parse_maybe_quoted_query_text(value.trim())?),
+            "Text" => NativeFormatItem::Text(parse_maybe_static_query_text_with_static_sources(
+                static_source,
+                outer_static_source,
+                value.trim(),
+            )?),
             "Foreground" => NativeFormatItem::Foreground(native_color_spec_to_render_color(
                 lua_color_spec_from_query_with_static_sources(
                     static_source,
@@ -46804,13 +46867,25 @@ fn native_format_attribute_lua_table_from_query_with_static_sources(
         }
         attribute = Some(match key.as_str() {
             "Intensity" => NativeFormatAttribute::Intensity(tab_bar_item_intensity_from_query(
-                &parse_maybe_quoted_query_text(value.trim())?,
+                &parse_maybe_static_query_text_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value.trim(),
+                )?,
             )?),
             "Italic" => {
-                NativeFormatAttribute::Italic(lua_bool_literal_from_query(value.trim())? == "true")
+                NativeFormatAttribute::Italic(parse_maybe_static_query_bool_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value.trim(),
+                )?)
             }
             "Underline" => NativeFormatAttribute::Underline(native_format_underline_from_query(
-                &parse_maybe_quoted_query_text(value.trim())?,
+                &parse_maybe_static_query_text_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value.trim(),
+                )?,
             )?),
             _ => return None,
         });
@@ -47025,7 +47100,7 @@ fn lua_color_spec_from_query_with_static_source(
         if color.is_some() {
             return None;
         }
-        let value = parse_maybe_quoted_query_text(value.trim())?;
+        let value = parse_maybe_static_query_text(static_source, value.trim())?;
         color = Some(match key.as_str() {
             "Color" => NativeColorSpec::Color(lua_opaque_color_from_query_with_static_source(
                 static_source,
@@ -71645,6 +71720,72 @@ mod tests {
         assert_eq!(
             active_left_cell.foreground,
             rssh_terminal::Color::Rgb(1, 2, 3)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_style_static_format_item_values() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local active_color = '#010203'
+            local active_weight = 'Bold'
+            local active_underline = 'Single'
+            local active_left = '['
+            local active_right = ']'
+            local inactive_left = '<'
+            local inactive_right = '>'
+            local new_left = '{'
+            local new_right = '}'
+
+            config.tab_bar_style = {
+              active_tab_left = wezterm.format({
+                { Foreground = { Color = active_color } },
+                { Attribute = { Intensity = active_weight } },
+                { Attribute = { Underline = active_underline } },
+                { Text = active_left },
+              }),
+              active_tab_right = wezterm.format({ { Text = active_right } }),
+              inactive_tab_left = wezterm.format({ { Text = inactive_left } }),
+              inactive_tab_right = wezterm.format({ { Text = inactive_right } }),
+              new_tab_left = wezterm.format({ { Text = new_left } }),
+              new_tab_right = wezterm.format({ { Text = new_right } }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style static format-item value config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let active_column = tab_bar
+            .find("[ 2:2*")
+            .expect("active tab should use static format item text value");
+        let active_left_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(active_column).unwrap()).unwrap();
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should use static format item text values: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("{ + }"),
+            "new-tab button should use static format item text values: {tab_bar:?}"
+        );
+        assert_eq!(
+            active_left_cell.foreground,
+            rssh_terminal::Color::Rgb(1, 2, 3)
+        );
+        assert!(active_left_cell.bold);
+        assert_eq!(
+            active_left_cell.underline_style,
+            rssh_terminal::UnderlineStyle::Single
         );
     }
 
