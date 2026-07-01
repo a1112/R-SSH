@@ -45658,7 +45658,7 @@ fn split_pane_table_apply_field(
         return Some(());
     }
     let (key, value) = split_lua_table_assignment_from_field(field)?;
-    let key = split_lua_table_key_from_query(key.trim())?;
+    let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
     let value = value.trim().trim_end_matches(',').trim();
     if key.eq_ignore_ascii_case("direction") {
         if options.direction.is_some() {
@@ -91438,6 +91438,65 @@ mod tests {
                         cwd: Some("C:/Project Dir".to_owned()),
                         environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
                         domain: Some(WindowSpawnTabDomain::DomainName("local".to_owned())),
+                        window_position: None,
+                    }),
+                    command_options: None,
+                    size: Some(WindowSplitPaneSize::Cells(20)),
+                    top_level: true,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_split_pane_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local direction_field = 'direction'
+            local args_field = 'args'
+            local cwd_field = 'cwd'
+            local size_field = 'size'
+            local top_level_field = 'top_level'
+            local split_direction = 'Right'
+            local launch_args = { 'top', '-d', '1' }
+            local launch_cwd = 'C:/Project Dir'
+            local split_cells = 20
+
+            config.keys = {
+              {
+                key = 'S',
+                mods = 'CTRL|SHIFT',
+                action = act.SplitPane {
+                  [direction_field] = split_direction,
+                  [args_field] = launch_args,
+                  [cwd_field] = launch_cwd,
+                  [size_field] = { Cells = split_cells },
+                  [top_level_field] = true,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SplitPane static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+S".to_owned(),
+                command: WindowCommand::SplitPane(WindowSplitPaneOptions {
+                    direction: rssh_core::app_shell::SplitDirection::Right,
+                    domain: None,
+                    command: Some(WindowSpawnCommandQuery {
+                        program: "top".to_owned(),
+                        args: vec!["-d".to_owned(), "1".to_owned()],
+                        cwd: Some("C:/Project Dir".to_owned()),
+                        environment: BTreeMap::new(),
+                        domain: None,
                         window_position: None,
                     }),
                     command_options: None,
