@@ -10100,7 +10100,13 @@ fn lua_config_table_map_field_assignment_from_query<'a>(
         start,
     )?;
     let rest = lua_trim_start_comments(rest)?;
-    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        rest,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableMapFieldAssignment {
@@ -10238,6 +10244,28 @@ fn lua_table_map_field_key_from_query(query: &str) -> Option<(String, &str)> {
     let key = parse_maybe_quoted_query_text(key_literal)?;
     let rest = lua_trim_start_comments(after_open.get(key_literal.len()..)?)?;
     Some((key, rest.strip_prefix(']')?))
+}
+
+fn lua_table_map_field_key_from_query_with_static_source<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &'a str,
+) -> Option<(String, &'a str)> {
+    if let Some(parsed) = lua_table_map_field_key_from_query(query) {
+        return Some(parsed);
+    }
+
+    let static_source = static_source?;
+    let after_open = lua_trim_start_comments(query.strip_prefix('[')?)?;
+    let key = lua_identifier_literal_from_query(after_open)?;
+    let rest = lua_trim_start_comments(after_open.get(key.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let key = lua_static_string_assignment_value_before_offset_from_query(
+        static_source.source,
+        key,
+        static_source.max_start,
+    )
+    .and_then(parse_maybe_quoted_query_text)?;
+    Some((key, rest))
 }
 
 fn lua_table_array_index_access_rest_from_query(query: &str) -> Option<(usize, &str)> {
@@ -96270,6 +96298,42 @@ mod tests {
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
         assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_parses_static_environment_field_name_mutation() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local env_field = 'set_environment_variables'
+            local entry_field = 'PROJECT_MODE'
+            local env_value = 'dev'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+            config[env_field] = {}
+            config[env_field][entry_field] = env_value
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static environment field-name mutation config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
     }
 
     #[test]

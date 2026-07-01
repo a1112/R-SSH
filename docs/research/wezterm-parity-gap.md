@@ -39,7 +39,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
 
 - Top-level static `config.set_environment_variables` tables now resolve
   static string field-name variables for environment entry names, such as
-  `{ [env_key] = env_value }`, through the same native launch override path.
+  `{ [env_key] = env_value }`, and direct config field mutations such as
+  `config[env_field][entry_field] = env_value`, through the same native launch
+  override path.
 
 ## Terminal/Mux/System Parity
 
