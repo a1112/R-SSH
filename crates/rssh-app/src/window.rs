@@ -48115,7 +48115,7 @@ fn split_pane_table_size_from_query_with_static_source(
 ) -> Option<WindowSplitPaneSize> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let (key, value) = split_lua_table_assignment_from_field(table)?;
-    let key = split_lua_table_key_from_query(key.trim())?;
+    let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
     let value = value.trim().trim_end_matches(',').trim();
     let amount = if let Some(static_source) = static_source {
         lua_static_number_assignment_value_before_offset_from_query(
@@ -91459,6 +91459,7 @@ mod tests {
             local args_field = 'args'
             local cwd_field = 'cwd'
             local size_field = 'size'
+            local cells_field = 'Cells'
             local top_level_field = 'top_level'
             local split_direction = 'Right'
             local launch_args = { 'top', '-d', '1' }
@@ -91473,7 +91474,7 @@ mod tests {
                   [direction_field] = split_direction,
                   [args_field] = launch_args,
                   [cwd_field] = launch_cwd,
-                  [size_field] = { Cells = split_cells },
+                  [size_field] = { [cells_field] = split_cells },
                   [top_level_field] = true,
                 },
               },

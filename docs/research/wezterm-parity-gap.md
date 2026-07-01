@@ -969,8 +969,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   actions resolve top-level static variables for `direction`, `domain`,
   nested `command` spawn fields, Percent/Cells `size`, and `top_level` in
   those payload tables, static string field-name variables for top-level split
-  table keys, plus parenthesized static options table variables for
-  `SplitPane`/`SplitHorizontal`/`SplitVertical`. Native `SplitPane` payloads
+  table keys and nested Percent/Cells `size` keys, plus parenthesized static
+  options table variables for `SplitPane`/`SplitHorizontal`/`SplitVertical`.
+  Native `SplitPane` payloads
   also support `top_level = true` by splitting the full active-tab root region and
   compressing the existing layout into the source side. Full Lua table parsing
   remains open.
