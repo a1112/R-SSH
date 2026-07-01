@@ -4377,7 +4377,13 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         "set_environment_variables",
     ) {
         overrides.set_environment_variables =
-            Some(split_lua_table_environment_from_query(&environment.value)?);
+            Some(split_lua_table_environment_from_query_with_static_source(
+                Some(LuaStaticSource {
+                    source: config,
+                    max_start: environment.max_start,
+                }),
+                &environment.value,
+            )?);
         parsed = true;
     }
     if let Some(font_config) = lua_config_font_assignment_from_query(config, "font") {
@@ -45915,10 +45921,6 @@ fn spawn_command_table_options_from_query_with_static_source(
         || options.domain.is_some()
         || options.window_position.is_some())
     .then_some(options)
-}
-
-fn split_lua_table_environment_from_query(value: &str) -> Option<BTreeMap<String, String>> {
-    split_lua_table_environment_from_query_with_static_source(None, value)
 }
 
 fn split_lua_table_environment_from_query_with_static_source(
@@ -95940,6 +95942,42 @@ mod tests {
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
         assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_environment_static_field_name() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local env_key = 'PROJECT_MODE'
+            local env_value = 'dev'
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = {
+              [env_key] = env_value,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm environment static field-name config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
     }
 
     #[test]
