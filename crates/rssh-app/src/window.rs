@@ -19456,7 +19456,7 @@ fn native_user_key_assignment_lua_table_from_query(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = value.trim();
         match name.to_ascii_lowercase().as_str() {
             "key" => {
@@ -90602,6 +90602,39 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+H".to_owned(),
                 command: WindowCommand::SendString("from-field-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_field = 'key'
+            local mods_field = 'mods'
+            local action_field = 'action'
+
+            config.keys = {
+              {
+                [key_field] = 'H',
+                [mods_field] = 'CTRL|SHIFT',
+                [action_field] = act.SendString 'from-static-field-name',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+H".to_owned(),
+                command: WindowCommand::SendString("from-static-field-name".to_owned()),
             }])
         );
     }
