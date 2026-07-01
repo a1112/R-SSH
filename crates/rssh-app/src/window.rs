@@ -7110,7 +7110,7 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
         return Some(vec![part]);
     }
 
-    if let Some(parts) = lua_tab_title_truncate_right_parts_from_expression(
+    if let Some(parts) = lua_tab_title_truncate_parts_from_expression(
         expression,
         tab_param,
         static_source,
@@ -7184,7 +7184,7 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     has_dynamic_part.then_some(parts)
 }
 
-fn lua_tab_title_truncate_right_parts_from_expression(
+fn lua_tab_title_truncate_parts_from_expression(
     expression: &str,
     tab_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
@@ -7201,12 +7201,19 @@ fn lua_tab_title_truncate_right_parts_from_expression(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("truncate_right")
-        || !lua_config_assignment_field_has_boundaries(rest, 0, "truncate_right")
+    let direction = if rest.starts_with("truncate_right")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "truncate_right")
     {
+        NativeLuaTabTitleTruncateDirection::Right
+    } else if rest.starts_with("truncate_left")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "truncate_left")
+    {
+        NativeLuaTabTitleTruncateDirection::Left
+    } else {
         return None;
-    }
-    let rest = lua_trim_start_comments(rest.get("truncate_right".len()..)?)?.strip_prefix('(')?;
+    };
+    let name = direction.lua_function_name();
+    let rest = lua_trim_start_comments(rest.get(name.len()..)?)?.strip_prefix('(')?;
     let (argument_list, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
@@ -7228,9 +7235,15 @@ fn lua_tab_title_truncate_right_parts_from_expression(
     )?;
     let max_width_offset = lua_tab_title_truncate_right_max_width_offset(width_expression.trim())?;
 
-    Some(vec![NativeLuaTabTitleTextPart::TruncateRight {
-        parts,
-        max_width_offset,
+    Some(vec![match direction {
+        NativeLuaTabTitleTruncateDirection::Left => NativeLuaTabTitleTextPart::TruncateLeft {
+            parts,
+            max_width_offset,
+        },
+        NativeLuaTabTitleTruncateDirection::Right => NativeLuaTabTitleTextPart::TruncateRight {
+            parts,
+            max_width_offset,
+        },
     }])
 }
 
@@ -22009,6 +22022,10 @@ enum NativeLuaTabTitleTextPart {
     Static(String),
     ActiveTabTitle,
     ActiveTabTitleOrActivePaneTitle,
+    TruncateLeft {
+        parts: Vec<NativeLuaTabTitleTextPart>,
+        max_width_offset: usize,
+    },
     TruncateRight {
         parts: Vec<NativeLuaTabTitleTextPart>,
         max_width_offset: usize,
@@ -22033,6 +22050,17 @@ impl NativeLuaTabTitleTextPart {
                 .filter(|title| !title.is_empty())
                 .cloned()
                 .or_else(|| event.active_pane_info.title.clone()),
+            Self::TruncateLeft {
+                parts,
+                max_width_offset,
+            } => {
+                let mut text = String::new();
+                for part in parts {
+                    text.push_str(&part.resolve(event)?);
+                }
+                let max_width = event.max_width.saturating_sub(*max_width_offset);
+                Some(tab_bar_truncate_left(&text, max_width))
+            }
             Self::TruncateRight {
                 parts,
                 max_width_offset,
@@ -22041,10 +22069,8 @@ impl NativeLuaTabTitleTextPart {
                 for part in parts {
                     text.push_str(&part.resolve(event)?);
                 }
-                Some(tab_bar_truncate_right(
-                    &text,
-                    event.max_width.saturating_sub(*max_width_offset),
-                ))
+                let max_width = event.max_width.saturating_sub(*max_width_offset);
+                Some(tab_bar_truncate_right(&text, max_width))
             }
             Self::WindowTitle => Some(event.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
@@ -22055,6 +22081,21 @@ impl NativeLuaTabTitleTextPart {
             Self::ActivePaneCurrentWorkingDir => event.active_pane_info.current_working_dir.clone(),
             Self::ActivePaneTtyName => event.active_pane_info.tty_name.clone(),
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaTabTitleTruncateDirection {
+    Left,
+    Right,
+}
+
+impl NativeLuaTabTitleTruncateDirection {
+    fn lua_function_name(self) -> &'static str {
+        match self {
+            Self::Left => "truncate_left",
+            Self::Right => "truncate_right",
         }
     }
 }
@@ -59170,6 +59211,26 @@ fn tab_bar_truncate_right(text: &str, max_width: usize) -> String {
         .collect()
 }
 
+fn tab_bar_truncate_left(text: &str, max_width: usize) -> String {
+    let cells = tab_bar_ansi_text_cells(
+        text,
+        tab_bar_segment_style(Color::Default, Color::Default, false),
+    );
+    if cells.len() <= max_width {
+        return text.to_owned();
+    }
+
+    cells
+        .into_iter()
+        .rev()
+        .take(max_width)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|(ch, _)| ch)
+        .collect()
+}
+
 fn tab_bar_ansi_text_cells(
     text: &str,
     base_style: TabBarSegmentStyle,
@@ -75283,6 +75344,91 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(
             tab_bar.contains("<abcdefghijklmn>"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(
+            !tab_bar.contains("<abcdefghijklmnopqr>"),
+            "tab bar was {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_truncate_left_title() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wezterm.truncate_left(title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title truncate_left title");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("TruncateLeft"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("max_width_offset: 2"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("ActiveTabTitleOrActivePaneTitle"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_truncate_left_title() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wezterm.truncate_left(title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title truncate_left title");
+        app.set_config_overrides(overrides);
+        let active_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: active_tab,
+            title: "abcdefghijklmnopqr".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("<efghijklmnopqr>"),
             "tab bar was {tab_bar:?}"
         );
         assert!(
