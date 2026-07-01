@@ -4196,11 +4196,21 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             config,
             "visual_bell",
         )
-        .and_then(|visual_bell| native_visual_bell_lua_table_from_query(config, &visual_bell.value))
+        .and_then(|visual_bell| {
+            native_visual_bell_lua_table_from_query(
+                config,
+                &visual_bell.value,
+                Some(visual_bell.max_start),
+            )
+        })
         .or_else(|| {
             lua_config_table_or_static_variable_assignment_from_query(config, "visual_bell")
                 .and_then(|visual_bell| {
-                    native_visual_bell_lua_table_from_query(config, visual_bell)
+                    native_visual_bell_lua_table_from_query(
+                        config,
+                        visual_bell,
+                        lua_source_slice_start_offset(config, visual_bell),
+                    )
                 })
         })
     {
@@ -46060,8 +46070,10 @@ fn split_lua_table_environment_from_query_with_static_source(
 fn native_visual_bell_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: Option<usize>,
 ) -> Option<NativeVisualBell> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let static_source = max_start.map(|max_start| LuaStaticSource { source, max_start });
     let mut visual_bell = NativeVisualBell::default();
 
     for field in split_lua_table_top_level_fields(table)? {
@@ -46070,7 +46082,7 @@ fn native_visual_bell_lua_table_from_query<'a>(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = value.trim();
         match key.as_str() {
             "fade_in_duration_ms" => {
@@ -102552,6 +102564,49 @@ mod tests {
                     x2_per_mille: 580,
                     y2_per_mille: 1_000,
                 }),
+                target: NativeVisualBellTarget::CursorColor,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_visual_bell_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local config = {}
+            local fade_in_duration_field = 'fade_in_duration_ms'
+            local fade_out_duration_field = 'fade_out_duration_ms'
+            local fade_in_function_field = 'fade_in_function'
+            local fade_out_function_field = 'fade_out_function'
+            local target_field = 'target'
+            local fade_in_ms = 25
+            local fade_out_ms = 175
+            local fade_in_easing = 'Linear'
+            local fade_out_easing = 'EaseOut'
+            local bell_target = 'CursorColor'
+
+            config.visual_bell = {
+              [fade_in_duration_field] = fade_in_ms,
+              [fade_out_duration_field] = fade_out_ms,
+              [fade_in_function_field] = fade_in_easing,
+              [fade_out_function_field] = fade_out_easing,
+              [target_field] = bell_target,
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm visual bell static field-name config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().visual_bell,
+            NativeVisualBell {
+                fade_in_duration_ms: 25,
+                fade_out_duration_ms: 175,
+                fade_in_function: NativeEasingFunction::Linear,
+                fade_out_function: NativeEasingFunction::EaseOut,
                 target: NativeVisualBellTarget::CursorColor,
             }
         );
