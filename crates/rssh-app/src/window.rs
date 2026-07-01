@@ -5233,7 +5233,15 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                 overrides.hyperlink_rules = Some(parsed_rules?);
             }
             parsed = true;
+            parsed_hyperlink_rules = true;
         }
+    }
+    if !parsed_hyperlink_rules
+        && lua_config_hyperlink_rules_static_default_alias_before_offset(config, config.len())
+            .unwrap_or(false)
+    {
+        overrides.hyperlink_rules = Some(default_hyperlink_rules());
+        parsed = true;
     }
     if !parsed_hyperlink_rules
         && lua_config_hyperlink_rules_direct_default_assignment_before_offset(config, config.len())
@@ -98257,6 +98265,27 @@ mod tests {
             "#,
         )
         .expect("expected returned static WezTerm default hyperlink_rules config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.hyperlink_rules, default_hyperlink_rules());
+    }
+
+    #[test]
+    fn window_app_accepts_returned_config_static_default_hyperlink_rules_from_wezterm_lua_config() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local rules = wezterm.default_hyperlink_rules()
+            local cfg = {
+              hyperlink_rules = rules,
+            }
+
+            return cfg
+            "#,
+        )
+        .expect("expected returned config static WezTerm default hyperlink_rules config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
