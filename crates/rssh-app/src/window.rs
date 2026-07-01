@@ -5913,11 +5913,12 @@ fn lua_static_wezterm_status_update_event_from_statement(
 ) -> Option<NativeWindowStatusUpdate> {
     let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
-    let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
     if !matches!(event_name.as_str(), "update-status" | "update-right-status") {
         return None;
     }
-    let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
     let (body, window_name) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
     lua_static_status_update_from_function_body(
@@ -5954,11 +5955,12 @@ fn lua_static_wezterm_string_return_event_from_statement(
 ) -> Option<String> {
     let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
-    let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
     if event_name != expected_event_name {
         return None;
     }
-    let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
     let (body, _) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
     lua_static_string_return_from_function_body(
@@ -5987,11 +5989,12 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
 ) -> Option<NativeTabTitle> {
     let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
-    let (event_name, event_len) = lua_inline_string_literal_value_and_len(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
     if event_name != "format-tab-title" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
     let (body, _) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
     lua_static_tab_title_return_from_function_body(
@@ -6001,6 +6004,26 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
             max_start: start,
         }),
     )
+}
+
+fn lua_static_wezterm_on_event_name_and_rest_from_args<'a>(
+    source: &'a str,
+    start: usize,
+    args: &'a str,
+) -> Option<(String, &'a str)> {
+    let args = lua_trim_start_comments(args)?;
+    if let Some((event_name, event_len)) = lua_inline_string_literal_value_and_len(args) {
+        return Some((event_name, args.get(event_len..)?));
+    }
+
+    let variable = lua_identifier_literal_from_query(args)?;
+    let rest = args.get(variable.len()..)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let value =
+        lua_static_string_variable_assignment_before_offset_from_query(source, variable, start)?;
+    Some((parse_maybe_quoted_query_text(value)?, rest))
 }
 
 fn lua_static_wezterm_on_event_args_from_statement<'a>(
@@ -73102,6 +73125,32 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_name_variable() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local event_name = 'format-tab-title'
+
+            wezterm.on(event_name, function(tab, tabs, panes, config, hover, max_width)
+              return 'STATIC LUA TAB'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title event-name variable");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("STATIC LUA TAB"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
     fn window_app_parses_static_wezterm_format_tab_title_event_string_variable_return() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
@@ -75357,6 +75406,25 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title event string return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_event_name_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local event_name = 'format-window-title'
+
+            wezterm.on(event_name, function(tab, pane, tabs, panes, config)
+              return 'STATIC LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title event-name variable");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
