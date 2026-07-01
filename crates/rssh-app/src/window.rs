@@ -10187,7 +10187,13 @@ fn lua_static_table_variable_field_assignment_from_query<'a>(
     {
         return None;
     }
-    let (key, rest) = lua_table_map_field_key_from_query(after_variable)?;
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        after_variable,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableMapFieldAssignment {
@@ -90482,6 +90488,41 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("from-insert-field-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_table_insert_static_field_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_field = 'key'
+            local mods_field = 'mods'
+            local action_field = 'action'
+
+            local binding = {}
+            binding[key_field] = 'K'
+            binding[mods_field] = 'CTRL|SHIFT'
+            binding[action_field] = act.SendString 'from-insert-static-field-name-variable'
+
+            config.keys = {}
+            table.insert(config.keys, binding)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm table.insert static field-name key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString(
+                    "from-insert-static-field-name-variable".to_owned()
+                ),
             }])
         );
     }
