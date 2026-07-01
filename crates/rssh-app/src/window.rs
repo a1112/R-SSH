@@ -5613,12 +5613,20 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             "window_padding",
         )
         .and_then(|window_padding| {
-            native_window_padding_lua_table_from_query(config, &window_padding.value)
+            native_window_padding_lua_table_from_query(
+                config,
+                &window_padding.value,
+                Some(window_padding.max_start),
+            )
         })
         .or_else(|| {
             lua_config_table_or_static_variable_assignment_from_query(config, "window_padding")
                 .and_then(|window_padding| {
-                    native_window_padding_lua_table_from_query(config, window_padding)
+                    native_window_padding_lua_table_from_query(
+                        config,
+                        window_padding,
+                        lua_source_slice_start_offset(config, window_padding),
+                    )
                 })
         })
     {
@@ -18378,9 +18386,11 @@ fn native_webgpu_preferred_adapter_lua_table_from_query<'a>(
 fn native_window_padding_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: Option<usize>,
 ) -> Option<NativeWindowPadding> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut padding = DEFAULT_WINDOW_PADDING;
+    let static_source = max_start.map(|max_start| LuaStaticSource { source, max_start });
 
     for field in split_lua_table_top_level_fields(table)? {
         let field = field.trim();
@@ -18388,7 +18398,7 @@ fn native_window_padding_lua_table_from_query<'a>(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = value.trim();
         let value = lua_static_string_assignment_value_from_query(source, value)
             .and_then(parse_maybe_quoted_query_text)
@@ -104364,6 +104374,41 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm window padding static field variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::CellFractionPerMille(1_000),
+                bottom: NativeWindowPaddingDimension::Points(2),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_padding_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local left_field = 'left'
+            local right_field = 'right'
+            local top_field = 'top'
+            local bottom_field = 'bottom'
+
+            config.window_padding = {
+              [left_field] = 8,
+              [right_field] = 16,
+              [top_field] = '1cell',
+              [bottom_field] = '2pt',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window padding static field-name config");
         app.set_config_overrides(overrides);
 
         assert_eq!(
