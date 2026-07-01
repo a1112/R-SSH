@@ -5993,10 +5993,12 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
-    let (body, tab_param) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
+    let (body, tab_param, hover_param) =
+        lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query(rest)?;
     lua_static_tab_title_return_from_function_body(
         body,
         tab_param,
+        hover_param,
         Some(LuaStaticSource {
             source,
             max_start: start,
@@ -6210,6 +6212,25 @@ fn lua_anonymous_function_body_and_first_param_from_query<'a>(
     let window_name = lua_function_param_identifier(first_param)?;
     let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
     Some((body, window_name))
+}
+
+fn lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query<'a>(
+    value: &'a str,
+) -> Option<(&'a str, &'a str, Option<&'a str>)> {
+    if !lua_source_keyword_at(value, 0, "function") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let params_end = rest.find(')')?;
+    let params = rest.get(..params_end)?;
+    let params = params.split(',').collect::<Vec<_>>();
+    let first_param = lua_function_param_identifier(params.first()?)?;
+    let fifth_param = params
+        .get(4)
+        .and_then(|param| lua_function_param_identifier(param));
+    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
+    Some((body, first_param, fifth_param))
 }
 
 fn lua_anonymous_function_body_and_first_two_params_from_query<'a>(
@@ -6609,11 +6630,13 @@ fn lua_trim_end_statement_separator(value: &str) -> Option<&str> {
 fn lua_static_tab_title_return_from_function_body(
     body: &str,
     tab_param: &str,
+    hover_param: Option<&str>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     if let Some(value) = lua_static_tab_title_conditional_return_from_function_body(
         body,
         tab_param,
+        hover_param,
         outer_static_source,
     ) {
         return Some(value);
@@ -6688,6 +6711,7 @@ fn lua_static_tab_title_return_from_statement_as_lua_title(
 fn lua_static_tab_title_conditional_return_from_function_body(
     body: &str,
     tab_param: &str,
+    hover_param: Option<&str>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
@@ -6699,7 +6723,8 @@ fn lua_static_tab_title_conditional_return_from_function_body(
         if let Some((condition, if_body)) =
             lua_static_if_condition_and_body_from_statement(statement)
         {
-            let condition = lua_tab_title_condition_from_expression(condition, tab_param)?;
+            let condition =
+                lua_tab_title_condition_from_expression(condition, tab_param, hover_param)?;
             let title = lua_static_tab_title_first_return_from_nested_body(
                 body,
                 if_body,
@@ -6761,8 +6786,16 @@ fn lua_static_tab_title_first_return_from_nested_body(
 fn lua_tab_title_condition_from_expression(
     condition: &str,
     tab_param: &str,
+    hover_param: Option<&str>,
 ) -> Option<NativeLuaTabTitleCondition> {
     let condition = lua_trim_start_comments(condition.trim())?;
+    if let Some(hover_param) = hover_param
+        && let Some(rest) = condition.strip_prefix(hover_param)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaTabTitleCondition::IsHover);
+    }
+
     for (field, parsed) in [
         ("is_active", NativeLuaTabTitleCondition::IsActive),
         ("is_last_active", NativeLuaTabTitleCondition::IsLastActive),
@@ -22040,6 +22073,7 @@ struct NativeLuaTabTitleConditionalBranch {
 enum NativeLuaTabTitleCondition {
     IsActive,
     IsLastActive,
+    IsHover,
 }
 
 impl NativeLuaTabTitleCondition {
@@ -22047,6 +22081,7 @@ impl NativeLuaTabTitleCondition {
         match self {
             Self::IsActive => event.is_active,
             Self::IsLastActive => event.is_last_active,
+            Self::IsHover => event.hover,
         }
     }
 }
@@ -75147,6 +75182,93 @@ mod tests {
     }
 
     #[test]
+    fn lua_parses_wezterm_format_tab_title_hover_branch() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if hover then
+                return {
+                  { Text = 'hover:' .. tab.tab_title },
+                }
+              end
+              return {
+                { Text = 'plain:' .. tab.tab_title },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title hover branch");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("IsHover"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_one_param_callback() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab)
+              return tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title one-param callback");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("ActiveTabTitle"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_hover_branch() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if hover then
+                return {
+                  { Text = 'hover:' .. tab.tab_title },
+                }
+              end
+              return {
+                { Text = 'plain:' .. tab.tab_title },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title hover branch");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "first".to_owned(),
+        })
+        .unwrap();
+
+        let first_tab_column = app.tab_bar_workspace_label().chars().count() + 1;
+        let x = u32::try_from(first_tab_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("hover:first"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("plain:first"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
     fn lua_parses_wezterm_format_tab_title_truncate_right_title() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -75332,6 +75454,7 @@ mod tests {
         let parsed = super::lua_static_tab_title_return_from_function_body(
             body,
             "tab",
+            None,
             Some(super::LuaStaticSource {
                 source: outer_source,
                 max_start: outer_source.len(),
