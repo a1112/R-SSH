@@ -5168,42 +5168,58 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.quick_select_remove_styling = Some(quick_select_remove_styling);
         parsed = true;
     }
-    if let Some(hyperlink_rules) =
-        lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
-            config,
-            "hyperlink_rules",
-        )
-    {
-        let mut rules = native_hyperlink_rules_lua_table_from_query(
-            config,
-            &hyperlink_rules.value,
-            hyperlink_rules.max_start,
-        )?;
-        if let Some(default_rules) = lua_config_hyperlink_rules_default_rules_with_static_inserts(
-            config,
-            hyperlink_rules.max_start,
-        ) {
+    let mut parsed_hyperlink_rules = false;
+    if let Some(table) = lua_config_static_return_table_from_query(config) {
+        let max_start = lua_source_slice_start_offset(config, table)?;
+        if let Some(default_rules) =
+            lua_config_hyperlink_rules_default_rules_with_static_inserts(config, max_start)
+        {
             overrides.hyperlink_rules = Some(default_rules);
-        } else if let Some(default_rules) =
-            lua_config_hyperlink_rules_default_rules_with_config_inserts(
+            parsed = true;
+            parsed_hyperlink_rules = true;
+        }
+    }
+    if !parsed_hyperlink_rules {
+        if let Some(hyperlink_rules) =
+            lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
+                config,
+                "hyperlink_rules",
+            )
+        {
+            let parsed_rules = native_hyperlink_rules_lua_table_from_query(
+                config,
+                &hyperlink_rules.value,
+                hyperlink_rules.max_start,
+            );
+            if let Some(default_rules) =
+                lua_config_hyperlink_rules_default_rules_with_static_inserts(
+                    config,
+                    hyperlink_rules.max_start,
+                )
+            {
+                overrides.hyperlink_rules = Some(default_rules);
+            } else if let Some(default_rules) =
+                lua_config_hyperlink_rules_default_rules_with_config_inserts(
+                    config,
+                    hyperlink_rules.max_start,
+                )
+            {
+                overrides.hyperlink_rules = Some(default_rules);
+            } else if lua_config_hyperlink_rules_extends_default_rules_before_offset(
                 config,
                 hyperlink_rules.max_start,
             )
-        {
-            overrides.hyperlink_rules = Some(default_rules);
-        } else if lua_config_hyperlink_rules_extends_default_rules_before_offset(
-            config,
-            hyperlink_rules.max_start,
-        )
-        .unwrap_or(false)
-        {
-            let mut defaults = default_hyperlink_rules();
-            defaults.append(&mut rules);
-            overrides.hyperlink_rules = Some(defaults);
-        } else {
-            overrides.hyperlink_rules = Some(rules);
+            .unwrap_or(false)
+            {
+                let mut rules = parsed_rules?;
+                let mut defaults = default_hyperlink_rules();
+                defaults.append(&mut rules);
+                overrides.hyperlink_rules = Some(defaults);
+            } else {
+                overrides.hyperlink_rules = Some(parsed_rules?);
+            }
+            parsed = true;
         }
-        parsed = true;
     }
     if let Some(selection_word_boundary) =
         lua_config_string_assignment_from_query(config, "selection_word_boundary")
@@ -16594,6 +16610,17 @@ fn lua_config_hyperlink_rules_default_rules_with_static_inserts(
                 start,
             )?;
             inserted = true;
+        } else if let Some(assignment) =
+            lua_static_table_variable_indexed_field_assignment_from_query(source, start, variable)
+        {
+            if apply_hyperlink_rule_indexed_field_assignment(
+                &mut rules,
+                source,
+                &assignment,
+                start,
+            )? {
+                inserted = true;
+            }
         }
     }
 
@@ -16684,6 +16711,36 @@ fn apply_hyperlink_rule_index_or_append_assignment(
         rules.push(rule);
     }
     Some(())
+}
+
+fn apply_hyperlink_rule_indexed_field_assignment(
+    rules: &mut [NativeHyperlinkRule],
+    source: &str,
+    assignment: &LuaTableIndexedFieldAssignment<'_>,
+    max_start: usize,
+) -> Option<bool> {
+    let rule = rules.get_mut(assignment.index.checked_sub(1)?)?;
+    match assignment.key.as_str() {
+        "regex" => {
+            rule.regex =
+                lua_static_string_value_before_offset(source, assignment.value, max_start)?;
+        }
+        "format" => {
+            rule.format =
+                lua_static_string_value_before_offset(source, assignment.value, max_start)?;
+        }
+        "highlight" => {
+            let value = lua_static_number_assignment_value_before_offset_from_query(
+                source,
+                assignment.value,
+                max_start,
+                lua_unsigned_integer_literal_from_query,
+            )?;
+            rule.highlight = value.parse().ok()?;
+        }
+        _ => return Some(false),
+    }
+    Some(true)
 }
 
 fn lua_config_hyperlink_rules_static_value_variable_before_offset<'a>(
@@ -98331,6 +98388,30 @@ mod tests {
             format: "https://deploys.example/$1".to_owned(),
             highlight: 1,
         };
+        assert_eq!(effective.hyperlink_rules, expected);
+    }
+
+    #[test]
+    fn window_app_mutates_indexed_static_default_hyperlink_rule_field() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local rules = wezterm.default_hyperlink_rules()
+
+            rules[1].format = 'https://wrapped.example/$1'
+
+            return {
+              hyperlink_rules = rules,
+            }
+            "#,
+        )
+        .expect("expected WezTerm indexed static default hyperlink_rules field mutation");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let mut expected = default_hyperlink_rules();
+        expected[0].format = "https://wrapped.example/$1".to_owned();
         assert_eq!(effective.hyperlink_rules, expected);
     }
 
