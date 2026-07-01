@@ -19325,7 +19325,7 @@ fn native_launch_menu_item_lua_table_from_query(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key.eq_ignore_ascii_case("label") {
             if label.is_some() {
                 return None;
@@ -45771,7 +45771,7 @@ fn spawn_command_table_from_query_with_static_source(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = value.trim();
         if key.eq_ignore_ascii_case("args") {
             if args.is_some() {
@@ -45864,7 +45864,7 @@ fn spawn_command_table_options_from_query_with_static_source(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = value.trim();
         if key.eq_ignore_ascii_case("args") {
             return None;
@@ -103075,6 +103075,55 @@ mod tests {
             launch.environment().get("LAUNCH_MENU"),
             Some(&"1".to_owned())
         );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_launch_menu_static_label_field_name_variable() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local label_field = 'label'
+            local args_field = 'args'
+            local cwd_field = 'cwd'
+
+            config.launch_menu = {
+              {
+                [label_field] = 'Static Label Monitor',
+                [args_field] = { 'top', '-H' },
+                [cwd_field] = '/tmp/static-label',
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm launch_menu static label field-name config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::ShowLauncherArgs(
+            WindowShowLauncherArgs {
+                flags: WindowShowLauncherFlags::launch_menu_items(),
+                title: Some("Pick Launch".to_owned()),
+                alphabet: None,
+                help_text: None,
+                fuzzy_help_text: None,
+            },
+        )));
+
+        app.command_palette_set_query("static label".to_owned());
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].label(), "Static Label Monitor");
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-H"]);
+        assert_eq!(launch.cwd(), Some("/tmp/static-label"));
         assert!(app.command_palette.is_none());
     }
 
