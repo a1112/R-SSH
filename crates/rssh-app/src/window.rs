@@ -41711,7 +41711,7 @@ fn send_string_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "string" => {
@@ -41904,7 +41904,7 @@ fn send_key_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "key" => {
@@ -92410,6 +92410,42 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_send_string_static_field_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local string_field = 'string'
+            local payload = 'from-send-string-field-name-variable'
+
+            config.keys = {
+              {
+                key = 'S',
+                mods = 'CTRL|SHIFT',
+                action = act.SendString {
+                  [string_field] = payload,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SendString static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+S".to_owned(),
+                command: WindowCommand::SendString(
+                    "from-send-string-field-name-variable".to_owned(),
+                ),
+            }])
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_send_string_static_table_variable_call() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -92464,6 +92500,46 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm SendKey static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendKey(WindowSendKey {
+                    key: Key::Named(NamedKey::ArrowLeft),
+                    modifiers: ModifiersState::ALT,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_send_key_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_field = 'key'
+            local mods_field = 'mods'
+            local key_name = 'LeftArrow'
+            local key_mods = 'ALT'
+
+            config.keys = {
+              {
+                key = 'K',
+                mods = 'CTRL|SHIFT',
+                action = act.SendKey {
+                  [key_field] = key_name,
+                  [mods_field] = key_mods,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SendKey static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,

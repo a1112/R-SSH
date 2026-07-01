@@ -1541,9 +1541,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style `wezterm.action.SendString { string = ... }` and
   `wezterm.action.SendString({ string = ... })` table-call queries dispatch the
   same typed payload path, including trailing comma table fields and top-level
-  static string variables for the table-call `string` field. Parenthesized
-  `SendString(send_opts)` calls also accept top-level static options table
-  variables. Quoted action strings decode Lua-style escapes such as `\x1b`,
+  static string field-name variables plus top-level static string variables for
+  the table-call `string` field. Parenthesized `SendString(send_opts)` calls
+  also accept top-level static options table variables. Quoted action strings
+  decode Lua-style escapes such as `\x1b`,
   `\027`, `\u{1b}`, and `\z` whitespace elision before dispatching the payload
   bytes, and accept Lua long bracket strings such as `[[text]]`, including
   inside Lua action payload table fields, bracketed string table keys, and
@@ -1560,9 +1561,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.SendKey({ key = ..., mods = ... })` table-call queries route
   to the same implemented key/modifier payload parser, including bracketed
   string table keys with long-bracket values, trailing comma table fields, and
-  top-level static string variables for `key`/`mods` fields. Parenthesized
-  `SendKey(send_key_opts)` calls also accept top-level static options table
-  variables.
+  top-level static string field-name variables plus top-level static string
+  variables for `key`/`mods` fields. Parenthesized `SendKey(send_key_opts)`
+  calls also accept top-level static options table variables.
 - Structured action queries now also accept WezTerm's older
   `wezterm.action { ActionName = value }` / `wezterm.action({ ActionName =
   value })` wrapper-table syntax for the implemented native action subset,
