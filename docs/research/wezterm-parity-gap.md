@@ -372,7 +372,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   so quoted group values with spaces do not retain their quotes. Duplicate
   `copy_on_select`, `copy_to`, and `group` fields are rejected instead of
   silently overriding an earlier field. WezTerm-style Lua `CharSelect { ... }`
-  / `CharSelect({ ... })` table queries tolerate trailing comma fields. When
+  / `CharSelect({ ... })` table queries tolerate trailing comma fields and
+  top-level static string field-name variables. When
   `group` is omitted, the overlay
   resolves it to `RecentlyUsed` after an accepted character selection and to
   `SmileysAndEmotion` before any selection history, matching WezTerm's default

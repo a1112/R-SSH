@@ -44378,7 +44378,7 @@ fn char_select_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = value.trim();
 
         match normalized_char_select_lua_field(&name).as_str() {
@@ -93636,6 +93636,47 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm CharSelect static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+U".to_owned(),
+                command: WindowCommand::CharSelectArgs(WindowCharSelectOptions {
+                    copy_on_select: false,
+                    copy_to: WindowCopyDestination::PrimarySelection,
+                    group: Some("PeopleAndBody".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_char_select_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local copy_on_select_field = 'copy_on_select'
+            local copy_to_field = 'copy_to'
+            local group_field = 'group'
+
+            config.keys = {
+              {
+                key = 'U',
+                mods = 'CTRL|ALT',
+                action = act.CharSelect {
+                  [copy_on_select_field] = false,
+                  [copy_to_field] = 'PrimarySelection',
+                  [group_field] = 'PeopleAndBody',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CharSelect static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,
