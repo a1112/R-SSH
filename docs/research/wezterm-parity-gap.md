@@ -167,8 +167,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `active_tab_left`/`active_tab_right`/`inactive_tab_left`/
   `inactive_tab_right`/`inactive_tab_hover_left`/`inactive_tab_hover_right`/
   `new_tab`/`new_tab_hover` plus legacy `new_tab_left`/`new_tab_right`/
-  `new_tab_hover_left`/`new_tab_hover_right` edge entries inline, through
-  top-level static table variables, or through
+  `new_tab_hover_left`/`new_tab_hover_right` edge entries inline, including
+  static field-name keys, through top-level static table variables, or through
   top-level `config[static_name].active_tab_left`/`active_tab_right`/
   `inactive_tab_left`/`inactive_tab_right`/`new_tab_left`/`new_tab_right`
   mutations where `static_name` resolves to `tab_bar_style`. When

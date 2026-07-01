@@ -4223,12 +4223,28 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             "tab_bar_style",
         )
         .and_then(|tab_bar_style| {
-            native_tab_bar_style_lua_table_from_query(&tab_bar_style.value).flatten()
+            native_tab_bar_style_lua_table_from_query(
+                Some(LuaStaticSource {
+                    source: config,
+                    max_start: tab_bar_style.max_start,
+                }),
+                &tab_bar_style.value,
+            )
+            .flatten()
         })
         .or_else(|| {
             lua_config_table_or_static_variable_assignment_from_query(config, "tab_bar_style")
                 .and_then(|tab_bar_style| {
-                    native_tab_bar_style_lua_table_from_query(tab_bar_style).flatten()
+                    native_tab_bar_style_lua_table_from_query(
+                        lua_source_slice_start_offset(config, tab_bar_style).map(|max_start| {
+                            LuaStaticSource {
+                                source: config,
+                                max_start,
+                            }
+                        }),
+                        tab_bar_style,
+                    )
+                    .flatten()
                 })
         })
     {
@@ -46266,7 +46282,10 @@ fn tab_bar_item_underline_from_query(value: &str) -> Option<NativeFormatUnderlin
     }
 }
 
-fn native_tab_bar_style_lua_table_from_query(value: &str) -> Option<Option<NativeTabBarStyle>> {
+fn native_tab_bar_style_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Option<NativeTabBarStyle>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut style = NativeTabBarStyle::default();
 
@@ -46278,8 +46297,12 @@ fn native_tab_bar_style_lua_table_from_query(value: &str) -> Option<Option<Nativ
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
-        let items = native_format_items_from_wezterm_format_query(value.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
+        let items = native_format_items_from_wezterm_format_query_with_static_sources(
+            static_source,
+            None,
+            value.trim(),
+        )?;
         match key.as_str() {
             "active_tab_left" => assign_tab_bar_style_edge(&mut style.active_tab_left, items)?,
             "active_tab_right" => assign_tab_bar_style_edge(&mut style.active_tab_right, items)?,
@@ -71459,6 +71482,54 @@ mod tests {
         assert!(
             tab_bar.contains("{ + }"),
             "new-tab button should be wrapped by configured tab_bar_style static variable edges: {tab_bar:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_style_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local active_left = 'active_tab_left'
+            local active_right = 'active_tab_right'
+            local inactive_left = 'inactive_tab_left'
+            local inactive_right = 'inactive_tab_right'
+            local new_left = 'new_tab_left'
+            local new_right = 'new_tab_right'
+
+            config.tab_bar_style = {
+              [active_left] = wezterm.format({ { Text = '[' } }),
+              [active_right] = wezterm.format({ { Text = ']' } }),
+              [inactive_left] = wezterm.format({ { Text = '<' } }),
+              [inactive_right] = wezterm.format({ { Text = '>' } }),
+              [new_left] = wezterm.format({ { Text = '{' } }),
+              [new_right] = wezterm.format({ { Text = '}' } }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style static field-name config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("[ 2:2* panes:1 x ]"),
+            "active tab should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("{ + }"),
+            "new-tab button should be wrapped by configured tab_bar_style static field-name edges: {tab_bar:?}"
         );
     }
 
