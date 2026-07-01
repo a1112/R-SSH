@@ -6186,7 +6186,7 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
     let mut line_comment = false;
     let mut block_comment_end = None;
     let mut long_bracket_end = None;
-    let mut function_depth = 0usize;
+    let mut lua_block_depth = 0usize;
 
     for (index, character) in value.char_indices() {
         if let Some(end) = block_comment_end {
@@ -6262,16 +6262,28 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
             continue;
         }
 
-        if lua_source_keyword_at(value, index, "function") {
-            function_depth = function_depth.saturating_add(1);
+        if lua_source_keyword_at(value, index, "function")
+            || lua_source_keyword_at(value, index, "then")
+            || lua_source_keyword_at(value, index, "do")
+            || lua_source_keyword_at(value, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
             continue;
         }
 
         if lua_source_keyword_at(value, index, "end") {
-            if function_depth == 0 {
+            if lua_block_depth == 0 {
                 return value.get(..index).map(str::trim);
             }
-            function_depth = function_depth.saturating_sub(1);
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
+        }
+
+        if lua_source_keyword_at(value, index, "until") {
+            if lua_block_depth == 0 {
+                return None;
+            }
+            lua_block_depth = lua_block_depth.saturating_sub(1);
         }
     }
 
@@ -7271,24 +7283,27 @@ fn lua_tab_title_return_text_parts_from_function_body(
         return None;
     }
 
+    if let Some(parts) = lua_tab_title_explicit_title_fallback_parts_from_function_body(
+        body,
+        tab_param,
+        outer_static_source,
+        depth + 1,
+    ) {
+        return Some(parts);
+    }
+
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
-        let Some(rest) = statement.strip_prefix("return") else {
+        let Some(expression) = lua_static_return_expression_from_statement(statement) else {
             continue;
-        };
-        if rest.chars().next().is_some_and(is_lua_identifier_character) {
-            continue;
-        }
-        let rest = lua_trim_start_comments(rest)?;
-        let rest = lua_trim_end_statement_separator(rest)?;
-        let static_source = LuaStaticSource {
-            source: body,
-            max_start: start,
         };
         if let Some(parts) = lua_tab_title_text_parts_from_expression_with_depth(
-            rest,
+            expression,
             tab_param,
-            Some(static_source),
+            Some(LuaStaticSource {
+                source: body,
+                max_start: start,
+            }),
             outer_static_source,
             depth + 1,
         ) {
@@ -7297,6 +7312,243 @@ fn lua_tab_title_return_text_parts_from_function_body(
     }
 
     None
+}
+
+fn lua_tab_title_explicit_title_fallback_parts_from_function_body(
+    body: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    if depth > 8 {
+        return None;
+    }
+
+    let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
+    for (position, start) in starts.iter().enumerate() {
+        let statement = lua_trim_start_comments(body.get(*start..)?)?;
+        let Some((condition, if_body)) = lua_static_if_condition_and_body_from_statement(statement)
+        else {
+            continue;
+        };
+        let Some(condition_variable) = lua_tab_title_non_empty_condition_variable(condition) else {
+            continue;
+        };
+        let Some(returned_variable) = lua_static_return_identifier_from_function_body(if_body)
+        else {
+            continue;
+        };
+        if returned_variable != condition_variable {
+            continue;
+        }
+
+        let Some(assigned_value) =
+            lua_static_expression_variable_assignment_before_offset_from_query(
+                body,
+                condition_variable,
+                *start,
+            )
+        else {
+            continue;
+        };
+        let if_static_source = LuaStaticSource {
+            source: body,
+            max_start: *start,
+        };
+        if !matches!(
+            lua_tab_title_text_part_from_expression(
+                assigned_value,
+                tab_param,
+                Some(if_static_source),
+                outer_static_source,
+            ),
+            Some(NativeLuaTabTitleTextPart::ActiveTabTitle)
+        ) {
+            continue;
+        }
+
+        for fallback_start in starts.iter().skip(position + 1) {
+            let fallback_statement = lua_trim_start_comments(body.get(*fallback_start..)?)?;
+            let Some(fallback_expression) =
+                lua_static_return_expression_from_statement(fallback_statement)
+            else {
+                continue;
+            };
+            let fallback_static_source = LuaStaticSource {
+                source: body,
+                max_start: *fallback_start,
+            };
+            let Some(fallback_parts) = lua_tab_title_text_parts_from_expression_with_depth(
+                fallback_expression,
+                tab_param,
+                Some(fallback_static_source),
+                outer_static_source,
+                depth + 1,
+            ) else {
+                continue;
+            };
+            if matches!(
+                fallback_parts.as_slice(),
+                [NativeLuaTabTitleTextPart::ActivePaneTitle]
+            ) {
+                return Some(vec![
+                    NativeLuaTabTitleTextPart::ActiveTabTitleOrActivePaneTitle,
+                ]);
+            }
+        }
+    }
+
+    None
+}
+
+fn lua_static_return_identifier_from_function_body(body: &str) -> Option<&str> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some(expression) = lua_static_return_expression_from_statement(statement) else {
+            continue;
+        };
+        let Some(identifier) = lua_identifier_literal_from_query(expression) else {
+            continue;
+        };
+        if lua_static_identifier_value_rest_is_statement_end(expression.get(identifier.len()..)?) {
+            return Some(identifier);
+        }
+    }
+
+    None
+}
+
+fn lua_static_return_expression_from_statement(statement: &str) -> Option<&str> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    lua_trim_end_statement_separator(rest)
+}
+
+fn lua_static_if_condition_and_body_from_statement(statement: &str) -> Option<(&str, &str)> {
+    if !lua_source_keyword_at(statement, 0, "if") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(statement.get("if".len()..)?)?;
+    let then = lua_static_if_then_index_from_query(rest)?;
+    let condition = rest.get(..then)?.trim();
+    let body_start = lua_trim_start_comments(rest.get(then + "then".len()..)?)?;
+    let body = lua_static_function_body_until_end(body_start)?;
+    Some((condition, body))
+}
+
+fn lua_static_if_then_index_from_query(value: &str) -> Option<usize> {
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+
+    for (index, character) in value.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if value[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index + 2..])
+            {
+                let content_and_rest = &value[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(value.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&value[index..])
+                {
+                    let content_and_rest = &value[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(value.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                    continue;
+                }
+            }
+            _ => {}
+        }
+
+        if lua_source_keyword_at(value, index, "then") {
+            return Some(index);
+        }
+    }
+
+    None
+}
+
+fn lua_tab_title_non_empty_condition_variable(condition: &str) -> Option<&str> {
+    let condition = lua_trim_start_comments(condition.trim())?;
+    let variable = lua_identifier_literal_from_query(condition)?;
+    let rest = condition.get(variable.len()..)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = rest.strip_prefix("and")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('#')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let length_variable = lua_identifier_literal_from_query(rest)?;
+    if length_variable != variable {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(rest.get(length_variable.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('>')?)?;
+    let rest = rest.strip_prefix('0')?;
+    rest.trim().is_empty().then_some(variable)
 }
 
 fn lua_static_tab_title_return_from_statement(
@@ -21507,6 +21759,7 @@ impl NativeLuaFormatItem {
 enum NativeLuaTabTitleTextPart {
     Static(String),
     ActiveTabTitle,
+    ActiveTabTitleOrActivePaneTitle,
     WindowTitle,
     ActivePaneId,
     ActivePaneDomainName,
@@ -21521,6 +21774,12 @@ impl NativeLuaTabTitleTextPart {
         match self {
             Self::Static(value) => Some(value.clone()),
             Self::ActiveTabTitle => event.tab_title.clone(),
+            Self::ActiveTabTitleOrActivePaneTitle => event
+                .tab_title
+                .as_ref()
+                .filter(|title| !title.is_empty())
+                .cloned()
+                .or_else(|| event.active_pane_info.title.clone()),
             Self::WindowTitle => Some(event.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
@@ -74367,6 +74626,96 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains(" PaneShell "), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_helper_prefers_explicit_title() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              return {
+                { Text = ' ' .. title .. ' ' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title helper explicit-title fallback");
+        app.set_config_overrides(overrides);
+        let active_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: active_tab,
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains(" explicit "), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn lua_parses_format_tab_title_helper_explicit_title_fallback_parts() {
+        let body = r#"
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            "#;
+
+        let parts =
+            super::lua_tab_title_return_text_parts_from_function_body(body, "tab_info", None, 0)
+                .expect("expected helper fallback title parts");
+
+        assert_eq!(
+            parts,
+            vec![super::NativeLuaTabTitleTextPart::ActiveTabTitleOrActivePaneTitle]
+        );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_helper_explicit_title_fallback_config() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              return {
+                { Text = ' ' .. title .. ' ' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title helper explicit-title fallback");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("ActiveTabTitleOrActivePaneTitle"),
+            "parsed lua tab title was {parsed}"
+        );
     }
 
     #[test]
