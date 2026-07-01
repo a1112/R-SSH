@@ -39487,7 +39487,7 @@ fn clear_scrollback_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = parse_maybe_static_query_text(static_source, value)?;
         match name.to_ascii_lowercase().as_str() {
             "mode" => {
@@ -91538,6 +91538,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm ClearScrollback static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+K".to_owned(),
+                command: WindowCommand::ClearScrollback(
+                    WindowClearScrollbackMode::ScrollbackAndViewport,
+                ),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_clear_scrollback_static_field_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local mode_field = 'mode'
+            local scroll_mode = 'ScrollbackAndViewport'
+
+            config.keys = {
+              {
+                key = 'K',
+                mods = 'CTRL|ALT',
+                action = act.ClearScrollback {
+                  [mode_field] = scroll_mode,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ClearScrollback static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,

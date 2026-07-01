@@ -1709,9 +1709,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.ClearScrollback('ScrollbackOnly')` string calls and
   `wezterm.action.ClearScrollback { mode = ... }` table-call queries dispatch
   the same native payload path, including bracketed string table keys with
-  long-bracket values and trailing comma table fields. Static `config.keys`
-  action tables also resolve top-level string variables for `mode` and
-  parenthesized static options table variables.
+  long-bracket values, trailing comma table fields, and top-level static string
+  field-name variables. Static `config.keys` action tables also resolve
+  top-level string variables for `mode` and parenthesized static options table
+  variables.
 - Command palette and native action payloads now expose WezTerm-style
   `ClearScrollback('ScrollbackAndViewport')`, clearing active-pane history plus
   the viewport while preserving the prompt/cursor row as the new first visible
