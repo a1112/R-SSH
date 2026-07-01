@@ -4970,6 +4970,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             native_webgpu_preferred_adapter_lua_table_from_query(
                 config,
                 &webgpu_preferred_adapter.value,
+                Some(webgpu_preferred_adapter.max_start),
             )
         })
         .or_else(|| {
@@ -4981,6 +4982,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                 native_webgpu_preferred_adapter_lua_table_from_query(
                     config,
                     webgpu_preferred_adapter,
+                    lua_source_slice_start_offset(config, webgpu_preferred_adapter),
                 )
             })
         })
@@ -18304,6 +18306,7 @@ fn native_daemon_options_lua_table_from_query(
 fn native_webgpu_preferred_adapter_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: Option<usize>,
 ) -> Option<NativeWebGpuPreferredAdapter> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut adapter = NativeWebGpuPreferredAdapter {
@@ -18315,6 +18318,7 @@ fn native_webgpu_preferred_adapter_lua_table_from_query<'a>(
         name: None,
         vendor: None,
     };
+    let static_source = max_start.map(|max_start| LuaStaticSource { source, max_start });
 
     for field in split_lua_table_top_level_fields(table)? {
         let field = field.trim();
@@ -18322,7 +18326,7 @@ fn native_webgpu_preferred_adapter_lua_table_from_query<'a>(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = value.trim();
         match key.as_str() {
             "backend" => {
@@ -99464,6 +99468,52 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm WebGPU preferred adapter static field variable config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().webgpu_preferred_adapter,
+            Some(NativeWebGpuPreferredAdapter {
+                backend: Some("Vulkan".to_owned()),
+                device: Some(29_730),
+                device_type: Some("DiscreteGpu".to_owned()),
+                driver: Some("radv".to_owned()),
+                driver_info: Some("Mesa 22.3.4".to_owned()),
+                name: Some("AMD Radeon Pro W6400 (RADV NAVI24)".to_owned()),
+                vendor: Some(4_098),
+            })
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_webgpu_preferred_adapter_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local backend_field = 'backend'
+            local device_field = 'device'
+            local device_type_field = 'device_type'
+            local driver_field = 'driver'
+            local driver_info_field = 'driver_info'
+            local name_field = 'name'
+            local vendor_field = 'vendor'
+            local adapter_device = 29730
+            local adapter_vendor = 4098
+
+            config.webgpu_preferred_adapter = {
+              [backend_field] = 'Vulkan',
+              [device_field] = adapter_device,
+              [device_type_field] = 'DiscreteGpu',
+              [driver_field] = 'radv',
+              [driver_info_field] = 'Mesa 22.3.4',
+              [name_field] = 'AMD Radeon Pro W6400 (RADV NAVI24)',
+              [vendor_field] = adapter_vendor,
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm WebGPU preferred adapter static field-name config");
         app.set_config_overrides(overrides);
 
         assert_eq!(
