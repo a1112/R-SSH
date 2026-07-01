@@ -3769,6 +3769,7 @@ struct NativeConfigOverrides {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
+    lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
     canonicalize_pasted_newlines: Option<NativeCanonicalizePastedNewlines>,
@@ -3821,6 +3822,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(tab_title) = lua_static_wezterm_tab_title_return_event_from_query(config) {
         overrides.lua_tab_title = Some(tab_title);
+        parsed = true;
+    }
+    if let Some(new_tab_button_click) =
+        lua_static_wezterm_new_tab_button_click_event_from_query(config)
+    {
+        overrides.lua_new_tab_button_click = Some(new_tab_button_click);
         parsed = true;
     }
 
@@ -6008,6 +6015,43 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
     )
 }
 
+fn lua_static_wezterm_new_tab_button_click_event_from_query(
+    source: &str,
+) -> Option<NativeLuaNewTabButtonClick> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(value) =
+            lua_static_wezterm_new_tab_button_click_event_from_statement(source, start)
+        {
+            selected = Some(value);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_new_tab_button_click_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeLuaNewTabButtonClick> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if event_name != "new-tab-button-click" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let body = lua_anonymous_function_body_from_query(rest)?;
+    lua_static_new_tab_button_click_return_from_function_body(
+        body,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
+}
+
 fn lua_static_wezterm_on_event_name_and_rest_from_args<'a>(
     source: &'a str,
     start: usize,
@@ -6252,6 +6296,17 @@ fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_quer
     let third_param = params.next().and_then(lua_function_param_identifier);
     let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
     Some((body, first_param, second_param, third_param))
+}
+
+fn lua_anonymous_function_body_from_query(value: &str) -> Option<&str> {
+    let value = lua_trim_start_comments(value)?;
+    if !lua_source_keyword_at(value, 0, "function") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let params_end = rest.find(')')?;
+    lua_static_function_body_until_end(rest.get(params_end + 1..)?)
 }
 
 fn lua_function_param_identifier(value: &str) -> Option<&str> {
@@ -6946,6 +7001,29 @@ fn lua_static_tab_title_return_from_function_body(
         ) {
             return Some(value);
         }
+    }
+
+    None
+}
+
+fn lua_static_new_tab_button_click_return_from_function_body(
+    body: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaNewTabButtonClick> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some(expression) = lua_static_return_expression_from_statement(statement) else {
+            continue;
+        };
+        let allow_default = parse_maybe_static_query_bool_with_static_sources(
+            Some(LuaStaticSource {
+                source: body,
+                max_start: start,
+            }),
+            outer_static_source,
+            expression,
+        )?;
+        return Some(NativeLuaNewTabButtonClick { allow_default });
     }
 
     None
@@ -22898,6 +22976,17 @@ struct NativeWindowStatusUpdate {
     right_status: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeLuaNewTabButtonClick {
+    allow_default: bool,
+}
+
+impl NativeLuaNewTabButtonClick {
+    const fn allows_default(self) -> bool {
+        self.allow_default
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeWindowLevel {
@@ -23260,6 +23349,7 @@ struct NativeWindowApp {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
+    lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     status_update_interval: Duration,
     max_fps: usize,
     animation_fps: usize,
@@ -24807,6 +24897,7 @@ impl NativeWindowApp {
             lua_tab_title: None,
             lua_window_title: None,
             lua_update_status: None,
+            lua_new_tab_button_click: None,
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
@@ -26066,6 +26157,7 @@ impl NativeWindowApp {
         self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
+        self.lua_new_tab_button_click = source.lua_new_tab_button_click;
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
         self.last_redraw_request_at = source.last_redraw_request_at;
@@ -34702,6 +34794,7 @@ impl NativeWindowApp {
         self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
+        self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
         self.max_fps = overrides
             .max_fps
             .filter(|fps| *fps > 0)
@@ -38645,7 +38738,11 @@ impl NativeWindowApp {
     }
 
     fn dispatch_new_tab_button_click(&mut self, event: &NativeWindowNewTabButtonClick) -> bool {
-        (self.new_tab_button_click_handler)(event)
+        if !(self.new_tab_button_click_handler)(event) {
+            return false;
+        }
+        self.lua_new_tab_button_click
+            .is_none_or(NativeLuaNewTabButtonClick::allows_default)
     }
 
     fn dispatch_update_status(&mut self) {
@@ -61990,25 +62087,25 @@ mod tests {
         NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeLuaTabTitle, NativeLuaWindowTitle, NativeMouseAssignmentAltScreen,
-        NativeMouseAssignmentButton, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
-        NativeNotificationHandling, NativePalette, NativePromptInputLine, NativeQuoteDroppedFiles,
-        NativeRenderFrontEnd, NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain,
-        NativeShellAssumption, NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain,
-        NativeSshMultiplexing, NativeStrikethroughPosition, NativeTabBarItemColors,
-        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
-        NativeTlsClientDomain, NativeTlsServerDomain, NativeUiKeyCapRendering,
-        NativeUnderlinePosition, NativeUnderlineThickness, NativeUnixDomain,
-        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
-        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
-        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
-        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
-        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
-        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
-        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
-        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
-        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
-        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeLuaNewTabButtonClick, NativeLuaTabTitle, NativeLuaWindowTitle,
+        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
+        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePalette,
+        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
+        NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
+        NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain, NativeSshMultiplexing,
+        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
+        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeTlsClientDomain,
+        NativeTlsServerDomain, NativeUiKeyCapRendering, NativeUnderlinePosition,
+        NativeUnderlineThickness, NativeUnixDomain, NativeUserKeyAssignment,
+        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
+        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
+        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
+        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
+        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
+        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
+        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
+        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
+        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
@@ -78905,6 +79002,45 @@ mod tests {
                 default_action: None,
             }]
         );
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
+        assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_new_tab_button_click_false_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('new-tab-button-click', function(window, pane, button, default_action)
+              return false
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm new-tab-button-click false return");
+        app.set_config_overrides(overrides);
+
+        let tab_width = tab_bar_tab_label(
+            0,
+            rssh_core::TabId::new(1),
+            1,
+            true,
+            None,
+            rssh_core::app_shell::PaneProgress::None,
+        )
+        .chars()
+        .count();
+        let new_tab_column = app.tab_bar_workspace_label().chars().count() + tab_width + 1;
+        let x = u32::try_from(new_tab_column).unwrap_or(0) * CELL_WIDTH;
+
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+        assert!(
+            app.handle_mouse_input(ElementState::Pressed, MouseButton::Left)
+                .unwrap()
+        );
+
         assert_eq!(app.active_tab_id(), rssh_core::TabId::new(1));
         assert_eq!(app.app_shell.active_workspace().tabs().len(), 1);
     }
@@ -116022,6 +116158,9 @@ mod tests {
             lua_update_status: Some(NativeWindowStatusUpdate {
                 left_status: Some("LEFT".to_owned()),
                 right_status: Some("RIGHT".to_owned()),
+            }),
+            lua_new_tab_button_click: Some(NativeLuaNewTabButtonClick {
+                allow_default: false,
             }),
             scroll_to_bottom_on_input: Some(false),
             adjust_window_size_when_changing_font_size: Some(false),
