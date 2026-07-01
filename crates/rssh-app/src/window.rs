@@ -7088,6 +7088,8 @@ fn lua_tab_title_text_parts_from_expression(
     )
 }
 
+const LUA_TAB_TITLE_PARSE_MAX_DEPTH: usize = 16;
+
 fn lua_tab_title_text_parts_from_expression_with_depth(
     expression: &str,
     tab_param: &str,
@@ -7095,7 +7097,7 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
-    if depth > 8 {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
         return None;
     }
     let expression = lua_trim_start_comments(expression.trim())?;
@@ -7106,6 +7108,16 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
         outer_static_source,
     ) {
         return Some(vec![part]);
+    }
+
+    if let Some(parts) = lua_tab_title_truncate_right_parts_from_expression(
+        expression,
+        tab_param,
+        static_source,
+        outer_static_source,
+        depth + 1,
+    ) {
+        return Some(parts);
     }
 
     if let Some(static_source) = static_source
@@ -7172,13 +7184,98 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     has_dynamic_part.then_some(parts)
 }
 
+fn lua_tab_title_truncate_right_parts_from_expression(
+    expression: &str,
+    tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+
+    let rest = expression.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("truncate_right")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "truncate_right")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("truncate_right".len()..)?)?.strip_prefix('(')?;
+    let (argument_list, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+
+    let arguments = split_lua_top_level_arguments(argument_list)?;
+    let [title_expression, width_expression] = arguments.as_slice() else {
+        return None;
+    };
+    let lookup_static_source = static_source
+        .and_then(|source| lua_static_source_before_current_statement(source, expression))
+        .or(static_source);
+    let parts = lua_tab_title_text_parts_from_expression_with_depth(
+        title_expression.trim(),
+        tab_param,
+        lookup_static_source,
+        outer_static_source,
+        depth + 1,
+    )?;
+    let max_width_offset = lua_tab_title_truncate_right_max_width_offset(width_expression.trim())?;
+
+    Some(vec![NativeLuaTabTitleTextPart::TruncateRight {
+        parts,
+        max_width_offset,
+    }])
+}
+
+fn lua_static_source_before_current_statement<'a>(
+    static_source: LuaStaticSource<'a>,
+    expression: &str,
+) -> Option<LuaStaticSource<'a>> {
+    let expression_start = lua_source_slice_start_offset(static_source.source, expression)?;
+    let max_start = lua_top_level_statement_start_indices_before_offset(
+        static_source.source,
+        expression_start,
+    )?
+    .into_iter()
+    .last()
+    .unwrap_or(static_source.max_start.min(expression_start));
+    Some(LuaStaticSource {
+        source: static_source.source,
+        max_start,
+    })
+}
+
+fn lua_tab_title_truncate_right_max_width_offset(expression: &str) -> Option<usize> {
+    let expression = lua_trim_start_comments(expression.trim())?;
+    let rest = expression.strip_prefix("max_width")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    if lua_static_identifier_value_rest_is_statement_end(rest) {
+        return Some(0);
+    }
+
+    let rest = lua_trim_start_comments(rest.strip_prefix('-')?)?;
+    let offset = lua_unsigned_integer_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(offset.len()..)?)?;
+    lua_static_identifier_value_rest_is_statement_end(rest).then(|| offset.parse().ok())?
+}
+
 fn lua_tab_title_helper_call_parts_from_expression(
     expression: &str,
     tab_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
-    if depth > 8 {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
         return None;
     }
 
@@ -7220,7 +7317,7 @@ fn lua_static_tab_title_helper_function_parts_before_offset(
     outer_static_source: LuaStaticSource<'_>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
-    if depth > 8 {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
         return None;
     }
 
@@ -7367,7 +7464,7 @@ fn lua_tab_title_helper_function_parts_from_statement(
     outer_static_source: LuaStaticSource<'_>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
-    if depth > 8 || !lua_source_keyword_at(statement, 0, "function") {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH || !lua_source_keyword_at(statement, 0, "function") {
         return None;
     }
 
@@ -7398,7 +7495,7 @@ fn lua_tab_title_return_text_parts_from_function_body(
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
-    if depth > 8 {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
         return None;
     }
 
@@ -7439,7 +7536,7 @@ fn lua_tab_title_explicit_title_fallback_parts_from_function_body(
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
-    if depth > 8 {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
         return None;
     }
 
@@ -21912,6 +22009,10 @@ enum NativeLuaTabTitleTextPart {
     Static(String),
     ActiveTabTitle,
     ActiveTabTitleOrActivePaneTitle,
+    TruncateRight {
+        parts: Vec<NativeLuaTabTitleTextPart>,
+        max_width_offset: usize,
+    },
     WindowTitle,
     ActivePaneId,
     ActivePaneDomainName,
@@ -21932,6 +22033,19 @@ impl NativeLuaTabTitleTextPart {
                 .filter(|title| !title.is_empty())
                 .cloned()
                 .or_else(|| event.active_pane_info.title.clone()),
+            Self::TruncateRight {
+                parts,
+                max_width_offset,
+            } => {
+                let mut text = String::new();
+                for part in parts {
+                    text.push_str(&part.resolve(event)?);
+                }
+                Some(tab_bar_truncate_right(
+                    &text,
+                    event.max_width.saturating_sub(*max_width_offset),
+                ))
+            }
             Self::WindowTitle => Some(event.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
@@ -59040,6 +59154,22 @@ fn tab_bar_ansi_plain_text(text: &str) -> String {
     .collect()
 }
 
+fn tab_bar_truncate_right(text: &str, max_width: usize) -> String {
+    let cells = tab_bar_ansi_text_cells(
+        text,
+        tab_bar_segment_style(Color::Default, Color::Default, false),
+    );
+    if cells.len() <= max_width {
+        return text.to_owned();
+    }
+
+    cells
+        .into_iter()
+        .take(max_width)
+        .map(|(ch, _)| ch)
+        .collect()
+}
+
 fn tab_bar_ansi_text_cells(
     text: &str,
     base_style: TabBarSegmentStyle,
@@ -74916,6 +75046,248 @@ mod tests {
         assert!(
             parsed.contains("ActiveTabTitleOrActivePaneTitle"),
             "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn lua_parses_wezterm_format_tab_title_truncate_right_title() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title truncate_right title");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("TruncateRight"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("max_width_offset: 2"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("ActiveTabTitleOrActivePaneTitle"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn lua_parses_tab_title_truncate_right_text_parts() {
+        let body = r#"
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            "#;
+        let value = body
+            .find("return")
+            .and_then(|index| body.get(index..))
+            .and_then(super::lua_static_return_expression_from_statement)
+            .expect("expected return expression");
+        let static_source = super::LuaStaticSource {
+            source: body,
+            max_start: body.find("return").unwrap(),
+        };
+        let outer_source = r#"
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+            "#;
+        let outer_static_source = super::LuaStaticSource {
+            source: outer_source,
+            max_start: outer_source.len(),
+        };
+        let assignment_value =
+            super::lua_static_expression_variable_assignment_before_offset_from_query(
+                body,
+                "title",
+                static_source.max_start,
+            )
+            .expect("expected title assignment before return");
+        assert!(
+            assignment_value.starts_with("wezterm.truncate_right"),
+            "assignment value was {assignment_value:?}"
+        );
+
+        let title_parts = super::lua_tab_title_text_parts_from_expression(
+            "title",
+            "tab",
+            Some(static_source),
+            Some(outer_static_source),
+        )
+        .expect("expected title segment parts");
+        assert!(
+            format!("{title_parts:?}").contains("TruncateRight"),
+            "title segment parts were {title_parts:?}"
+        );
+
+        let parts = super::lua_tab_title_text_parts_from_expression(
+            "'<' .. title .. '>'",
+            "tab",
+            Some(static_source),
+            Some(outer_static_source),
+        )
+        .expect("expected truncate_right title parts");
+
+        assert_eq!(
+            parts,
+            vec![
+                super::NativeLuaTabTitleTextPart::Static("<".to_owned()),
+                super::NativeLuaTabTitleTextPart::TruncateRight {
+                    parts: vec![super::NativeLuaTabTitleTextPart::ActiveTabTitleOrActivePaneTitle],
+                    max_width_offset: 2
+                },
+                super::NativeLuaTabTitleTextPart::Static(">".to_owned())
+            ]
+        );
+        assert!(value.starts_with('{'));
+    }
+
+    #[test]
+    fn lua_parses_tab_title_truncate_right_assignment_parts() {
+        let body = r#"
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return title
+            "#;
+        let assignment_value =
+            super::lua_static_expression_variable_assignment_before_offset_from_query(
+                body,
+                "title",
+                body.find("return").unwrap(),
+            )
+            .expect("expected title assignment");
+        let outer_source = r#"
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+            "#;
+
+        let parts = super::lua_tab_title_text_parts_from_expression(
+            assignment_value,
+            "tab",
+            Some(super::LuaStaticSource {
+                source: body,
+                max_start: body.find("return").unwrap(),
+            }),
+            Some(super::LuaStaticSource {
+                source: outer_source,
+                max_start: outer_source.len(),
+            }),
+        )
+        .expect("expected truncate_right assignment parts");
+
+        assert_eq!(
+            parts,
+            vec![super::NativeLuaTabTitleTextPart::TruncateRight {
+                parts: vec![super::NativeLuaTabTitleTextPart::ActiveTabTitleOrActivePaneTitle],
+                max_width_offset: 2
+            }]
+        );
+    }
+
+    #[test]
+    fn lua_parses_tab_title_truncate_right_callback_body() {
+        let body = r#"
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            "#;
+        let outer_source = r#"
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+            "#;
+
+        let parsed = super::lua_static_tab_title_return_from_function_body(
+            body,
+            "tab",
+            Some(super::LuaStaticSource {
+                source: outer_source,
+                max_start: outer_source.len(),
+            }),
+        )
+        .expect("expected truncate_right callback body");
+
+        let debug = format!("{parsed:?}");
+        assert!(debug.contains("TruncateRight"), "parsed was {debug}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_truncate_right_title() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+              return {
+                { Text = '<' .. title .. '>' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title truncate_right title");
+        app.set_config_overrides(overrides);
+        let active_tab = app.active_tab_id();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: active_tab,
+            title: "abcdefghijklmnopqr".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("<abcdefghijklmn>"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(
+            !tab_bar.contains("<abcdefghijklmnopqr>"),
+            "tab bar was {tab_bar:?}"
         );
     }
 
