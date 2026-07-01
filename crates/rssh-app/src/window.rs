@@ -6571,6 +6571,15 @@ fn lua_static_tab_title_return_from_function_body(
         ) {
             return Some(value);
         }
+        if let Some(value) = lua_dynamic_tab_title_text_return_from_statement(
+            body,
+            start,
+            statement,
+            tab_param,
+            outer_static_source,
+        ) {
+            return Some(value);
+        }
         if let Some(value) = lua_static_tab_title_return_from_statement(
             statement,
             static_source,
@@ -6869,6 +6878,32 @@ fn native_lua_format_items_from_lua_format_items_table_query(
     }
 
     Some((items, has_dynamic_item))
+}
+
+fn lua_dynamic_tab_title_text_return_from_statement(
+    source: &str,
+    start: usize,
+    statement: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaTabTitle> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_end_statement_separator(rest)?;
+    let static_source = LuaStaticSource {
+        source,
+        max_start: start,
+    };
+    let parts = lua_tab_title_text_parts_from_expression(
+        rest,
+        tab_param,
+        Some(static_source),
+        outer_static_source,
+    )?;
+    Some(NativeLuaTabTitle::Concat(parts))
 }
 
 fn native_lua_format_item_from_lua_table_query(
@@ -73971,6 +74006,34 @@ mod tests {
             "tab bar was {tab_bar:?}"
         );
         assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_dynamic_variable_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab.active_pane.title
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title dynamic variable return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
