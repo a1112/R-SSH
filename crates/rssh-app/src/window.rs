@@ -5961,7 +5961,13 @@ fn lua_static_wezterm_string_return_event_from_statement(
     let rest = lua_trim_start_comments(rest.get(event_len..)?)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
     let (body, _) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
-    lua_static_string_return_from_function_body(body)
+    lua_static_string_return_from_function_body(
+        body,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
 }
 
 fn lua_static_wezterm_tab_title_return_event_from_query(source: &str) -> Option<NativeTabTitle> {
@@ -6182,14 +6188,21 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
     None
 }
 
-fn lua_static_string_return_from_function_body(body: &str) -> Option<String> {
+fn lua_static_string_return_from_function_body(
+    body: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<String> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
         if let Some(value) = lua_static_string_return_from_statement(statement) {
             return Some(value);
         }
-        if let Some(value) = lua_static_string_concat_return_from_statement(body, start, statement)
-        {
+        if let Some(value) = lua_static_string_concat_return_from_statement(
+            body,
+            start,
+            statement,
+            outer_static_source,
+        ) {
             return Some(value);
         }
     }
@@ -6213,6 +6226,7 @@ fn lua_static_string_concat_return_from_statement(
     source: &str,
     start: usize,
     statement: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<String> {
     let rest = statement.strip_prefix("return")?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
@@ -6232,8 +6246,9 @@ fn lua_static_string_concat_return_from_statement(
     for segment in split_lua_string_concat_segments(rest)? {
         let segment = lua_trim_start_comments(segment.trim())?;
         let segment = lua_trim_end_statement_separator(segment)?;
-        value.push_str(&parse_maybe_static_query_text(
+        value.push_str(&parse_maybe_static_query_text_with_static_sources(
             Some(static_source),
+            outer_static_source,
             segment,
         )?);
     }
@@ -75197,6 +75212,27 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title string concat return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_event_top_level_string_concat_return() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local prefix = 'STATIC '
+            local subject = 'LUA '
+            local suffix = 'TITLE'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return prefix .. subject .. suffix
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title top-level string concat return");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
