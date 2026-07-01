@@ -3767,7 +3767,7 @@ struct NativeConfigOverrides {
     key_tables: Option<BTreeMap<String, Vec<NativeUserKeyAssignment>>>,
     mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
     lua_tab_title: Option<NativeLuaTabTitle>,
-    lua_window_title: Option<String>,
+    lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
@@ -3815,9 +3815,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         overrides.lua_update_status = Some(update_status);
         parsed = true;
     }
-    if let Some(window_title) =
-        lua_static_wezterm_string_return_event_from_query(config, "format-window-title")
-    {
+    if let Some(window_title) = lua_static_wezterm_window_title_return_event_from_query(config) {
         overrides.lua_window_title = Some(window_title);
         parsed = true;
     }
@@ -5931,40 +5929,37 @@ fn lua_static_wezterm_status_update_event_from_statement(
     )
 }
 
-fn lua_static_wezterm_string_return_event_from_query(
+fn lua_static_wezterm_window_title_return_event_from_query(
     source: &str,
-    expected_event_name: &str,
-) -> Option<String> {
+) -> Option<NativeLuaWindowTitle> {
     let mut selected = None;
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
-        if let Some(value) = lua_static_wezterm_string_return_event_from_statement(
-            source,
-            start,
-            expected_event_name,
-        ) {
+        if let Some(value) =
+            lua_static_wezterm_window_title_return_event_from_statement(source, start)
+        {
             selected = Some(value);
         }
     }
     selected
 }
 
-fn lua_static_wezterm_string_return_event_from_statement(
+fn lua_static_wezterm_window_title_return_event_from_statement(
     source: &str,
     start: usize,
-    expected_event_name: &str,
-) -> Option<String> {
+) -> Option<NativeLuaWindowTitle> {
     let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, rest) =
         lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
-    if event_name != expected_event_name {
+    if event_name != "format-window-title" {
         return None;
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
-    let (body, _) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
-    lua_static_string_return_from_function_body(
+    let (body, _, pane_param) = lua_anonymous_function_body_and_first_two_params_from_query(rest)?;
+    lua_static_window_title_return_from_function_body(
         body,
+        pane_param,
         Some(LuaStaticSource {
             source,
             max_start: start,
@@ -6155,12 +6150,32 @@ fn lua_anonymous_function_body_and_first_param_from_query<'a>(
     let params_end = rest.find(')')?;
     let params = rest.get(..params_end)?;
     let first_param = params.split(',').next()?.trim();
-    let window_name = lua_identifier_literal_from_query(first_param)?;
-    if window_name.len() != first_param.len() {
-        return None;
-    }
+    let window_name = lua_function_param_identifier(first_param)?;
     let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
     Some((body, window_name))
+}
+
+fn lua_anonymous_function_body_and_first_two_params_from_query<'a>(
+    value: &'a str,
+) -> Option<(&'a str, &'a str, &'a str)> {
+    if !lua_source_keyword_at(value, 0, "function") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let params_end = rest.find(')')?;
+    let params = rest.get(..params_end)?;
+    let mut params = params.split(',');
+    let first_param = lua_function_param_identifier(params.next()?)?;
+    let second_param = lua_function_param_identifier(params.next()?)?;
+    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
+    Some((body, first_param, second_param))
+}
+
+fn lua_function_param_identifier(value: &str) -> Option<&str> {
+    let value = value.trim();
+    let name = lua_identifier_literal_from_query(value)?;
+    (name.len() == value.len()).then_some(name)
 }
 
 fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
@@ -6261,25 +6276,32 @@ fn lua_static_function_body_until_end(value: &str) -> Option<&str> {
     None
 }
 
-fn lua_static_string_return_from_function_body(
+fn lua_static_window_title_return_from_function_body(
     body: &str,
+    pane_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
-) -> Option<String> {
+) -> Option<NativeLuaWindowTitle> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(value) =
+            lua_window_title_event_field_return_from_statement(statement, pane_param)
+        {
+            return Some(value);
+        }
+
         let static_source = LuaStaticSource {
             source: body,
             max_start: start,
         };
         if let Some(value) = lua_static_string_return_from_statement(statement) {
-            return Some(value);
+            return Some(NativeLuaWindowTitle::Static(value));
         }
         if let Some(value) = lua_static_string_variable_return_from_statement(
             statement,
             static_source,
             outer_static_source,
         ) {
-            return Some(value);
+            return Some(NativeLuaWindowTitle::Static(value));
         }
         if let Some(value) = lua_static_string_concat_return_from_statement(
             body,
@@ -6287,11 +6309,29 @@ fn lua_static_string_return_from_function_body(
             statement,
             outer_static_source,
         ) {
-            return Some(value);
+            return Some(NativeLuaWindowTitle::Static(value));
         }
     }
 
     None
+}
+
+fn lua_window_title_event_field_return_from_statement(
+    statement: &str,
+    pane_param: &str,
+) -> Option<NativeLuaWindowTitle> {
+    let rest = statement.strip_prefix("return")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let pane_title = format!("{pane_param}.title");
+    let after_pane_title = rest.strip_prefix(&pane_title)?;
+    if !lua_static_identifier_value_rest_is_statement_end(after_pane_title) {
+        return None;
+    }
+
+    Some(NativeLuaWindowTitle::ActivePaneTitle)
 }
 
 fn lua_static_string_return_from_statement(statement: &str) -> Option<String> {
@@ -20665,6 +20705,21 @@ impl NativeLuaTabTitle {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaWindowTitle {
+    Static(String),
+    ActivePaneTitle,
+}
+
+impl NativeLuaWindowTitle {
+    fn resolve(&self, event: &NativeWindowTitleFormat) -> Option<String> {
+        match self {
+            Self::Static(title) => Some(title.clone()),
+            Self::ActivePaneTitle => event.active_pane_info.title.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeFormatItem {
     Text(String),
@@ -21073,7 +21128,7 @@ struct NativeWindowApp {
     left_status: String,
     right_status: String,
     lua_tab_title: Option<NativeLuaTabTitle>,
-    lua_window_title: Option<String>,
+    lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
     status_update_interval: Duration,
     max_fps: usize,
@@ -34403,8 +34458,13 @@ impl NativeWindowApp {
             panes,
         };
 
+        let lua_window_title = self
+            .lua_window_title
+            .as_ref()
+            .and_then(|title| title.resolve(&title_format));
+
         (self.window_title_formatter)(&title_format)
-            .or_else(|| self.lua_window_title.clone())
+            .or(lua_window_title)
             .unwrap_or(default_title)
     }
 
@@ -59730,24 +59790,25 @@ mod tests {
         NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeLuaTabTitle, NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton,
-        NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind, NativeNotificationHandling,
-        NativePalette, NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
-        NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
-        NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain, NativeSshMultiplexing,
-        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeTlsClientDomain,
-        NativeTlsServerDomain, NativeUiKeyCapRendering, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUnixDomain, NativeUserKeyAssignment,
-        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
-        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
-        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
-        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
-        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
-        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeLuaTabTitle, NativeLuaWindowTitle, NativeMouseAssignmentAltScreen,
+        NativeMouseAssignmentButton, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
+        NativeNotificationHandling, NativePalette, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeRenderFrontEnd, NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain,
+        NativeShellAssumption, NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain,
+        NativeSshMultiplexing, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeTlsClientDomain, NativeTlsServerDomain, NativeUiKeyCapRendering,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUnixDomain,
+        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
+        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
+        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
+        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
@@ -75789,6 +75850,26 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "ALIAS LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_pane_title_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return pane.title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title pane title return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "Pane Title");
     }
 
     #[test]
@@ -112067,7 +112148,7 @@ mod tests {
             lua_tab_title: Some(NativeLuaTabTitle::Static(NativeTabTitle::Text(
                 "Lua Tab".to_owned(),
             ))),
-            lua_window_title: Some("Lua Title".to_owned()),
+            lua_window_title: Some(NativeLuaWindowTitle::Static("Lua Title".to_owned())),
             lua_update_status: Some(NativeWindowStatusUpdate {
                 left_status: Some("LEFT".to_owned()),
                 right_status: Some("RIGHT".to_owned()),
