@@ -5179,6 +5179,14 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             parsed_hyperlink_rules = true;
         }
     }
+    if !parsed_hyperlink_rules
+        && let Some(default_rules) =
+            lua_config_hyperlink_rules_default_rules_with_config_inserts(config, config.len())
+    {
+        overrides.hyperlink_rules = Some(default_rules);
+        parsed = true;
+        parsed_hyperlink_rules = true;
+    }
     if !parsed_hyperlink_rules {
         if let Some(hyperlink_rules) =
             lua_config_table_assignment_with_insert_appends_with_max_start_from_query(
@@ -16639,42 +16647,47 @@ fn lua_config_hyperlink_rules_default_rules_with_config_inserts(
     let mut rules = default_hyperlink_rules();
     let mut inserted = false;
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
-        let Some(insert) = lua_config_table_insert_append_value_from_query(
-            source,
-            start,
-            receiver,
-            "hyperlink_rules",
-        ) else {
-            continue;
-        };
-        apply_hyperlink_rule_insert(&mut rules, source, &insert, start)?;
-        inserted = true;
+        if apply_config_hyperlink_rule_assignment_at_start(&mut rules, source, start, receiver)? {
+            inserted = true;
+        }
     }
-    if let Some(insert) = lua_config_table_insert_append_value_from_query(
-        source,
-        max_start,
-        receiver,
-        "hyperlink_rules",
-    ) {
-        apply_hyperlink_rule_insert(&mut rules, source, &insert, max_start)?;
-        inserted = true;
-    }
-    if let Some(assignment) = lua_config_table_index_or_append_assignment_from_query(
-        source,
-        max_start,
-        receiver,
-        "hyperlink_rules",
-    ) {
-        apply_hyperlink_rule_index_or_append_assignment(
-            &mut rules,
-            source,
-            &assignment,
-            max_start,
-        )?;
+    if apply_config_hyperlink_rule_assignment_at_start(&mut rules, source, max_start, receiver)? {
         inserted = true;
     }
 
     inserted.then_some(rules)
+}
+
+fn apply_config_hyperlink_rule_assignment_at_start(
+    rules: &mut Vec<NativeHyperlinkRule>,
+    source: &str,
+    start: usize,
+    receiver: &str,
+) -> Option<bool> {
+    if let Some(insert) =
+        lua_config_table_insert_append_value_from_query(source, start, receiver, "hyperlink_rules")
+    {
+        apply_hyperlink_rule_insert(rules, source, &insert, start)?;
+        return Some(true);
+    }
+    if let Some(assignment) = lua_config_table_index_or_append_assignment_from_query(
+        source,
+        start,
+        receiver,
+        "hyperlink_rules",
+    ) {
+        apply_hyperlink_rule_index_or_append_assignment(rules, source, &assignment, start)?;
+        return Some(true);
+    }
+    if let Some(assignment) = lua_config_table_indexed_field_assignment_from_query(
+        source,
+        start,
+        receiver,
+        "hyperlink_rules",
+    ) {
+        return apply_hyperlink_rule_indexed_field_assignment(rules, source, &assignment, start);
+    }
+    Some(false)
 }
 
 fn apply_hyperlink_rule_insert(
@@ -98356,6 +98369,29 @@ mod tests {
             format: "https://runs.example/$1".to_owned(),
             highlight: 1,
         };
+        assert_eq!(effective.hyperlink_rules, expected);
+    }
+
+    #[test]
+    fn window_app_mutates_indexed_config_default_hyperlink_rule_field() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.hyperlink_rules = wezterm.default_hyperlink_rules()
+            config.hyperlink_rules[1].format = 'https://config-wrapped.example/$1'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm indexed config default hyperlink_rules field mutation");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        let mut expected = default_hyperlink_rules();
+        expected[0].format = "https://config-wrapped.example/$1".to_owned();
         assert_eq!(effective.hyperlink_rules, expected);
     }
 
