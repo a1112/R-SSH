@@ -6622,6 +6622,14 @@ fn lua_tab_title_event_field_return_from_statement(
         return Some(NativeLuaTabTitle::ActivePaneCurrentWorkingDir);
     }
 
+    let active_pane_tty_name = format!("{tab_param}.active_pane.tty_name");
+    if let Some(after_active_pane_tty_name) = rest.strip_prefix(&active_pane_tty_name) {
+        if !lua_static_identifier_value_rest_is_statement_end(after_active_pane_tty_name) {
+            return None;
+        }
+        return Some(NativeLuaTabTitle::ActivePaneTtyName);
+    }
+
     let active_pane_title = format!("{tab_param}.active_pane.title");
     let after_active_pane_title = rest.strip_prefix(&active_pane_title)?;
     if !lua_static_identifier_value_rest_is_statement_end(after_active_pane_title) {
@@ -20763,6 +20771,7 @@ enum NativeLuaTabTitle {
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
     ActivePaneCurrentWorkingDir,
+    ActivePaneTtyName,
     ActivePaneTitle,
 }
 
@@ -20781,6 +20790,11 @@ impl NativeLuaTabTitle {
             Self::ActivePaneCurrentWorkingDir => event
                 .active_pane_info
                 .current_working_dir
+                .clone()
+                .map(NativeTabTitle::Text),
+            Self::ActivePaneTtyName => event
+                .active_pane_info
+                .tty_name
                 .clone()
                 .map(NativeTabTitle::Text),
             Self::ActivePaneTitle => event
@@ -73914,6 +73928,35 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("/tmp/project"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_active_pane_tty_name_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return tab.active_pane.tty_name
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title active pane tty name return");
+        app.set_config_overrides(overrides);
+        app.session_tty_name = Some("/dev/pts/9".to_owned());
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("/dev/pts/9"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
     }
