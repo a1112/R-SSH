@@ -3769,6 +3769,7 @@ struct NativeConfigOverrides {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
+    lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
@@ -3822,6 +3823,10 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
     }
     if let Some(tab_title) = lua_static_wezterm_tab_title_return_event_from_query(config) {
         overrides.lua_tab_title = Some(tab_title);
+        parsed = true;
+    }
+    if let Some(open_uri) = lua_static_wezterm_open_uri_event_from_query(config) {
+        overrides.lua_open_uri = Some(open_uri);
         parsed = true;
     }
     if let Some(new_tab_button_click) =
@@ -6015,6 +6020,39 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
     )
 }
 
+fn lua_static_wezterm_open_uri_event_from_query(source: &str) -> Option<NativeLuaOpenUri> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(value) = lua_static_wezterm_open_uri_event_from_statement(source, start) {
+            selected = Some(value);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_open_uri_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeLuaOpenUri> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if event_name != "open-uri" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let body = lua_anonymous_function_body_from_query(rest)?;
+    lua_static_open_uri_return_from_function_body(
+        body,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
+}
+
 fn lua_static_wezterm_new_tab_button_click_event_from_query(
     source: &str,
 ) -> Option<NativeLuaNewTabButtonClick> {
@@ -7010,6 +7048,22 @@ fn lua_static_new_tab_button_click_return_from_function_body(
     body: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaNewTabButtonClick> {
+    lua_static_bool_return_from_function_body(body, outer_static_source)
+        .map(|allow_default| NativeLuaNewTabButtonClick { allow_default })
+}
+
+fn lua_static_open_uri_return_from_function_body(
+    body: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaOpenUri> {
+    lua_static_bool_return_from_function_body(body, outer_static_source)
+        .map(|allow_default| NativeLuaOpenUri { allow_default })
+}
+
+fn lua_static_bool_return_from_function_body(
+    body: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<bool> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
         let Some(expression) = lua_static_return_expression_from_statement(statement) else {
@@ -7023,7 +7077,7 @@ fn lua_static_new_tab_button_click_return_from_function_body(
             outer_static_source,
             expression,
         )?;
-        return Some(NativeLuaNewTabButtonClick { allow_default });
+        return Some(allow_default);
     }
 
     None
@@ -22977,6 +23031,17 @@ struct NativeWindowStatusUpdate {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NativeLuaOpenUri {
+    allow_default: bool,
+}
+
+impl NativeLuaOpenUri {
+    const fn allows_default(self) -> bool {
+        self.allow_default
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NativeLuaNewTabButtonClick {
     allow_default: bool,
 }
@@ -23349,6 +23414,7 @@ struct NativeWindowApp {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeWindowStatusUpdate>,
+    lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     status_update_interval: Duration,
     max_fps: usize,
@@ -24897,6 +24963,7 @@ impl NativeWindowApp {
             lua_tab_title: None,
             lua_window_title: None,
             lua_update_status: None,
+            lua_open_uri: None,
             lua_new_tab_button_click: None,
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
             max_fps: DEFAULT_MAX_FPS,
@@ -26157,6 +26224,7 @@ impl NativeWindowApp {
         self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
+        self.lua_open_uri = source.lua_open_uri;
         self.lua_new_tab_button_click = source.lua_new_tab_button_click;
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
@@ -34794,6 +34862,7 @@ impl NativeWindowApp {
         self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
+        self.lua_open_uri = overrides.lua_open_uri;
         self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
         self.max_fps = overrides
             .max_fps
@@ -38734,7 +38803,11 @@ impl NativeWindowApp {
     }
 
     fn dispatch_open_uri(&mut self, event: &NativeWindowOpenUri) -> bool {
-        (self.open_uri_handler)(event)
+        if !(self.open_uri_handler)(event) {
+            return false;
+        }
+        self.lua_open_uri
+            .is_none_or(NativeLuaOpenUri::allows_default)
     }
 
     fn dispatch_new_tab_button_click(&mut self, event: &NativeWindowNewTabButtonClick) -> bool {
@@ -62087,7 +62160,7 @@ mod tests {
         NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeLuaNewTabButtonClick, NativeLuaTabTitle, NativeLuaWindowTitle,
+        NativeLuaNewTabButtonClick, NativeLuaOpenUri, NativeLuaTabTitle, NativeLuaWindowTitle,
         NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
         NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePalette,
         NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
@@ -84889,6 +84962,36 @@ mod tests {
         assert!(opened.lock().unwrap().is_empty());
         assert!(app.selection.is_none());
         assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_open_uri_false_return() {
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new(None);
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('open-uri', function(window, pane, uri)
+              return false
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm open-uri false return");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::OpenUri(
+                "mailto:ops@example.com".to_owned()
+            ))
+        );
+
+        assert!(opened.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -116158,6 +116261,9 @@ mod tests {
             lua_update_status: Some(NativeWindowStatusUpdate {
                 left_status: Some("LEFT".to_owned()),
                 right_status: Some("RIGHT".to_owned()),
+            }),
+            lua_open_uri: Some(NativeLuaOpenUri {
+                allow_default: false,
             }),
             lua_new_tab_button_click: Some(NativeLuaNewTabButtonClick {
                 allow_default: false,
