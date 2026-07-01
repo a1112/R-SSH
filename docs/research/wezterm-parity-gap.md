@@ -1372,12 +1372,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `user_key_tables.resize_pane[#user_key_tables.resize_pane + 1] = { ... }`,
   plus direct indexed field mutations such as
   `user_key_tables.resize_pane[1].key = 'h'` and
-  `user_key_tables.resize_pane[1].action = act.SendString '...'`,
-  before the config assignment, and post-assignment top-level nested inserts
-  such as `table.insert(user_key_tables.resize_pane, { ... })` plus indexed
-  assignments such as `user_key_tables.resize_pane[1] = { ... }` and field
-  assignments such as `user_key_tables.resize_pane = { ... }`, plus direct
-  indexed field mutations such as `user_key_tables.resize_pane[1].key = 'h'`.
+  `user_key_tables.resize_pane[1].action = act.SendString '...'`, including
+  static field-name variants such as
+  `user_key_tables.resize_pane[1][key_field] = 'h'`, before the config
+  assignment, and post-assignment top-level nested inserts such as
+  `table.insert(user_key_tables.resize_pane, { ... })` plus indexed assignments
+  such as `user_key_tables.resize_pane[1] = { ... }` and field assignments such
+  as `user_key_tables.resize_pane = { ... }`, plus direct indexed field
+  mutations such as `user_key_tables.resize_pane[1].key = 'h'`.
   Parsed `leader`, `keys`, and `key_tables` entries are retained in native
   effective config snapshots.
   Static

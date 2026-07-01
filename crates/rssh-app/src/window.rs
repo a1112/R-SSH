@@ -11433,7 +11433,13 @@ fn lua_static_key_tables_variable_indexed_field_assignment_from_query<'a>(
     let (key_table_name, rest) =
         lua_nested_table_insert_key_from_query(source, after_variable, start)?;
     let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
-    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        rest,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some((
@@ -88550,6 +88556,71 @@ mod tests {
         assert_eq!(
             written.lock().unwrap().as_slice(),
             b"from-variable-index-fields"
+        );
+        assert_eq!(app.active_key_table_for_test(), None);
+    }
+
+    #[test]
+    fn window_app_parses_key_tables_static_variable_index_static_field_name_assignments() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local key_field = 'key'
+            local action_field = 'action'
+
+            local user_key_tables = {
+              resize_pane = {},
+            }
+            user_key_tables.resize_pane[1] = {}
+            user_key_tables.resize_pane[1][key_field] = 'h'
+            user_key_tables.resize_pane[1][action_field] =
+              act.SendString 'from-variable-index-static-fields'
+
+            config.keys = {
+              {
+                key = 'Space',
+                mods = 'CTRL|SHIFT',
+                action = act.ActivateKeyTable { name = 'resize_pane', one_shot = true },
+              },
+            }
+
+            config.key_tables = user_key_tables
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static variable indexed static field key_tables config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character(" ".into()),
+            PhysicalKey::Code(WinitKeyCode::Space),
+            Some(" "),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("h".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyH),
+            Some("h"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(
+            written.lock().unwrap().as_slice(),
+            b"from-variable-index-static-fields"
         );
         assert_eq!(app.active_key_table_for_test(), None);
     }
