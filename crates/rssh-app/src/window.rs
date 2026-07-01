@@ -45933,7 +45933,7 @@ fn split_lua_table_environment_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = parse_maybe_static_query_text(static_source, value.trim())?;
         environment.insert(name, value);
     }
@@ -90974,6 +90974,48 @@ mod tests {
                     }),
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_command_static_environment_field_name() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local env_key = 'MODE'
+            local spawn_mode = 'dev'
+
+            config.keys = {
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.SpawnCommandInNewTab {
+                  args = { 'top', '-d', '1' },
+                  set_environment_variables = { [env_key] = spawn_mode },
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnCommand static environment field-name config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+T".to_owned(),
+                command: WindowCommand::SpawnCommandInNewTab(WindowSpawnCommandQuery {
+                    program: "top".to_owned(),
+                    args: vec!["-d".to_owned(), "1".to_owned()],
+                    cwd: None,
+                    environment: BTreeMap::from([("MODE".to_owned(), "dev".to_owned())]),
+                    domain: None,
+                    window_position: None,
+                }),
+            }])
         );
     }
 
