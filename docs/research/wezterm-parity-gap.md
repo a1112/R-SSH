@@ -1059,7 +1059,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `quick select pattern <regex>` plus
   `quick select patterns <regex> ; <regex>` cover native
   `QuickSelectArgs { patterns = ... }` override subsets, splitting only on
-  unquoted ` ; ` separators so quoted regexes can include semicolons.
+  unquoted ` ; ` separators so quoted regexes can include semicolons. Static
+  `QuickSelectArgs` Lua tables also resolve top-level static string field-name
+  variables for `pattern`, `patterns`, `alphabet`, `label`, `action`,
+  `skip_action_on_paste`, and `scope_lines`.
   `quick select scope lines <n>` and `quick select scope_lines <n>` cover the native
   `QuickSelectArgs { scope_lines = ... }` subset with a complete numeric value,
   including WezTerm's documented minimum of the current viewport height.

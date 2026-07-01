@@ -49125,7 +49125,7 @@ fn quick_select_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = value.trim();
 
         match normalized_quick_select_lua_field(&name).as_str() {
@@ -93349,6 +93349,56 @@ mod tests {
                     alphabet: Some("12".to_owned()),
                     action: Some(WindowQuickSelectAction::OpenUri),
                     ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local pattern_field = 'pattern'
+            local alphabet_field = 'alphabet'
+            local label_field = 'label'
+            local action_field = 'action'
+            local skip_field = 'skip_action_on_paste'
+            local scope_field = 'scope_lines'
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|ALT',
+                action = act.QuickSelectArgs {
+                  [pattern_field] = 'ticket-[0-9]+',
+                  [alphabet_field] = '12',
+                  [label_field] = 'Open ticket',
+                  [action_field] = 'open-uri',
+                  [skip_field] = true,
+                  [scope_field] = 2,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm QuickSelectArgs static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+Q".to_owned(),
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    alphabet: Some("12".to_owned()),
+                    label: Some("Open ticket".to_owned()),
+                    action: Some(WindowQuickSelectAction::OpenUri),
+                    skip_action_on_paste: true,
+                    scope_lines: Some(2),
                 }),
             }])
         );
