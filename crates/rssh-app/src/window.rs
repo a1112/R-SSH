@@ -38974,7 +38974,7 @@ fn wezterm_action_table_wrapper_command_with_static_source(
     }
 
     let (name, value) = split_lua_table_assignment_from_field(field)?;
-    let name = split_lua_table_key_from_query(name.trim())?;
+    let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
     let value = value.trim();
     if value.is_empty() {
         return None;
@@ -89265,6 +89265,36 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+W".to_owned(),
                 command: WindowCommand::SendString("from-wrapper-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_action_wrapper_field_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local action_field = 'SendString'
+
+            config.keys = {
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = wezterm.action { [action_field] = 'from-wrapper-field' },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static wrapper action field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+W".to_owned(),
+                command: WindowCommand::SendString("from-wrapper-field".to_owned()),
             }])
         );
     }
