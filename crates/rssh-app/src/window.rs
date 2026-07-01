@@ -6994,6 +6994,15 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
         return Some(parts);
     }
 
+    if let Some(parts) = lua_tab_title_helper_call_parts_from_expression(
+        expression,
+        tab_param,
+        outer_static_source,
+        depth + 1,
+    ) {
+        return Some(parts);
+    }
+
     if !expression.contains("..") {
         return None;
     }
@@ -7030,6 +7039,264 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     }
 
     has_dynamic_part.then_some(parts)
+}
+
+fn lua_tab_title_helper_call_parts_from_expression(
+    expression: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    if depth > 8 {
+        return None;
+    }
+
+    let outer_static_source = outer_static_source?;
+    let function_name = lua_identifier_literal_from_query(expression)?;
+    let rest = expression.get(function_name.len()..)?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    let argument = lua_trim_start_comments(argument.trim())?;
+    let argument_name = lua_identifier_literal_from_query(argument)?;
+    if argument_name != tab_param {
+        return None;
+    }
+    if !lua_static_identifier_value_rest_is_statement_end(argument.get(argument_name.len()..)?) {
+        return None;
+    }
+
+    lua_static_tab_title_helper_function_parts_before_offset(
+        outer_static_source.source,
+        function_name,
+        outer_static_source.max_start,
+        outer_static_source,
+        depth + 1,
+    )
+}
+
+fn lua_static_tab_title_helper_function_parts_before_offset(
+    source: &str,
+    function_name: &str,
+    max_start: usize,
+    outer_static_source: LuaStaticSource<'_>,
+    depth: usize,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    if depth > 8 {
+        return None;
+    }
+
+    let source = source.get(..max_start)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut lua_block_depth = 0usize;
+    let mut table_depth = 0usize;
+    let mut selected = None;
+
+    for (index, character) in source.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if source[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&source[index + 2..])
+            {
+                let content_and_rest = &source[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(source.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&source[index..])
+                {
+                    let content_and_rest = &source[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(source.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                    continue;
+                }
+            }
+            '{' => {
+                table_depth = table_depth.saturating_add(1);
+                continue;
+            }
+            '}' => {
+                table_depth = table_depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+
+        if lua_block_depth == 0
+            && table_depth == 0
+            && !character.is_whitespace()
+            && lua_source_index_starts_statement(source, index)
+            && let Some(statement) = lua_top_level_function_statement_from_index(source, index)
+            && let Some(parts) = lua_tab_title_helper_function_parts_from_statement(
+                statement,
+                function_name,
+                outer_static_source,
+                depth + 1,
+            )
+        {
+            selected = Some(parts);
+        }
+
+        if lua_source_keyword_at(source, index, "function")
+            || lua_source_keyword_at(source, index, "then")
+            || lua_source_keyword_at(source, index, "do")
+            || lua_source_keyword_at(source, index, "repeat")
+        {
+            lua_block_depth = lua_block_depth.saturating_add(1);
+            continue;
+        }
+        if lua_source_keyword_at(source, index, "end")
+            || lua_source_keyword_at(source, index, "until")
+        {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+        }
+    }
+
+    selected
+}
+
+fn lua_top_level_function_statement_from_index(source: &str, index: usize) -> Option<&str> {
+    if lua_source_keyword_at(source, index, "function") {
+        return source.get(index..);
+    }
+
+    if !lua_source_keyword_at(source, index, "local") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(source.get(index + "local".len()..)?)?;
+    lua_source_keyword_at(rest, 0, "function").then_some(rest)
+}
+
+fn lua_tab_title_helper_function_parts_from_statement(
+    statement: &str,
+    function_name: &str,
+    outer_static_source: LuaStaticSource<'_>,
+    depth: usize,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    if depth > 8 || !lua_source_keyword_at(statement, 0, "function") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(statement.get("function".len()..)?)?;
+    let name = lua_identifier_literal_from_query(rest)?;
+    if name != function_name {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(name.len()..)?)?.strip_prefix('(')?;
+    let (params, body_start) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let params = split_lua_top_level_arguments(params)?;
+    let [first_param] = params.as_slice() else {
+        return None;
+    };
+    let first_param = lua_function_param_identifier(first_param)?;
+    let body = lua_static_function_body_until_end(body_start)?;
+    lua_tab_title_return_text_parts_from_function_body(
+        body,
+        first_param,
+        Some(outer_static_source),
+        depth + 1,
+    )
+}
+
+fn lua_tab_title_return_text_parts_from_function_body(
+    body: &str,
+    tab_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    if depth > 8 {
+        return None;
+    }
+
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some(rest) = statement.strip_prefix("return") else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let rest = lua_trim_end_statement_separator(rest)?;
+        let static_source = LuaStaticSource {
+            source: body,
+            max_start: start,
+        };
+        if let Some(parts) = lua_tab_title_text_parts_from_expression_with_depth(
+            rest,
+            tab_param,
+            Some(static_source),
+            outer_static_source,
+            depth + 1,
+        ) {
+            return Some(parts);
+        }
+    }
+
+    None
 }
 
 fn lua_static_tab_title_return_from_statement(
@@ -74033,6 +74300,72 @@ mod tests {
         let snapshot = app.render_snapshot();
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_helper_variable_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title helper variable return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_helper_text_item_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            function tab_title(tab_info)
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab_title(tab)
+              return {
+                { Text = ' ' .. title .. ' ' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title helper Text item return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains(" PaneShell "), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
     }
 
