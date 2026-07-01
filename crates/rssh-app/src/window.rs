@@ -5642,6 +5642,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
             native_window_content_alignment_lua_table_from_query(
                 config,
                 &window_content_alignment.value,
+                Some(window_content_alignment.max_start),
             )
         })
         .or_else(|| {
@@ -5653,6 +5654,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
                 native_window_content_alignment_lua_table_from_query(
                     config,
                     window_content_alignment,
+                    lua_source_slice_start_offset(config, window_content_alignment),
                 )
             })
         })
@@ -18428,17 +18430,27 @@ fn native_window_padding_lua_table_from_query<'a>(
 fn native_window_content_alignment_lua_table_from_query<'a>(
     source: &'a str,
     value: &'a str,
+    max_start: Option<usize>,
 ) -> Option<NativeWindowContentAlignment> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut alignment = DEFAULT_WINDOW_CONTENT_ALIGNMENT;
-    if let Some(horizontal) = lua_table_field_value_from_query(value, "horizontal")? {
-        let horizontal = lua_static_string_assignment_value_from_query(source, horizontal.trim())?;
-        let horizontal = parse_maybe_quoted_query_text(horizontal)?;
-        alignment.horizontal = NativeHorizontalContentAlignment::parse(&horizontal)?;
-    }
-    if let Some(vertical) = lua_table_field_value_from_query(value, "vertical")? {
-        let vertical = lua_static_string_assignment_value_from_query(source, vertical.trim())?;
-        let vertical = parse_maybe_quoted_query_text(vertical)?;
-        alignment.vertical = NativeVerticalContentAlignment::parse(&vertical)?;
+    let static_source = max_start.map(|max_start| LuaStaticSource { source, max_start });
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
+        let value = lua_static_string_assignment_value_from_query(source, value.trim())?;
+        let value = parse_maybe_quoted_query_text(value)?;
+
+        match key.as_str() {
+            "horizontal" => alignment.horizontal = NativeHorizontalContentAlignment::parse(&value)?,
+            "vertical" => alignment.vertical = NativeVerticalContentAlignment::parse(&value)?,
+            _ => return None,
+        }
     }
     Some(alignment)
 }
@@ -98875,6 +98887,35 @@ mod tests {
             NativeWindowContentAlignment {
                 horizontal: NativeHorizontalContentAlignment::Right,
                 vertical: NativeVerticalContentAlignment::Center,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_content_alignment_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local horizontal_field = 'horizontal'
+            local vertical_field = 'vertical'
+
+            config.window_content_alignment = {
+              [horizontal_field] = 'Right',
+              [vertical_field] = 'Bottom',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window content alignment static field-name config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_content_alignment,
+            NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Right,
+                vertical: NativeVerticalContentAlignment::Bottom,
             }
         );
     }

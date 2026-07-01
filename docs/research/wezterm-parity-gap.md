@@ -1641,10 +1641,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   inline, through top-level static table variables, and through top-level
   `config[static_name].field` mutations where `static_name` resolves to the
   corresponding config field, plus inline static field-name keys such as
-  `config.window_padding = { [left_field] = 8 }` and static field-name
-  mutations such as `config.window_padding[left_field] = 8`; supported
-  `window_content_alignment` fields are `horizontal` and `vertical`, with field
-  values inline or through top-level static string variables.
+  `config.window_padding = { [left_field] = 8 }` and
+  `config.window_content_alignment = { [horizontal_field] = 'Right' }`, and
+  static field-name mutations such as `config.window_padding[left_field] = 8`;
+  supported `window_content_alignment` fields are `horizontal` and `vertical`,
+  with field values inline or through top-level static string variables.
   `automatically_reload_config` is retained with WezTerm's default `true`,
   parses inline or through top-level static bool variables, and is included in
   the native effective config. `check_for_updates` is retained with WezTerm's
