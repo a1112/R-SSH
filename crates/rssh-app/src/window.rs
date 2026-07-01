@@ -46768,11 +46768,22 @@ fn native_format_items_from_lua_format_items_table_query_with_static_sources(
             items.push(NativeFormatItem::ResetAttributes);
             continue;
         }
-        items.push(native_format_item_lua_table_from_query_with_static_sources(
+        if let Some(item) = native_format_item_lua_table_from_query_with_static_sources(
             static_source,
             outer_static_source,
             field,
-        )?);
+        )
+        .or_else(|| {
+            native_format_item_from_static_lua_table_variable_with_static_sources(
+                static_source,
+                outer_static_source,
+                field,
+            )
+        }) {
+            items.push(item);
+        } else {
+            return None;
+        }
     }
 
     Some(items)
@@ -46844,6 +46855,47 @@ fn native_format_item_lua_table_from_query_with_static_sources(
     }
 
     item
+}
+
+fn native_format_item_from_static_lua_table_variable_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeFormatItem> {
+    let variable = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    if let Some(static_source) = static_source
+        && let Some(item) =
+            native_format_item_from_static_lua_table_variable(static_source, variable)
+    {
+        return item;
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(item) =
+            native_format_item_from_static_lua_table_variable(outer_static_source, variable)
+    {
+        return item;
+    }
+    None
+}
+
+fn native_format_item_from_static_lua_table_variable(
+    static_source: LuaStaticSource<'_>,
+    variable: &str,
+) -> Option<Option<NativeFormatItem>> {
+    let value = lua_static_table_variable_assignment_with_insert_appends_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+    )?;
+    Some(native_format_item_lua_table_from_query_with_static_sources(
+        Some(static_source),
+        None,
+        &value,
+    ))
 }
 
 fn native_format_attribute_lua_table_from_query_with_static_sources(
@@ -71837,6 +71889,54 @@ mod tests {
         assert_ne!(
             active_left_cell.foreground,
             rssh_terminal::Color::Rgb(1, 2, 3)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_style_static_format_item_table_variables() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local active_left_item = { Text = '[' }
+            local active_right_item = { Text = ']' }
+            local inactive_left_item = { Text = '<' }
+            local inactive_right_item = { Text = '>' }
+            local new_left_item = { Text = '{' }
+            local new_right_item = { Text = '}' }
+
+            config.tab_bar_style = {
+              active_tab_left = wezterm.format({ active_left_item }),
+              active_tab_right = wezterm.format({ active_right_item }),
+              inactive_tab_left = wezterm.format({ inactive_left_item }),
+              inactive_tab_right = wezterm.format({ inactive_right_item }),
+              new_tab_left = wezterm.format({ new_left_item }),
+              new_tab_right = wezterm.format({ new_right_item }),
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar_style static format item table variable config");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+
+        assert!(
+            tab_bar.contains("< 1:1 panes:1 x >"),
+            "inactive tab should use static format item table variables: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("[ 2:2* panes:1 x ]"),
+            "active tab should use static format item table variables: {tab_bar:?}"
+        );
+        assert!(
+            tab_bar.contains("{ + }"),
+            "new-tab button should use static format item table variables: {tab_bar:?}"
         );
     }
 
