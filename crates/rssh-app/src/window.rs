@@ -10130,7 +10130,13 @@ fn lua_config_table_static_field_assignment_from_query<'a>(
         start,
     )?;
     let rest = lua_trim_start_comments(rest)?;
-    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        rest,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableMapFieldAssignment {
@@ -104212,6 +104218,40 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm static field-name window padding field config");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.native_effective_config().window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::CellFractionPerMille(1_000),
+                bottom: NativeWindowPaddingDimension::Points(2),
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_window_padding_static_field_name_mutations() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local config = {}
+            local left_field = 'left'
+            local right_field = 'right'
+            local top_field = 'top'
+            local bottom_field = 'bottom'
+
+            config.window_padding = {}
+            config.window_padding[left_field] = 8
+            config.window_padding[right_field] = 16
+            config.window_padding[top_field] = '1cell'
+            config.window_padding[bottom_field] = '2pt'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm window padding static field-name mutation config");
         app.set_config_overrides(overrides);
 
         assert_eq!(

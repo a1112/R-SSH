@@ -1635,9 +1635,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window_padding` and `window_content_alignment` static Lua snippets parse
   inline, through top-level static table variables, and through top-level
   `config[static_name].field` mutations where `static_name` resolves to the
-  corresponding config field; supported `window_content_alignment` fields are
-  `horizontal` and `vertical`, with field values inline or through top-level
-  static string variables.
+  corresponding config field, plus static field-name mutations such as
+  `config.window_padding[left_field] = 8`; supported
+  `window_content_alignment` fields are `horizontal` and `vertical`, with field
+  values inline or through top-level static string variables.
   `automatically_reload_config` is retained with WezTerm's default `true`,
   parses inline or through top-level static bool variables, and is included in
   the native effective config. `check_for_updates` is retained with WezTerm's
