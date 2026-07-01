@@ -42643,7 +42643,7 @@ fn show_launcher_args_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = parse_maybe_static_query_text(static_source, value.trim())?;
 
         match normalized_show_launcher_lua_field(&name).as_str() {
@@ -94629,6 +94629,57 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm ShowLauncherArgs static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+L".to_owned(),
+                command: WindowCommand::ShowLauncherArgs(WindowShowLauncherArgs {
+                    flags: WindowShowLauncherFlags {
+                        tabs: true,
+                        workspaces: true,
+                        ..WindowShowLauncherFlags::default()
+                    },
+                    title: Some("Jump".to_owned()),
+                    alphabet: Some("ab".to_owned()),
+                    help_text: Some("Pick".to_owned()),
+                    fuzzy_help_text: Some("Filter".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_show_launcher_args_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local flags_field = 'flags'
+            local title_field = 'title'
+            local alphabet_field = 'alphabet'
+            local help_field = 'help_text'
+            local fuzzy_help_field = 'fuzzy_help_text'
+
+            config.keys = {
+              {
+                key = 'L',
+                mods = 'CTRL|ALT',
+                action = act.ShowLauncherArgs {
+                  [flags_field] = 'TABS|WORKSPACES',
+                  [title_field] = 'Jump',
+                  [alphabet_field] = 'ab',
+                  [help_field] = 'Pick',
+                  [fuzzy_help_field] = 'Filter',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm ShowLauncherArgs static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,

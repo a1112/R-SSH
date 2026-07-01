@@ -821,7 +821,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(menu, item)` supported. Static
   WezTerm-style `config.keys` actions can also carry `ShowLauncherArgs` table
   payloads through the implemented native action subset, including
-  parenthesized calls that pass a top-level static args table variable.
+  static string field-name variables and parenthesized calls that pass a
+  top-level static args table variable.
   Remote/mux domains,
   richer default-mode UI styling, broader Lua key assignment/config parsing,
   broader dynamic Lua `launch_menu` construction, Lua `PromptInputLine`
