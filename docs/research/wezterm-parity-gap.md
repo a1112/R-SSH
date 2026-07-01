@@ -1347,8 +1347,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   mutations on existing binding tables such as `config.keys[1].key = 'K'`,
   `config.keys[1].mods = 'CTRL|SHIFT'`,
   `config.keys[1].action = act.SendString '...'`, or the same
-  `config[static_name][1].field` form where `static_name` resolves to `keys`, plus
-  `table.insert(config.key_tables.<name>, { ... })` nested appends plus
+  `config[static_name][1].field` form where `static_name` resolves to `keys`,
+  with static field-name variants such as `config.keys[1][key_field] = 'K'`,
+  plus `table.insert(config.key_tables.<name>, { ... })` nested appends plus
   static table variables such as
   `table.insert(config.key_tables.<name>, item)` or
   `table.insert(config.key_tables.<name>, index, item)`, plus

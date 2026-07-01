@@ -10162,7 +10162,13 @@ fn lua_config_table_indexed_field_assignment_from_query<'a>(
         start,
     )?;
     let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
-    let (key, rest) = lua_table_map_field_key_from_query(rest)?;
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        rest,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableIndexedFieldAssignment {
@@ -90668,6 +90674,40 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+K".to_owned(),
                 command: WindowCommand::SendString("from-static-key-index-fields".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_key_index_static_field_name_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local keys_field = 'keys'
+            local key_field = 'key'
+            local mods_field = 'mods'
+            local action_field = 'action'
+            local config = {}
+
+            config[keys_field] = {}
+            config[keys_field][1] = {}
+            config[keys_field][1][key_field] = 'K'
+            config[keys_field][1][mods_field] = 'CTRL|SHIFT'
+            config[keys_field][1][action_field] = act.SendString 'from-static-key-index-static-fields'
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static field-name indexed key static field config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+K".to_owned(),
+                command: WindowCommand::SendString(
+                    "from-static-key-index-static-fields".to_owned()
+                ),
             }])
         );
     }
