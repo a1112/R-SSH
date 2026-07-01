@@ -46160,7 +46160,7 @@ fn tab_bar_color_lua_table_field_from_query(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != "tab_bar" {
             continue;
         }
@@ -46182,11 +46182,13 @@ fn tab_bar_item_colors_lua_table_from_query(
     value: &str,
     item_name: &str,
 ) -> Option<Option<NativeTabBarItemColors>> {
-    let tab_bar = lua_table_field_value_from_query(value, "tab_bar")?;
+    let tab_bar =
+        lua_table_field_value_from_query_with_static_source(static_source, value, "tab_bar")?;
     let Some(tab_bar) = tab_bar else {
         return Some(None);
     };
-    let item = lua_table_field_value_from_query(tab_bar, item_name)?;
+    let item =
+        lua_table_field_value_from_query_with_static_source(static_source, tab_bar, item_name)?;
     let Some(item) = item else {
         return Some(None);
     };
@@ -46762,6 +46764,14 @@ fn lua_table_field_value_from_query<'a>(
     value: &'a str,
     field_name: &str,
 ) -> Option<Option<&'a str>> {
+    lua_table_field_value_from_query_with_static_source(None, value, field_name)
+}
+
+fn lua_table_field_value_from_query_with_static_source<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &'a str,
+    field_name: &str,
+) -> Option<Option<&'a str>> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut found = None;
 
@@ -46773,7 +46783,7 @@ fn lua_table_field_value_from_query<'a>(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != field_name {
             continue;
         }
@@ -46826,7 +46836,7 @@ fn color_lua_table_field_from_query_with_static_source(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != field_name {
             continue;
         }
@@ -46911,7 +46921,7 @@ fn color_spec_lua_table_field_from_query_with_static_source(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != field_name {
             continue;
         }
@@ -46944,7 +46954,7 @@ fn lua_color_spec_from_query_with_static_source(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if color.is_some() {
             return None;
         }
@@ -46977,7 +46987,7 @@ fn selection_fg_lua_table_field_from_query_with_static_source(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != "selection_fg" {
             continue;
         }
@@ -47011,7 +47021,7 @@ fn selection_bg_lua_table_field_from_query_with_static_source(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != "selection_bg" {
             continue;
         }
@@ -47044,7 +47054,7 @@ fn color_array_lua_table_field_from_query_with_static_source(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != field_name {
             continue;
         }
@@ -47077,7 +47087,7 @@ fn indexed_palette_lua_table_field_from_query_with_static_source(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if key != "indexed" {
             continue;
         }
@@ -71241,6 +71251,48 @@ mod tests {
         assert_eq!(
             effective.tab_bar_active_tab_colors.intensity,
             Some(NativeFormatIntensity::Bold)
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_static_table_keys() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local tab_bar_field = 'tab_bar'
+            local background_field = 'background'
+            local active_tab_field = 'active_tab'
+
+            config.colors = {
+              [tab_bar_field] = {
+                [background_field] = '#202122',
+                [active_tab_field] = {
+                  bg_color = '#010203',
+                  fg_color = '#040506',
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar static table-key config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.tab_bar_background_color,
+            Some(rssh_terminal::Color::Rgb(32, 33, 34))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.bg_color,
+            Some(rssh_terminal::Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.fg_color,
+            Some(rssh_terminal::Color::Rgb(4, 5, 6))
         );
     }
 

@@ -160,7 +160,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `colors.tab_bar.active_tab`/`inactive_tab`/`inactive_tab_hover`/`new_tab`/
   `new_tab_hover` `fg_color`/`bg_color` plus
   `intensity`/`underline`/`italic`/`strikethrough` entries, including static
-  field-name keys and top-level
+  `tab_bar`/item table keys, item field-name keys, and top-level
   `config[static_name].tab_bar[tab_field].fg_color`/`bg_color` mutations where
   `static_name` resolves to `colors` and `tab_field` resolves to a supported
   tab-bar item, and `tab_bar_style`
