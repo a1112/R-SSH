@@ -6434,6 +6434,14 @@ fn lua_static_tab_title_return_from_statement(
     lua_static_string_return_from_statement(statement)
         .map(NativeTabTitle::Text)
         .or_else(|| {
+            lua_static_string_variable_return_from_statement(
+                statement,
+                static_source,
+                outer_static_source,
+            )
+            .map(NativeTabTitle::Text)
+        })
+        .or_else(|| {
             let rest = statement.strip_prefix("return")?;
             if rest.chars().next().is_some_and(is_lua_identifier_character) {
                 return None;
@@ -73073,6 +73081,58 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-tab-title event string return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("STATIC LUA TAB"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_string_variable_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local static_title = 'STATIC LUA TAB'
+              return static_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title event string variable return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("STATIC LUA TAB"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(!tab_bar.contains("PowerShell"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_top_level_string_variable_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local static_title = 'STATIC LUA TAB'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return static_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title event top-level string variable return");
         app.set_config_overrides(overrides);
 
         let snapshot = app.render_snapshot();
