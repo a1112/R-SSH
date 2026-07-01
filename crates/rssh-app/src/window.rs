@@ -6683,7 +6683,12 @@ fn lua_dynamic_tab_title_concat_return_from_statement(
     for segment in split_lua_string_concat_segments(rest)? {
         let segment = lua_trim_start_comments(segment.trim())?;
         let segment = lua_trim_end_statement_separator(segment)?;
-        if let Some(part) = lua_tab_title_text_part_from_expression(segment, tab_param) {
+        if let Some(part) = lua_tab_title_text_part_from_expression(
+            segment,
+            tab_param,
+            Some(static_source),
+            outer_static_source,
+        ) {
             has_dynamic_part = true;
             parts.push(part);
             continue;
@@ -6702,6 +6707,8 @@ fn lua_dynamic_tab_title_concat_return_from_statement(
 fn lua_tab_title_text_part_from_expression(
     expression: &str,
     tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitleTextPart> {
     let expression = lua_trim_start_comments(expression.trim())?;
     for (field, part) in [
@@ -6716,7 +6723,38 @@ fn lua_tab_title_text_part_from_expression(
         }
     }
 
-    for (field, part) in [
+    for (field, part) in lua_tab_title_active_pane_text_parts() {
+        let path = format!("{tab_param}.active_pane.{field}");
+        if let Some(rest) = expression.strip_prefix(&path)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+        {
+            return Some(part);
+        }
+    }
+
+    let receiver = lua_identifier_literal_from_query(expression)?;
+    let rest = expression.get(receiver.len()..)?;
+    if lua_tab_title_active_pane_alias_before_offset(
+        static_source,
+        outer_static_source,
+        receiver,
+        tab_param,
+    )? {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        for (field, part) in lua_tab_title_active_pane_text_parts() {
+            if let Some(rest) = rest.strip_prefix(field)
+                && lua_static_identifier_value_rest_is_statement_end(rest)
+            {
+                return Some(part);
+            }
+        }
+    }
+
+    None
+}
+
+fn lua_tab_title_active_pane_text_parts() -> [(&'static str, NativeLuaTabTitleTextPart); 6] {
+    [
         ("pane_id", NativeLuaTabTitleTextPart::ActivePaneId),
         (
             "domain_name",
@@ -6732,16 +6770,22 @@ fn lua_tab_title_text_part_from_expression(
         ),
         ("tty_name", NativeLuaTabTitleTextPart::ActivePaneTtyName),
         ("title", NativeLuaTabTitleTextPart::ActivePaneTitle),
-    ] {
-        let path = format!("{tab_param}.active_pane.{field}");
-        if let Some(rest) = expression.strip_prefix(&path)
-            && lua_static_identifier_value_rest_is_statement_end(rest)
-        {
-            return Some(part);
-        }
-    }
+    ]
+}
 
-    None
+fn lua_tab_title_active_pane_alias_before_offset(
+    static_source: Option<LuaStaticSource<'_>>,
+    _outer_static_source: Option<LuaStaticSource<'_>>,
+    alias: &str,
+    tab_param: &str,
+) -> Option<bool> {
+    let static_source = static_source?;
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        alias,
+        static_source.max_start,
+    )?;
+    Some(value.trim() == format!("{tab_param}.active_pane"))
 }
 
 fn lua_dynamic_tab_title_format_return_from_statement(
@@ -6869,9 +6913,50 @@ fn lua_tab_title_text_parts_from_expression(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    lua_tab_title_text_parts_from_expression_with_depth(
+        expression,
+        tab_param,
+        static_source,
+        outer_static_source,
+        0,
+    )
+}
+
+fn lua_tab_title_text_parts_from_expression_with_depth(
+    expression: &str,
+    tab_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaTabTitleTextPart>> {
+    if depth > 8 {
+        return None;
+    }
     let expression = lua_trim_start_comments(expression.trim())?;
-    if let Some(part) = lua_tab_title_text_part_from_expression(expression, tab_param) {
+    if let Some(part) = lua_tab_title_text_part_from_expression(
+        expression,
+        tab_param,
+        static_source,
+        outer_static_source,
+    ) {
         return Some(vec![part]);
+    }
+
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            expression,
+            static_source.max_start,
+        )
+        && let Some(parts) = lua_tab_title_text_parts_from_expression_with_depth(
+            value,
+            tab_param,
+            Some(static_source),
+            outer_static_source,
+            depth + 1,
+        )
+    {
+        return Some(parts);
     }
 
     if !expression.contains("..") {
@@ -6883,9 +6968,25 @@ fn lua_tab_title_text_parts_from_expression(
     for segment in split_lua_string_concat_segments(expression)? {
         let segment = lua_trim_start_comments(segment.trim())?;
         let segment = lua_trim_end_statement_separator(segment)?;
-        if let Some(part) = lua_tab_title_text_part_from_expression(segment, tab_param) {
+        if let Some(part) = lua_tab_title_text_part_from_expression(
+            segment,
+            tab_param,
+            static_source,
+            outer_static_source,
+        ) {
             has_dynamic_part = true;
             parts.push(part);
+            continue;
+        }
+        if let Some(segment_parts) = lua_tab_title_text_parts_from_expression_with_depth(
+            segment,
+            tab_param,
+            static_source,
+            outer_static_source,
+            depth + 1,
+        ) {
+            has_dynamic_part = true;
+            parts.extend(segment_parts);
             continue;
         }
         let value =
@@ -73994,6 +74095,48 @@ mod tests {
         assert_eq!(title_cell.ch, ' ');
         assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
         assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_dynamic_text_variable_return() {
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("foreground-proc"));
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local pane = tab.active_pane
+              local title = pane.foreground_process_name .. ' ' .. pane.pane_id
+              return {
+                { Foreground = { Color = '#010203' } },
+                { Background = { Color = '#040506' } },
+                { Text = ' ' .. title .. ' ' },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title dynamic Text variable return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let title_column = tab_bar
+            .find(" foreground-proc 1 ")
+            .expect("formatted dynamic Lua variable title should render in the tab bar");
+        let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
+
+        assert_eq!(title_cell.ch, ' ');
+        assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
+        assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+        assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
     }
 
