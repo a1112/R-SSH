@@ -19931,7 +19931,7 @@ fn native_mouse_assignment_event_lua_table_from_query(
             return None;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let kind = match name.to_ascii_lowercase().as_str() {
             "down" => NativeMouseAssignmentEventKind::Down,
             "up" => NativeMouseAssignmentEventKind::Up,
@@ -84650,6 +84650,44 @@ mod tests {
         assert!(app.window_drag_requested_for_test());
         assert!(app.selection.is_none());
         assert!(!app.selecting);
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_mouse_binding_static_event_kind_field_name() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local drag_field = 'Drag'
+
+            config.mouse_bindings = {
+              {
+                event = { [drag_field] = { streak = 1, button = 'Left' } },
+                mods = 'ALT',
+                action = act.StartWindowDrag,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm mouse binding static event kind field-name config");
+
+        assert_eq!(
+            overrides.mouse_assignments,
+            Some(vec![NativeUserMouseAssignment {
+                event: NativeMouseAssignmentEvent {
+                    kind: NativeMouseAssignmentEventKind::Drag,
+                    button: NativeMouseAssignmentButton::Mouse(MouseButton::Left),
+                    streak: 1,
+                },
+                modifiers: ModifiersState::ALT,
+                mouse_reporting: false,
+                alt_screen: NativeMouseAssignmentAltScreen::Any,
+                command: WindowCommand::StartWindowDrag,
+            }])
+        );
     }
 
     #[test]

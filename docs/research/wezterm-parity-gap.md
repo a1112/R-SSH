@@ -223,6 +223,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.mouse_bindings, { ... })` appends and static item variables such as
   `config.mouse_bindings = { binding }` with pre-use field mutations, with
   `event` payloads inline or through top-level static event table variables,
+  static string field-name variables for nested `Down`/`Up`/`Drag` event kinds,
   nested `Down`/`Up`/`Drag` payloads inline or through top-level static table
   variables, `WheelUp`/`WheelDown` button tables inline or through top-level
   static table variables with amount fields inline or through top-level static
@@ -990,7 +991,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `table.insert(config.mouse_bindings, { ... })` appends, static item
   variables such as `config.mouse_bindings = { binding }`
   with pre-use field mutations, top-level static event table variables for
-  event payloads, top-level static table variables for nested event payloads,
+  event payloads, top-level static string field-name variables for nested
+  `Down`/`Up`/`Drag` event kinds, top-level static table variables for nested event payloads,
   top-level static table variables for `WheelUp`/`WheelDown` button payloads,
   top-level static number variables for wheel button amounts, top-level static
   variables for event `button`/`streak` fields, and top-level static action
