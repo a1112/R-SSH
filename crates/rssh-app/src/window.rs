@@ -49430,7 +49430,7 @@ fn pane_select_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = value.trim();
 
         match normalized_pane_select_lua_field(&name).as_str() {
@@ -93515,6 +93515,47 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm PaneSelect static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+P".to_owned(),
+                command: WindowCommand::PaneSelect(WindowPaneSelectOptions {
+                    mode: WindowPaneSelectMode::SwapWithActive,
+                    show_pane_ids: true,
+                    alphabet: Some("12".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_pane_select_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local mode_field = 'mode'
+            local show_ids_field = 'show_pane_ids'
+            local alphabet_field = 'alphabet'
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = act.PaneSelect {
+                  [mode_field] = 'SwapWithActive',
+                  [show_ids_field] = true,
+                  [alphabet_field] = '12',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PaneSelect static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,

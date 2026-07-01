@@ -3121,7 +3121,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action.PaneSelect { mode = ..., show_pane_ids = ..., alphabet = ... }`
   and parenthesized table calls parse the same native option subset, with
   omitted `mode` defaulting to Activate, including bracketed string table keys
-  with long-bracket values and trailing-comma table fields.
+  with long-bracket values, top-level static string field-name variables, and
+  trailing-comma table fields.
 - Pane-select swap modes now expose WezTerm-style mode entries `Pane Select Swap
   With Active` and `Pane Select Swap With Active Keep Focus`: selected panes
   exchange layout positions with the active pane, with focus either moving to the
