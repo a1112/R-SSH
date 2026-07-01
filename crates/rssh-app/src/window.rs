@@ -6582,6 +6582,14 @@ fn lua_tab_title_event_field_return_from_statement(
         return Some(NativeLuaTabTitle::ActiveTabTitle);
     }
 
+    let window_title = format!("{tab_param}.window_title");
+    if let Some(after_window_title) = rest.strip_prefix(&window_title) {
+        if !lua_static_identifier_value_rest_is_statement_end(after_window_title) {
+            return None;
+        }
+        return Some(NativeLuaTabTitle::WindowTitle);
+    }
+
     let active_pane_title = format!("{tab_param}.active_pane.title");
     let after_active_pane_title = rest.strip_prefix(&active_pane_title)?;
     if !lua_static_identifier_value_rest_is_statement_end(after_active_pane_title) {
@@ -20719,6 +20727,7 @@ impl From<String> for NativeTabTitle {
 enum NativeLuaTabTitle {
     Static(NativeTabTitle),
     ActiveTabTitle,
+    WindowTitle,
     ActivePaneTitle,
 }
 
@@ -20727,6 +20736,7 @@ impl NativeLuaTabTitle {
         match self {
             Self::Static(title) => Some(title.clone()),
             Self::ActiveTabTitle => event.tab_title.clone().map(NativeTabTitle::Text),
+            Self::WindowTitle => Some(NativeTabTitle::Text(event.window_title.clone())),
             Self::ActivePaneTitle => event
                 .active_pane_info
                 .title
@@ -73737,6 +73747,38 @@ mod tests {
         .expect("expected static WezTerm format-tab-title tab title return");
 
         assert_eq!(format!("{title:?}"), "ActiveTabTitle");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_window_title_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
+        app.window_title = "Project Window".to_owned();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "explicit".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return tab.window_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title window title return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(
+            tab_bar.contains("Project Window"),
+            "tab bar was {tab_bar:?}"
+        );
+        assert!(!tab_bar.contains("PaneShell"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("explicit"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
