@@ -10969,7 +10969,13 @@ fn lua_static_table_map_variable_field_assignment_from_query<'a>(
         return None;
     }
     let after_variable = lua_trim_start_comments(after_variable)?;
-    let (key, rest) = lua_table_map_field_key_from_query(after_variable)?;
+    let (key, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        after_variable,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
     Some(LuaTableMapFieldAssignment {
@@ -96190,6 +96196,42 @@ mod tests {
         );
         assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
         assert_eq!(command.env_value("FEATURE_FLAG"), Some("on"));
+    }
+
+    #[test]
+    fn window_app_parses_static_environment_variable_field_name_mutation() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local env = {}
+            local entry_field = 'PROJECT_MODE'
+            local env_value = 'dev'
+
+            config.default_prog = { 'nu', '--login' }
+            config.set_environment_variables = env
+            env[entry_field] = env_value
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static environment variable field-name mutation config");
+        app.set_config_overrides(overrides);
+
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(launch.program(), "nu");
+        assert_eq!(launch.args(), ["--login"]);
+
+        let command = pty_command_from_pane_launch_with_environment(
+            launch,
+            &app.term,
+            &app.set_environment_variables,
+            app.default_cwd.as_deref(),
+        );
+        assert_eq!(command.env_value("PROJECT_MODE"), Some("dev"));
     }
 
     #[test]
