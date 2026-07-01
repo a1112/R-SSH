@@ -40539,7 +40539,7 @@ fn input_selector_choice_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "label" => {
                 let value = input_selector_choice_label_from_query_with_static_source(
@@ -40894,7 +40894,7 @@ fn input_selector_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let raw_value = value.trim();
         match name.to_ascii_lowercase().as_str() {
             "title" => {
@@ -92769,6 +92769,74 @@ mod tests {
                     description: Some("Choose one:".to_owned()),
                     fuzzy_description: Some("Filter replies:".to_owned()),
                     fuzzy: false,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_input_selector_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local title_field = 'title'
+            local choices_field = 'choices'
+            local alphabet_field = 'alphabet'
+            local description_field = 'description'
+            local fuzzy_description_field = 'fuzzy_description'
+            local fuzzy_field = 'fuzzy'
+            local action_field = 'action'
+            local id_field = 'id'
+            local label_field = 'label'
+            local selector_fuzzy = true
+            local selector_action = wezterm.action_callback(function(window, pane, id, label) end)
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = act.InputSelector {
+                  [title_field] = 'Pick Reply',
+                  [choices_field] = {
+                    { [id_field] = 'decline', [label_field] = 'No thanks' },
+                    { [id_field] = 'lgtm', [label_field] = 'LGTM' },
+                  },
+                  [alphabet_field] = 'ab',
+                  [description_field] = 'Choose one:',
+                  [fuzzy_description_field] = 'Filter replies:',
+                  [fuzzy_field] = selector_fuzzy,
+                  [action_field] = selector_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm InputSelector static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+I".to_owned(),
+                command: WindowCommand::InputSelector(WindowInputSelectorOptions {
+                    title: "Pick Reply".to_owned(),
+                    choices: vec![
+                        WindowInputSelectorChoice {
+                            label: "No thanks".to_owned(),
+                            id: Some("decline".to_owned()),
+                        },
+                        WindowInputSelectorChoice {
+                            label: "LGTM".to_owned(),
+                            id: Some("lgtm".to_owned()),
+                        },
+                    ],
+                    alphabet: Some("ab".to_owned()),
+                    description: Some("Choose one:".to_owned()),
+                    fuzzy_description: Some("Filter replies:".to_owned()),
+                    fuzzy: true,
                 }),
             }])
         );

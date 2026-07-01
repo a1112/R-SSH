@@ -1187,9 +1187,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   with long-bracket values, when `choices` uses either the existing semicolon-
   delimited string form or WezTerm's Lua table-of-tables choice form with
   `{ label = ..., id = ... }` entries, including bracketed string keys on those
-  nested choice tables. The table-call string fields `title`, string `choices`,
-  `alphabet`, `description`, and `fuzzy_description` also parse through
-  top-level static string variables; table `choices` parse inline or through
+  nested choice tables, plus top-level static string field-name variables for
+  `title`/`choices`/`alphabet`/`description`/`fuzzy_description`/`fuzzy`/`action`
+  and static `label`/`id` field-name variables on nested choice tables. The
+  table-call string fields `title`, string `choices`, `alphabet`,
+  `description`, and `fuzzy_description` also parse through top-level static
+  string variables; table `choices` parse inline or through
   top-level static table variables whose entries can resolve static string
   labels, top-level static `wezterm.format` label variables, and label
   variables built from top-level static `wezterm.format` aliases; and
