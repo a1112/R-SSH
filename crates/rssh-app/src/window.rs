@@ -39925,7 +39925,7 @@ fn close_current_confirm_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "confirm" => {
                 if confirm.is_some() {
@@ -91408,6 +91408,50 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm CloseCurrent static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+P".to_owned(),
+                    command: WindowCommand::CloseCurrentPane { confirm: false },
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|ALT+T".to_owned(),
+                    command: WindowCommand::CloseCurrentTab { confirm: true },
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_close_current_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local confirm_field = 'confirm'
+            local pane_confirm = false
+            local tab_confirm = true
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|ALT',
+                action = act.CloseCurrentPane { [confirm_field] = pane_confirm },
+              },
+              {
+                key = 'T',
+                mods = 'CTRL|ALT',
+                action = act.CloseCurrentTab { [confirm_field] = tab_confirm },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm CloseCurrent static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,
