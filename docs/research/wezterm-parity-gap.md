@@ -914,7 +914,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   implemented local-domain subset, including bracketed string table keys with
   long-bracket values. Static `config.keys` `SpawnTab` action calls resolve
   top-level string variables for string arguments and `DomainName` table
-  fields, plus parenthesized top-level static domain table variables.
+  fields, static string field-name variables for `DomainName`, plus
+  parenthesized top-level static domain table variables.
   Remote/mux named domain spawning remains open.
 - Native `AttachDomain`/`DetachDomain` action parsing now recognizes official
   WezTerm-style domain action forms including `AttachDomain 'devhost'`,
