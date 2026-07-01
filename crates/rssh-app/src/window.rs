@@ -46202,7 +46202,7 @@ fn tab_bar_item_colors_lua_table_from_query(
         let Some((key, value)) = split_lua_table_assignment_from_field(field) else {
             continue;
         };
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         let value = value.trim();
         match key.as_str() {
             "fg_color" => {
@@ -71200,6 +71200,48 @@ mod tests {
         assert_eq!(active_cell.foreground, rssh_terminal::Color::Rgb(4, 5, 6));
         assert_eq!(active_cell.background, rssh_terminal::Color::Rgb(1, 2, 3));
         assert_eq!(blank_cell.background, rssh_terminal::Color::Rgb(32, 33, 34));
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_tab_bar_item_static_field_names() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local bg_field = 'bg_color'
+            local fg_field = 'fg_color'
+            local intensity_field = 'intensity'
+
+            config.colors = {
+              tab_bar = {
+                active_tab = {
+                  [bg_field] = '#010203',
+                  [fg_field] = '#040506',
+                  [intensity_field] = 'Bold',
+                },
+              },
+            }
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm tab_bar item static field-name config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.bg_color,
+            Some(rssh_terminal::Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.fg_color,
+            Some(rssh_terminal::Color::Rgb(4, 5, 6))
+        );
+        assert_eq!(
+            effective.tab_bar_active_tab_colors.intensity,
+            Some(NativeFormatIntensity::Bold)
+        );
     }
 
     #[test]
