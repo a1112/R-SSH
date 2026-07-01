@@ -50290,7 +50290,7 @@ fn window_domain_selector_lua_table_from_query_with_static_source(
             continue;
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
-        let key = split_lua_table_key_from_query(key.trim())?;
+        let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
         if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
             return None;
         }
@@ -91169,6 +91169,40 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+D".to_owned(),
+                command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
+                    "devhost".to_owned(),
+                )),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_detach_domain_static_field_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain_field = 'DomainName'
+            local domain = 'devhost'
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|SHIFT',
+                action = act.DetachDomain { [domain_field] = domain },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm DetachDomain static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+D".to_owned(),
                 command: WindowCommand::DetachDomain(WindowDomainSelector::DomainName(
                     "devhost".to_owned(),
                 )),
