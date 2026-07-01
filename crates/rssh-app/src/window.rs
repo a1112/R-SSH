@@ -50600,7 +50600,7 @@ fn search_query_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         let value = parse_maybe_static_query_text(static_source, value.trim())?;
         if search_query.is_some() {
             return None;
@@ -91204,6 +91204,41 @@ mod tests {
             overrides.key_assignments,
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|ALT+F".to_owned(),
+                command: WindowCommand::Search(WindowSearchCommandQuery::Pattern {
+                    pattern: "ticket-[0-9]+".to_owned(),
+                    match_type: WindowSearchMatchType::Regex,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_search_static_field_name_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local search_field = 'Regex'
+            local pattern = 'ticket-[0-9]+'
+
+            config.keys = {
+              {
+                key = 'F',
+                mods = 'CTRL|SHIFT',
+                action = act.Search { [search_field] = pattern },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Search static field-name variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+F".to_owned(),
                 command: WindowCommand::Search(WindowSearchCommandQuery::Pattern {
                     pattern: "ticket-[0-9]+".to_owned(),
                     match_type: WindowSearchMatchType::Regex,
