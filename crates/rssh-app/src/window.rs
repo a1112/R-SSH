@@ -6736,11 +6736,12 @@ fn lua_static_tab_title_conditional_return_from_function_body(
                     outer_static_source,
                 )
                 .or_else(|| {
-                    let (_, return_statement) = fallback_return?;
+                    let (_, shared_prefix, return_statement) = fallback_return?;
                     lua_static_tab_title_return_with_branch_assignments(
                         body,
                         start,
                         if_body,
+                        shared_prefix,
                         return_statement,
                         tab_param,
                         outer_static_source,
@@ -6790,7 +6791,7 @@ fn lua_static_tab_title_fallback_return_after_if(
     tab_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
-    let (start, statement) =
+    let (start, _, statement) =
         lua_static_tab_title_fallback_return_statement_after_if(outer_body, rest_after_if)?;
     lua_static_tab_title_return_from_statement_as_lua_title(
         outer_body,
@@ -6804,22 +6805,29 @@ fn lua_static_tab_title_fallback_return_after_if(
 fn lua_static_tab_title_fallback_return_statement_after_if<'a>(
     outer_body: &'a str,
     rest_after_if: &'a str,
-) -> Option<(usize, &'a str)> {
+) -> Option<(usize, &'a str, &'a str)> {
     let starts =
         lua_top_level_statement_start_indices_before_offset(rest_after_if, rest_after_if.len())?;
-    let start = *starts.first()?;
-    let statement = lua_trim_start_comments(rest_after_if.get(start..)?)?;
-    if lua_static_if_condition_and_body_branches_from_statement(statement).is_some() {
-        return None;
-    }
     let rest_start = lua_source_slice_start_offset(outer_body, rest_after_if)?;
-    Some((rest_start.checked_add(start)?, statement))
+    for start in starts {
+        let statement = lua_trim_start_comments(rest_after_if.get(start..)?)?;
+        if lua_static_if_condition_and_body_branches_from_statement(statement).is_some() {
+            return None;
+        }
+        if lua_static_return_expression_from_statement(statement).is_none() {
+            continue;
+        }
+        let shared_prefix = rest_after_if.get(..start)?;
+        return Some((rest_start.checked_add(start)?, shared_prefix, statement));
+    }
+    None
 }
 
 fn lua_static_tab_title_return_with_branch_assignments(
     body: &str,
     if_start: usize,
     if_body: &str,
+    shared_prefix: &str,
     return_statement: &str,
     tab_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
@@ -6828,6 +6836,8 @@ fn lua_static_tab_title_return_with_branch_assignments(
     branch_source.push_str(body.get(..if_start)?);
     branch_source.push('\n');
     branch_source.push_str(if_body);
+    branch_source.push('\n');
+    branch_source.push_str(shared_prefix);
     branch_source.push('\n');
     let return_start = branch_source.len();
     branch_source.push_str(return_statement);
@@ -7610,6 +7620,11 @@ fn lua_static_tab_title_helper_function_parts_before_offset(
             )
         {
             selected = Some(parts);
+        }
+
+        if lua_source_keyword_at(source, index, "elseif") {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
         }
 
         if lua_source_keyword_at(source, index, "function")
@@ -14508,6 +14523,11 @@ fn lua_top_level_statement_start_indices_before_offset(
                 continue;
             }
             _ => {}
+        }
+
+        if lua_source_keyword_at(source, index, "elseif") {
+            lua_block_depth = lua_block_depth.saturating_sub(1);
+            continue;
         }
 
         if lua_source_keyword_at(source, index, "function")
@@ -49117,6 +49137,18 @@ fn lua_color_query_with_static_source(
         .unwrap_or_else(|| value.to_owned())
 }
 
+fn lua_color_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> String {
+    lua_static_wezterm_color_parse_alias_query_from_query(static_source, value)
+        .or_else(|| {
+            lua_static_wezterm_color_parse_alias_query_from_query(outer_static_source, value)
+        })
+        .unwrap_or_else(|| value.to_owned())
+}
+
 fn lua_color_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
@@ -49130,6 +49162,15 @@ fn lua_opaque_color_from_query_with_static_source(
     value: &str,
 ) -> Option<Color> {
     let value = lua_color_query_with_static_source(static_source, value);
+    lua_opaque_color_from_query(&value)
+}
+
+fn lua_opaque_color_from_query_with_static_sources(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Color> {
+    let value = lua_color_query_with_static_sources(static_source, outer_static_source, value);
     lua_opaque_color_from_query(&value)
 }
 
@@ -49286,8 +49327,40 @@ fn lua_color_spec_from_query_with_static_sources(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<NativeColorSpec> {
-    lua_color_spec_from_query_with_static_source(static_source, value)
-        .or_else(|| lua_color_spec_from_query_with_static_source(outer_static_source, value))
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut color = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            key.trim(),
+        )?;
+        if color.is_some() {
+            return None;
+        }
+        let value = parse_maybe_static_query_text_with_static_sources(
+            static_source,
+            outer_static_source,
+            value.trim(),
+        )?;
+        color = Some(match key.as_str() {
+            "Color" => NativeColorSpec::Color(lua_opaque_color_from_query_with_static_sources(
+                static_source,
+                outer_static_source,
+                &value,
+            )?),
+            "AnsiColor" => NativeColorSpec::AnsiColor(NativeAnsiColor::parse(&value)?),
+            _ => return None,
+        });
+    }
+
+    color
 }
 
 fn selection_fg_lua_table_field_from_query_with_static_source(
@@ -75583,6 +75656,173 @@ mod tests {
     }
 
     #[test]
+    fn lua_parses_wezterm_format_tab_title_elaborate_shared_assignments() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local SOLID_LEFT_ARROW = wezterm.nerdfonts.pl_right_hard_divider
+            local SOLID_RIGHT_ARROW = wezterm.nerdfonts.pl_left_hard_divider
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local edge_background = '#0b0022'
+              local background = '#1b1032'
+              local foreground = '#808080'
+
+              if tab.is_active then
+                background = '#2b2042'
+                foreground = '#c0c0c0'
+              elseif hover then
+                background = '#3b3052'
+                foreground = '#909090'
+              end
+
+              local edge_foreground = background
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+
+              return {
+                { Background = { Color = edge_background } },
+                { Foreground = { Color = edge_foreground } },
+                { Text = SOLID_LEFT_ARROW },
+                { Background = { Color = background } },
+                { Foreground = { Color = foreground } },
+                { Text = title },
+                { Background = { Color = edge_background } },
+                { Foreground = { Color = edge_foreground } },
+                { Text = SOLID_RIGHT_ARROW },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title elaborate shared assignments");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("IsActive"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("IsHover"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("TruncateRight"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("Rgb(43, 32, 66)"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("Rgb(59, 48, 82)"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_elaborate_shared_assignments() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local SOLID_LEFT_ARROW = wezterm.nerdfonts.pl_right_hard_divider
+            local SOLID_RIGHT_ARROW = wezterm.nerdfonts.pl_left_hard_divider
+
+            function tab_title(tab_info)
+              local title = tab_info.tab_title
+              if title and #title > 0 then
+                return title
+              end
+              return tab_info.active_pane.title
+            end
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local edge_background = '#0b0022'
+              local background = '#1b1032'
+              local foreground = '#808080'
+
+              if tab.is_active then
+                background = '#2b2042'
+                foreground = '#c0c0c0'
+              elseif hover then
+                background = '#3b3052'
+                foreground = '#909090'
+              end
+
+              local edge_foreground = background
+              local title = tab_title(tab)
+              title = wezterm.truncate_right(title, max_width - 2)
+
+              return {
+                { Background = { Color = edge_background } },
+                { Foreground = { Color = edge_foreground } },
+                { Text = SOLID_LEFT_ARROW },
+                { Background = { Color = background } },
+                { Foreground = { Color = foreground } },
+                { Text = title },
+                { Background = { Color = edge_background } },
+                { Foreground = { Color = edge_foreground } },
+                { Text = SOLID_RIGHT_ARROW },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title elaborate shared assignments");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "first-title".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(2),
+            title: "second-title".to_owned(),
+        })
+        .unwrap();
+
+        let first_tab_column = app.tab_bar_workspace_label().chars().count() + 1;
+        let x = u32::try_from(first_tab_column).unwrap_or(0) * CELL_WIDTH;
+        app.handle_cursor_moved(PhysicalPosition::new(f64::from(x), 0.0))
+            .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let first_column = tab_bar
+            .find("first-title")
+            .expect("hover tab title should render");
+        let second_column = tab_bar
+            .find("second-title")
+            .expect("active tab title should render");
+        let first_cell = snapshot_cell(&snapshot, 0, u16::try_from(first_column).unwrap()).unwrap();
+        let second_cell =
+            snapshot_cell(&snapshot, 0, u16::try_from(second_column).unwrap()).unwrap();
+
+        assert_eq!(first_cell.background, rssh_terminal::Color::Rgb(59, 48, 82));
+        assert_eq!(
+            first_cell.foreground,
+            rssh_terminal::Color::Rgb(144, 144, 144)
+        );
+        assert_eq!(
+            second_cell.background,
+            rssh_terminal::Color::Rgb(43, 32, 66)
+        );
+        assert_eq!(
+            second_cell.foreground,
+            rssh_terminal::Color::Rgb(192, 192, 192)
+        );
+    }
+
+    #[test]
     fn lua_splits_if_elseif_tab_title_branches() {
         let statement = r#"
               if tab.is_active then
@@ -75609,6 +75849,22 @@ mod tests {
         assert!(branches[0].1.contains("active:"));
         assert!(branches[1].1.contains("hover:"));
         assert!(rest_after_if.contains("plain:"));
+
+        let starts =
+            super::lua_top_level_statement_start_indices_before_offset(statement, statement.len())
+                .expect("expected top-level statement starts");
+        let top_level_lines = starts
+            .iter()
+            .filter_map(|start| statement.get(*start..))
+            .filter_map(|statement| statement.lines().next())
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        assert!(
+            top_level_lines
+                .iter()
+                .any(|line| line.starts_with("return")),
+            "top-level starts were {top_level_lines:?}"
+        );
 
         let active = super::lua_static_tab_title_first_return_from_nested_body(
             statement,
