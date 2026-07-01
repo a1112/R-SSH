@@ -1224,12 +1224,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   ` Really continue?` prompt. WezTerm-style
   `wezterm.action.Confirmation { message = ..., action = ..., cancel = ... }`
   table-call queries also dispatch the same native nested-command subset,
-  including bracketed string table keys with long-bracket values, and accept
-  `message` inline or through top-level static string variables or top-level
-  static `wezterm.format` text variables, `action`/`cancel` inline or through
-  top-level static action variables including variables built from top-level
-  static `wezterm.action` aliases, parenthesized calls with top-level static
-  options table variables, and static
+  including bracketed string table keys with long-bracket values and top-level
+  static string field-name variables for `message`/`action`/`cancel`, and
+  accept `message` inline or through top-level static string variables or
+  top-level static `wezterm.format` text variables, `action`/`cancel` inline or
+  through top-level static action variables including variables built from
+  top-level static `wezterm.action` aliases, parenthesized calls with top-level
+  static options table variables, and static
   `action`/`cancel = wezterm.action_callback(...)` fields as
   native-handler placeholders. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to

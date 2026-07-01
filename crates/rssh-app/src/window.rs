@@ -41083,7 +41083,7 @@ fn confirmation_lua_table_from_query_with_static_source(
             continue;
         }
         let (name, value) = split_lua_table_assignment_from_field(field)?;
-        let name = split_lua_table_key_from_query(name.trim())?;
+        let name = split_lua_table_key_from_query_with_static_source(static_source, name.trim())?;
         match name.to_ascii_lowercase().as_str() {
             "message" => {
                 let value =
@@ -93245,6 +93245,49 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm Confirmation static field variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::Confirmation(WindowConfirmationOptions {
+                    message: "Send command?".to_owned(),
+                    action: Box::new(WindowCommand::SendString("yes".to_owned())),
+                    cancel: Some(Box::new(WindowCommand::SendString("no".to_owned()))),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_confirmation_static_field_name_variables() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local message_field = 'message'
+            local action_field = 'action'
+            local cancel_field = 'cancel'
+            local accept_action = act.SendString 'yes'
+            local cancel_action = act.SendString 'no'
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.Confirmation {
+                  [message_field] = 'Send command?',
+                  [action_field] = accept_action,
+                  [cancel_field] = cancel_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm Confirmation static field-name variable config");
 
         assert_eq!(
             overrides.key_assignments,
