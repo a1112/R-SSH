@@ -1171,10 +1171,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `description`/`prompt`/`initial_value`/`action`, top-level static string
   variables for `description`/`prompt`/`initial_value` fields, plus top-level
   static `wezterm.format` text variables for
-  `description`/`prompt` and text variables or inline values built from
+  `description`/`prompt` and inline or static string Text values built from
   top-level static `wezterm.format` aliases.
   Static Lua `wezterm.format { { Text = ... } }` values for `description` and
-  `prompt` are reduced to their visible text for the native overlay, and static
+  `prompt`, including static string Text variables, are reduced to their visible
+  text for the native overlay, and static
   `action = wezterm.action_callback(...)` fields plus top-level static callback
   variables and callbacks built from top-level static `wezterm.action_callback`
   aliases are accepted as native-handler placeholders, while styled
@@ -1217,13 +1218,15 @@ what remains before WezTerm-style parity in key UX/composition areas.
   string variables; table `choices` parse inline or through
   top-level static table variables whose entries can resolve static string
   labels, top-level static `wezterm.format` label variables, and label
-  variables built from top-level static `wezterm.format` aliases; and
+  variables built from top-level static `wezterm.format` aliases whose Text
+  entries can use inline or static string values; and
   `fuzzy` parses inline or through a top-level static bool variable. Parenthesized
   `InputSelector(input_opts)` calls also accept top-level static options table
   variables. Static
   `wezterm.format { { Text = ... } }`
-  label values are reduced to their text for native selector labels, while style
-  items are ignored until styled selector rows are implemented. Static
+  label values, including static string Text variables, are reduced to their
+  text for native selector labels, while style items are ignored until styled
+  selector rows are implemented. Static
   `action = wezterm.action_callback(...)` fields, top-level static callback
   variables, and callbacks built from top-level static
   `wezterm.action_callback` aliases are accepted as native-handler

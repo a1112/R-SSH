@@ -40449,32 +40449,26 @@ fn wezterm_format_visible_text_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<String> {
-    if let Some(static_source) = static_source
-        && let Some(value) = lua_static_wezterm_format_alias_query_from_query(
-            static_source.source,
-            value,
-            static_source.max_start,
-        )
-    {
-        return wezterm_format_visible_text_from_query(&value);
-    }
-
-    wezterm_format_visible_text_from_query(value)
+    native_format_items_from_wezterm_format_query_with_static_sources(static_source, None, value)
+        .map(|items| native_format_items_plain_text(&items))
 }
 
 fn wezterm_format_visible_text_from_query(value: &str) -> Option<String> {
-    native_format_items_from_wezterm_format_query(value).map(|items| {
-        items
-            .iter()
-            .filter_map(|item| match item {
-                NativeFormatItem::Text(text) => Some(tab_bar_ansi_plain_text(text)),
-                NativeFormatItem::Foreground(_)
-                | NativeFormatItem::Background(_)
-                | NativeFormatItem::Attribute(_)
-                | NativeFormatItem::ResetAttributes => None,
-            })
-            .collect::<String>()
-    })
+    native_format_items_from_wezterm_format_query(value)
+        .map(|items| native_format_items_plain_text(&items))
+}
+
+fn native_format_items_plain_text(items: &[NativeFormatItem]) -> String {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            NativeFormatItem::Text(text) => Some(tab_bar_ansi_plain_text(text)),
+            NativeFormatItem::Foreground(_)
+            | NativeFormatItem::Background(_)
+            | NativeFormatItem::Attribute(_)
+            | NativeFormatItem::ResetAttributes => None,
+        })
+        .collect::<String>()
 }
 
 fn wezterm_format_status_text_from_query(
@@ -94229,6 +94223,49 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm PromptInputLine static format alias field config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Rename tab".to_owned(),
+                    prompt: Some("name: ".to_owned()),
+                    initial_value: Some("old name".to_owned()),
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_prompt_input_line_static_format_text_values() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local fmt = wezterm.format
+            local config = {}
+            local rename = 'Rename'
+            local tab = ' tab'
+            local prompt_name = 'name'
+            local prompt_suffix = ': '
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine {
+                  description = fmt { { Text = rename }, { Text = tab } },
+                  prompt = fmt { { Text = prompt_name }, { Text = prompt_suffix } },
+                  initial_value = 'old name',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine static format text value config");
 
         assert_eq!(
             overrides.key_assignments,
