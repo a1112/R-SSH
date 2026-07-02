@@ -9663,6 +9663,11 @@ fn lua_static_window_status_text_from_query(
     {
         return Some(status);
     }
+    if let Some(status) =
+        lua_static_window_effective_config_status_text_from_query(window_name, argument)
+    {
+        return Some(status);
+    }
     if let Some(static_source) = static_source
         && let Some(status) = lua_static_pane_dimensions_status_text_from_query(
             static_source,
@@ -9840,6 +9845,28 @@ fn lua_static_window_dimensions_status_text_from_query(
     }
 
     has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowDimensions { parts })
+}
+
+fn lua_static_window_effective_config_status_text_from_query(
+    window_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let mut parts = Vec::new();
+    let mut has_dynamic_part = false;
+
+    for segment in split_lua_string_concat_segments(value)? {
+        let segment = segment.trim();
+        if let Some(field) = lua_window_effective_config_field_from_query(segment, window_name) {
+            parts.push(NativeLuaWindowEffectiveConfigStatusPart::Field(field));
+            has_dynamic_part = true;
+        } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
+            parts.push(NativeLuaWindowEffectiveConfigStatusPart::Static(text));
+        } else {
+            return None;
+        }
+    }
+
+    has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowEffectiveConfig { parts })
 }
 
 fn lua_static_pane_dimensions_status_text_from_query(
@@ -10358,6 +10385,7 @@ fn lua_static_window_status_variable_text_from_query(
             | NativeLuaWindowStatusText::PaneAltScreen { .. }
             | NativeLuaWindowStatusText::PaneHasUnseenOutput { .. }
             | NativeLuaWindowStatusText::WindowDimensions { .. }
+            | NativeLuaWindowStatusText::WindowEffectiveConfig { .. }
             | NativeLuaWindowStatusText::PaneDimensions { .. }
             | NativeLuaWindowStatusText::PaneCursorPosition { .. }
             | NativeLuaWindowStatusText::PaneUserVars { .. }
@@ -11018,6 +11046,52 @@ fn lua_window_status_method_text_from_query(
             prefix: String::new(),
             fallback: String::new(),
         }),
+        _ => None,
+    }
+}
+
+fn lua_window_effective_config_field_from_query(
+    value: &str,
+    window_name: &str,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "effective_config" || !lua_config_assignment_field_has_boundaries(rest, 0, method)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if !lua_trim_start_comments(rest.get(field.len()..)?)?.is_empty() {
+        return None;
+    }
+    match field {
+        "font_size" => Some(NativeLuaWindowEffectiveConfigField::FontSize),
         _ => None,
     }
 }
@@ -19970,6 +20044,20 @@ fn native_font_size_from_points(points: f32) -> Option<NativeFontSize> {
     (millipoints <= u32::MAX as f32).then(|| NativeFontSize::from_millipoints(millipoints as u32))
 }
 
+fn native_lua_font_size_points_text(font_size: NativeFontSize) -> String {
+    let points = font_size.millipoints / 1_000;
+    let millipoints = font_size.millipoints % 1_000;
+    if millipoints == 0 {
+        return points.to_string();
+    }
+
+    let mut fraction = format!("{millipoints:03}");
+    while fraction.ends_with('0') {
+        fraction.pop();
+    }
+    format!("{points}.{fraction}")
+}
+
 fn native_dpi_from_f32(dpi: f32) -> Option<u32> {
     if !dpi.is_finite() || dpi <= 0.0 {
         return None;
@@ -25447,6 +25535,9 @@ enum NativeLuaWindowStatusText {
     WindowDimensions {
         parts: Vec<NativeLuaWindowDimensionsStatusPart>,
     },
+    WindowEffectiveConfig {
+        parts: Vec<NativeLuaWindowEffectiveConfigStatusPart>,
+    },
     PaneDimensions {
         parts: Vec<NativeLuaPaneDimensionsStatusPart>,
     },
@@ -25487,12 +25578,23 @@ enum NativeLuaWindowDimensionsStatusPart {
     Field(NativeLuaWindowDimensionsField),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaWindowEffectiveConfigStatusPart {
+    Static(String),
+    Field(NativeLuaWindowEffectiveConfigField),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeLuaWindowDimensionsField {
     PixelWidth,
     PixelHeight,
     Dpi,
     IsFullScreen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaWindowEffectiveConfigField {
+    FontSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41737,6 +41839,15 @@ impl NativeWindowApp {
                     }
                 })
                 .collect::<String>(),
+            NativeLuaWindowStatusText::WindowEffectiveConfig { parts } => parts
+                .into_iter()
+                .map(|part| match part {
+                    NativeLuaWindowEffectiveConfigStatusPart::Static(text) => text,
+                    NativeLuaWindowEffectiveConfigStatusPart::Field(field) => {
+                        self.lua_window_effective_config_field_text(field)
+                    }
+                })
+                .collect::<String>(),
             NativeLuaWindowStatusText::PaneDimensions { parts } => parts
                 .into_iter()
                 .map(|part| match part {
@@ -41791,6 +41902,17 @@ impl NativeWindowApp {
             NativeLuaWindowDimensionsField::PixelHeight => self.window_frame.height.to_string(),
             NativeLuaWindowDimensionsField::Dpi => self.window_dpi.to_string(),
             NativeLuaWindowDimensionsField::IsFullScreen => self.full_screen.to_string(),
+        }
+    }
+
+    fn lua_window_effective_config_field_text(
+        &self,
+        field: NativeLuaWindowEffectiveConfigField,
+    ) -> String {
+        match field {
+            NativeLuaWindowEffectiveConfigField::FontSize => {
+                native_lua_font_size_points_text(self.font_size)
+            }
         }
     }
 
@@ -78796,6 +78918,30 @@ mod tests {
         app.full_screen = true;
         app.dispatch_update_status();
         assert_eq!(app.right_status, "160x96@96 full=true");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_font_size_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_size = 13.5
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('font=' .. window:effective_config().font_size)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "font=13.5");
     }
 
     #[test]
