@@ -1882,14 +1882,17 @@ keyboard, mouse, paste, resize
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
-  plus inline, static-table-variable, or static-alias `wezterm.format`
+  plus the documented `window:keyboard_modifiers()` status shape with current
+  modifier text and empty LED status, plus inline, static-table-variable, or
+  static-alias `wezterm.format`
   Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition onto that status state, with
   static item tables resolving from callback-local or top-level scope and
   callback-local `table.insert` or `items[#items + 1] = ...` appends whose
   string items can resolve from static variables.
   Arbitrary Lua status callbacks, dynamic `wezterm.format` construction, and
-  remaining window status API wiring remain future parity work.
+  remaining window status API wiring and real keyboard LED tracking remain
+  future parity work.
 - Implemented in v1: the tab bar `+` button dispatches a typed
   `new-tab-button-click` hook with the window id, active pane id, and mouse
   button for Left/Right/Middle clicks. Left click carries the default `NewTab`

@@ -9645,11 +9645,98 @@ fn lua_static_window_status_text_from_query(
     {
         return Some(NativeLuaWindowStatusText::Static(status));
     }
+    if let Some(static_source) = static_source
+        && let Some(status) = lua_static_keyboard_modifiers_status_text_from_query(
+            static_source,
+            window_name,
+            argument,
+        )
+    {
+        return Some(status);
+    }
     if let Some(status) = lua_window_status_method_text_from_query(argument, window_name) {
         return Some(status);
     }
     wezterm_format_status_text_from_query(static_source, outer_static_source, argument)
         .map(NativeLuaWindowStatusText::Static)
+}
+
+fn lua_static_keyboard_modifiers_status_text_from_query(
+    static_source: LuaStaticSource<'_>,
+    window_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let (modifiers_variable, leds_variable) =
+        lua_static_window_keyboard_modifiers_variables_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )?;
+    let mut parts = Vec::new();
+    let mut has_dynamic_part = false;
+
+    for segment in split_lua_string_concat_segments(value)? {
+        let segment = segment.trim();
+        if segment == modifiers_variable {
+            parts.push(NativeLuaKeyboardModifiersStatusPart::Modifiers);
+            has_dynamic_part = true;
+        } else if segment == leds_variable {
+            parts.push(NativeLuaKeyboardModifiersStatusPart::Leds);
+            has_dynamic_part = true;
+        } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
+            parts.push(NativeLuaKeyboardModifiersStatusPart::Static(text));
+        } else {
+            return None;
+        }
+    }
+
+    has_dynamic_part.then_some(NativeLuaWindowStatusText::KeyboardModifiers { parts })
+}
+
+fn lua_static_window_keyboard_modifiers_variables_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<(String, String)> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variables) =
+            lua_static_window_keyboard_modifiers_variables_from_statement(statement, window_name)
+        {
+            selected = Some(variables);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_keyboard_modifiers_variables_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<(String, String)> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let modifiers_variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(modifiers_variable.len()..)?)?;
+    let rest = rest.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let leds_variable = lua_identifier_literal_from_query(rest)?;
+    if modifiers_variable == leds_variable {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(leds_variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if lua_window_zero_arg_method_name_from_query(value, window_name)? != "keyboard_modifiers" {
+        return None;
+    }
+    Some((modifiers_variable.to_owned(), leds_variable.to_owned()))
 }
 
 fn lua_static_window_status_variable_text_from_query(
@@ -24184,8 +24271,24 @@ struct NativeLuaWindowStatusUpdate {
 enum NativeLuaWindowStatusText {
     Static(String),
     ActiveWorkspace,
-    ActiveKeyTable { prefix: String, fallback: String },
-    Leader { active: String, inactive: String },
+    ActiveKeyTable {
+        prefix: String,
+        fallback: String,
+    },
+    Leader {
+        active: String,
+        inactive: String,
+    },
+    KeyboardModifiers {
+        parts: Vec<NativeLuaKeyboardModifiersStatusPart>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaKeyboardModifiersStatusPart {
+    Static(String),
+    Modifiers,
+    Leds,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40300,6 +40403,18 @@ impl NativeWindowApp {
                 } else {
                     inactive
                 }
+            }
+            NativeLuaWindowStatusText::KeyboardModifiers { parts } => {
+                let modifiers = native_lua_keyboard_modifiers_text(self.modifiers);
+                let leds = String::new();
+                parts
+                    .into_iter()
+                    .map(|part| match part {
+                        NativeLuaKeyboardModifiersStatusPart::Static(text) => text,
+                        NativeLuaKeyboardModifiersStatusPart::Modifiers => modifiers.clone(),
+                        NativeLuaKeyboardModifiersStatusPart::Leds => leds.clone(),
+                    })
+                    .collect::<String>()
             }
         }
     }
@@ -63956,6 +64071,19 @@ fn format_window_title(_event: &NativeWindowTitleFormat) -> Option<String> {
     None
 }
 
+fn native_lua_keyboard_modifiers_text(modifiers: ModifiersState) -> String {
+    [
+        (ModifiersState::CONTROL, "CTRL"),
+        (ModifiersState::SHIFT, "SHIFT"),
+        (ModifiersState::ALT, "ALT"),
+        (ModifiersState::SUPER, "SUPER"),
+    ]
+    .into_iter()
+    .filter_map(|(flag, name)| modifiers.contains(flag).then_some(name))
+    .collect::<Vec<_>>()
+    .join("|")
+}
+
 fn dispatch_window_update_status(
     _event: &NativeWindowStatusUpdateEvent,
 ) -> NativeWindowStatusUpdate {
@@ -76555,6 +76683,35 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "");
+    }
+
+    #[test]
+    fn window_app_parses_documented_wezterm_update_status_keyboard_modifiers_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local config = wezterm.config_builder()
+
+            config.debug_key_events = true
+            wezterm.on('update-status', function(window, pane)
+              local mods, leds = window:keyboard_modifiers()
+              window:set_right_status('mods=' .. mods .. ' leds=' .. leds)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected documented WezTerm keyboard modifiers status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mods= leds=");
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mods=CTRL|SHIFT leds=");
     }
 
     #[test]

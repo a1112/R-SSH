@@ -1668,15 +1668,18 @@ runtime storage for tabs and split panes.
   its static `TABLE: ` prefix only while a key table is active, and falls back
   to an empty right status for an empty key-table stack. The documented
   leader-status example resolves `window:leader_is_active()` and switches
-  between static active/inactive strings as the leader state changes. Inline or
+  between static active/inactive strings as the leader state changes. The
+  documented `window:keyboard_modifiers()` example resolves current modifier
+  text into `mods=... leds=...` status strings, with keyboard LED state
+  currently reported as empty. Inline or
   static-table-variable
   `wezterm.format` Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition also maps into status text with
   static item tables resolved from callback-local or top-level scope plus
   callback-local `table.insert` or `items[#items + 1] = ...` appends whose
   string items can resolve from static variables. Arbitrary Lua callbacks,
-  dynamic `wezterm.format` construction, and remaining window status APIs
-  remain later parity work.
+  dynamic `wezterm.format` construction, remaining window status APIs, and
+  real keyboard LED tracking remain later parity work.
 - `rssh-app` dispatches a typed native-window `new-tab-button-click` hook for
   Left/Right/Middle clicks on the tab bar `+` button, carrying the window id
   and active pane id. Left click carries the default `NewTab` action in the
