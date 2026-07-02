@@ -8733,6 +8733,17 @@ fn lua_static_return_expression_from_statement(statement: &str) -> Option<&str> 
 fn lua_static_if_condition_and_body_branches_from_statement(
     statement: &str,
 ) -> Option<(Vec<(&str, &str)>, &str)> {
+    let (branches, else_body, rest) =
+        lua_static_if_condition_and_body_branches_and_else_from_statement(statement)?;
+    if else_body.is_some() {
+        return None;
+    }
+    Some((branches, rest))
+}
+
+fn lua_static_if_condition_and_body_branches_and_else_from_statement(
+    statement: &str,
+) -> Option<(Vec<(&str, &str)>, Option<&str>, &str)> {
     let statement = lua_trim_start_comments(statement)?;
     if !lua_source_keyword_at(statement, 0, "if") {
         return None;
@@ -8759,11 +8770,20 @@ fn lua_static_if_condition_and_body_branches_from_statement(
         rest = branch_rest;
     }
 
-    let rest = lua_trim_start_comments(rest)?;
+    let mut rest = lua_trim_start_comments(rest)?;
+    let else_body = if lua_source_keyword_at(rest, 0, "else") {
+        let body_start = lua_trim_start_comments(rest.get("else".len()..)?)?;
+        let (body, branch_rest) = lua_static_if_branch_body_and_rest_from_query(body_start)?;
+        rest = lua_trim_start_comments(branch_rest)?;
+        Some(body)
+    } else {
+        None
+    };
+
     if !lua_source_keyword_at(rest, 0, "end") {
         return None;
     }
-    Some((branches, rest.get("end".len()..)?))
+    Some((branches, else_body, rest.get("end".len()..)?))
 }
 
 fn lua_static_if_branch_body_and_rest_from_query(value: &str) -> Option<(&str, &str)> {
@@ -29746,15 +29766,52 @@ impl NativeWindowApp {
         action: WindowInputSelectorAction,
         event: &NativeInputSelector,
     ) {
-        let value = match action {
-            WindowInputSelectorAction::SendIdText => event.id.clone(),
-            WindowInputSelectorAction::SendLabelText => event.label.clone(),
+        let command = match action {
+            WindowInputSelectorAction::SendIdText => {
+                let Some(value) =
+                    Self::input_selector_event_value(event, WindowInputSelectorValueParam::Id)
+                else {
+                    return;
+                };
+                WindowCommand::SendString(value)
+            }
+            WindowInputSelectorAction::SendLabelText => {
+                let Some(value) =
+                    Self::input_selector_event_value(event, WindowInputSelectorValueParam::Label)
+                else {
+                    return;
+                };
+                WindowCommand::SendString(value)
+            }
+            WindowInputSelectorAction::SwitchToWorkspace { name, cwd } => {
+                let Some(name) = Self::input_selector_event_value(event, name) else {
+                    return;
+                };
+                let command_options = cwd
+                    .and_then(|source| Self::input_selector_event_value(event, source))
+                    .map(|cwd| WindowSpawnCommandQueryOptions {
+                        cwd: Some(cwd),
+                        ..WindowSpawnCommandQueryOptions::default()
+                    });
+                WindowCommand::SwitchToWorkspaceArgs(WindowSwitchToWorkspaceOptions {
+                    name: Some(name),
+                    command: None,
+                    command_options,
+                })
+            }
         };
-        let Some(value) = value else {
-            return;
-        };
-        if let Err(error) = self.command_palette_apply_command(WindowCommand::SendString(value)) {
+        if let Err(error) = self.command_palette_apply_command(command) {
             eprintln!("input selector action failed: {error:?}");
+        }
+    }
+
+    fn input_selector_event_value(
+        event: &NativeInputSelector,
+        source: WindowInputSelectorValueParam,
+    ) -> Option<String> {
+        match source {
+            WindowInputSelectorValueParam::Id => event.id.clone(),
+            WindowInputSelectorValueParam::Label => event.label.clone(),
         }
     }
 
@@ -44771,72 +44828,111 @@ fn input_selector_action_from_lua_action_callback_query(
 ) -> Option<WindowInputSelectorAction> {
     let callback = strip_lua_function_call_from_query(value, "wezterm.action_callback")
         .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
-    let (body, _, pane_param, id_param, label_param) =
+    let (body, window_param, pane_param, id_param, label_param) =
         lua_anonymous_function_body_and_first_four_params_from_query(callback)?;
-    input_selector_action_from_lua_action_callback_body(body, pane_param, id_param, label_param)
+    input_selector_action_from_lua_action_callback_body(
+        body,
+        window_param,
+        pane_param,
+        id_param,
+        label_param,
+    )
 }
 
 fn input_selector_action_from_lua_action_callback_body(
     body: &str,
+    window_param: &str,
     pane_param: &str,
     id_param: &str,
     label_param: &str,
 ) -> Option<WindowInputSelectorAction> {
+    let mut found = None;
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
-        if let Some(action) = input_selector_callback_statement_sends_text_param(
+        let Some(action) = input_selector_action_from_lua_action_callback_statement(
             statement,
+            window_param,
             pane_param,
             id_param,
             label_param,
-        ) {
-            return Some(action);
+        ) else {
+            continue;
+        };
+        input_selector_merge_static_action(&mut found, action)?;
+    }
+    found
+}
+
+fn input_selector_action_from_lua_action_callback_statement(
+    statement: &str,
+    window_param: &str,
+    pane_param: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<WindowInputSelectorAction> {
+    if let Some(action) = input_selector_callback_statement_sends_text_param(
+        statement,
+        pane_param,
+        id_param,
+        label_param,
+    ) {
+        return Some(action);
+    }
+    if let Some(action) = input_selector_callback_statement_switches_to_workspace(
+        statement,
+        window_param,
+        pane_param,
+        id_param,
+        label_param,
+    ) {
+        return Some(action);
+    }
+    if let Some((branches, else_body, rest)) =
+        lua_static_if_condition_and_body_branches_and_else_from_statement(statement)
+    {
+        if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+            return None;
         }
-        if let Some((branches, rest)) =
-            lua_static_if_condition_and_body_branches_from_statement(statement)
-        {
-            let [(condition, if_body)] = branches.as_slice() else {
-                continue;
-            };
-            let Some(condition_action) =
-                input_selector_callback_condition_param(condition, id_param, label_param)
-            else {
-                continue;
-            };
-            if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
-                continue;
-            }
-            if let Some(body_action) = input_selector_action_from_lua_action_callback_body(
-                if_body,
+        let mut found = None;
+        for (_, body) in branches {
+            if let Some(action) = input_selector_action_from_lua_action_callback_body(
+                body,
+                window_param,
                 pane_param,
                 id_param,
                 label_param,
-            ) && body_action == condition_action
-            {
-                return Some(body_action);
+            ) {
+                input_selector_merge_static_action(&mut found, action)?;
             }
         }
+        if let Some(body) = else_body
+            && let Some(action) = input_selector_action_from_lua_action_callback_body(
+                body,
+                window_param,
+                pane_param,
+                id_param,
+                label_param,
+            )
+        {
+            input_selector_merge_static_action(&mut found, action)?;
+        }
+        return found;
     }
     None
 }
 
-fn input_selector_callback_condition_param(
-    condition: &str,
-    id_param: &str,
-    label_param: &str,
-) -> Option<WindowInputSelectorAction> {
-    let condition = lua_trim_start_comments(condition.trim())?;
-    let name = lua_identifier_literal_from_query(condition)?;
-    if !lua_static_identifier_value_rest_is_statement_end(condition.get(name.len()..)?) {
-        return None;
-    }
-    if name == id_param {
-        Some(WindowInputSelectorAction::SendIdText)
-    } else if name == label_param {
-        Some(WindowInputSelectorAction::SendLabelText)
+fn input_selector_merge_static_action(
+    found: &mut Option<WindowInputSelectorAction>,
+    action: WindowInputSelectorAction,
+) -> Option<()> {
+    if let Some(existing) = found {
+        if existing != &action {
+            return None;
+        }
     } else {
-        None
+        *found = Some(action);
     }
+    Some(())
 }
 
 fn input_selector_callback_statement_sends_text_param(
@@ -44876,6 +44972,175 @@ fn input_selector_callback_statement_sends_text_param(
         Some(WindowInputSelectorAction::SendIdText)
     } else if name == label_param {
         Some(WindowInputSelectorAction::SendLabelText)
+    } else {
+        None
+    }
+}
+
+fn input_selector_callback_statement_switches_to_workspace(
+    statement: &str,
+    window_param: &str,
+    pane_param: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<WindowInputSelectorAction> {
+    let statement = lua_trim_start_comments(statement)?;
+    let Some(rest) = statement.strip_prefix(window_param) else {
+        return None;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("perform_action")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "perform_action")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("perform_action".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [action, pane] = arguments.as_slice() else {
+        return None;
+    };
+    let pane = lua_trim_start_comments(pane.trim())?;
+    let name = lua_identifier_literal_from_query(pane)?;
+    if name != pane_param
+        || !lua_static_identifier_value_rest_is_statement_end(pane.get(name.len()..)?)
+        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    {
+        return None;
+    }
+    input_selector_switch_to_workspace_action_from_query(action.trim(), id_param, label_param)
+}
+
+fn input_selector_switch_to_workspace_action_from_query(
+    action: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<WindowInputSelectorAction> {
+    let indexed_action;
+    let action = if let Some(action) = strip_wezterm_action_prefix(action) {
+        action
+    } else if let Some(action) = strip_wezterm_action_index_prefix(action) {
+        indexed_action = action;
+        indexed_action.as_str()
+    } else {
+        action
+    };
+    let action = action.trim();
+    let action_name = lua_identifier_literal_from_query(action)?;
+    if normalized_action_name_query(action_name) != "switchtoworkspace" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(action.get(action_name.len()..)?)?;
+    let table = if rest.starts_with('{') {
+        rest.strip_prefix('{')?.strip_suffix('}')?.trim()
+    } else if rest.starts_with('(') {
+        let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+        let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+            return None;
+        }
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [table] = arguments.as_slice() else {
+            return None;
+        };
+        table.trim().strip_prefix('{')?.strip_suffix('}')?.trim()
+    } else {
+        return None;
+    };
+
+    let mut workspace_name = None;
+    let mut cwd = None;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key.eq_ignore_ascii_case("name") {
+            if workspace_name.is_some() {
+                return None;
+            }
+            workspace_name = Some(input_selector_callback_value_param_from_query(
+                value,
+                id_param,
+                label_param,
+            )?);
+        } else if key.eq_ignore_ascii_case("spawn") {
+            if cwd.is_some() {
+                return None;
+            }
+            cwd = input_selector_switch_to_workspace_spawn_cwd_from_query(
+                value,
+                id_param,
+                label_param,
+            )?;
+        } else {
+            return None;
+        }
+    }
+
+    Some(WindowInputSelectorAction::SwitchToWorkspace {
+        name: workspace_name?,
+        cwd,
+    })
+}
+
+fn input_selector_switch_to_workspace_spawn_cwd_from_query(
+    value: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<Option<WindowInputSelectorValueParam>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut cwd = None;
+    let mut parsed_label = false;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if key.eq_ignore_ascii_case("cwd") {
+            if cwd.is_some() {
+                return None;
+            }
+            cwd = Some(input_selector_callback_value_param_from_query(
+                value,
+                id_param,
+                label_param,
+            )?);
+        } else if key.eq_ignore_ascii_case("label") {
+            if parsed_label || value.trim().is_empty() {
+                return None;
+            }
+            parsed_label = true;
+        } else {
+            return None;
+        }
+    }
+    Some(cwd)
+}
+
+fn input_selector_callback_value_param_from_query(
+    value: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<WindowInputSelectorValueParam> {
+    let value = lua_trim_start_comments(value.trim().trim_end_matches(',').trim())?;
+    let name = lua_identifier_literal_from_query(value)?;
+    if !lua_static_identifier_value_rest_is_statement_end(value.get(name.len()..)?) {
+        return None;
+    }
+    if name == id_param {
+        Some(WindowInputSelectorValueParam::Id)
+    } else if name == label_param {
+        Some(WindowInputSelectorValueParam::Label)
     } else {
         None
     }
@@ -55408,6 +55673,16 @@ impl WindowInputSelector {
 enum WindowInputSelectorAction {
     SendIdText,
     SendLabelText,
+    SwitchToWorkspace {
+        name: WindowInputSelectorValueParam,
+        cwd: Option<WindowInputSelectorValueParam>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowInputSelectorValueParam {
+    Id,
+    Label,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113923,6 +114198,29 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"Two");
+        assert!(app.input_selector.is_none());
+    }
+
+    #[test]
+    fn window_app_input_selector_static_action_callback_switches_workspace_from_choice() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Choose Workspace\", choices = { { id = \"C:/Users/me\", label = \"Home\" }, { id = \"C:/Users/me/work\", label = \"Work\" } }, alphabet = \"ab\", action = wezterm.action_callback(function(inner_window, inner_pane, id, label) if not id and not label then wezterm.log_info 'cancelled' else inner_window:perform_action(act.SwitchToWorkspace { name = label, spawn = { label = 'Workspace: ' .. label, cwd = id } }, inner_pane) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.app_shell.workspaces().len(), 2);
+        assert_eq!(app.app_shell.active_workspace().name(), "Work");
+        assert_eq!(launch.cwd(), Some("C:/Users/me/work"));
         assert!(app.input_selector.is_none());
     }
 
