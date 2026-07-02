@@ -1904,7 +1904,8 @@ keyboard, mouse, paste, resize
   plus static `pane:get_dimensions()` or
   `window:active_pane():get_dimensions()` field concatenations for `cols`,
   `viewport_rows`, `scrollback_rows`, `physical_top`, and `scrollback_top`
-  plus static `pane:is_alt_screen_active()` status branches with static
+  plus static `pane:is_alt_screen_active()` or
+  `window:active_pane():is_alt_screen_active()` status branches with static
   active/inactive strings
   plus static `pane:has_unseen_output()` status branches with static
   seen/unseen strings from active-pane unseen-output metadata

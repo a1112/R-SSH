@@ -10392,6 +10392,15 @@ fn lua_static_window_status_variable_text_from_query(
             "is_alt_screen_active",
             static_source.max_start,
         )
+        .or_else(|| {
+            lua_static_window_status_variable_active_pane_bool_method_text_before_offset(
+                static_source.source,
+                variable,
+                window_name,
+                "is_alt_screen_active",
+                static_source.max_start,
+            )
+        })
     {
         return Some(NativeLuaWindowStatusText::PaneAltScreen {
             active,
@@ -10777,6 +10786,54 @@ fn lua_static_window_status_variable_bool_method_text_from_statement(
         return None;
     };
     if lua_window_zero_arg_method_name_from_query(condition, window_name)? != method {
+        return None;
+    }
+
+    let active = lua_static_window_status_variable_static_assignment_from_body(body, variable)?;
+    let inactive = else_body.and_then(|body| {
+        lua_static_window_status_variable_static_assignment_from_body(body, variable)
+    });
+    Some((active, inactive))
+}
+
+fn lua_static_window_status_variable_active_pane_bool_method_text_before_offset(
+    source: &str,
+    variable: &str,
+    window_name: &str,
+    method: &str,
+    max_start: usize,
+) -> Option<(String, Option<String>)> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(value) =
+            lua_static_window_status_variable_active_pane_bool_method_text_from_statement(
+                statement,
+                variable,
+                window_name,
+                method,
+            )
+        {
+            selected = Some(value);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_status_variable_active_pane_bool_method_text_from_statement(
+    statement: &str,
+    variable: &str,
+    window_name: &str,
+    method: &str,
+) -> Option<(String, Option<String>)> {
+    let (branches, else_body, _) =
+        lua_static_if_condition_and_body_branches_and_else_from_statement(statement)?;
+    let [(condition, body)] = branches.as_slice() else {
+        return None;
+    };
+    if lua_window_active_pane_zero_arg_method_name_from_query(condition, window_name)? != method {
         return None;
     }
 
@@ -78399,6 +78456,39 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm pane is_alt_screen_active status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "main");
+
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "alt");
+
+        app.handle_pty_output(b"\x1b[?1049l").unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "main");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_pane_alt_screen_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local screen = 'main'
+              if window:active_pane():is_alt_screen_active() then
+                screen = 'alt'
+              else
+                screen = 'main'
+              end
+              window:set_right_status(screen)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active pane is_alt_screen_active status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
