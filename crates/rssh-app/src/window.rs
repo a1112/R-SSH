@@ -45511,6 +45511,14 @@ fn lua_action_callback_perform_action_command_body(
             pane_param,
         )
         .or_else(|| {
+            lua_callback_statement_sends_pane_text(
+                local_static_source,
+                static_source,
+                statement,
+                pane_param,
+            )
+        })
+        .or_else(|| {
             lua_callback_statement_emits_event(
                 local_static_source,
                 static_source,
@@ -45587,6 +45595,38 @@ fn native_key_assignment_command_from_callback_action(
             native_key_assignment_command_from_query(outer_static_source, value)
                 .or_else(|| native_key_assignment_command_from_query(None, value))
         })
+}
+
+fn lua_callback_statement_sends_pane_text(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    statement: &str,
+    pane_param: &str,
+) -> Option<WindowCommand> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = statement.strip_prefix(pane_param)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("send_text")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("send_text".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [text] = arguments.as_slice() else {
+        return None;
+    };
+    if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+        return None;
+    }
+    let text = lua_static_string_value_from_expression(static_source, outer_static_source, text)?;
+    Some(WindowCommand::SendString(text))
 }
 
 fn lua_callback_statement_emits_event(
@@ -93810,6 +93850,35 @@ mod tests {
             wezterm.on('send-greeting', function(window, pane)
               local send = act.SendString 'hello'
               window:perform_action(send, pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_sends_pane_text() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('send-greeting', function(window, pane)
+              pane:send_text('hello')
             end)
 
             return {}
