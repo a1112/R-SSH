@@ -1912,8 +1912,9 @@ keyboard, mouse, paste, resize
   seen/unseen strings from active-pane unseen-output metadata
   plus static `window:get_dimensions()` field concatenations for
   `pixel_width`, `pixel_height`, `dpi`, and `is_full_screen`
-  plus static `window:effective_config().font_size` field concatenations for
-  the configured font size
+  plus static `window:effective_config().font_size` and
+  `window:effective_config().default_workspace` field concatenations for
+  current effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,

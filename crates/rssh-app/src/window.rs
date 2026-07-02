@@ -11092,6 +11092,7 @@ fn lua_window_effective_config_field_from_query(
     }
     match field {
         "font_size" => Some(NativeLuaWindowEffectiveConfigField::FontSize),
+        "default_workspace" => Some(NativeLuaWindowEffectiveConfigField::DefaultWorkspace),
         _ => None,
     }
 }
@@ -25595,6 +25596,7 @@ enum NativeLuaWindowDimensionsField {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeLuaWindowEffectiveConfigField {
     FontSize,
+    DefaultWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41913,6 +41915,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::FontSize => {
                 native_lua_font_size_points_text(self.font_size)
             }
+            NativeLuaWindowEffectiveConfigField::DefaultWorkspace => self.default_workspace.clone(),
         }
     }
 
@@ -78942,6 +78945,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "font=13.5");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_default_workspace_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_workspace = 'ops'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('workspace=' .. window:effective_config().default_workspace)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_workspace status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "workspace=ops");
     }
 
     #[test]
