@@ -704,9 +704,10 @@ keyboard, mouse, paste, resize
   handlers with one or more top-level
   `window:perform_action(<implemented action>, pane)` calls run those native
   commands in order after typed native event dispatch, and top-level
-  `wezterm.emit(<static-event-name>, window, pane)` calls re-enter matching
-  static handlers. Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains
-  future parity work.
+  `wezterm.emit(<static-event-name>, window, pane)` calls, including through a
+  top-level static `local <alias> = wezterm.emit`, re-enter matching static
+  handlers. Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains future
+  parity work.
 - Completed in v1: native WezTerm-style `ActivateKeyTable`, `PopKeyTable`, and
   `ClearKeyTableStack` action payloads maintain a per-window key-table
   activation stack, expose the active table in native window status and the
