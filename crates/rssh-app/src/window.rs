@@ -45616,17 +45616,31 @@ fn lua_callback_statement_sends_pane_text(
         return None;
     }
     let rest = lua_trim_start_comments(rest.get("send_text".len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
-    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
-    let arguments = split_lua_top_level_arguments(arguments)?;
-    let [text] = arguments.as_slice() else {
-        return None;
-    };
-    if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
-        return None;
-    }
+    let text = lua_callback_statement_pane_text_argument_from_query(rest)?;
     let text = lua_static_string_value_from_expression(static_source, outer_static_source, text)?;
     Some(WindowCommand::SendString(text))
+}
+
+fn lua_callback_statement_pane_text_argument_from_query(rest: &str) -> Option<&str> {
+    let rest = lua_trim_start_comments(rest)?;
+    if let Some(rest) = rest.strip_prefix('(') {
+        let rest = lua_trim_start_comments(rest)?;
+        let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [text] = arguments.as_slice() else {
+            return None;
+        };
+        if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+            return None;
+        }
+        return Some(text);
+    }
+
+    let text = lua_top_level_statement_value_from_query(rest)?.trim();
+    let (_, literal_len) = lua_inline_string_literal_value_and_len(text)?;
+    lua_trim_start_comments(text.get(literal_len..)?)?
+        .is_empty()
+        .then_some(text)
 }
 
 fn lua_callback_statement_emits_event(
@@ -93879,6 +93893,35 @@ mod tests {
 
             wezterm.on('send-greeting', function(window, pane)
               pane:send_text('hello')
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_sends_parenless_pane_text() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('send-greeting', function(window, pane)
+              pane:send_text 'hello'
             end)
 
             return {}

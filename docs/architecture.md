@@ -704,8 +704,9 @@ keyboard, mouse, paste, resize
   handlers with one or more top-level
   `window:perform_action(<implemented action>, pane)` calls, including
   callback-local static action variables that resolve through top-level
-  `wezterm.action` aliases, or `pane:send_text(<static-text>)` calls, run those
-  native commands in order after typed native event dispatch, and top-level
+  `wezterm.action` aliases, or parenthesized and single-string
+  `pane:send_text(<static-text>)` calls, run those native commands in order
+  after typed native event dispatch, and top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls, including through a
   top-level static `local <alias> = wezterm.emit` and callback-local or
   top-level static string event-name variables, re-enter matching static
