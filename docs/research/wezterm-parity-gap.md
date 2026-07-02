@@ -1283,8 +1283,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   static options table variables, and static
   `action`/`cancel = wezterm.action_callback(...)` fields as
   native-handler placeholders. Static callback bodies that call
-  `window:perform_action(<implemented action>, pane)` now map the nested action
-  onto the existing native `WindowCommand` path for accept or cancel, and direct
+  `window:perform_action(<implemented action>, pane)`, including the documented
+  multi-line `act.SpawnCommandInNewWindow { args = { 'htop' } }` confirmation
+  shape, now map the nested action onto the existing native `WindowCommand`
+  path for accept or cancel, and direct
   `pane:send_text(<static-text>)` / `pane:send_paste(<static-text>)` callback
   bodies map accept or cancel callbacks onto native `SendString` / `SendPaste`
   paths. Static Lua `wezterm.format { { Text = ... } }` values for `message`

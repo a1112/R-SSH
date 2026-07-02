@@ -15409,6 +15409,7 @@ fn lua_top_level_statement_start_indices_before_offset(
     let mut long_bracket_end = None;
     let mut lua_block_depth = 0usize;
     let mut table_depth = 0usize;
+    let mut paren_depth = 0usize;
     let mut starts = Vec::new();
 
     for (index, character) in source.char_indices() {
@@ -15490,6 +15491,14 @@ fn lua_top_level_statement_start_indices_before_offset(
                 table_depth = table_depth.saturating_sub(1);
                 continue;
             }
+            '(' => {
+                paren_depth = paren_depth.saturating_add(1);
+                continue;
+            }
+            ')' => {
+                paren_depth = paren_depth.saturating_sub(1);
+                continue;
+            }
             _ => {}
         }
 
@@ -15515,6 +15524,7 @@ fn lua_top_level_statement_start_indices_before_offset(
 
         if lua_block_depth == 0
             && table_depth == 0
+            && paren_depth == 0
             && !character.is_whitespace()
             && lua_source_index_starts_statement(source, index)
         {
@@ -113789,6 +113799,45 @@ mod tests {
 
         assert_eq!(written.lock().unwrap().as_slice(), b"yes");
         assert!(app.confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_confirmation_documented_action_callback_spawns_new_window() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            r#"
+act.Confirmation {
+  message = 'Do you want to run htop in a new window?',
+  action = wezterm.action_callback(function(window, pane)
+    window:perform_action(
+      act.SpawnCommandInNewWindow { args = { 'htop' } },
+      pane
+    )
+  end),
+}
+"#
+            .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));
+
+        assert!(app.confirmation.is_none());
+        assert_eq!(app.app_shell.pending_windows().len(), 1);
+        let pending_window = app
+            .app_shell
+            .pending_windows()
+            .first()
+            .expect("spawn window should request a pending window");
+        let launch = pending_window.tab().panes()[0].launch();
+        assert_eq!(launch.program(), "htop");
+        assert!(launch.args().is_empty());
     }
 
     #[test]

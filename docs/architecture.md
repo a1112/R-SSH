@@ -700,8 +700,9 @@ keyboard, mouse, paste, resize
   from top-level static `wezterm.action` aliases. Parenthesized
   `Confirmation(confirm_opts)` calls also accept top-level static options table
   variables. Static callback bodies that call
-  `window:perform_action(<implemented action>, pane)` run the nested native
-  command, while `pane:send_text(<static-text>)` and
+  `window:perform_action(<implemented action>, pane)`, including the documented
+  multi-line `act.SpawnCommandInNewWindow { args = { 'htop' } }` confirmation
+  shape, run the nested native command, while `pane:send_text(<static-text>)` and
   `pane:send_paste(<static-text>)` map onto native `SendString` and `SendPaste`
   paths for accept or cancel callbacks. Styled confirmation rendering and
   actual Lua callback wiring remain future parity work.
