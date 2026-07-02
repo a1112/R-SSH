@@ -9740,6 +9740,11 @@ fn lua_static_window_and_pane_status_text_from_query(
         if lua_window_zero_arg_method_name_from_query(segment, window_name) == Some("window_id") {
             parts.push(NativeLuaWindowPaneStatusPart::WindowId);
             has_dynamic_part = true;
+        } else if lua_window_active_tab_zero_arg_method_name_from_query(segment, window_name)
+            == Some("get_title")
+        {
+            parts.push(NativeLuaWindowPaneStatusPart::ActiveTabTitle);
+            has_dynamic_part = true;
         } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
         {
             parts.push(NativeLuaWindowPaneStatusPart::PaneId);
@@ -10895,6 +10900,44 @@ fn lua_window_zero_arg_method_name_from_query<'a>(
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if !lua_config_assignment_field_has_boundaries(rest, 0, method) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty()
+        || !lua_trim_start_comments(rest)?.is_empty()
+    {
+        return None;
+    }
+    Some(method)
+}
+
+fn lua_window_active_tab_zero_arg_method_name_from_query<'a>(
+    value: &'a str,
+    window_name: &str,
+) -> Option<&'a str> {
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let accessor = lua_identifier_literal_from_query(rest)?;
+    if accessor != "active_tab" || !lua_config_assignment_field_has_boundaries(rest, 0, accessor) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(accessor.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+
     let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
     let rest = lua_trim_start_comments(rest)?;
     let method = lua_identifier_literal_from_query(rest)?;
@@ -25283,6 +25326,7 @@ enum NativeLuaWindowStatusText {
 enum NativeLuaWindowPaneStatusPart {
     Static(String),
     WindowId,
+    ActiveTabTitle,
     PaneId,
     PaneTitle,
     PaneDomainName,
@@ -41467,6 +41511,11 @@ impl NativeWindowApp {
                 .map(|part| match part {
                     NativeLuaWindowPaneStatusPart::Static(text) => text,
                     NativeLuaWindowPaneStatusPart::WindowId => self.app_window_id.get().to_string(),
+                    NativeLuaWindowPaneStatusPart::ActiveTabTitle => {
+                        tab_title_override(self.app_shell.active_tab())
+                            .unwrap_or_default()
+                            .to_owned()
+                    }
                     NativeLuaWindowPaneStatusPart::PaneId => {
                         self.app_shell.active_pane_id().get().to_string()
                     }
@@ -78036,6 +78085,33 @@ mod tests {
         app.dispatch_update_status();
 
         assert_eq!(app.right_status, "title=PowerShell");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_tab_title_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tab=' .. window:active_tab():get_title())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab get_title status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: app.app_shell.active_tab_id(),
+            title: "build".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=build");
     }
 
     #[test]
