@@ -3768,7 +3768,7 @@ struct NativeConfigOverrides {
     mouse_assignments: Option<Vec<NativeUserMouseAssignment>>,
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
-    lua_update_status: Option<NativeWindowStatusUpdate>,
+    lua_update_status: Option<NativeLuaWindowStatusUpdate>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     lua_command_palette_entries: Option<Vec<NativeCommandPaletteEntry>>,
@@ -5919,7 +5919,7 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 
 fn lua_static_wezterm_status_update_event_from_query(
     source: &str,
-) -> Option<NativeWindowStatusUpdate> {
+) -> Option<NativeLuaWindowStatusUpdate> {
     let mut selected = None;
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         if let Some(update) = lua_static_wezterm_status_update_event_from_statement(source, start) {
@@ -5932,7 +5932,7 @@ fn lua_static_wezterm_status_update_event_from_query(
 fn lua_static_wezterm_status_update_event_from_statement(
     source: &str,
     start: usize,
-) -> Option<NativeWindowStatusUpdate> {
+) -> Option<NativeLuaWindowStatusUpdate> {
     let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, rest) =
@@ -9515,8 +9515,8 @@ fn lua_static_status_update_from_function_body(
     body: &str,
     window_name: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
-) -> Option<NativeWindowStatusUpdate> {
-    let mut update = NativeWindowStatusUpdate {
+) -> Option<NativeLuaWindowStatusUpdate> {
+    let mut update = NativeLuaWindowStatusUpdate {
         left_status: None,
         right_status: None,
     };
@@ -9556,7 +9556,7 @@ fn lua_static_window_status_setter_from_statement(
     outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     method: &str,
-) -> Option<String> {
+) -> Option<NativeLuaWindowStatusText> {
     let rest = statement.strip_prefix(window_name)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
@@ -9576,17 +9576,20 @@ fn lua_static_window_status_setter_from_statement(
         return lua_static_window_status_text_from_parenthesized_argument(
             static_source,
             outer_static_source,
+            window_name,
             argument,
         );
     }
-    lua_inline_string_literal_value_and_len(rest).map(|(status, _)| status)
+    lua_inline_string_literal_value_and_len(rest)
+        .map(|(status, _)| NativeLuaWindowStatusText::Static(status))
 }
 
 fn lua_static_window_status_text_from_parenthesized_argument(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
+    window_name: &str,
     argument: &str,
-) -> Option<String> {
+) -> Option<NativeLuaWindowStatusText> {
     let argument = lua_trim_start_comments(argument)?;
     if let Some(static_source) = static_source
         && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
@@ -9598,6 +9601,7 @@ fn lua_static_window_status_text_from_parenthesized_argument(
         return lua_static_window_status_text_from_query(
             Some(static_source),
             outer_static_source,
+            window_name,
             value,
         );
     }
@@ -9608,23 +9612,65 @@ fn lua_static_window_status_text_from_parenthesized_argument(
             outer_static_source.max_start,
         )
     {
-        return lua_static_window_status_text_from_query(None, Some(outer_static_source), value);
+        return lua_static_window_status_text_from_query(
+            None,
+            Some(outer_static_source),
+            window_name,
+            value,
+        );
     }
-    lua_static_window_status_text_from_query(static_source, outer_static_source, argument)
+    lua_static_window_status_text_from_query(
+        static_source,
+        outer_static_source,
+        window_name,
+        argument,
+    )
 }
 
 fn lua_static_window_status_text_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
+    window_name: &str,
     value: &str,
-) -> Option<String> {
+) -> Option<NativeLuaWindowStatusText> {
     let argument = lua_trim_start_comments(value)?;
     if let Some(status) =
         lua_static_string_value_from_expression(static_source, outer_static_source, argument)
     {
+        return Some(NativeLuaWindowStatusText::Static(status));
+    }
+    if let Some(status) = lua_window_status_method_text_from_query(argument, window_name) {
         return Some(status);
     }
     wezterm_format_status_text_from_query(static_source, outer_static_source, argument)
+        .map(NativeLuaWindowStatusText::Static)
+}
+
+fn lua_window_status_method_text_from_query(
+    value: &str,
+    window_name: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    const ACTIVE_WORKSPACE: &str = "active_workspace";
+    if !rest.starts_with(ACTIVE_WORKSPACE)
+        || !lua_config_assignment_field_has_boundaries(rest, 0, ACTIVE_WORKSPACE)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(ACTIVE_WORKSPACE.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    lua_trim_start_comments(rest)?
+        .is_empty()
+        .then_some(NativeLuaWindowStatusText::ActiveWorkspace)
 }
 
 fn lua_inline_string_literal_value_and_len(value: &str) -> Option<(String, usize)> {
@@ -23931,6 +23977,18 @@ struct NativeWindowStatusUpdate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaWindowStatusUpdate {
+    left_status: Option<NativeLuaWindowStatusText>,
+    right_status: Option<NativeLuaWindowStatusText>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaWindowStatusText {
+    Static(String),
+    ActiveWorkspace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaOpenUri {
     Static {
         allow_default: bool,
@@ -24397,7 +24455,7 @@ struct NativeWindowApp {
     right_status: String,
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
-    lua_update_status: Option<NativeWindowStatusUpdate>,
+    lua_update_status: Option<NativeLuaWindowStatusUpdate>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     lua_command_palette_entries: Vec<NativeCommandPaletteEntry>,
@@ -40014,14 +40072,23 @@ impl NativeWindowApp {
         }
         if let Some(update) = self.lua_update_status.clone() {
             if let Some(left_status) = update.left_status {
-                self.left_status = left_status;
+                self.left_status = self.lua_window_status_text(left_status);
             }
             if let Some(right_status) = update.right_status {
-                self.right_status = right_status;
+                self.right_status = self.lua_window_status_text(right_status);
             }
         }
         if let Some(right_status) = (self.update_right_status_handler)(&event) {
             self.right_status = right_status;
+        }
+    }
+
+    fn lua_window_status_text(&self, status: NativeLuaWindowStatusText) -> String {
+        match status {
+            NativeLuaWindowStatusText::Static(status) => status,
+            NativeLuaWindowStatusText::ActiveWorkspace => {
+                self.app_shell.active_workspace().name().to_owned()
+            }
         }
     }
 
@@ -64769,25 +64836,26 @@ mod tests {
         NativeIntegratedTitleButton, NativeIntegratedTitleButtonAlignment,
         NativeIntegratedTitleButtonColor, NativeIntegratedTitleButtonStyle, NativeKeyMapPreference,
         NativeLaunchMenuCommand, NativeLaunchMenuItem, NativeLeaderKey, NativeLineHeight,
-        NativeLuaNewTabButtonClick, NativeLuaOpenUri, NativeLuaTabTitle, NativeLuaWindowTitle,
-        NativeMouseAssignmentAltScreen, NativeMouseAssignmentButton, NativeMouseAssignmentEvent,
-        NativeMouseAssignmentEventKind, NativeNotificationHandling, NativePalette,
-        NativePromptInputLine, NativeQuoteDroppedFiles, NativeRenderFrontEnd,
-        NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain, NativeShellAssumption,
-        NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain, NativeSshMultiplexing,
-        NativeStrikethroughPosition, NativeTabBarItemColors, NativeTabBarStyle, NativeTabTitle,
-        NativeTextBackgroundOpacity, NativeTextMinContrastRatio, NativeTlsClientDomain,
-        NativeTlsServerDomain, NativeUiKeyCapRendering, NativeUnderlinePosition,
-        NativeUnderlineThickness, NativeUnixDomain, NativeUserKeyAssignment,
-        NativeUserMouseAssignment, NativeVerticalContentAlignment, NativeVisualBell,
-        NativeVisualBellTarget, NativeWebGpuPowerPreference, NativeWebGpuPreferredAdapter,
-        NativeWin32SystemBackdrop, NativeWindowApp, NativeWindowBackgroundGradient,
-        NativeWindowBackgroundGradientBlend, NativeWindowBackgroundGradientInterpolation,
-        NativeWindowBackgroundGradientOrientation, NativeWindowBackgroundGradientPreset,
-        NativeWindowBackgroundGradientSegment, NativeWindowBell, NativeWindowCloseConfirmation,
-        NativeWindowConfigReloaded, NativeWindowContentAlignment, NativeWindowDecorations,
-        NativeWindowEmitEvent, NativeWindowFocusChange, NativeWindowFrameAppearance,
-        NativeWindowLevel, NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
+        NativeLuaNewTabButtonClick, NativeLuaOpenUri, NativeLuaTabTitle, NativeLuaWindowStatusText,
+        NativeLuaWindowStatusUpdate, NativeLuaWindowTitle, NativeMouseAssignmentAltScreen,
+        NativeMouseAssignmentButton, NativeMouseAssignmentEvent, NativeMouseAssignmentEventKind,
+        NativeNotificationHandling, NativePalette, NativePromptInputLine, NativeQuoteDroppedFiles,
+        NativeRenderFrontEnd, NativeResolvedPalette, NativeScrollBarHeight, NativeSerialDomain,
+        NativeShellAssumption, NativeSquareGlyphOverflow, NativeSshBackend, NativeSshDomain,
+        NativeSshMultiplexing, NativeStrikethroughPosition, NativeTabBarItemColors,
+        NativeTabBarStyle, NativeTabTitle, NativeTextBackgroundOpacity, NativeTextMinContrastRatio,
+        NativeTlsClientDomain, NativeTlsServerDomain, NativeUiKeyCapRendering,
+        NativeUnderlinePosition, NativeUnderlineThickness, NativeUnixDomain,
+        NativeUserKeyAssignment, NativeUserMouseAssignment, NativeVerticalContentAlignment,
+        NativeVisualBell, NativeVisualBellTarget, NativeWebGpuPowerPreference,
+        NativeWebGpuPreferredAdapter, NativeWin32SystemBackdrop, NativeWindowApp,
+        NativeWindowBackgroundGradient, NativeWindowBackgroundGradientBlend,
+        NativeWindowBackgroundGradientInterpolation, NativeWindowBackgroundGradientOrientation,
+        NativeWindowBackgroundGradientPreset, NativeWindowBackgroundGradientSegment,
+        NativeWindowBell, NativeWindowCloseConfirmation, NativeWindowConfigReloaded,
+        NativeWindowContentAlignment, NativeWindowDecorations, NativeWindowEmitEvent,
+        NativeWindowFocusChange, NativeWindowFrameAppearance, NativeWindowLevel,
+        NativeWindowManager, NativeWindowNewTabButtonClick, NativeWindowOpenUri,
         NativeWindowPadding, NativeWindowPaddingDimension, NativeWindowResize,
         NativeWindowStatusUpdate, NativeWindowStatusUpdateEvent, NativeWindowUserVarChange,
         NativeWslDomain, PaneLaunch, ProcessCwdCandidate, ResizeDirection, SearchDirection,
@@ -76157,6 +76225,28 @@ mod tests {
             tab_bar.ends_with("RIGHT-LEGACY-LUA"),
             "tab bar was {tab_bar:?}"
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_right_status_active_workspace_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let mut overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-right-status', function(window, pane)
+              window:set_right_status(window:active_workspace())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active workspace status setter");
+        overrides.default_workspace = Some("ops".to_owned());
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.app_shell.active_workspace().name(), "ops");
+        assert_eq!(app.right_status, "ops");
     }
 
     #[test]
@@ -119858,9 +119948,9 @@ act.Confirmation {
                 "Lua Tab".to_owned(),
             ))),
             lua_window_title: Some(NativeLuaWindowTitle::Static("Lua Title".to_owned())),
-            lua_update_status: Some(NativeWindowStatusUpdate {
-                left_status: Some("LEFT".to_owned()),
-                right_status: Some("RIGHT".to_owned()),
+            lua_update_status: Some(NativeLuaWindowStatusUpdate {
+                left_status: Some(NativeLuaWindowStatusText::Static("LEFT".to_owned())),
+                right_status: Some(NativeLuaWindowStatusText::Static("RIGHT".to_owned())),
             }),
             lua_open_uri: Some(NativeLuaOpenUri::Static {
                 allow_default: false,
