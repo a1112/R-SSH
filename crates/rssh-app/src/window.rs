@@ -9733,6 +9733,11 @@ fn lua_static_window_and_pane_status_text_from_query(
         {
             parts.push(NativeLuaWindowPaneStatusPart::PaneDomainName);
             has_dynamic_part = true;
+        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
+            == Some("get_current_working_dir")
+        {
+            parts.push(NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir);
+            has_dynamic_part = true;
         } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
             parts.push(NativeLuaWindowPaneStatusPart::Static(text));
         } else {
@@ -24583,6 +24588,7 @@ enum NativeLuaWindowPaneStatusPart {
     PaneId,
     PaneTitle,
     PaneDomainName,
+    PaneCurrentWorkingDir,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40733,6 +40739,13 @@ impl NativeWindowApp {
                         .pane_title(self.app_shell.active_pane_id())
                         .unwrap_or_default(),
                     NativeLuaWindowPaneStatusPart::PaneDomainName => "local".to_owned(),
+                    NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir => self
+                        .app_shell
+                        .active_pane()
+                        .launch()
+                        .cwd()
+                        .unwrap_or_default()
+                        .to_owned(),
                 })
                 .collect::<String>(),
             NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => self
@@ -77178,6 +77191,28 @@ mod tests {
         app.dispatch_update_status();
 
         assert_eq!(app.right_status, "domain=local");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_cwd_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cwd=' .. pane:get_current_working_dir())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_current_working_dir status setter");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]7;file://host/home/ops\x07")
+            .unwrap();
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.right_status, "cwd=file://host/home/ops");
     }
 
     #[test]

@@ -1667,8 +1667,9 @@ runtime storage for tabs and split panes.
   `window:window_id()` resolve the native window id, static concatenations
   with callback `pane:pane_id()` resolve the active pane id,
   `pane:get_title()` resolves the active pane title, `pane:get_domain_name()`
-  resolves the active pane domain, and static `window:get_dimensions()` field
-  concatenations expose native
+  resolves the active pane domain, `pane:get_current_working_dir()` resolves
+  the active pane current working directory, and static `window:get_dimensions()`
+  field concatenations expose native
   `pixel_width`, `pixel_height`, `dpi`, and `is_full_screen`. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
