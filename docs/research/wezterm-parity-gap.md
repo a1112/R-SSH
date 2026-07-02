@@ -1200,12 +1200,13 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.action_callback` execution remain open.
 - Native `InputSelector` action payloads now carry `title`, `choices`, optional
   `alphabet`, optional `description`, optional `fuzzy_description`, and `fuzzy`,
-  open a modal selector, support default-mode alphabet shortcuts, `/` fuzzy
-  filtering, `j`/`k` plus arrow/Ctrl movement, Enter selection, and
-  left-click row selection, plus Escape/`Ctrl+C`/`Ctrl+G` cancellation.
-  Default-mode text that is not in `alphabet` is ignored until fuzzy mode is
-  entered, matching WezTerm's split between shortcut selection and fuzzy
-  filtering. The selector dispatches selected `id`/`label` or cancel `None`
+  open a modal selector, support default-mode alphabet shortcuts plus WezTerm's
+  `1`-`9` direct choice selection, `/` fuzzy filtering, `j`/`k` plus arrow/Ctrl
+  movement, Enter selection, and left-click row selection, plus
+  Escape/`Ctrl+C`/`Ctrl+G` cancellation. Default-mode text that is not in
+  `alphabet` or a valid numeric choice is ignored until fuzzy mode is entered,
+  matching WezTerm's split between shortcut selection and fuzzy filtering. The
+  selector dispatches selected `id`/`label` or cancel `None`
   values through a typed native handler.
   Structured
   command-palette `input selector title <text> choices <id=label ; id=label>

@@ -29971,9 +29971,18 @@ impl NativeWindowApp {
         if text_chars.next().is_some() {
             return None;
         }
+        let choices = Self::input_selector_filtered_choices(input_selector);
+        if input_selector.shortcut_prefix.is_empty()
+            && let Some(index) = target
+                .to_digit(10)
+                .filter(|digit| (1..=9).contains(digit))
+                .and_then(|digit| usize::try_from(digit - 1).ok())
+            && let Some(choice) = choices.get(index)
+        {
+            return Some(WindowInputSelectorShortcut::Execute(choice.clone()));
+        }
         let target = target.to_lowercase().to_string();
         let candidate = format!("{}{}", input_selector.shortcut_prefix, target);
-        let choices = Self::input_selector_filtered_choices(input_selector);
         let labels = quick_select_labels_for_alphabet(&input_selector.alphabet, choices.len());
 
         for (choice, label) in choices.iter().cloned().zip(labels.iter()) {
@@ -115655,6 +115664,53 @@ mod tests {
         );
         assert!(
             app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        assert!(app.input_selector.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeInputSelector {
+                window_id: rssh_core::WindowId::new(1),
+                pane: rssh_core::PaneId::new(1),
+                id: Some("lgtm".to_owned()),
+                label: Some("LGTM".to_owned()),
+            }]
+        );
+    }
+
+    #[test]
+    fn window_app_input_selector_default_mode_number_selects_choice() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.input_selector_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(event.clone());
+            true
+        });
+
+        assert!(app.command_palette_execute(WindowCommand::InputSelector(
+            WindowInputSelectorOptions {
+                title: "Pick Reply".to_owned(),
+                choices: vec![
+                    WindowInputSelectorChoice {
+                        label: "No thanks".to_owned(),
+                        id: Some("decline".to_owned()),
+                    },
+                    WindowInputSelectorChoice {
+                        label: "LGTM".to_owned(),
+                        id: Some("lgtm".to_owned()),
+                    },
+                ],
+                alphabet: Some("ab".to_owned()),
+                description: Some("Choose:".to_owned()),
+                fuzzy_description: None,
+                fuzzy: false,
+                action: None,
+            },
+        )));
+
+        assert!(
+            app.handle_input_selector_key(&Key::Character("2".into()), ModifiersState::empty())
         );
 
         assert!(app.input_selector.is_none());

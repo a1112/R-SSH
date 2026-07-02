@@ -500,12 +500,12 @@ runtime storage for tabs and split panes.
 - `rssh-app` exposes a native WezTerm-style `InputSelector` action payload with
   `title`, `choices`, `fuzzy`, `alphabet`, `description`, and
   `fuzzy_description`. It opens a modal selector, supports default-mode alphabet
-  shortcuts, `/` fuzzy filtering, `j`/`k` and arrow/Ctrl movement, Enter
-  selection, and Escape/`Ctrl+C`/`Ctrl+G` cancellation. Default-mode text that
-  is not in `alphabet` is ignored until fuzzy mode is entered, matching
-  WezTerm's split between shortcut selection and fuzzy filtering. The selector
-  dispatches a typed native handler with selected `id`/`label` or `None` values
-  on cancel. The
+  shortcuts plus WezTerm's `1`-`9` direct choice selection, `/` fuzzy filtering,
+  `j`/`k` and arrow/Ctrl movement, Enter selection, and Escape/`Ctrl+C`/`Ctrl+G`
+  cancellation. Default-mode text that is not in `alphabet` or a valid numeric
+  choice is ignored until fuzzy mode is entered, matching WezTerm's split
+  between shortcut selection and fuzzy filtering. The selector dispatches a
+  typed native handler with selected `id`/`label` or `None` values on cancel. The
   structured command-palette query `input selector title <text> choices
   <id=label ; id=label> [alphabet <chars>] [description <text>]
   [fuzzy_description <text>] [fuzzy true|false|fuzzy=true|false]` dispatches

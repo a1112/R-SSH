@@ -646,10 +646,11 @@ keyboard, mouse, paste, resize
 - Completed in v1: a native WezTerm-style `InputSelector` action payload carries
   `title`, `choices`, optional `alphabet`, optional `description`, optional
   `fuzzy_description`, and `fuzzy`; it opens a modal selector with default-mode
-  alphabet shortcuts, `/` fuzzy filtering, `j`/`k` plus arrow/Ctrl movement,
-  Enter or left-click row selection, and Escape/`Ctrl+C`/`Ctrl+G` cancellation.
-  The typed native handler receives selected `id`/`label` or `None` values on
-  cancel. Structured command-palette query fields for `input selector ...` and
+  alphabet shortcuts plus WezTerm's `1`-`9` direct choice selection, `/` fuzzy
+  filtering, `j`/`k` plus arrow/Ctrl movement, Enter or left-click row
+  selection, and Escape/`Ctrl+C`/`Ctrl+G` cancellation. The typed native handler
+  receives selected `id`/`label` or `None` values on cancel. Structured
+  command-palette query fields for `input selector ...` and
   action-name `inputselector ...` title/alphabet/description/fuzzy_description use
   quote-aware parsing; `fuzzy_description`, `fuzzy description`, and
   `fuzzy-description` field keys are accepted, selector fields support both
