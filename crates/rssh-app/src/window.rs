@@ -30864,6 +30864,41 @@ impl NativeWindowApp {
                     eprintln!("quick-select send-string failed: {error}");
                 }
             }
+            WindowQuickSelectAction::SendSelectedText => {
+                if paste {
+                    if let Err(error) = self.paste_selected_text_to_pane() {
+                        eprintln!("quick-select paste failed: {error}");
+                    }
+                }
+                if paste && skip_action_on_paste {
+                    return;
+                }
+                if let Some(text) = self.selected_text()
+                    && let Err(error) = self.write_pty_bytes(text.as_bytes())
+                {
+                    eprintln!("quick-select send-selected-text failed: {error}");
+                }
+            }
+            WindowQuickSelectAction::PasteSelectedText => {
+                if paste {
+                    if let Err(error) = self.paste_selected_text_to_pane() {
+                        eprintln!("quick-select paste failed: {error}");
+                    }
+                }
+                if paste && skip_action_on_paste {
+                    return;
+                }
+                if let Some(text) = self.selected_text() {
+                    let bytes = encode_window_paste(
+                        &text,
+                        self.runtime.bracketed_paste(),
+                        self.canonicalize_pasted_newlines,
+                    );
+                    if let Err(error) = self.write_pty_bytes(&bytes) {
+                        eprintln!("quick-select paste-selected-text failed: {error}");
+                    }
+                }
+            }
             WindowQuickSelectAction::SendKey(send_key) => {
                 if paste {
                     if let Err(error) = self.paste_selected_text_to_pane() {
@@ -42306,6 +42341,8 @@ enum WindowQuickSelectAction {
     Nop,
     PasteFrom(WindowPasteSource),
     SendString(String),
+    SendSelectedText,
+    PasteSelectedText,
     SendKey(WindowSendKey),
     EmitEvent(WindowEmitEvent),
     Multiple(Vec<WindowCommand>),
@@ -54232,6 +54269,9 @@ fn quick_select_action_callback_or_key_assignment_from_query(
             &value,
         );
     }
+    if let Some(action) = quick_select_selected_text_action_callback_from_query(value) {
+        return Some(action);
+    }
     if let Some(command) =
         lua_action_callback_perform_action_command_with_static_source(static_source, value)
         && let Some(action) = quick_select_action_from_window_command(command)
@@ -54243,6 +54283,101 @@ fn quick_select_action_callback_or_key_assignment_from_query(
     }
     let action = parse_maybe_quoted_query_text(value)?;
     quick_select_action_from_value(&action)
+}
+
+fn quick_select_selected_text_action_callback_from_query(
+    value: &str,
+) -> Option<WindowQuickSelectAction> {
+    let callback = strip_lua_function_call_from_query(value, "wezterm.action_callback")
+        .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
+    let (body, window_param, pane_param, _) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(callback)?;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(action) = quick_select_selected_text_action_from_callback_statement(
+            statement,
+            window_param,
+            pane_param,
+        )? {
+            return Some(action);
+        }
+    }
+    None
+}
+
+fn quick_select_selected_text_action_from_callback_statement(
+    statement: &str,
+    window_param: &str,
+    pane_param: &str,
+) -> Option<Option<WindowQuickSelectAction>> {
+    let statement = lua_trim_start_comments(statement)?;
+    let Some(rest) = statement.strip_prefix(pane_param) else {
+        return Some(None);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(None);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (command_name, action) = if rest.starts_with("send_text")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
+    {
+        ("send_text", WindowQuickSelectAction::SendSelectedText)
+    } else if rest.starts_with("send_paste")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_paste")
+    {
+        ("send_paste", WindowQuickSelectAction::PasteSelectedText)
+    } else {
+        return Some(None);
+    };
+    let rest = lua_trim_start_comments(rest.get(command_name.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return Some(None);
+    };
+    if !quick_select_callback_argument_is_selected_text(argument.trim(), window_param, pane_param)?
+        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    {
+        return Some(None);
+    }
+    Some(Some(action))
+}
+
+fn quick_select_callback_argument_is_selected_text(
+    argument: &str,
+    window_param: &str,
+    pane_param: &str,
+) -> Option<bool> {
+    let argument = lua_trim_start_comments(argument)?;
+    let Some(rest) = argument.strip_prefix(window_param) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("get_selection_text_for_pane")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "get_selection_text_for_pane")
+    {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest.get("get_selection_text_for_pane".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [pane] = arguments.as_slice() else {
+        return Some(false);
+    };
+    let pane = lua_trim_start_comments(pane.trim())?;
+    let name = lua_identifier_literal_from_query(pane)?;
+    Some(
+        name == pane_param
+            && lua_static_identifier_value_rest_is_statement_end(pane.get(name.len()..)?)
+            && rest.trim().is_empty(),
+    )
 }
 
 fn normalized_quick_select_lua_field(field: &str) -> String {
@@ -126719,6 +126854,128 @@ mod tests {
         assert!(app.quick_select.is_none());
         assert!(app.selection.is_none());
         assert_eq!(written.lock().unwrap().as_slice(), b"picked-ticket");
+        assert!(copied.lock().unwrap().is_empty());
+        assert!(primary_copied.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_callback_sends_selected_text() {
+        let query = "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action_callback(function(window, pane) pane:send_text(window:get_selection_text_for_pane(pane)) end) }";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            action: Some(WindowQuickSelectAction::SendSelectedText),
+            ..WindowQuickSelectOptions::default()
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
+        );
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(
+            quick_select.action,
+            WindowQuickSelectAction::SendSelectedText
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        let label = quick_select.labels[0].clone();
+
+        assert!(app.handle_quick_select_logical_key(
+            &Key::Character(label.into()),
+            ModifiersState::empty()
+        ));
+
+        assert!(app.quick_select.is_none());
+        assert!(app.selection.is_none());
+        assert_eq!(written.lock().unwrap().as_slice(), b"ticket-1234");
+        assert!(copied.lock().unwrap().is_empty());
+        assert!(primary_copied.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_callback_pastes_selected_text() {
+        let query = "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action_callback(function(window, pane) pane:send_paste(window:get_selection_text_for_pane(pane)) end) }";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            action: Some(WindowQuickSelectAction::PasteSelectedText),
+            ..WindowQuickSelectOptions::default()
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
+        );
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(
+            quick_select.action,
+            WindowQuickSelectAction::PasteSelectedText
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        let label = quick_select.labels[0].clone();
+
+        assert!(app.handle_quick_select_logical_key(
+            &Key::Character(label.into()),
+            ModifiersState::empty()
+        ));
+
+        assert!(app.quick_select.is_none());
+        assert!(app.selection.is_none());
+        let expected =
+            encode_window_paste("ticket-1234", true, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
         assert!(copied.lock().unwrap().is_empty());
         assert!(primary_copied.lock().unwrap().is_empty());
     }

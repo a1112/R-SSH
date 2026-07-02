@@ -2499,9 +2499,15 @@ keyboard, mouse, paste, resize
   scope_lines }` payloads, while local `quick select ...` query aliases keep the
   internal command-palette entry path. It also accepts static
   `QuickSelectArgs.action = wezterm.action_callback(...)` values as
-  native-handler placeholders, skips trailing-comma table fields, and resolves
-  top-level static action variables for `QuickSelectArgs.action` inside static
-  WezTerm-style `config.keys`; arbitrary custom action execution remains open.
+  native-handler placeholders, maps
+  `window:perform_action(<implemented action>, pane)` callback bodies onto the
+  corresponding native quick-select action subset, and supports
+  `pane:send_text(window:get_selection_text_for_pane(pane))` /
+  `pane:send_paste(window:get_selection_text_for_pane(pane))` callbacks that
+  send or paste the selected match. Lua table parsing skips trailing-comma
+  fields and resolves top-level static action variables for
+  `QuickSelectArgs.action` inside static WezTerm-style `config.keys`; arbitrary
+  custom action execution remains open.
 
 ## Technology Choices
 

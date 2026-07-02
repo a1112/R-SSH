@@ -1154,8 +1154,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   custom actions as native-handler placeholders. Static callback bodies that
   call `window:perform_action(<implemented action>, pane)` now map the nested
   action onto the existing native `WindowCommand` path, including clipboard,
-  paste, send-string, event, multiple-action, key-table, and no-op subsets,
-  while arbitrary Lua callback execution remains open.
+  paste, send-string, event, multiple-action, key-table, and no-op subsets.
+  Static callback bodies that call
+  `pane:send_text(window:get_selection_text_for_pane(pane))` or
+  `pane:send_paste(window:get_selection_text_for_pane(pane))` send or paste the
+  selected quick-select match through the active pane, while arbitrary Lua
+  callback execution remains open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
   WezTerm's `"> "` default prompt when `prompt` is omitted, submit `Some(line)`
