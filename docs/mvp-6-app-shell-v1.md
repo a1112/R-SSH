@@ -1664,8 +1664,10 @@ runtime storage for tabs and split panes.
   into the same status state, and the documented
   `window:set_right_status(window:active_workspace())` shape resolves the
   current workspace at status-update time. Static string concatenations with
-  `window:window_id()` resolve the native window id. The documented key-table
-  status example resolves `window:active_key_table()` at status-update time, applies
+  `window:window_id()` resolve the native window id, and static
+  `window:get_dimensions()` field concatenations expose native
+  `pixel_width`, `pixel_height`, `dpi`, and `is_full_screen`. The documented
+  key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
   to an empty right status for an empty key-table stack. The documented
   leader-status example resolves `window:leader_is_active()` and switches

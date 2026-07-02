@@ -1882,6 +1882,8 @@ keyboard, mouse, paste, resize
   `window:set_left_status(...)` and `window:set_right_status(...)` calls plus
   the documented `window:set_right_status(window:active_workspace())` shape
   plus static string concatenations with `window:window_id()`
+  plus static `window:get_dimensions()` field concatenations for
+  `pixel_width`, `pixel_height`, `dpi`, and `is_full_screen`
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,

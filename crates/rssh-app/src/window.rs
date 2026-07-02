@@ -9654,6 +9654,15 @@ fn lua_static_window_status_text_from_query(
     {
         return Some(status);
     }
+    if let Some(static_source) = static_source
+        && let Some(status) = lua_static_window_dimensions_status_text_from_query(
+            static_source,
+            window_name,
+            argument,
+        )
+    {
+        return Some(status);
+    }
     if let Some(status) = lua_static_window_id_status_text_from_query(window_name, argument) {
         return Some(status);
     }
@@ -9690,6 +9699,109 @@ fn lua_static_window_id_status_text_from_query(
     }
 
     has_window_id.then_some(NativeLuaWindowStatusText::WindowId { prefix, suffix })
+}
+
+fn lua_static_window_dimensions_status_text_from_query(
+    static_source: LuaStaticSource<'_>,
+    window_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let variable = lua_static_window_dimensions_variable_before_offset(
+        static_source.source,
+        window_name,
+        static_source.max_start,
+    )?;
+    let mut parts = Vec::new();
+    let mut has_dynamic_part = false;
+
+    for segment in split_lua_string_concat_segments(value)? {
+        let segment = segment.trim();
+        if let Some(field) = lua_static_window_dimensions_field_from_query(segment, &variable) {
+            parts.push(NativeLuaWindowDimensionsStatusPart::Field(field));
+            has_dynamic_part = true;
+        } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
+            parts.push(NativeLuaWindowDimensionsStatusPart::Static(text));
+        } else {
+            return None;
+        }
+    }
+
+    has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowDimensions { parts })
+}
+
+fn lua_static_window_dimensions_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_dimensions_variable_from_statement(statement, window_name)
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_dimensions_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if lua_window_zero_arg_method_name_from_query(value, window_name)? != "get_dimensions" {
+        return None;
+    }
+    Some(variable.to_owned())
+}
+
+fn lua_static_window_dimensions_field_from_query(
+    value: &str,
+    variable: &str,
+) -> Option<NativeLuaWindowDimensionsField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if !lua_trim_start_comments(rest.get(field.len()..)?)?.is_empty() {
+        return None;
+    }
+    match field {
+        "pixel_width" => Some(NativeLuaWindowDimensionsField::PixelWidth),
+        "pixel_height" => Some(NativeLuaWindowDimensionsField::PixelHeight),
+        "dpi" => Some(NativeLuaWindowDimensionsField::Dpi),
+        "is_full_screen" => Some(NativeLuaWindowDimensionsField::IsFullScreen),
+        _ => None,
+    }
 }
 
 fn lua_static_keyboard_modifiers_status_text_from_query(
@@ -9801,6 +9913,7 @@ fn lua_static_window_status_variable_text_from_query(
             | NativeLuaWindowStatusText::WindowId { .. }
             | NativeLuaWindowStatusText::Leader { .. }
             | NativeLuaWindowStatusText::Focus { .. }
+            | NativeLuaWindowStatusText::WindowDimensions { .. }
             | NativeLuaWindowStatusText::KeyboardModifiers { .. } => {}
         }
         return Some(status);
@@ -24408,9 +24521,26 @@ enum NativeLuaWindowStatusText {
         focused: String,
         unfocused: String,
     },
+    WindowDimensions {
+        parts: Vec<NativeLuaWindowDimensionsStatusPart>,
+    },
     KeyboardModifiers {
         parts: Vec<NativeLuaKeyboardModifiersStatusPart>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaWindowDimensionsStatusPart {
+    Static(String),
+    Field(NativeLuaWindowDimensionsField),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaWindowDimensionsField {
+    PixelWidth,
+    PixelHeight,
+    Dpi,
+    IsFullScreen,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40558,6 +40688,15 @@ impl NativeWindowApp {
                     unfocused
                 }
             }
+            NativeLuaWindowStatusText::WindowDimensions { parts } => parts
+                .into_iter()
+                .map(|part| match part {
+                    NativeLuaWindowDimensionsStatusPart::Static(text) => text,
+                    NativeLuaWindowDimensionsStatusPart::Field(field) => {
+                        self.lua_window_dimensions_field_text(field)
+                    }
+                })
+                .collect::<String>(),
             NativeLuaWindowStatusText::KeyboardModifiers { parts } => {
                 let modifiers = native_lua_keyboard_modifiers_text(self.modifiers);
                 let leds = String::new();
@@ -40570,6 +40709,15 @@ impl NativeWindowApp {
                     })
                     .collect::<String>()
             }
+        }
+    }
+
+    fn lua_window_dimensions_field_text(&self, field: NativeLuaWindowDimensionsField) -> String {
+        match field {
+            NativeLuaWindowDimensionsField::PixelWidth => self.window_frame.width.to_string(),
+            NativeLuaWindowDimensionsField::PixelHeight => self.window_frame.height.to_string(),
+            NativeLuaWindowDimensionsField::Dpi => self.window_dpi.to_string(),
+            NativeLuaWindowDimensionsField::IsFullScreen => self.full_screen.to_string(),
         }
     }
 
@@ -76899,6 +77047,36 @@ mod tests {
         app.dispatch_update_status();
 
         assert_eq!(app.right_status, "win=1");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_window_dimensions_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local dims = window:get_dimensions()
+              window:set_right_status(
+                dims.pixel_width .. 'x' .. dims.pixel_height
+                  .. '@' .. dims.dpi
+                  .. ' full=' .. tostring(dims.is_full_screen)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm get_dimensions status setter");
+        app.set_config_overrides(overrides);
+        app.handle_window_resize(PhysicalSize::new(160, 96))
+            .unwrap();
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "160x96@96 full=false");
+
+        app.full_screen = true;
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "160x96@96 full=true");
     }
 
     #[test]
