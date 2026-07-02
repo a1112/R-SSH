@@ -377,10 +377,13 @@ runtime storage for tabs and split panes.
   `table.insert(config.launch_menu, index, item)` supported.
   Static
   WezTerm-style `config.keys` actions can also carry `ShowLauncherArgs` table
-  payloads through the implemented native action subset. Remote/mux domains,
-  richer default-mode UI styling, broader Lua key assignment/config parsing,
-  broader dynamic Lua `launch_menu` construction, Lua `PromptInputLine`
-  callback wiring, and Lua event/config wiring remain later parity work.
+  payloads through the implemented native action subset, and static key
+  `wezterm.action_callback` bodies that call
+  `window:perform_action(<implemented action>, pane)` map onto existing native
+  commands. Remote/mux domains, richer default-mode UI styling, broader Lua key
+  assignment/config parsing, broader dynamic Lua `launch_menu` construction,
+  arbitrary Lua callback execution, and Lua event/config wiring remain later
+  parity work.
 - `rssh-core` supports WezTerm's close-tab selection policy: callers can keep
   the default left-neighbor activation or request last-active-tab activation
   when closing the active tab.

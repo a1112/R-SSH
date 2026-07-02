@@ -22704,7 +22704,12 @@ fn native_key_assignment_command_from_query(
     if let Some(command) = key_table_stack_command_from_query(value) {
         return Some(command);
     }
-    if lua_action_callback_from_query(value) {
+    if let Some(command) =
+        lua_action_callback_perform_action_command_with_static_source(static_source, value)
+    {
+        return Some(command);
+    }
+    if lua_action_callback_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::Nop);
     }
     command_palette_structured_query_command(value)
@@ -44909,7 +44914,7 @@ fn confirmation_callback_or_nested_command_from_query_with_static_source(
         return confirmation_callback_or_nested_command_from_query(value);
     }
     if let Some(command) =
-        confirmation_command_from_lua_action_callback_with_static_source(static_source, value)
+        lua_action_callback_perform_action_command_with_static_source(static_source, value)
     {
         return Some(command);
     }
@@ -44925,18 +44930,14 @@ fn confirmation_callback_or_nested_command_from_query_with_static_source(
     confirmation_nested_command_from_query(&value)
 }
 
-fn confirmation_command_from_lua_action_callback_with_static_source(
+fn lua_action_callback_perform_action_command_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowCommand> {
-    confirmation_command_from_lua_action_callback_with_static_source_and_depth(
-        static_source,
-        value,
-        0,
-    )
+    lua_action_callback_perform_action_command_with_static_source_and_depth(static_source, value, 0)
 }
 
-fn confirmation_command_from_lua_action_callback_with_static_source_and_depth(
+fn lua_action_callback_perform_action_command_with_static_source_and_depth(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     depth: usize,
@@ -44944,8 +44945,7 @@ fn confirmation_command_from_lua_action_callback_with_static_source_and_depth(
     if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
         return None;
     }
-    if let Some(command) = confirmation_command_from_lua_action_callback_query(static_source, value)
-    {
+    if let Some(command) = lua_action_callback_perform_action_command_query(static_source, value) {
         return Some(command);
     }
     if let Some(static_source) = static_source
@@ -44955,7 +44955,7 @@ fn confirmation_command_from_lua_action_callback_with_static_source_and_depth(
             static_source.max_start,
         )
     {
-        return confirmation_command_from_lua_action_callback_query(Some(static_source), &value);
+        return lua_action_callback_perform_action_command_query(Some(static_source), &value);
     }
     if let Some(static_source) = static_source
         && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
@@ -44969,12 +44969,9 @@ fn confirmation_command_from_lua_action_callback_with_static_source_and_depth(
             value,
             static_source.max_start,
         ) {
-            return confirmation_command_from_lua_action_callback_query(
-                Some(static_source),
-                &value,
-            );
+            return lua_action_callback_perform_action_command_query(Some(static_source), &value);
         }
-        return confirmation_command_from_lua_action_callback_with_static_source_and_depth(
+        return lua_action_callback_perform_action_command_with_static_source_and_depth(
             Some(static_source),
             value,
             depth + 1,
@@ -44983,7 +44980,7 @@ fn confirmation_command_from_lua_action_callback_with_static_source_and_depth(
     None
 }
 
-fn confirmation_command_from_lua_action_callback_query(
+fn lua_action_callback_perform_action_command_query(
     static_source: Option<LuaStaticSource<'_>>,
     value: &str,
 ) -> Option<WindowCommand> {
@@ -44991,15 +44988,10 @@ fn confirmation_command_from_lua_action_callback_query(
         .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
     let (body, window_param, pane_param, _) =
         lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(callback)?;
-    confirmation_command_from_lua_action_callback_body(
-        static_source,
-        body,
-        window_param,
-        pane_param,
-    )
+    lua_action_callback_perform_action_command_body(static_source, body, window_param, pane_param)
 }
 
-fn confirmation_command_from_lua_action_callback_body(
+fn lua_action_callback_perform_action_command_body(
     static_source: Option<LuaStaticSource<'_>>,
     body: &str,
     window_param: &str,
@@ -45007,7 +44999,7 @@ fn confirmation_command_from_lua_action_callback_body(
 ) -> Option<WindowCommand> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
-        if let Some(command) = confirmation_callback_statement_performs_action(
+        if let Some(command) = lua_callback_statement_performs_action(
             static_source,
             statement,
             window_param,
@@ -45019,7 +45011,7 @@ fn confirmation_command_from_lua_action_callback_body(
     None
 }
 
-fn confirmation_callback_statement_performs_action(
+fn lua_callback_statement_performs_action(
     static_source: Option<LuaStaticSource<'_>>,
     statement: &str,
     window_param: &str,
@@ -97176,6 +97168,46 @@ mod tests {
                 command: WindowCommand::Nop,
             }])
         );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_action_callback_perform_action() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'I',
+                mods = 'CTRL|SHIFT',
+                action = wezterm.action_callback(function(window, pane)
+                  window:perform_action(act.SendString 'from-callback', pane)
+                end),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm action_callback perform_action key config");
+        app.set_config_overrides(overrides);
+
+        app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+        app.handle_keyboard_input_event(
+            &Key::Character("i".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyI),
+            Some("i"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"from-callback");
     }
 
     #[test]
