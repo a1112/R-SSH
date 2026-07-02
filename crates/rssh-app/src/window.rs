@@ -6383,6 +6383,25 @@ fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_quer
     Some((body, first_param, second_param, third_param))
 }
 
+fn lua_anonymous_function_body_and_first_four_params_from_query<'a>(
+    value: &'a str,
+) -> Option<(&'a str, &'a str, &'a str, &'a str, &'a str)> {
+    if !lua_source_keyword_at(value, 0, "function") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let params_end = rest.find(')')?;
+    let params = rest.get(..params_end)?;
+    let mut params = params.split(',');
+    let first_param = lua_function_param_identifier(params.next()?)?;
+    let second_param = lua_function_param_identifier(params.next()?)?;
+    let third_param = lua_function_param_identifier(params.next()?)?;
+    let fourth_param = lua_function_param_identifier(params.next()?)?;
+    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
+    Some((body, first_param, second_param, third_param, fourth_param))
+}
+
 fn lua_anonymous_function_body_from_query(value: &str) -> Option<&str> {
     let value = lua_trim_start_comments(value)?;
     if !lua_source_keyword_at(value, 0, "function") {
@@ -29700,6 +29719,10 @@ impl NativeWindowApp {
     }
 
     fn submit_input_selector(&mut self, choice: Option<WindowInputSelectorChoice>) {
+        let action = self
+            .input_selector
+            .as_ref()
+            .and_then(|input_selector| input_selector.action.clone());
         let event = NativeInputSelector {
             window_id: self.app_window_id,
             pane: self.app_shell.active_pane_id(),
@@ -29707,7 +29730,27 @@ impl NativeWindowApp {
             label: choice.map(|choice| choice.label),
         };
         self.dispatch_input_selector(&event);
+        if let Some(action) = action {
+            self.perform_input_selector_action(action, &event);
+        }
         self.exit_input_selector_mode();
+    }
+
+    fn perform_input_selector_action(
+        &mut self,
+        action: WindowInputSelectorAction,
+        event: &NativeInputSelector,
+    ) {
+        let value = match action {
+            WindowInputSelectorAction::SendIdText => event.id.clone(),
+            WindowInputSelectorAction::SendLabelText => event.label.clone(),
+        };
+        let Some(value) = value else {
+            return;
+        };
+        if let Err(error) = self.command_palette_apply_command(WindowCommand::SendString(value)) {
+            eprintln!("input selector action failed: {error:?}");
+        }
     }
 
     fn input_selector_filtered_choices(
@@ -44494,8 +44537,15 @@ fn input_selector_lua_table_from_query_with_static_source(
                 parsed_fuzzy = true;
             }
             "action" => {
-                if parsed_action
-                    || !lua_action_callback_from_query_with_static_source(static_source, raw_value)
+                if parsed_action {
+                    return None;
+                }
+                options.action = input_selector_action_from_lua_action_callback_with_static_source(
+                    static_source,
+                    raw_value,
+                );
+                if options.action.is_none()
+                    && !lua_action_callback_from_query_with_static_source(static_source, raw_value)
                 {
                     return None;
                 }
@@ -44506,6 +44556,175 @@ fn input_selector_lua_table_from_query_with_static_source(
     }
 
     (parsed_title && parsed_choices).then_some(options)
+}
+
+fn input_selector_action_from_lua_action_callback_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowInputSelectorAction> {
+    input_selector_action_from_lua_action_callback_with_static_source_and_depth(
+        static_source,
+        value,
+        0,
+    )
+}
+
+fn input_selector_action_from_lua_action_callback_with_static_source_and_depth(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    depth: usize,
+) -> Option<WindowInputSelectorAction> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+    if let Some(action) = input_selector_action_from_lua_action_callback_query(value) {
+        return Some(action);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_wezterm_action_callback_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return input_selector_action_from_lua_action_callback_query(&value);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        if let Some(value) = lua_static_wezterm_action_callback_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        ) {
+            return input_selector_action_from_lua_action_callback_query(&value);
+        }
+        return input_selector_action_from_lua_action_callback_with_static_source_and_depth(
+            Some(static_source),
+            value,
+            depth + 1,
+        );
+    }
+    None
+}
+
+fn input_selector_action_from_lua_action_callback_query(
+    value: &str,
+) -> Option<WindowInputSelectorAction> {
+    let callback = strip_lua_function_call_from_query(value, "wezterm.action_callback")
+        .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
+    let (body, _, pane_param, id_param, label_param) =
+        lua_anonymous_function_body_and_first_four_params_from_query(callback)?;
+    input_selector_action_from_lua_action_callback_body(body, pane_param, id_param, label_param)
+}
+
+fn input_selector_action_from_lua_action_callback_body(
+    body: &str,
+    pane_param: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<WindowInputSelectorAction> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(action) = input_selector_callback_statement_sends_text_param(
+            statement,
+            pane_param,
+            id_param,
+            label_param,
+        ) {
+            return Some(action);
+        }
+        if let Some((branches, rest)) =
+            lua_static_if_condition_and_body_branches_from_statement(statement)
+        {
+            let [(condition, if_body)] = branches.as_slice() else {
+                continue;
+            };
+            let Some(condition_action) =
+                input_selector_callback_condition_param(condition, id_param, label_param)
+            else {
+                continue;
+            };
+            if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+                continue;
+            }
+            if let Some(body_action) = input_selector_action_from_lua_action_callback_body(
+                if_body,
+                pane_param,
+                id_param,
+                label_param,
+            ) && body_action == condition_action
+            {
+                return Some(body_action);
+            }
+        }
+    }
+    None
+}
+
+fn input_selector_callback_condition_param(
+    condition: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<WindowInputSelectorAction> {
+    let condition = lua_trim_start_comments(condition.trim())?;
+    let name = lua_identifier_literal_from_query(condition)?;
+    if !lua_static_identifier_value_rest_is_statement_end(condition.get(name.len()..)?) {
+        return None;
+    }
+    if name == id_param {
+        Some(WindowInputSelectorAction::SendIdText)
+    } else if name == label_param {
+        Some(WindowInputSelectorAction::SendLabelText)
+    } else {
+        None
+    }
+}
+
+fn input_selector_callback_statement_sends_text_param(
+    statement: &str,
+    pane_param: &str,
+    id_param: &str,
+    label_param: &str,
+) -> Option<WindowInputSelectorAction> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = statement.strip_prefix(pane_param)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("send_text")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("send_text".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    let argument = lua_trim_start_comments(argument.trim())?;
+    let name = lua_identifier_literal_from_query(argument)?;
+    if !lua_static_identifier_value_rest_is_statement_end(argument.get(name.len()..)?) {
+        return None;
+    }
+    if !lua_trim_end_statement_separator(rest)?.trim().is_empty() {
+        return None;
+    }
+    if name == id_param {
+        Some(WindowInputSelectorAction::SendIdText)
+    } else if name == label_param {
+        Some(WindowInputSelectorAction::SendLabelText)
+    } else {
+        None
+    }
 }
 
 fn confirmation_options_from_query(query: &str) -> Option<WindowConfirmationOptions> {
@@ -54831,6 +55050,7 @@ struct WindowInputSelectorOptions {
     description: Option<String>,
     fuzzy_description: Option<String>,
     fuzzy: bool,
+    action: Option<WindowInputSelectorAction>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -54851,6 +55071,7 @@ struct WindowInputSelector {
     fuzzy_description: String,
     fuzzy: bool,
     started_fuzzy: bool,
+    action: Option<WindowInputSelectorAction>,
 }
 
 impl WindowInputSelector {
@@ -54874,8 +55095,15 @@ impl WindowInputSelector {
                 .unwrap_or_else(|| "Fuzzy matching: ".to_owned()),
             fuzzy,
             started_fuzzy: fuzzy,
+            action: options.action,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WindowInputSelectorAction {
+    SendIdText,
+    SendLabelText,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81719,6 +81947,7 @@ mod tests {
             description: None,
             fuzzy_description: None,
             fuzzy: false,
+            action: None,
         });
         let snapshot = app.render_snapshot();
         let label_cell =
@@ -92638,6 +92867,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -100024,6 +100254,7 @@ mod tests {
                     description: Some("Choose one:".to_owned()),
                     fuzzy_description: Some("Filter replies:".to_owned()),
                     fuzzy: false,
+                    action: None,
                 }),
             }])
         );
@@ -100092,6 +100323,7 @@ mod tests {
                     description: Some("Choose one:".to_owned()),
                     fuzzy_description: Some("Filter replies:".to_owned()),
                     fuzzy: true,
+                    action: None,
                 }),
             }])
         );
@@ -100146,6 +100378,7 @@ mod tests {
                     description: Some("Choose one:".to_owned()),
                     fuzzy_description: Some("Filter replies:".to_owned()),
                     fuzzy: true,
+                    action: None,
                 }),
             }])
         );
@@ -112843,6 +113076,7 @@ mod tests {
                 description: Some("Choose:".to_owned()),
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -112874,6 +113108,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -112903,6 +113138,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -112935,6 +113171,7 @@ mod tests {
                 description: Some("Choose one:".to_owned()),
                 fuzzy_description: Some("Filter replies:".to_owned()),
                 fuzzy: true,
+                action: None,
             })]
         );
     }
@@ -112967,6 +113204,7 @@ mod tests {
                 description: Some("Choose one:".to_owned()),
                 fuzzy_description: Some("Filter replies:".to_owned()),
                 fuzzy: true,
+                action: None,
             })]
         );
     }
@@ -112997,6 +113235,7 @@ mod tests {
             description: Some("Choose one:".to_owned()),
             fuzzy_description: Some("Filter replies:".to_owned()),
             fuzzy: true,
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -113039,6 +113278,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -113071,6 +113311,7 @@ mod tests {
                 description: Some("Choose one:".to_owned()),
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -113103,6 +113344,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: true,
+                action: None,
             })]
         );
     }
@@ -113133,6 +113375,7 @@ mod tests {
             description: Some("Choose one:".to_owned()),
             fuzzy_description: Some("Filter replies:".to_owned()),
             fuzzy: true,
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -113173,6 +113416,7 @@ mod tests {
             description: Some("Choose one:".to_owned()),
             fuzzy_description: Some("Filter replies:".to_owned()),
             fuzzy: true,
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -113213,6 +113457,7 @@ mod tests {
             description: None,
             fuzzy_description: None,
             fuzzy: false,
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -113222,6 +113467,50 @@ mod tests {
 
         assert!(app.command_palette.is_none());
         assert!(app.effective_window_title().contains("Pick Reply:"));
+    }
+
+    #[test]
+    fn window_app_input_selector_static_action_callback_sends_choice_id() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Pick Reply\", choices = { { label = \"No thanks\", id = \"Regretfully, I decline.\" }, { label = \"LGTM\", id = \"This sounds right.\" } }, alphabet = \"ab\", action = wezterm.action_callback(function(window, pane, id, label) if id then pane:send_text(id) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"This sounds right.");
+        assert!(app.input_selector.is_none());
+    }
+
+    #[test]
+    fn window_app_input_selector_static_action_callback_sends_choice_label_without_id() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Pick Number\", choices = { { label = \"One\" }, { label = \"Two\" } }, alphabet = \"ab\", action = wezterm.action_callback(function(window, pane, id, label) if label then pane:send_text(label) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"Two");
+        assert!(app.input_selector.is_none());
     }
 
     #[test]
@@ -113252,6 +113541,7 @@ mod tests {
                 description: None,
                 fuzzy_description: Some("Filter replies:".to_owned()),
                 fuzzy: true,
+                action: None,
             })]
         );
     }
@@ -113283,6 +113573,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: true,
+                action: None,
             })]
         );
     }
@@ -113314,6 +113605,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -113346,6 +113638,7 @@ mod tests {
                 description: Some("Choose".to_owned()),
                 fuzzy_description: Some("Filter".to_owned()),
                 fuzzy: true,
+                action: None,
             })]
         );
     }
@@ -113378,6 +113671,7 @@ mod tests {
                 description: Some("Choose".to_owned()),
                 fuzzy_description: Some("Filter".to_owned()),
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -113401,6 +113695,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -113424,6 +113719,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -113456,6 +113752,7 @@ mod tests {
                 description: Some("Choose".to_owned()),
                 fuzzy_description: Some("Filter".to_owned()),
                 fuzzy: false,
+                action: None,
             })]
         );
     }
@@ -113497,6 +113794,7 @@ mod tests {
                 description: Some("Choose:".to_owned()),
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             },
         )));
 
@@ -113547,6 +113845,7 @@ mod tests {
                 description: Some("Choose:".to_owned()),
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             },
         )));
 
@@ -113599,6 +113898,7 @@ mod tests {
                 description: Some("Choose:".to_owned()),
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             },
         )));
 
@@ -113656,6 +113956,7 @@ mod tests {
             description: Some("Choose:".to_owned()),
             fuzzy_description: None,
             fuzzy: false,
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -113712,6 +114013,7 @@ mod tests {
                 description: None,
                 fuzzy_description: Some("Fuzzy find:".to_owned()),
                 fuzzy: true,
+                action: None,
             },
         )));
 
@@ -113762,6 +114064,7 @@ mod tests {
                 description: None,
                 fuzzy_description: None,
                 fuzzy: false,
+                action: None,
             },
         )));
         assert!(

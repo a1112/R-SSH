@@ -507,8 +507,10 @@ runtime storage for tabs and split panes.
   also dispatch that native field subset when `choices` uses the existing
   semicolon-delimited string form or WezTerm's Lua table-of-tables choice form
   with `{ label = ..., id = ... }` entries, including bracketed string keys on
-  those nested choice tables. Lua `wezterm.action_callback` wiring remains later
-  parity work.
+  those nested choice tables. Static callback bodies that call
+  `pane:send_text(id)` or `pane:send_text(label)` map selected choice data to
+  the native `SendString` path; arbitrary Lua `wezterm.action_callback`
+  execution remains later parity work.
 - `rssh-app` exposes a native WezTerm-style `Confirmation` action payload with a
   message string, required Yes action, and optional No/cancel action. It opens a
   modal confirmation overlay, dispatches a typed native handler with
