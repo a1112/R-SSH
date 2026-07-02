@@ -10295,6 +10295,7 @@ fn lua_static_window_status_variable_text_from_query(
             | NativeLuaWindowStatusText::Leader { .. }
             | NativeLuaWindowStatusText::Focus { .. }
             | NativeLuaWindowStatusText::PaneAltScreen { .. }
+            | NativeLuaWindowStatusText::PaneHasUnseenOutput { .. }
             | NativeLuaWindowStatusText::WindowDimensions { .. }
             | NativeLuaWindowStatusText::PaneDimensions { .. }
             | NativeLuaWindowStatusText::PaneCursorPosition { .. }
@@ -10335,6 +10336,22 @@ fn lua_static_window_status_variable_text_from_query(
             active,
             inactive: fallback_text
                 .or(parsed_inactive)
+                .unwrap_or_else(|| inactive.clone()),
+        });
+    }
+    if let Some((unseen, parsed_seen)) =
+        lua_static_window_status_variable_bool_method_text_before_offset(
+            static_source.source,
+            variable,
+            pane_name,
+            "has_unseen_output",
+            static_source.max_start,
+        )
+    {
+        return Some(NativeLuaWindowStatusText::PaneHasUnseenOutput {
+            unseen,
+            seen: fallback_text
+                .or(parsed_seen)
                 .unwrap_or_else(|| inactive.clone()),
         });
     }
@@ -25234,6 +25251,10 @@ enum NativeLuaWindowStatusText {
     PaneAltScreen {
         active: String,
         inactive: String,
+    },
+    PaneHasUnseenOutput {
+        unseen: String,
+        seen: String,
     },
     WindowDimensions {
         parts: Vec<NativeLuaWindowDimensionsStatusPart>,
@@ -41497,6 +41518,16 @@ impl NativeWindowApp {
                     active
                 } else {
                     inactive
+                }
+            }
+            NativeLuaWindowStatusText::PaneHasUnseenOutput { unseen, seen } => {
+                if self
+                    .pane_has_unseen_output(self.app_shell.active_pane_id())
+                    .unwrap_or(false)
+                {
+                    unseen
+                } else {
+                    seen
                 }
             }
             NativeLuaWindowStatusText::WindowDimensions { parts } => parts
@@ -78147,6 +78178,39 @@ mod tests {
         app.handle_pty_output(b"\x1b[?1049l").unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "main");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_unseen_output_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local visibility = 'seen'
+              if pane:has_unseen_output() then
+                visibility = 'unseen'
+              else
+                visibility = 'seen'
+              end
+              window:set_right_status(visibility)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane has_unseen_output status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "seen");
+
+        app.sync_pane_has_unseen_output_from_value(app.app_shell.active_pane_id(), true);
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "unseen");
+
+        app.sync_pane_has_unseen_output_from_value(app.app_shell.active_pane_id(), false);
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "seen");
     }
 
     #[test]

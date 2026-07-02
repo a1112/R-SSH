@@ -269,7 +269,10 @@ impl AppShell {
     /// Returns an [`AppShellError`] when the action references an invalid ID or
     /// requests a forbidden operation (for example, closing the last tab/pane).
     pub fn apply_action(&mut self, action: AppAction) -> Result<(), AppShellError> {
-        let clears_active_pane_unseen_output = !matches!(&action, AppAction::Nop);
+        let clears_active_pane_unseen_output = !matches!(
+            &action,
+            AppAction::Nop | AppAction::SetPaneHasUnseenOutput { .. }
+        );
         let result = match action {
             AppAction::Nop => Ok(()),
             AppAction::Multiple { actions } => self.apply_multiple(actions),
@@ -2431,6 +2434,20 @@ mod tests {
         assert_eq!(shell.active_pane_id(), PaneId::new(1));
         assert_eq!(shell.workspaces().len(), 1);
         assert_eq!(shell.active_workspace().tabs().len(), 1);
+        assert!(shell.active_pane().has_unseen_output());
+    }
+
+    #[test]
+    fn action_set_pane_has_unseen_output_preserves_requested_active_value() {
+        let mut shell = AppShell::new(PaneLaunch::local("pwsh"));
+
+        shell
+            .apply_action(AppAction::SetPaneHasUnseenOutput {
+                pane: PaneId::new(1),
+                has_unseen_output: true,
+            })
+            .unwrap();
+
         assert!(shell.active_pane().has_unseen_output());
     }
 
