@@ -1187,8 +1187,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `RenameTabTo` command on submit, and the documented static workspace callback
   form `if line then window:perform_action(act.SwitchToWorkspace { name = line },
   pane) end` is mapped to the native `SwitchToWorkspaceName` command on submit,
-  while styled prompt-line rendering and arbitrary Lua `wezterm.action_callback`
-  execution remain open.
+  while static callback bodies that call `pane:send_text(line)` map submitted
+  text to the native `SendString` path, and `pane:send_paste(line)` maps
+  submitted text to the native `SendPaste` path with paste newline and
+  bracketed-paste encoding. Styled prompt-line rendering and arbitrary Lua
+  `wezterm.action_callback` execution remain open.
 - Native `InputSelector` action payloads now carry `title`, `choices`, optional
   `alphabet`, optional `description`, optional `fuzzy_description`, and `fuzzy`,
   open a modal selector, support default-mode alphabet shortcuts, `/` fuzzy

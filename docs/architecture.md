@@ -637,8 +637,12 @@ keyboard, mouse, paste, resize
   `action = wezterm.action_callback(...)` fields, top-level static callback
   variables, and callbacks built from top-level static
   `wezterm.action_callback` aliases are accepted as native-handler
-  placeholders; styled prompt-line rendering and actual Lua callback wiring
-  remain future parity work.
+  placeholders. The supported static callback subset maps submitted text through
+  documented rename-tab and `SwitchToWorkspace { name = line }` callbacks, plus
+  `pane:send_text(line)` through native `SendString` and `pane:send_paste(line)`
+  through native `SendPaste` with paste newline and bracketed-paste encoding;
+  styled prompt-line rendering and actual Lua callback wiring remain future
+  parity work.
 - Completed in v1: a native WezTerm-style `InputSelector` action payload carries
   `title`, `choices`, optional `alphabet`, optional `description`, optional
   `fuzzy_description`, and `fuzzy`; it opens a modal selector with default-mode

@@ -486,8 +486,12 @@ runtime storage for tabs and split panes.
   subset. The documented static rename-tab callback form maps submitted text to
   the native `RenameTabTo` command, and the documented static
   `window:perform_action(act.SwitchToWorkspace { name = line }, pane)` callback
-  form maps submitted text to the native `SwitchToWorkspaceName` command;
-  arbitrary Lua `wezterm.action_callback` execution remains later parity work.
+  form maps submitted text to the native `SwitchToWorkspaceName` command.
+  Static callback bodies that call `pane:send_text(line)` map submitted text to
+  the native `SendString` path, while `pane:send_paste(line)` maps submitted
+  text to the native `SendPaste` path with paste newline and bracketed-paste
+  encoding; arbitrary Lua `wezterm.action_callback` execution remains later
+  parity work.
 - `rssh-app` exposes a native WezTerm-style `InputSelector` action payload with
   `title`, `choices`, `fuzzy`, `alphabet`, `description`, and
   `fuzzy_description`. It opens a modal selector, supports default-mode alphabet

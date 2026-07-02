@@ -30350,6 +30350,8 @@ impl NativeWindowApp {
             WindowPromptInputLineAction::SwitchToWorkspaceName => {
                 WindowCommand::SwitchToWorkspaceName(line)
             }
+            WindowPromptInputLineAction::SendLineText => WindowCommand::SendString(line),
+            WindowPromptInputLineAction::SendLinePaste => WindowCommand::SendPaste(line),
         };
         if let Err(error) = self.command_palette_apply_command(command) {
             eprintln!("prompt input line action failed: {error:?}");
@@ -43878,6 +43880,11 @@ fn prompt_input_line_action_from_lua_action_callback_body(
 ) -> Option<WindowPromptInputLineAction> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(action) = prompt_input_line_callback_statement_sends_pane_input(
+            statement, pane_param, line_param,
+        )? {
+            return Some(action);
+        }
         if prompt_input_line_callback_statement_renames_active_tab(
             statement,
             window_param,
@@ -43902,6 +43909,11 @@ fn prompt_input_line_action_from_lua_action_callback_body(
             if lua_callback_line_condition_from_expression(condition, line_param)?
                 && lua_trim_end_statement_separator(rest)?.trim().is_empty()
             {
+                if let Some(action) = prompt_input_line_callback_body_sends_pane_input(
+                    if_body, pane_param, line_param,
+                )? {
+                    return Some(action);
+                }
                 if prompt_input_line_callback_body_renames_active_tab(
                     if_body,
                     window_param,
@@ -43963,6 +43975,71 @@ fn prompt_input_line_callback_body_switches_to_workspace_name(
         found = true;
     }
     Some(found)
+}
+
+fn prompt_input_line_callback_body_sends_pane_input(
+    body: &str,
+    pane_param: &str,
+    line_param: &str,
+) -> Option<Option<WindowPromptInputLineAction>> {
+    let mut found = None;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some(action) = prompt_input_line_callback_statement_sends_pane_input(
+            statement, pane_param, line_param,
+        )?
+        else {
+            return Some(None);
+        };
+        if found.as_ref().is_some_and(|existing| existing != &action) {
+            return None;
+        }
+        found = Some(action);
+    }
+    Some(found)
+}
+
+fn prompt_input_line_callback_statement_sends_pane_input(
+    statement: &str,
+    pane_param: &str,
+    line_param: &str,
+) -> Option<Option<WindowPromptInputLineAction>> {
+    let statement = lua_trim_start_comments(statement)?;
+    let Some(rest) = statement.strip_prefix(pane_param) else {
+        return Some(None);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(None);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (command_name, action) = if rest.starts_with("send_text")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
+    {
+        ("send_text", WindowPromptInputLineAction::SendLineText)
+    } else if rest.starts_with("send_paste")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_paste")
+    {
+        ("send_paste", WindowPromptInputLineAction::SendLinePaste)
+    } else {
+        return Some(None);
+    };
+    let rest = lua_trim_start_comments(rest.get(command_name.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return Some(None);
+    };
+    let argument = lua_trim_start_comments(argument.trim())?;
+    let name = lua_identifier_literal_from_query(argument)?;
+    if name != line_param
+        || !lua_static_identifier_value_rest_is_statement_end(argument.get(name.len()..)?)
+        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    {
+        return Some(None);
+    }
+    Some(Some(action))
 }
 
 fn lua_callback_line_condition_from_expression(condition: &str, line_param: &str) -> Option<bool> {
@@ -55940,6 +56017,8 @@ struct WindowPromptInputLine {
 enum WindowPromptInputLineAction {
     RenameActiveTab,
     SwitchToWorkspaceName,
+    SendLineText,
+    SendLinePaste,
 }
 
 impl WindowPromptInputLine {
@@ -114108,6 +114187,65 @@ mod tests {
 
         assert_eq!(app.app_shell.workspaces().len(), 2);
         assert_eq!(app.app_shell.active_workspace().name(), "ops");
+        assert!(app.prompt_input_line.is_none());
+    }
+
+    #[test]
+    fn window_app_prompt_input_line_static_action_callback_sends_line_text() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine { description = \"Send text\", action = wezterm.action_callback(function(window, pane, line) if line then pane:send_text(line) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(app.handle_prompt_input_line_key(
+            &Key::Character("deploy".into()),
+            ModifiersState::empty()
+        ));
+        assert!(
+            app.handle_prompt_input_line_key(&Key::Named(NamedKey::Enter), ModifiersState::empty())
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"deploy");
+        assert!(app.prompt_input_line.is_none());
+    }
+
+    #[test]
+    fn window_app_prompt_input_line_static_action_callback_pastes_line_text() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.handle_pty_output(b"\x1b[?2004h").unwrap();
+        assert!(app.runtime.bracketed_paste());
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine { description = \"Paste text\", action = wezterm.action_callback(function(window, pane, line) if line then pane:send_paste(line) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(app.handle_prompt_input_line_key(
+            &Key::Character("deploy".into()),
+            ModifiersState::empty()
+        ));
+        assert!(
+            app.handle_prompt_input_line_key(&Key::Named(NamedKey::Enter), ModifiersState::empty())
+        );
+
+        let expected = encode_window_paste(
+            "deploy",
+            app.runtime.bracketed_paste(),
+            DEFAULT_CANONICALIZE_PASTED_NEWLINES,
+        );
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
         assert!(app.prompt_input_line.is_none());
     }
 
