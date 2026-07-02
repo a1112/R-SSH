@@ -9592,6 +9592,12 @@ fn lua_static_window_status_text_from_parenthesized_argument(
 ) -> Option<NativeLuaWindowStatusText> {
     let argument = lua_trim_start_comments(argument)?;
     if let Some(static_source) = static_source
+        && let Some(status) =
+            lua_static_window_status_variable_text_from_query(static_source, window_name, argument)
+    {
+        return Some(status);
+    }
+    if let Some(static_source) = static_source
         && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
             static_source.source,
             argument,
@@ -9646,6 +9652,111 @@ fn lua_static_window_status_text_from_query(
         .map(NativeLuaWindowStatusText::Static)
 }
 
+fn lua_static_window_status_variable_text_from_query(
+    static_source: LuaStaticSource<'_>,
+    window_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let (variable, fallback_text) = lua_window_status_variable_fallback_from_query(value)?;
+    let assignment = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+    )?;
+    let mut status = lua_window_status_method_text_from_query(assignment, window_name)?;
+    if let NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } = &mut status {
+        if let Some(parsed_prefix) = lua_static_window_status_variable_prefix_before_offset(
+            static_source.source,
+            variable,
+            static_source.max_start,
+        ) {
+            *prefix = parsed_prefix;
+        }
+        if let Some(parsed_fallback) = fallback_text {
+            *fallback = parsed_fallback;
+        }
+    }
+    Some(status)
+}
+
+fn lua_window_status_variable_fallback_from_query(value: &str) -> Option<(&str, Option<String>)> {
+    let value = lua_trim_start_comments(value)?;
+    let variable = lua_identifier_literal_from_query(value)?;
+    let rest = lua_trim_start_comments(value.get(variable.len()..)?)?;
+    if rest.is_empty() {
+        return Some((variable, None));
+    }
+    if !lua_source_keyword_at(rest, 0, "or") {
+        return None;
+    }
+    let fallback = lua_trim_start_comments(rest.get("or".len()..)?)?;
+    let fallback = lua_static_string_value_from_expression(None, None, fallback)?;
+    Some((variable, Some(fallback)))
+}
+
+fn lua_static_window_status_variable_prefix_before_offset(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(prefix) =
+            lua_static_window_status_variable_prefix_from_statement(statement, variable)
+        {
+            selected = Some(prefix);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_status_variable_prefix_from_statement(
+    statement: &str,
+    variable: &str,
+) -> Option<String> {
+    let (branches, _) = lua_static_if_condition_and_body_branches_from_statement(statement)?;
+    let [(condition, body)] = branches.as_slice() else {
+        return None;
+    };
+    if *condition != variable {
+        return None;
+    }
+
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(prefix) =
+            lua_static_window_status_variable_prefix_assignment_from_statement(statement, variable)
+        {
+            selected = Some(prefix);
+        }
+    }
+    selected
+}
+
+fn lua_static_window_status_variable_prefix_assignment_from_statement(
+    statement: &str,
+    variable: &str,
+) -> Option<String> {
+    let rest = statement.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    let segments = split_lua_string_concat_segments(value)?;
+    let [prefix, dynamic] = segments.as_slice() else {
+        return None;
+    };
+    if dynamic.trim() != variable {
+        return None;
+    }
+    lua_static_string_value_from_expression(None, None, prefix)
+}
+
 fn lua_window_status_method_text_from_query(
     value: &str,
     window_name: &str,
@@ -9656,21 +9767,27 @@ fn lua_window_status_method_text_from_query(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
     let rest = lua_trim_start_comments(rest)?;
-    const ACTIVE_WORKSPACE: &str = "active_workspace";
-    if !rest.starts_with(ACTIVE_WORKSPACE)
-        || !lua_config_assignment_field_has_boundaries(rest, 0, ACTIVE_WORKSPACE)
+    let method = lua_identifier_literal_from_query(rest)?;
+    if !lua_config_assignment_field_has_boundaries(rest, 0, method) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty()
+        || !lua_trim_start_comments(rest)?.is_empty()
     {
         return None;
     }
-    let rest = lua_trim_start_comments(rest.get(ACTIVE_WORKSPACE.len()..)?)?;
-    let rest = rest.strip_prefix('(')?;
-    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
-    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
-        return None;
+
+    match method {
+        "active_workspace" => Some(NativeLuaWindowStatusText::ActiveWorkspace),
+        "active_key_table" => Some(NativeLuaWindowStatusText::ActiveKeyTable {
+            prefix: String::new(),
+            fallback: String::new(),
+        }),
+        _ => None,
     }
-    lua_trim_start_comments(rest)?
-        .is_empty()
-        .then_some(NativeLuaWindowStatusText::ActiveWorkspace)
 }
 
 fn lua_inline_string_literal_value_and_len(value: &str) -> Option<(String, usize)> {
@@ -23986,6 +24103,7 @@ struct NativeLuaWindowStatusUpdate {
 enum NativeLuaWindowStatusText {
     Static(String),
     ActiveWorkspace,
+    ActiveKeyTable { prefix: String, fallback: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40089,6 +40207,11 @@ impl NativeWindowApp {
             NativeLuaWindowStatusText::ActiveWorkspace => {
                 self.app_shell.active_workspace().name().to_owned()
             }
+            NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => self
+                .key_table_stack
+                .last()
+                .map(|activation| format!("{prefix}{}", activation.name))
+                .unwrap_or(fallback),
         }
     }
 
@@ -76247,6 +76370,47 @@ mod tests {
 
         assert_eq!(app.app_shell.active_workspace().name(), "ops");
         assert_eq!(app.right_status, "ops");
+    }
+
+    #[test]
+    fn window_app_parses_documented_wezterm_update_right_status_active_key_table_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-right-status', function(window, pane)
+              local name = window:active_key_table()
+              if name then
+                name = 'TABLE: ' .. name
+              end
+              window:set_right_status(name or '')
+            end)
+            "#,
+        )
+        .expect("expected documented WezTerm active key table status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
+
+        assert!(app.command_palette_execute(WindowCommand::ActivateKeyTable(
+            WindowActivateKeyTable {
+                name: "resize_pane".to_owned(),
+                timeout_milliseconds: Some(1_000),
+                one_shot: false,
+                replace_current: false,
+                until_unknown: true,
+                prevent_fallback: true,
+            },
+        )));
+        app.dispatch_update_status();
+        assert_eq!(app.active_key_table_for_test(), Some("resize_pane"));
+        assert_eq!(app.right_status, "TABLE: resize_pane");
+
+        assert!(app.command_palette_execute(WindowCommand::ClearKeyTableStack));
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
     }
 
     #[test]

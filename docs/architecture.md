@@ -1879,7 +1879,9 @@ keyboard, mouse, paste, resize
   `update-right-status` static subsets map literal
   `window:set_left_status(...)` and `window:set_right_status(...)` calls plus
   the documented `window:set_right_status(window:active_workspace())` shape
-  plus inline, static-table-variable, or static-alias `wezterm.format`
+  plus the documented `window:active_key_table()` key-table status shape with
+  its static prefix and empty-stack fallback, plus inline, static-table-variable,
+  or static-alias `wezterm.format`
   Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition onto that status state, with
   static item tables resolving from callback-local or top-level scope and

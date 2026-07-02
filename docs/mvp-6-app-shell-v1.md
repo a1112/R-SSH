@@ -1663,7 +1663,11 @@ runtime storage for tabs and split panes.
   literal `window:set_left_status(...)` / `set_right_status(...)` setters map
   into the same status state, and the documented
   `window:set_right_status(window:active_workspace())` shape resolves the
-  current workspace at status-update time. Inline or static-table-variable
+  current workspace at status-update time. The documented key-table status
+  example resolves `window:active_key_table()` at status-update time, applies
+  its static `TABLE: ` prefix only while a key table is active, and falls back
+  to an empty right status for an empty key-table stack. Inline or
+  static-table-variable
   `wezterm.format` Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition also maps into status text with
   static item tables resolved from callback-local or top-level scope plus
