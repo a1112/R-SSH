@@ -2504,10 +2504,12 @@ keyboard, mouse, paste, resize
   corresponding native quick-select action subset, and supports
   `pane:send_text(window:get_selection_text_for_pane(pane))` /
   `pane:send_paste(window:get_selection_text_for_pane(pane))` callbacks that
-  send or paste the selected match. Lua table parsing skips trailing-comma
-  fields and resolves top-level static action variables for
-  `QuickSelectArgs.action` inside static WezTerm-style `config.keys`; arbitrary
-  custom action execution remains open.
+  send or paste the selected match, plus official-style
+  `wezterm.open_with(url)` callbacks where `url` is assigned from
+  `window:get_selection_text_for_pane(pane)`, dispatching through the native
+  open-uri hook. Lua table parsing skips trailing-comma fields and resolves
+  top-level static action variables for `QuickSelectArgs.action` inside static
+  WezTerm-style `config.keys`; arbitrary custom action execution remains open.
 
 ## Technology Choices
 

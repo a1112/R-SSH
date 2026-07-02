@@ -470,8 +470,10 @@ runtime storage for tabs and split panes.
   multiple-action, key-table, and no-op subsets. Static callback bodies that
   call `pane:send_text(window:get_selection_text_for_pane(pane))` or
   `pane:send_paste(window:get_selection_text_for_pane(pane))` send or paste the
-  selected quick-select match through the active pane; arbitrary custom
-  callback execution remains open.
+  selected quick-select match through the active pane, and callbacks that store
+  `window:get_selection_text_for_pane(pane)` in a local variable and pass it to
+  `wezterm.open_with(...)` dispatch that match through the native open-uri hook;
+  arbitrary custom callback execution remains open.
 - `rssh-app` exposes a native WezTerm-style `PromptInputLine` action payload
   with `description`, `prompt`, and `initial_value`. It opens a modal line-input
   overlay, honors WezTerm's `"> "` default prompt when `prompt` is omitted,

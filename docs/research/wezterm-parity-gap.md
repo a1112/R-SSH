@@ -1158,8 +1158,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Static callback bodies that call
   `pane:send_text(window:get_selection_text_for_pane(pane))` or
   `pane:send_paste(window:get_selection_text_for_pane(pane))` send or paste the
-  selected quick-select match through the active pane, while arbitrary Lua
-  callback execution remains open.
+  selected quick-select match through the active pane, and official-style
+  callbacks that assign that selected text to a local variable and pass it to
+  `wezterm.open_with(...)` dispatch the match through the native open-uri hook,
+  while arbitrary Lua callback execution remains open.
 - Native `PromptInputLine` action payloads now carry `description`, optional
   `prompt`, and optional `initial_value`, open a modal line-input overlay, use
   WezTerm's `"> "` default prompt when `prompt` is omitted, submit `Some(line)`

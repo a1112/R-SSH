@@ -54292,12 +54292,32 @@ fn quick_select_selected_text_action_callback_from_query(
         .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
     let (body, window_param, pane_param, _) =
         lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(callback)?;
-    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
-        let statement = lua_trim_start_comments(body.get(start..)?)?;
+    let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
+    let mut selected_text_variables = Vec::new();
+    for (index, start) in starts.iter().copied().enumerate() {
+        let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
+        let statement = lua_trim_start_comments(body.get(start..end)?)?;
+        if let Some(name) = quick_select_selected_text_local_name_from_callback_statement(
+            statement,
+            window_param,
+            pane_param,
+        )? {
+            selected_text_variables.push(name.to_owned());
+            continue;
+        }
+        if let Some(action) = quick_select_open_selected_text_action_from_callback_statement(
+            statement,
+            window_param,
+            pane_param,
+            &selected_text_variables,
+        )? {
+            return Some(action);
+        }
         if let Some(action) = quick_select_selected_text_action_from_callback_statement(
             statement,
             window_param,
             pane_param,
+            &selected_text_variables,
         )? {
             return Some(action);
         }
@@ -54305,10 +54325,73 @@ fn quick_select_selected_text_action_callback_from_query(
     None
 }
 
+fn quick_select_selected_text_local_name_from_callback_statement<'a>(
+    statement: &'a str,
+    window_param: &str,
+    pane_param: &str,
+) -> Option<Option<&'a str>> {
+    let statement = lua_trim_start_comments(statement)?;
+    let Some(rest) = statement.strip_prefix("local") else {
+        return Some(None);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(None);
+    }
+    let rest = lua_trim_start_comments(rest)?;
+    let name = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(name.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    let expression = lua_trim_end_statement_separator(rest)?.trim();
+    if quick_select_callback_argument_is_selected_text(expression, window_param, pane_param)? {
+        return Some(Some(name));
+    }
+    Some(None)
+}
+
+fn quick_select_open_selected_text_action_from_callback_statement(
+    statement: &str,
+    window_param: &str,
+    pane_param: &str,
+    selected_text_variables: &[String],
+) -> Option<Option<WindowQuickSelectAction>> {
+    let statement = lua_trim_start_comments(statement)?;
+    let Some(rest) = statement.strip_prefix("wezterm") else {
+        return Some(None);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(None);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("open_with")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "open_with")
+    {
+        return Some(None);
+    }
+    let rest = lua_trim_start_comments(rest.get("open_with".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return Some(None);
+    };
+    if !quick_select_callback_argument_is_selected_text_source(
+        argument.trim(),
+        window_param,
+        pane_param,
+        selected_text_variables,
+    )? || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    {
+        return Some(None);
+    }
+    Some(Some(WindowQuickSelectAction::OpenUri))
+}
+
 fn quick_select_selected_text_action_from_callback_statement(
     statement: &str,
     window_param: &str,
     pane_param: &str,
+    selected_text_variables: &[String],
 ) -> Option<Option<WindowQuickSelectAction>> {
     let statement = lua_trim_start_comments(statement)?;
     let Some(rest) = statement.strip_prefix(pane_param) else {
@@ -54337,12 +54420,37 @@ fn quick_select_selected_text_action_from_callback_statement(
     let [argument] = arguments.as_slice() else {
         return Some(None);
     };
-    if !quick_select_callback_argument_is_selected_text(argument.trim(), window_param, pane_param)?
-        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    if !quick_select_callback_argument_is_selected_text_source(
+        argument.trim(),
+        window_param,
+        pane_param,
+        selected_text_variables,
+    )? || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
     {
         return Some(None);
     }
     Some(Some(action))
+}
+
+fn quick_select_callback_argument_is_selected_text_source(
+    argument: &str,
+    window_param: &str,
+    pane_param: &str,
+    selected_text_variables: &[String],
+) -> Option<bool> {
+    if quick_select_callback_argument_is_selected_text(argument, window_param, pane_param)? {
+        return Some(true);
+    }
+    let argument = lua_trim_start_comments(argument)?;
+    let Some(name) = lua_identifier_literal_from_query(argument) else {
+        return Some(false);
+    };
+    Some(
+        selected_text_variables
+            .iter()
+            .any(|variable| variable == name)
+            && lua_static_identifier_value_rest_is_statement_end(argument.get(name.len()..)?),
+    )
 }
 
 fn quick_select_callback_argument_is_selected_text(
@@ -126976,6 +127084,94 @@ mod tests {
         let expected =
             encode_window_paste("ticket-1234", true, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
         assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+        assert!(copied.lock().unwrap().is_empty());
+        assert!(primary_copied.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_callback_opens_selected_text() {
+        let query = r#"
+            wezterm.action.QuickSelectArgs {
+              label = 'open url',
+              pattern = 'https?://\\S+',
+              skip_action_on_paste = true,
+              action = wezterm.action_callback(function(window, pane)
+                local url = window:get_selection_text_for_pane(pane)
+                wezterm.log_info('opening: ' .. url)
+                wezterm.open_with(url)
+              end),
+            }
+        "#;
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["https?://\\S+".to_owned()]),
+            label: Some("open url".to_owned()),
+            action: Some(WindowQuickSelectAction::OpenUri),
+            skip_action_on_paste: true,
+            ..WindowQuickSelectOptions::default()
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let open_uris = Arc::new(Mutex::new(Vec::new()));
+        let recorded_uri = Arc::clone(&open_uris);
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.open_uri_handler = Box::new(move |event| {
+            recorded_uri.lock().unwrap().push(event.clone());
+            true
+        });
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"https://example.test ticket-1234")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
+        );
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(quick_select.action, WindowQuickSelectAction::OpenUri);
+        assert_eq!(app.selected_text().as_deref(), Some("https://example.test"));
+        let label = quick_select.labels[0].clone();
+
+        assert!(app.handle_quick_select_logical_key(
+            &Key::Character(label.into()),
+            ModifiersState::empty()
+        ));
+
+        assert!(app.quick_select.is_none());
+        assert!(app.selection.is_none());
+        assert_eq!(
+            open_uris.lock().unwrap().as_slice(),
+            [NativeWindowOpenUri {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+                uri: "https://example.test".to_owned(),
+            }]
+        );
+        assert_eq!(opened.lock().unwrap().as_slice(), ["https://example.test"]);
         assert!(copied.lock().unwrap().is_empty());
         assert!(primary_copied.lock().unwrap().is_empty());
     }
