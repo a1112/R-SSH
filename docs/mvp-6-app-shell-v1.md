@@ -548,8 +548,11 @@ runtime storage for tabs and split panes.
   `emit event <name>` plus action-name `emitevent <name>` dispatches the same
   typed payload path with quote-aware event-name parsing. WezTerm-style
   `wezterm.action.EmitEvent { name = ... }` table-call queries dispatch the
-  same typed payload path. Lua `wezterm.on`/`wezterm.emit` wiring remains later
-  parity work.
+  same typed payload path. Static `wezterm.on('<custom-event>', function(window,
+  pane) window:perform_action(<implemented action>, pane) end)` handlers map
+  matching `EmitEvent` names onto existing native commands after the typed
+  native event dispatch; arbitrary Lua `wezterm.on`/`wezterm.emit` wiring
+  remains later parity work.
 - `rssh-app` exposes native WezTerm-style `ActivateKeyTable`, `PopKeyTable`,
   and `ClearKeyTableStack` action payloads that maintain a per-window
   key-table activation stack, show the active table in native window status and
