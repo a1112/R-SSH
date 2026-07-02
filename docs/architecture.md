@@ -1885,6 +1885,8 @@ keyboard, mouse, paste, resize
   `pane:pane_id()`/`pane:get_title()`/`pane:get_domain_name()`/
   `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`/
   `pane:get_tty_name()`
+  plus static `pane:get_dimensions()` field concatenations for `cols`,
+  `viewport_rows`, `scrollback_rows`, `physical_top`, and `scrollback_top`
   plus static `window:get_dimensions()` field concatenations for
   `pixel_width`, `pixel_height`, `dpi`, and `is_full_screen`
   plus the documented `window:active_key_table()` key-table status shape with
