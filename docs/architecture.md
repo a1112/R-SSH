@@ -1884,7 +1884,10 @@ keyboard, mouse, paste, resize
   `window:set_left_status(...)` and `window:set_right_status(...)` calls plus
   the documented `window:set_right_status(window:active_workspace())` shape
   plus static string concatenations with `window:window_id()`,
-  `window:active_tab():get_title()`, or callback
+  `window:active_tab():get_title()`,
+  `window:active_pane():pane_id()`/`get_title()`/`get_domain_name()`/
+  `get_current_working_dir()`/`get_foreground_process_name()`/
+  `get_tty_name()`, or callback
   `pane:pane_id()`/`pane:get_title()`/`pane:get_domain_name()`/
   `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`/
   `pane:get_tty_name()`

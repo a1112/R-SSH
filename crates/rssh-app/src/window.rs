@@ -9745,6 +9745,23 @@ fn lua_static_window_and_pane_status_text_from_query(
         {
             parts.push(NativeLuaWindowPaneStatusPart::ActiveTabTitle);
             has_dynamic_part = true;
+        } else if let Some(method) =
+            lua_window_active_pane_zero_arg_method_name_from_query(segment, window_name)
+        {
+            match method {
+                "pane_id" => parts.push(NativeLuaWindowPaneStatusPart::PaneId),
+                "get_title" => parts.push(NativeLuaWindowPaneStatusPart::PaneTitle),
+                "get_domain_name" => parts.push(NativeLuaWindowPaneStatusPart::PaneDomainName),
+                "get_current_working_dir" => {
+                    parts.push(NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir);
+                }
+                "get_foreground_process_name" => {
+                    parts.push(NativeLuaWindowPaneStatusPart::PaneForegroundProcessName);
+                }
+                "get_tty_name" => parts.push(NativeLuaWindowPaneStatusPart::PaneTtyName),
+                _ => return None,
+            }
+            has_dynamic_part = true;
         } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
         {
             parts.push(NativeLuaWindowPaneStatusPart::PaneId);
@@ -10921,6 +10938,21 @@ fn lua_window_active_tab_zero_arg_method_name_from_query<'a>(
     value: &'a str,
     window_name: &str,
 ) -> Option<&'a str> {
+    lua_window_accessor_zero_arg_method_name_from_query(value, window_name, "active_tab")
+}
+
+fn lua_window_active_pane_zero_arg_method_name_from_query<'a>(
+    value: &'a str,
+    window_name: &str,
+) -> Option<&'a str> {
+    lua_window_accessor_zero_arg_method_name_from_query(value, window_name, "active_pane")
+}
+
+fn lua_window_accessor_zero_arg_method_name_from_query<'a>(
+    value: &'a str,
+    window_name: &str,
+    accessor_name: &str,
+) -> Option<&'a str> {
     let rest = value.strip_prefix(window_name)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
@@ -10928,7 +10960,7 @@ fn lua_window_active_tab_zero_arg_method_name_from_query<'a>(
     let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
     let rest = lua_trim_start_comments(rest)?;
     let accessor = lua_identifier_literal_from_query(rest)?;
-    if accessor != "active_tab" || !lua_config_assignment_field_has_boundaries(rest, 0, accessor) {
+    if accessor != accessor_name || !lua_config_assignment_field_has_boundaries(rest, 0, accessor) {
         return None;
     }
     let rest = lua_trim_start_comments(rest.get(accessor.len()..)?)?;
@@ -78112,6 +78144,30 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "tab=build");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_pane_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(
+                'pane=' .. window:active_pane():pane_id()
+                  .. ' title=' .. window:active_pane():get_title()
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active pane status setter");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.right_status, "pane=1 title=PowerShell");
     }
 
     #[test]
