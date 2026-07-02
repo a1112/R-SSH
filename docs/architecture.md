@@ -1891,8 +1891,9 @@ keyboard, mouse, paste, resize
   `pane:pane_id()`/`pane:get_title()`/`pane:get_domain_name()`/
   `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`/
   `pane:get_tty_name()`
-  plus static `pane:get_cursor_position()` field concatenations for `x`, `y`,
-  `shape`, and `visibility`
+  plus static `pane:get_cursor_position()` or
+  `window:active_pane():get_cursor_position()` field concatenations for `x`,
+  `y`, `shape`, and `visibility`
   plus static `pane:get_user_vars()` dot-field concatenations for stored
   user-var names
   plus static `pane:get_progress()` conditional status branches for
