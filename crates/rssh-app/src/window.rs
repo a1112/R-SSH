@@ -9768,12 +9768,29 @@ fn lua_static_window_status_variable_text_from_query(
             NativeLuaWindowStatusText::Static(_)
             | NativeLuaWindowStatusText::ActiveWorkspace
             | NativeLuaWindowStatusText::Leader { .. }
+            | NativeLuaWindowStatusText::Focus { .. }
             | NativeLuaWindowStatusText::KeyboardModifiers { .. } => {}
         }
         return Some(status);
     }
 
     let inactive = lua_static_string_value_from_expression(None, None, assignment)?;
+    if let Some((focused, unfocused)) =
+        lua_static_window_status_variable_bool_method_text_before_offset(
+            static_source.source,
+            variable,
+            window_name,
+            "is_focused",
+            static_source.max_start,
+        )
+    {
+        return Some(NativeLuaWindowStatusText::Focus {
+            focused,
+            unfocused: fallback_text
+                .or(unfocused)
+                .unwrap_or_else(|| inactive.clone()),
+        });
+    }
     let active = lua_static_window_status_variable_leader_active_text_before_offset(
         static_source.source,
         variable,
@@ -9784,6 +9801,52 @@ fn lua_static_window_status_variable_text_from_query(
         active,
         inactive: fallback_text.unwrap_or(inactive),
     })
+}
+
+fn lua_static_window_status_variable_bool_method_text_before_offset(
+    source: &str,
+    variable: &str,
+    window_name: &str,
+    method: &str,
+    max_start: usize,
+) -> Option<(String, Option<String>)> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(value) = lua_static_window_status_variable_bool_method_text_from_statement(
+            statement,
+            variable,
+            window_name,
+            method,
+        ) {
+            selected = Some(value);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_status_variable_bool_method_text_from_statement(
+    statement: &str,
+    variable: &str,
+    window_name: &str,
+    method: &str,
+) -> Option<(String, Option<String>)> {
+    let (branches, else_body, _) =
+        lua_static_if_condition_and_body_branches_and_else_from_statement(statement)?;
+    let [(condition, body)] = branches.as_slice() else {
+        return None;
+    };
+    if lua_window_zero_arg_method_name_from_query(condition, window_name)? != method {
+        return None;
+    }
+
+    let active = lua_static_window_status_variable_static_assignment_from_body(body, variable)?;
+    let inactive = else_body.and_then(|body| {
+        lua_static_window_status_variable_static_assignment_from_body(body, variable)
+    });
+    Some((active, inactive))
 }
 
 fn lua_static_window_status_variable_leader_active_text_before_offset(
@@ -9808,6 +9871,22 @@ fn lua_static_window_status_variable_leader_active_text_before_offset(
     selected
 }
 
+fn lua_static_window_status_variable_static_assignment_from_body(
+    body: &str,
+    variable: &str,
+) -> Option<String> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(value) =
+            lua_static_window_status_variable_static_assignment_from_statement(statement, variable)
+        {
+            selected = Some(value);
+        }
+    }
+    selected
+}
+
 fn lua_static_window_status_variable_leader_active_text_from_statement(
     statement: &str,
     variable: &str,
@@ -9821,16 +9900,7 @@ fn lua_static_window_status_variable_leader_active_text_from_statement(
         return None;
     }
 
-    let mut selected = None;
-    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
-        let statement = lua_trim_start_comments(body.get(start..)?)?;
-        if let Some(value) =
-            lua_static_window_status_variable_static_assignment_from_statement(statement, variable)
-        {
-            selected = Some(value);
-        }
-    }
-    selected
+    lua_static_window_status_variable_static_assignment_from_body(body, variable)
 }
 
 fn lua_window_status_variable_fallback_from_query(value: &str) -> Option<(&str, Option<String>)> {
@@ -24293,6 +24363,10 @@ enum NativeLuaWindowStatusText {
     Leader {
         active: String,
         inactive: String,
+    },
+    Focus {
+        focused: String,
+        unfocused: String,
     },
     KeyboardModifiers {
         parts: Vec<NativeLuaKeyboardModifiersStatusPart>,
@@ -40434,6 +40508,13 @@ impl NativeWindowApp {
                     inactive
                 }
             }
+            NativeLuaWindowStatusText::Focus { focused, unfocused } => {
+                if self.window_focused {
+                    focused
+                } else {
+                    unfocused
+                }
+            }
             NativeLuaWindowStatusText::KeyboardModifiers { parts } => {
                 let modifiers = native_lua_keyboard_modifiers_text(self.modifiers);
                 let leds = String::new();
@@ -40715,6 +40796,7 @@ impl NativeWindowApp {
             focused,
         };
         self.dispatch_focus_change(&change);
+        self.dispatch_update_status();
 
         if let Some(bytes) = encode_window_focus_event(focused, self.runtime.focus_reporting()) {
             self.write_pty_bytes(&bytes)?;
@@ -76723,6 +76805,37 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_is_focused_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local focus = 'BLURRED'
+              if window:is_focused() then
+                focus = 'FOCUSED'
+              else
+                focus = 'BLURRED'
+              end
+              window:set_right_status(focus)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm is_focused status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "FOCUSED");
+
+        app.handle_focus_changed(false).unwrap();
+        assert_eq!(app.right_status, "BLURRED");
+
+        app.handle_focus_changed(true).unwrap();
+        assert_eq!(app.right_status, "FOCUSED");
     }
 
     #[test]

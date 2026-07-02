@@ -1866,7 +1866,7 @@ keyboard, mouse, paste, resize
 - Implemented in v1: native window `about_to_wait` dispatches typed
   `update-status` and deprecated `update-right-status` hooks with the window id
   and active pane id, scheduled by a WezTerm-style 1000ms
-  `status_update_interval` default.
+  `status_update_interval` default and immediately on focus changes.
   The handlers can update stored left and right status strings; the native tab
   bar renders left status after the workspace label, consumes SGR presentation
   escapes including blink/inverse/conceal/strikethrough/overline plus WezTerm
@@ -1884,6 +1884,8 @@ keyboard, mouse, paste, resize
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
+  plus the documented `window:is_focused()` status shape with static
+  focused/unfocused strings,
   plus the documented `window:keyboard_modifiers()` status shape with current
   modifier text and empty LED status, plus the documented
   `window:composition_status()` status shape with Builtin IME preedit or

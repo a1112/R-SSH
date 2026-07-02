@@ -1649,7 +1649,7 @@ runtime storage for tabs and split panes.
 - `rssh-app` dispatches typed native-window `update-status` and deprecated
   `update-right-status` hooks from the native event loop with the window id and
   active pane id, scheduled by a WezTerm-style 1000ms
-  `status_update_interval` default. The
+  `status_update_interval` default and immediately on focus changes. The
   handlers can update stored left and right status strings; the tab bar renders
   left status after the workspace label, consumes SGR presentation escapes
   including blink/inverse/conceal/strikethrough/overline plus WezTerm underline
@@ -1669,6 +1669,8 @@ runtime storage for tabs and split panes.
   to an empty right status for an empty key-table stack. The documented
   leader-status example resolves `window:leader_is_active()` and switches
   between static active/inactive strings as the leader state changes. The
+  documented `window:is_focused()` status shape switches between static
+  focused/unfocused strings as the native focus state changes. The
   documented `window:keyboard_modifiers()` example resolves current modifier
   text into `mods=... leds=...` status strings, with keyboard LED state
   currently reported as empty. The documented `window:composition_status()`
