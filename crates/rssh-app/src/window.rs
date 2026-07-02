@@ -113540,6 +113540,26 @@ mod tests {
     }
 
     #[test]
+    fn window_app_confirmation_static_action_callback_sends_pane_text() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Confirmation { message = \"Send command?\", action = wezterm.action_callback(function(window, pane) pane:send_text('yes') end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"yes");
+        assert!(app.confirmation.is_none());
+    }
+
+    #[test]
     fn window_app_confirmation_static_cancel_callback_performs_nested_action() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -113558,6 +113578,29 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"no");
+        assert!(app.confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_confirmation_static_cancel_callback_sends_pane_paste() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Confirmation { message = \"Send command?\", action = \"sendstring yes\", cancel = wezterm.action_callback(function(window, pane) pane:send_paste('no\\n') end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_confirmation_key(&Key::Named(NamedKey::Escape), ModifiersState::empty())
+        );
+
+        let expected = encode_window_paste("no\n", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
         assert!(app.confirmation.is_none());
     }
 

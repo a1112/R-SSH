@@ -546,8 +546,10 @@ runtime storage for tabs and split panes.
   `wezterm.action.Confirmation { message = ..., action = ..., cancel = ... }`
   table-call queries also dispatch the same native nested-command subset. Static
   callback bodies that call `window:perform_action(<implemented action>, pane)`
-  map onto existing native commands; arbitrary Lua `wezterm.action_callback`
-  execution remains later parity work.
+  map onto existing native commands, and direct
+  `pane:send_text(<static-text>)` / `pane:send_paste(<static-text>)` calls map
+  accept or cancel callbacks onto native send-string or send-paste paths;
+  arbitrary Lua `wezterm.action_callback` execution remains later parity work.
 - `rssh-app` exposes a native WezTerm-style `EmitEvent` action payload carrying
   a custom event name. Executing it dispatches a typed native handler with the
   active window id and pane id. The structured command-palette query

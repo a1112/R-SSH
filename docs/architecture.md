@@ -698,8 +698,12 @@ keyboard, mouse, paste, resize
   inline or through top-level static action variables, including variables built
   from top-level static `wezterm.action` aliases. Parenthesized
   `Confirmation(confirm_opts)` calls also accept top-level static options table
-  variables. Styled confirmation rendering and actual Lua callback wiring
-  remain future parity work.
+  variables. Static callback bodies that call
+  `window:perform_action(<implemented action>, pane)` run the nested native
+  command, while `pane:send_text(<static-text>)` and
+  `pane:send_paste(<static-text>)` map onto native `SendString` and `SendPaste`
+  paths for accept or cancel callbacks. Styled confirmation rendering and
+  actual Lua callback wiring remain future parity work.
 - Completed in v1: a native WezTerm-style `EmitEvent` action payload carries a
   custom event name and dispatches it through a typed native handler with the
   active window id and pane id. Structured command-palette `emit event <name>`
