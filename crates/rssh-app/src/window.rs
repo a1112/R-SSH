@@ -28514,6 +28514,17 @@ impl NativeWindowApp {
                 }
                 return Ok(());
             }
+            WindowCommand::SendPaste(value) => {
+                let bytes = encode_window_paste(
+                    &value,
+                    self.runtime.bracketed_paste(),
+                    self.canonicalize_pasted_newlines,
+                );
+                if let Err(error) = self.write_pty_bytes(&bytes) {
+                    eprintln!("send paste failed: {error}");
+                }
+                return Ok(());
+            }
             WindowCommand::SendKey(send_key) => {
                 if let Err(error) = self.send_key_to_active_pane(&send_key) {
                     eprintln!("send key failed: {error}");
@@ -45511,7 +45522,7 @@ fn lua_action_callback_perform_action_command_body(
             pane_param,
         )
         .or_else(|| {
-            lua_callback_statement_sends_pane_text(
+            lua_callback_statement_sends_pane_input(
                 local_static_source,
                 static_source,
                 statement,
@@ -45597,7 +45608,7 @@ fn native_key_assignment_command_from_callback_action(
         })
 }
 
-fn lua_callback_statement_sends_pane_text(
+fn lua_callback_statement_sends_pane_input(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     statement: &str,
@@ -45610,15 +45621,22 @@ fn lua_callback_statement_sends_pane_text(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
     let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("send_text")
-        || !lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
+    let (command_name, command): (&str, fn(String) -> WindowCommand) = if rest
+        .starts_with("send_text")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
     {
+        ("send_text", WindowCommand::SendString)
+    } else if rest.starts_with("send_paste")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_paste")
+    {
+        ("send_paste", WindowCommand::SendPaste)
+    } else {
         return None;
-    }
-    let rest = lua_trim_start_comments(rest.get("send_text".len()..)?)?;
+    };
+    let rest = lua_trim_start_comments(rest.get(command_name.len()..)?)?;
     let text = lua_callback_statement_pane_text_argument_from_query(rest)?;
     let text = lua_static_string_value_from_expression(static_source, outer_static_source, text)?;
-    Some(WindowCommand::SendString(text))
+    Some(command(text))
 }
 
 fn lua_callback_statement_pane_text_argument_from_query(rest: &str) -> Option<&str> {
@@ -56450,6 +56468,8 @@ enum WindowCommand {
     #[allow(dead_code)]
     SendString(String),
     #[allow(dead_code)]
+    SendPaste(String),
+    #[allow(dead_code)]
     SendKey(WindowSendKey),
     #[allow(dead_code)]
     ScrollByCurrentEventWheelDelta,
@@ -56747,6 +56767,7 @@ impl WindowCommand {
             }
             Self::PastePrimarySelection => "Paste Primary Selection",
             Self::SendString(_) => "Send String",
+            Self::SendPaste(_) => "Send Paste",
             Self::SendKey(_) => "Send Key",
             Self::Confirmation(_) => "Confirmation",
             Self::ReloadConfiguration => "Reload Configuration",
@@ -56909,6 +56930,7 @@ impl WindowCommand {
             }
             Self::PastePrimarySelection => "Paste Primary Selection",
             Self::SendString(_) => "Send String",
+            Self::SendPaste(_) => "Send Paste",
             Self::SendKey(_) => "Send Key",
             Self::QuickSelect(_) | Self::QuickSelectArgs(_) | Self::EnterQuickSelect => {
                 "Quick Select"
@@ -93937,6 +93959,37 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_sends_pane_paste() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('paste-greeting', function(window, pane)
+              pane:send_paste('hello\nworld')
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "paste-greeting".to_owned(),
+            },))
+        );
+
+        let expected =
+            encode_window_paste("hello\nworld", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
     }
 
     #[test]

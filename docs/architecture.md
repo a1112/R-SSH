@@ -705,10 +705,11 @@ keyboard, mouse, paste, resize
   `window:perform_action(<implemented action>, pane)` calls, including
   callback-local static action variables that resolve through top-level
   `wezterm.action` aliases, or parenthesized and single-string
-  `pane:send_text(<static-text>)` calls, run those native commands in order
-  after typed native event dispatch, and top-level
-  `wezterm.emit(<static-event-name>, window, pane)` calls, including through a
-  top-level static `local <alias> = wezterm.emit` and callback-local or
+  `pane:send_text(<static-text>)` / `pane:send_paste(<static-text>)` calls,
+  with `send_paste` using native paste newline and bracketed-paste encoding,
+  run those native commands in order after typed native event dispatch, and
+  top-level `wezterm.emit(<static-event-name>, window, pane)` calls, including
+  through a top-level static `local <alias> = wezterm.emit` and callback-local or
   top-level static string event-name variables, re-enter matching static
   handlers. Static `return false` stops later static handlers for that event.
   Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains future parity work.

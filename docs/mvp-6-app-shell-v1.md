@@ -553,9 +553,10 @@ runtime storage for tabs and split panes.
   `window:perform_action(<implemented action>, pane)` calls, including
   callback-local static action variables that resolve through top-level
   `wezterm.action` aliases, or parenthesized and single-string
-  `pane:send_text(<static-text>)` calls, map matching `EmitEvent` names onto
-  existing native commands in order after the typed native event dispatch, and
-  top-level
+  `pane:send_text(<static-text>)` / `pane:send_paste(<static-text>)` calls,
+  with `send_paste` using native paste newline and bracketed-paste encoding,
+  map matching `EmitEvent` names onto existing native commands in order after
+  the typed native event dispatch, and top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls, including through a
   top-level static `local <alias> = wezterm.emit` and callback-local or
   top-level static string event-name variables, re-enter matching static
