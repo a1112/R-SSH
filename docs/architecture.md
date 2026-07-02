@@ -1887,6 +1887,8 @@ keyboard, mouse, paste, resize
   `pane:get_tty_name()`
   plus static `pane:get_cursor_position()` field concatenations for `x`, `y`,
   `shape`, and `visibility`
+  plus static `pane:get_user_vars()` dot-field concatenations for stored
+  user-var names
   plus static `pane:get_dimensions()` field concatenations for `cols`,
   `viewport_rows`, `scrollback_rows`, `physical_top`, and `scrollback_top`
   plus static `pane:is_alt_screen_active()` status branches with static
@@ -2019,7 +2021,9 @@ keyboard, mouse, paste, resize
   `OSC 1337;SetUserVar` metadata into terminal user vars. `rssh-app` syncs
   those values into per-pane app-shell metadata for active and inactive pane
   runtimes and emits a typed native-window user-var change hook when a stored
-  pane value changes, carrying the window id, pane id, name, and value.
+  pane value changes, carrying the window id, pane id, name, and value. Static
+  `update-status` callbacks can read active-pane `pane:get_user_vars()` dot
+  fields from the same stored metadata.
 - Implemented in v1: `rssh-terminal` base64-decodes iTerm2
   `OSC 1337;SetBadgeFormat` metadata into terminal badge format state.
   `rssh-app` syncs that value into per-pane app-shell metadata for active and

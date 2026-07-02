@@ -9678,6 +9678,12 @@ fn lua_static_window_status_text_from_query(
     {
         return Some(status);
     }
+    if let Some(static_source) = static_source
+        && let Some(status) =
+            lua_static_pane_user_vars_status_text_from_query(static_source, pane_name, argument)
+    {
+        return Some(status);
+    }
     if let Some(status) = lua_static_window_id_status_text_from_query(window_name, argument) {
         return Some(status);
     }
@@ -9855,6 +9861,100 @@ fn lua_static_pane_cursor_position_status_text_from_query(
     }
 
     has_dynamic_part.then_some(NativeLuaWindowStatusText::PaneCursorPosition { parts })
+}
+
+fn lua_static_pane_user_vars_status_text_from_query(
+    static_source: LuaStaticSource<'_>,
+    pane_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let variable = lua_static_pane_user_vars_variable_before_offset(
+        static_source.source,
+        pane_name,
+        static_source.max_start,
+    )?;
+    let mut parts = Vec::new();
+    let mut has_dynamic_part = false;
+
+    for segment in split_lua_string_concat_segments(value)? {
+        let segment = segment.trim();
+        if let Some(name) = lua_static_pane_user_var_name_from_query(segment, &variable) {
+            parts.push(NativeLuaPaneUserVarsStatusPart::UserVar(name));
+            has_dynamic_part = true;
+        } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
+            parts.push(NativeLuaPaneUserVarsStatusPart::Static(text));
+        } else {
+            return None;
+        }
+    }
+
+    has_dynamic_part.then_some(NativeLuaWindowStatusText::PaneUserVars { parts })
+}
+
+fn lua_static_pane_user_vars_variable_before_offset(
+    source: &str,
+    pane_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_pane_user_vars_variable_from_statement(statement, pane_name)
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_pane_user_vars_variable_from_statement(
+    statement: &str,
+    pane_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if lua_window_zero_arg_method_name_from_query(value, pane_name)? != "get_user_vars" {
+        return None;
+    }
+    Some(variable.to_owned())
+}
+
+fn lua_static_pane_user_var_name_from_query(value: &str, variable: &str) -> Option<String> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let name = lua_identifier_literal_from_query(rest)?;
+    if !lua_trim_start_comments(rest.get(name.len()..)?)?.is_empty() {
+        return None;
+    }
+    Some(name.to_owned())
 }
 
 fn lua_static_pane_cursor_position_variable_before_offset(
@@ -10198,6 +10298,7 @@ fn lua_static_window_status_variable_text_from_query(
             | NativeLuaWindowStatusText::WindowDimensions { .. }
             | NativeLuaWindowStatusText::PaneDimensions { .. }
             | NativeLuaWindowStatusText::PaneCursorPosition { .. }
+            | NativeLuaWindowStatusText::PaneUserVars { .. }
             | NativeLuaWindowStatusText::KeyboardModifiers { .. } => {}
         }
         return Some(status);
@@ -24837,6 +24938,9 @@ enum NativeLuaWindowStatusText {
     PaneCursorPosition {
         parts: Vec<NativeLuaPaneCursorPositionStatusPart>,
     },
+    PaneUserVars {
+        parts: Vec<NativeLuaPaneUserVarsStatusPart>,
+    },
     KeyboardModifiers {
         parts: Vec<NativeLuaKeyboardModifiersStatusPart>,
     },
@@ -24895,6 +24999,12 @@ enum NativeLuaPaneCursorPositionField {
     Y,
     Shape,
     Visibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaPaneUserVarsStatusPart {
+    Static(String),
+    UserVar(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41104,6 +41214,15 @@ impl NativeWindowApp {
                     }
                 })
                 .collect::<String>(),
+            NativeLuaWindowStatusText::PaneUserVars { parts } => parts
+                .into_iter()
+                .map(|part| match part {
+                    NativeLuaPaneUserVarsStatusPart::Static(text) => text,
+                    NativeLuaPaneUserVarsStatusPart::UserVar(name) => {
+                        self.lua_pane_user_var_text(&name)
+                    }
+                })
+                .collect::<String>(),
             NativeLuaWindowStatusText::KeyboardModifiers { parts } => {
                 let modifiers = native_lua_keyboard_modifiers_text(self.modifiers);
                 let leds = String::new();
@@ -41167,6 +41286,12 @@ impl NativeWindowApp {
                 }
             }
         }
+    }
+
+    fn lua_pane_user_var_text(&self, name: &str) -> String {
+        self.pane_user_var(self.app_shell.active_pane_id(), name)
+            .unwrap_or_default()
+            .to_owned()
     }
 
     fn composition_status_text(&self) -> Option<String> {
@@ -77715,6 +77840,32 @@ mod tests {
         app.handle_pty_output(b"\x1b[?25l").unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "6,3 Bar Hidden");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_user_vars_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local vars = pane:get_user_vars()
+              window:set_right_status(
+                'prog=' .. vars.WEZTERM_PROG .. ' host=' .. vars.WEZTERM_HOST
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_user_vars status setter");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(
+            b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07\x1b]1337;SetUserVar=WEZTERM_HOST=cHJvZA==\x07",
+        )
+        .unwrap();
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=psh host=prod");
     }
 
     #[test]

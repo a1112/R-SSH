@@ -1184,7 +1184,9 @@ runtime storage for tabs and split panes.
   metadata into terminal user vars. `rssh-app` syncs those user vars into
   per-pane app-shell metadata for active and inactive panes and dispatches a
   typed native-window user-var change hook with the window id, pane id, name,
-  and value when a stored pane value changes.
+  and value when a stored pane value changes. Static `update-status` callbacks
+  can read active-pane `pane:get_user_vars()` dot fields from the same stored
+  metadata.
 - `rssh-terminal` base64-decodes iTerm2 `OSC 1337;SetBadgeFormat` metadata into
   terminal badge format state. `rssh-app` syncs that badge metadata per pane for
   active and inactive panes, interpolates `\(user.NAME)` badge variables from
@@ -1672,11 +1674,12 @@ runtime storage for tabs and split panes.
   resolves the active pane foreground process name, `pane:get_tty_name()`
   resolves the active pane tty name, static `pane:get_cursor_position()` field
   concatenations expose active pane `x`, `y`, `shape`, and `visibility`,
-  static `pane:get_dimensions()` field concatenations expose active pane
-  `cols`, `viewport_rows`, `scrollback_rows`, `physical_top`, and
-  `scrollback_top`, `pane:is_alt_screen_active()` status branches switch
-  between static alternate-screen active/inactive strings, and static
-  `window:get_dimensions()`
+  static `pane:get_user_vars()` dot-field concatenations expose stored
+  active-pane user vars, static `pane:get_dimensions()` field concatenations
+  expose active pane `cols`, `viewport_rows`, `scrollback_rows`,
+  `physical_top`, and `scrollback_top`, `pane:is_alt_screen_active()` status
+  branches switch between static alternate-screen active/inactive strings, and
+  static `window:get_dimensions()`
   field concatenations expose native `pixel_width`, `pixel_height`, `dpi`, and
   `is_full_screen`. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
