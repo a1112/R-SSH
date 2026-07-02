@@ -1672,8 +1672,10 @@ runtime storage for tabs and split panes.
   Left/Right/Middle clicks on the tab bar `+` button, carrying the window id
   and active pane id. Left click carries the default `NewTab` action in the
   event payload, while Right/Middle clicks have no default action; returning
-  `false` suppresses any default action. Lua event wiring remains later parity
-  work.
+  `false` suppresses any default action. The documented static callback shape
+  that calls `window:perform_action(default_action, pane)` before returning
+  `false` runs that native default action exactly once. Lua event wiring remains
+  later parity work.
 - `rssh-app` dispatches a typed native-window open-uri hook for ctrl-clicked OSC
   8 hyperlinks before invoking the default opener, carrying the window id,
   active pane id, and URI. Returning `false` suppresses the default opener. The

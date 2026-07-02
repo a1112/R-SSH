@@ -2526,8 +2526,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   suppresses any default action. Static
   `wezterm.on('new-tab-button-click', function(...) return false end)` callbacks
   with literal or callback-local/top-level static bool-variable returns map onto
-  the same suppression path; arbitrary Lua event execution and dynamic return
-  logic remain open.
+  the same suppression path. The documented static callback shape that calls
+  `window:perform_action(default_action, pane)` before returning `false` runs
+  the native default action exactly once; arbitrary Lua event execution and
+  dynamic return logic remain open.
 - Native window now dispatches a typed open-uri hook for ctrl-clicked OSC 8
   hyperlinks before invoking the default opener, carrying the window id, active
   pane id, and URI. Returning `false` suppresses the default opener. The command

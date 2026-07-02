@@ -1890,8 +1890,10 @@ keyboard, mouse, paste, resize
   `new-tab-button-click` hook with the window id, active pane id, and mouse
   button for Left/Right/Middle clicks. Left click carries the default `NewTab`
   action in the event payload, while Right/Middle clicks have no default action;
-  returning `false` suppresses any default action. Lua event wiring remains
-  future parity work.
+  returning `false` suppresses any default action. The documented static
+  callback shape that calls `window:perform_action(default_action, pane)` before
+  returning `false` runs the native default action exactly once. Lua event
+  wiring remains future parity work.
 - Implemented in v1: ctrl-clicked OSC 8 hyperlinks dispatch a typed open-uri
   hook with the window id, active pane id, and URI before the default opener
   runs. Returning `false` suppresses the default opener. The command palette
