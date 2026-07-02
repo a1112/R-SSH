@@ -3771,6 +3771,7 @@ struct NativeConfigOverrides {
     lua_update_status: Option<NativeWindowStatusUpdate>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
+    lua_command_palette_entries: Option<Vec<NativeCommandPaletteEntry>>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
     canonicalize_pasted_newlines: Option<NativeCanonicalizePastedNewlines>,
@@ -3833,6 +3834,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
         lua_static_wezterm_new_tab_button_click_event_from_query(config)
     {
         overrides.lua_new_tab_button_click = Some(new_tab_button_click);
+        parsed = true;
+    }
+    if let Some(command_palette_entries) =
+        lua_static_wezterm_augment_command_palette_event_from_query(config)
+    {
+        overrides.lua_command_palette_entries = Some(command_palette_entries);
         parsed = true;
     }
 
@@ -6093,6 +6100,43 @@ fn lua_static_wezterm_new_tab_button_click_event_from_statement(
     )
 }
 
+fn lua_static_wezterm_augment_command_palette_event_from_query(
+    source: &str,
+) -> Option<Vec<NativeCommandPaletteEntry>> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(value) =
+            lua_static_wezterm_augment_command_palette_event_from_statement(source, start)
+        {
+            selected = Some(value);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_augment_command_palette_event_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<Vec<NativeCommandPaletteEntry>> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if event_name != "augment-command-palette" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let body = lua_anonymous_function_body_from_query(rest)?;
+    lua_static_command_palette_entries_return_from_function_body(
+        body,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
+}
+
 fn lua_static_wezterm_on_event_name_and_rest_from_args<'a>(
     source: &'a str,
     start: usize,
@@ -7090,6 +7134,267 @@ fn lua_static_bool_return_from_function_body(
     }
 
     None
+}
+
+fn lua_static_command_palette_entries_return_from_function_body(
+    body: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Vec<NativeCommandPaletteEntry>> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let Some(expression) = lua_static_return_expression_from_statement(statement) else {
+            continue;
+        };
+        return native_command_palette_entries_lua_table_from_expression(
+            Some(LuaStaticSource {
+                source: body,
+                max_start: start,
+            }),
+            outer_static_source,
+            expression,
+        );
+    }
+
+    None
+}
+
+fn native_command_palette_entries_lua_table_from_expression(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<NativeCommandPaletteEntry>> {
+    native_command_palette_entries_lua_table_from_expression_with_depth(
+        static_source,
+        outer_static_source,
+        value,
+        0,
+    )
+}
+
+fn native_command_palette_entries_lua_table_from_expression_with_depth(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    depth: usize,
+) -> Option<Vec<NativeCommandPaletteEntry>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+    let value = value.trim();
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return native_command_palette_entries_lua_table_from_expression_with_depth(
+            Some(static_source),
+            outer_static_source,
+            value,
+            depth + 1,
+        );
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            value,
+            outer_static_source.max_start,
+        )
+    {
+        return native_command_palette_entries_lua_table_from_expression_with_depth(
+            static_source,
+            Some(outer_static_source),
+            value,
+            depth + 1,
+        );
+    }
+
+    native_command_palette_entries_lua_table_from_query(static_source, outer_static_source, value)
+}
+
+fn native_command_palette_entries_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<Vec<NativeCommandPaletteEntry>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut entries = Vec::new();
+    let mut indexed_entries = BTreeMap::new();
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = split_lua_table_assignment_from_field(field)
+            && let Some(index) = split_lua_table_array_index_from_query(key.trim())
+        {
+            if !entries.is_empty() || index == 0 || indexed_entries.contains_key(&index) {
+                return None;
+            }
+            indexed_entries.insert(
+                index,
+                native_command_palette_entry_lua_table_from_query(
+                    static_source,
+                    outer_static_source,
+                    value.trim(),
+                )?,
+            );
+            continue;
+        }
+
+        if !indexed_entries.is_empty() {
+            return None;
+        }
+        entries.push(native_command_palette_entry_lua_table_from_query(
+            static_source,
+            outer_static_source,
+            field,
+        )?);
+    }
+
+    if !indexed_entries.is_empty() {
+        return (1..=indexed_entries.len())
+            .map(|index| indexed_entries.remove(&index))
+            .collect();
+    }
+
+    Some(entries)
+}
+
+fn native_command_palette_entry_lua_table_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<NativeCommandPaletteEntry> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut brief = None;
+    let mut doc = None;
+    let mut icon = None;
+    let mut action = None;
+
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (name, value) = split_lua_table_assignment_from_field(field)?;
+        let name = split_lua_table_key_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            name.trim(),
+        )?;
+        let value = value.trim();
+        match name.to_ascii_lowercase().as_str() {
+            "brief" => {
+                if brief.is_some() {
+                    return None;
+                }
+                brief = Some(parse_maybe_static_query_text_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value,
+                )?);
+            }
+            "doc" => {
+                if doc.is_some() {
+                    return None;
+                }
+                doc = Some(parse_maybe_static_query_text_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value,
+                )?);
+            }
+            "icon" => {
+                if icon.is_some() {
+                    return None;
+                }
+                icon = Some(parse_maybe_static_query_text_with_static_sources(
+                    static_source,
+                    outer_static_source,
+                    value,
+                )?);
+            }
+            "action" => {
+                if action.is_some() {
+                    return None;
+                }
+                action = Some(native_command_palette_entry_action_from_query(
+                    static_source,
+                    outer_static_source,
+                    value,
+                )?);
+            }
+            _ => return None,
+        }
+    }
+
+    Some(NativeCommandPaletteEntry {
+        brief: brief?,
+        doc,
+        icon,
+        key_assignment: None,
+        action: action?,
+    })
+}
+
+fn native_command_palette_entry_action_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCommand> {
+    native_command_palette_entry_action_from_query_with_depth(
+        static_source,
+        outer_static_source,
+        value,
+        0,
+    )
+}
+
+fn native_command_palette_entry_action_from_query_with_depth(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    depth: usize,
+) -> Option<WindowCommand> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+    let value = value.trim();
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_action_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return native_command_palette_entry_action_from_query_with_depth(
+            Some(static_source),
+            outer_static_source,
+            value,
+            depth + 1,
+        );
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_action_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            value,
+            outer_static_source.max_start,
+        )
+    {
+        return native_command_palette_entry_action_from_query_with_depth(
+            static_source,
+            Some(outer_static_source),
+            value,
+            depth + 1,
+        );
+    }
+
+    native_key_assignment_command_from_query(static_source, value)
+        .or_else(|| native_key_assignment_command_from_query(outer_static_source, value))
+        .or_else(|| native_key_assignment_command_from_query(None, value))
 }
 
 fn lua_static_open_uri_prefix_return_from_function_body(
@@ -23567,6 +23872,7 @@ struct NativeWindowApp {
     lua_update_status: Option<NativeWindowStatusUpdate>,
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
+    lua_command_palette_entries: Vec<NativeCommandPaletteEntry>,
     status_update_interval: Duration,
     max_fps: usize,
     animation_fps: usize,
@@ -25116,6 +25422,7 @@ impl NativeWindowApp {
             lua_update_status: None,
             lua_open_uri: None,
             lua_new_tab_button_click: None,
+            lua_command_palette_entries: Vec::new(),
             status_update_interval: DEFAULT_STATUS_UPDATE_INTERVAL,
             max_fps: DEFAULT_MAX_FPS,
             animation_fps: DEFAULT_ANIMATION_FPS,
@@ -26377,6 +26684,8 @@ impl NativeWindowApp {
         self.lua_update_status.clone_from(&source.lua_update_status);
         self.lua_open_uri.clone_from(&source.lua_open_uri);
         self.lua_new_tab_button_click = source.lua_new_tab_button_click;
+        self.lua_command_palette_entries
+            .clone_from(&source.lua_command_palette_entries);
         self.max_fps = source.max_fps;
         self.animation_fps = source.animation_fps;
         self.last_redraw_request_at = source.last_redraw_request_at;
@@ -35015,6 +35324,10 @@ impl NativeWindowApp {
         self.lua_update_status = overrides.lua_update_status.clone();
         self.lua_open_uri.clone_from(&overrides.lua_open_uri);
         self.lua_new_tab_button_click = overrides.lua_new_tab_button_click;
+        self.lua_command_palette_entries = overrides
+            .lua_command_palette_entries
+            .clone()
+            .unwrap_or_default();
         self.max_fps = overrides
             .max_fps
             .filter(|fps| *fps > 0)
@@ -39154,7 +39467,9 @@ impl NativeWindowApp {
         &mut self,
         event: &NativeCommandPaletteAugment,
     ) -> Vec<NativeCommandPaletteEntry> {
-        (self.command_palette_augmenter)(event)
+        let mut entries = (self.command_palette_augmenter)(event);
+        entries.extend(self.lua_command_palette_entries.iter().cloned());
+        entries
     }
 
     fn reload_configuration(&mut self) {
@@ -116456,6 +116771,7 @@ mod tests {
             lua_new_tab_button_click: Some(NativeLuaNewTabButtonClick {
                 allow_default: false,
             }),
+            lua_command_palette_entries: None,
             scroll_to_bottom_on_input: Some(false),
             adjust_window_size_when_changing_font_size: Some(false),
             canonicalize_pasted_newlines: Some(NativeCanonicalizePastedNewlines::LineFeed),
@@ -117323,6 +117639,62 @@ mod tests {
         assert_eq!(
             app.command_palette_status(palette),
             "Command Palette: \"zoom native\" [1 / 1] Zoom Native Pane"
+        );
+
+        assert!(app.command_palette_execute_entry(entries[0].clone()));
+
+        assert_eq!(
+            app.app_shell.active_tab().zoomed_pane_id(),
+            Some(active_pane)
+        );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_augment_command_palette_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('augment-command-palette', function(window, pane)
+              return {
+                {
+                  brief = 'Lua Zoom Pane',
+                  doc = 'Zoom the active pane from Lua config',
+                  icon = 'md_rename_box',
+                  action = act.SetPaneZoomState(true),
+                },
+              }
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm augment-command-palette return");
+        app.set_config_overrides(overrides);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query("lua zoom".to_owned());
+
+        let entries = app.command_palette_filtered_entries();
+        assert_eq!(
+            entries,
+            [WindowCommandPaletteEntry::Augmented(
+                NativeCommandPaletteEntry {
+                    brief: "Lua Zoom Pane".to_owned(),
+                    doc: Some("Zoom the active pane from Lua config".to_owned()),
+                    icon: Some("md_rename_box".to_owned()),
+                    key_assignment: None,
+                    action: WindowCommand::SetPaneZoomState(true),
+                }
+            )]
         );
 
         assert!(app.command_palette_execute_entry(entries[0].clone()));
