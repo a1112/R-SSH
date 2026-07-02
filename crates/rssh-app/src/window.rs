@@ -45504,6 +45504,7 @@ fn lua_action_callback_perform_action_command_body(
             max_start: start,
         });
         if let Some(command) = lua_callback_statement_performs_action(
+            local_static_source,
             static_source,
             statement,
             window_param,
@@ -45530,6 +45531,7 @@ fn lua_action_callback_perform_action_command_body(
 
 fn lua_callback_statement_performs_action(
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     statement: &str,
     window_param: &str,
     pane_param: &str,
@@ -45561,8 +45563,30 @@ fn lua_callback_statement_performs_action(
     {
         return None;
     }
-    native_key_assignment_command_from_query(static_source, action.trim())
-        .or_else(|| native_key_assignment_command_from_query(None, action.trim()))
+    native_key_assignment_command_from_callback_action(
+        static_source,
+        outer_static_source,
+        action.trim(),
+    )
+}
+
+fn native_key_assignment_command_from_callback_action(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCommand> {
+    native_key_assignment_command_from_query(static_source, value)
+        .or_else(|| native_key_assignment_command_from_query(outer_static_source, value))
+        .or_else(|| {
+            let static_source = static_source?;
+            let value = lua_static_action_assignment_value_before_offset_from_query(
+                static_source.source,
+                value,
+                static_source.max_start,
+            )?;
+            native_key_assignment_command_from_query(outer_static_source, value)
+                .or_else(|| native_key_assignment_command_from_query(None, value))
+        })
 }
 
 fn lua_callback_statement_emits_event(
@@ -93770,6 +93794,37 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello world");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_performs_callback_local_static_action() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('send-greeting', function(window, pane)
+              local send = act.SendString 'hello'
+              window:perform_action(send, pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello");
     }
 
     #[test]

@@ -702,8 +702,10 @@ keyboard, mouse, paste, resize
   `EmitEvent(event_opts)` calls also accept top-level static options table
   variables. Static `wezterm.on('<custom-event>', function(window, pane) ... end)`
   handlers with one or more top-level
-  `window:perform_action(<implemented action>, pane)` calls run those native
-  commands in order after typed native event dispatch, and top-level
+  `window:perform_action(<implemented action>, pane)` calls, including
+  callback-local static action variables that resolve through top-level
+  `wezterm.action` aliases, run those native commands in order after typed
+  native event dispatch, and top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls, including through a
   top-level static `local <alias> = wezterm.emit` and callback-local or
   top-level static string event-name variables, re-enter matching static

@@ -1290,8 +1290,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   accept top-level static options table variables. Static
   `wezterm.on('<custom-event>', function(window, pane) ... end)` handlers with
   one or more top-level `window:perform_action(<implemented action>, pane)`
-  calls are retained, and matching `EmitEvent` names run those native commands
-  in order after dispatching the typed native event. Top-level
+  calls, including callback-local static action variables that resolve through
+  top-level `wezterm.action` aliases, are retained, and matching `EmitEvent`
+  names run those native commands in order after dispatching the typed native
+  event. Top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls from those handlers
   re-enter matching static handlers, including through a top-level static
   `local <alias> = wezterm.emit` and callback-local or top-level static string
