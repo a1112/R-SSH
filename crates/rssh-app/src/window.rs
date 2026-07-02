@@ -45471,18 +45471,25 @@ fn lua_action_callback_perform_action_command_body(
     window_param: &str,
     pane_param: &str,
 ) -> Option<WindowCommand> {
-    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
-        let statement = lua_trim_start_comments(body.get(start..)?)?;
+    let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
+    let mut commands = Vec::new();
+    for (index, start) in starts.iter().copied().enumerate() {
+        let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
+        let statement = lua_trim_start_comments(body.get(start..end)?)?;
         if let Some(command) = lua_callback_statement_performs_action(
             static_source,
             statement,
             window_param,
             pane_param,
         ) {
-            return Some(command);
+            commands.push(command);
         }
     }
-    None
+    match commands.as_slice() {
+        [] => None,
+        [command] => Some(command.clone()),
+        _ => Some(WindowCommand::Multiple(commands)),
+    }
 }
 
 fn lua_callback_statement_performs_action(
@@ -93583,6 +93590,37 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_performs_multiple_actions() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('send-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello', pane)
+              window:perform_action(act.SendString ' world', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello world");
     }
 
     #[test]

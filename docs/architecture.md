@@ -700,7 +700,11 @@ keyboard, mouse, paste, resize
   queries tolerate trailing comma fields, with the table-call `name` field
   inline or through a top-level static string variable. Parenthesized
   `EmitEvent(event_opts)` calls also accept top-level static options table
-  variables. Lua `wezterm.on`/`wezterm.emit` wiring remains future parity work.
+  variables. Static `wezterm.on('<custom-event>', function(window, pane) ... end)`
+  handlers with one or more top-level
+  `window:perform_action(<implemented action>, pane)` calls run those native
+  commands in order after typed native event dispatch; arbitrary Lua
+  `wezterm.on`/`wezterm.emit` wiring remains future parity work.
 - Completed in v1: native WezTerm-style `ActivateKeyTable`, `PopKeyTable`, and
   `ClearKeyTableStack` action payloads maintain a per-window key-table
   activation stack, expose the active table in native window status and the

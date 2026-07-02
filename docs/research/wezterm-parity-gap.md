@@ -1288,11 +1288,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   field-name variables plus top-level static string variables for the
   table-call `name` field. Parenthesized `EmitEvent(event_opts)` calls also
   accept top-level static options table variables. Static
-  `wezterm.on('<custom-event>', function(window, pane)
-  window:perform_action(<implemented action>, pane) end)` handlers are retained
-  and matching `EmitEvent` names run those native commands after dispatching the
-  typed native event. Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains
-  open.
+  `wezterm.on('<custom-event>', function(window, pane) ... end)` handlers with
+  one or more top-level `window:perform_action(<implemented action>, pane)`
+  calls are retained, and matching `EmitEvent` names run those native commands
+  in order after dispatching the typed native event. Arbitrary Lua
+  `wezterm.on`/`wezterm.emit` wiring remains open.
 - Native `ActivateKeyTable`, `PopKeyTable`, and `ClearKeyTableStack` action
   payloads now maintain a per-window key-table activation stack and show the
   active table in native window status and title-formatting snapshots; reload
