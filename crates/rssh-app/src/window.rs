@@ -9654,11 +9654,42 @@ fn lua_static_window_status_text_from_query(
     {
         return Some(status);
     }
+    if let Some(status) = lua_static_window_id_status_text_from_query(window_name, argument) {
+        return Some(status);
+    }
     if let Some(status) = lua_window_status_method_text_from_query(argument, window_name) {
         return Some(status);
     }
     wezterm_format_status_text_from_query(static_source, outer_static_source, argument)
         .map(NativeLuaWindowStatusText::Static)
+}
+
+fn lua_static_window_id_status_text_from_query(
+    window_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let mut prefix = String::new();
+    let mut suffix = String::new();
+    let mut has_window_id = false;
+
+    for segment in split_lua_string_concat_segments(value)? {
+        let segment = segment.trim();
+        if lua_window_zero_arg_method_name_from_query(segment, window_name) == Some("window_id") {
+            if has_window_id {
+                return None;
+            }
+            has_window_id = true;
+            continue;
+        }
+        let text = lua_static_string_value_from_expression(None, None, segment)?;
+        if has_window_id {
+            suffix.push_str(&text);
+        } else {
+            prefix.push_str(&text);
+        }
+    }
+
+    has_window_id.then_some(NativeLuaWindowStatusText::WindowId { prefix, suffix })
 }
 
 fn lua_static_keyboard_modifiers_status_text_from_query(
@@ -9767,6 +9798,7 @@ fn lua_static_window_status_variable_text_from_query(
             }
             NativeLuaWindowStatusText::Static(_)
             | NativeLuaWindowStatusText::ActiveWorkspace
+            | NativeLuaWindowStatusText::WindowId { .. }
             | NativeLuaWindowStatusText::Leader { .. }
             | NativeLuaWindowStatusText::Focus { .. }
             | NativeLuaWindowStatusText::KeyboardModifiers { .. } => {}
@@ -10002,6 +10034,10 @@ fn lua_window_status_method_text_from_query(
 
     match method {
         "active_workspace" => Some(NativeLuaWindowStatusText::ActiveWorkspace),
+        "window_id" => Some(NativeLuaWindowStatusText::WindowId {
+            prefix: String::new(),
+            suffix: String::new(),
+        }),
         "active_key_table" => Some(NativeLuaWindowStatusText::ActiveKeyTable {
             prefix: String::new(),
             fallback: String::new(),
@@ -24352,6 +24388,10 @@ struct NativeLuaWindowStatusUpdate {
 enum NativeLuaWindowStatusText {
     Static(String),
     ActiveWorkspace,
+    WindowId {
+        prefix: String,
+        suffix: String,
+    },
     ActiveKeyTable {
         prefix: String,
         fallback: String,
@@ -40491,6 +40531,9 @@ impl NativeWindowApp {
             NativeLuaWindowStatusText::Static(status) => status,
             NativeLuaWindowStatusText::ActiveWorkspace => {
                 self.app_shell.active_workspace().name().to_owned()
+            }
+            NativeLuaWindowStatusText::WindowId { prefix, suffix } => {
+                format!("{prefix}{}{suffix}", self.app_window_id.get())
             }
             NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => self
                 .key_table_stack
@@ -76836,6 +76879,26 @@ mod tests {
 
         app.handle_focus_changed(true).unwrap();
         assert_eq!(app.right_status, "FOCUSED");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_window_id_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('win=' .. window:window_id())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm window_id status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.right_status, "win=1");
     }
 
     #[test]
