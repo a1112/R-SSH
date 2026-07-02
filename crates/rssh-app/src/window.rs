@@ -10052,7 +10052,7 @@ fn lua_static_window_keyboard_modifiers_variables_from_statement(
 fn lua_static_window_status_variable_text_from_query(
     static_source: LuaStaticSource<'_>,
     window_name: &str,
-    _pane_name: &str,
+    pane_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let (variable, fallback_text) = lua_window_status_variable_fallback_from_query(value)?;
@@ -10082,6 +10082,7 @@ fn lua_static_window_status_variable_text_from_query(
             | NativeLuaWindowStatusText::WindowPane { .. }
             | NativeLuaWindowStatusText::Leader { .. }
             | NativeLuaWindowStatusText::Focus { .. }
+            | NativeLuaWindowStatusText::PaneAltScreen { .. }
             | NativeLuaWindowStatusText::WindowDimensions { .. }
             | NativeLuaWindowStatusText::PaneDimensions { .. }
             | NativeLuaWindowStatusText::KeyboardModifiers { .. } => {}
@@ -10103,6 +10104,22 @@ fn lua_static_window_status_variable_text_from_query(
             focused,
             unfocused: fallback_text
                 .or(unfocused)
+                .unwrap_or_else(|| inactive.clone()),
+        });
+    }
+    if let Some((active, parsed_inactive)) =
+        lua_static_window_status_variable_bool_method_text_before_offset(
+            static_source.source,
+            variable,
+            pane_name,
+            "is_alt_screen_active",
+            static_source.max_start,
+        )
+    {
+        return Some(NativeLuaWindowStatusText::PaneAltScreen {
+            active,
+            inactive: fallback_text
+                .or(parsed_inactive)
                 .unwrap_or_else(|| inactive.clone()),
         });
     }
@@ -24693,6 +24710,10 @@ enum NativeLuaWindowStatusText {
     Focus {
         focused: String,
         unfocused: String,
+    },
+    PaneAltScreen {
+        active: String,
+        inactive: String,
     },
     WindowDimensions {
         parts: Vec<NativeLuaWindowDimensionsStatusPart>,
@@ -40917,6 +40938,13 @@ impl NativeWindowApp {
                     focused
                 } else {
                     unfocused
+                }
+            }
+            NativeLuaWindowStatusText::PaneAltScreen { active, inactive } => {
+                if self.runtime.terminal().alternate_screen_active() {
+                    active
+                } else {
+                    inactive
                 }
             }
             NativeLuaWindowStatusText::WindowDimensions { parts } => parts
@@ -77452,6 +77480,39 @@ mod tests {
         app.dispatch_update_status();
 
         assert_eq!(app.right_status, "80x24 scroll=24 top=0/0");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_alt_screen_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local screen = 'main'
+              if pane:is_alt_screen_active() then
+                screen = 'alt'
+              else
+                screen = 'main'
+              end
+              window:set_right_status(screen)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane is_alt_screen_active status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "main");
+
+        app.handle_pty_output(b"\x1b[?1049h").unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "alt");
+
+        app.handle_pty_output(b"\x1b[?1049l").unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "main");
     }
 
     #[test]
