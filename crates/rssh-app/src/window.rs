@@ -3772,7 +3772,7 @@ struct NativeConfigOverrides {
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     lua_command_palette_entries: Option<Vec<NativeCommandPaletteEntry>>,
-    lua_emit_event_handlers: Option<BTreeMap<String, Vec<WindowCommand>>>,
+    lua_emit_event_handlers: Option<BTreeMap<String, Vec<NativeLuaEmitEventHandler>>>,
     scroll_to_bottom_on_input: Option<bool>,
     adjust_window_size_when_changing_font_size: Option<bool>,
     canonicalize_pasted_newlines: Option<NativeCanonicalizePastedNewlines>,
@@ -6142,10 +6142,16 @@ fn lua_static_wezterm_augment_command_palette_event_from_statement(
     )
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaEmitEventHandler {
+    command: Option<WindowCommand>,
+    stop_propagation: bool,
+}
+
 fn lua_static_wezterm_emit_event_handlers_from_query(
     source: &str,
-) -> Option<BTreeMap<String, Vec<WindowCommand>>> {
-    let mut handlers: BTreeMap<String, Vec<WindowCommand>> = BTreeMap::new();
+) -> Option<BTreeMap<String, Vec<NativeLuaEmitEventHandler>>> {
+    let mut handlers: BTreeMap<String, Vec<NativeLuaEmitEventHandler>> = BTreeMap::new();
     for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
         let Some((event, command)) =
             lua_static_wezterm_emit_event_handler_from_statement(source, start)
@@ -6160,7 +6166,7 @@ fn lua_static_wezterm_emit_event_handlers_from_query(
 fn lua_static_wezterm_emit_event_handler_from_statement(
     source: &str,
     start: usize,
-) -> Option<(String, WindowCommand)> {
+) -> Option<(String, NativeLuaEmitEventHandler)> {
     let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, rest) =
@@ -6169,16 +6175,28 @@ fn lua_static_wezterm_emit_event_handler_from_statement(
     let rest = lua_trim_start_comments(rest)?;
     let (body, window_param, pane_param, _) =
         lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
+    let outer_static_source = LuaStaticSource {
+        source,
+        max_start: start,
+    };
     let command = lua_action_callback_perform_action_command_body(
-        Some(LuaStaticSource {
-            source,
-            max_start: start,
-        }),
+        Some(outer_static_source),
         body,
         window_param,
         pane_param,
-    )?;
-    Some((event_name, command))
+    );
+    let stop_propagation =
+        lua_static_bool_return_from_function_body(body, Some(outer_static_source)) == Some(false);
+    if command.is_none() && !stop_propagation {
+        return None;
+    }
+    Some((
+        event_name,
+        NativeLuaEmitEventHandler {
+            command,
+            stop_propagation,
+        },
+    ))
 }
 
 fn lua_static_wezterm_on_event_name_and_rest_from_args<'a>(
@@ -23961,7 +23979,7 @@ struct NativeWindowApp {
     lua_open_uri: Option<NativeLuaOpenUri>,
     lua_new_tab_button_click: Option<NativeLuaNewTabButtonClick>,
     lua_command_palette_entries: Vec<NativeCommandPaletteEntry>,
-    lua_emit_event_handlers: BTreeMap<String, Vec<WindowCommand>>,
+    lua_emit_event_handlers: BTreeMap<String, Vec<NativeLuaEmitEventHandler>>,
     status_update_interval: Duration,
     max_fps: usize,
     animation_fps: usize,
@@ -29508,10 +29526,15 @@ impl NativeWindowApp {
             name: event.name,
         };
         let handled = (self.emit_event_handler)(&event);
-        if let Some(commands) = self.lua_emit_event_handlers.get(&event.name).cloned() {
-            for command in commands {
-                if let Err(error) = self.command_palette_apply_command(command) {
+        if let Some(handlers) = self.lua_emit_event_handlers.get(&event.name).cloned() {
+            for handler in handlers {
+                if let Some(command) = handler.command
+                    && let Err(error) = self.command_palette_apply_command(command)
+                {
                     eprintln!("emit event action failed: {error:?}");
+                }
+                if handler.stop_propagation {
+                    break;
                 }
             }
         }
@@ -93794,6 +93817,41 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_false_return_stops_later_handler() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('send-greeting', function(window, pane)
+              window:perform_action(act.SendString 'first', pane)
+              return false
+            end)
+
+            wezterm.on('send-greeting', function(window, pane)
+              window:perform_action(act.SendString ' second', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"first");
     }
 
     #[test]
