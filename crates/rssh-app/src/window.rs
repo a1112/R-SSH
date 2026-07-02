@@ -10417,6 +10417,15 @@ fn lua_static_window_status_variable_text_from_query(
             "has_unseen_output",
             static_source.max_start,
         )
+        .or_else(|| {
+            lua_static_window_status_variable_active_pane_bool_method_text_before_offset(
+                static_source.source,
+                variable,
+                window_name,
+                "has_unseen_output",
+                static_source.max_start,
+            )
+        })
     {
         return Some(NativeLuaWindowStatusText::PaneHasUnseenOutput {
             unseen,
@@ -78522,6 +78531,39 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm pane has_unseen_output status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "seen");
+
+        app.sync_pane_has_unseen_output_from_value(app.app_shell.active_pane_id(), true);
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "unseen");
+
+        app.sync_pane_has_unseen_output_from_value(app.app_shell.active_pane_id(), false);
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "seen");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_pane_unseen_output_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local visibility = 'seen'
+              if window:active_pane():has_unseen_output() then
+                visibility = 'unseen'
+              else
+                visibility = 'seen'
+              end
+              window:set_right_status(visibility)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active pane has_unseen_output status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();

@@ -1694,8 +1694,9 @@ runtime storage for tabs and split panes.
   `scrollback_top`, `pane:is_alt_screen_active()` or
   `window:active_pane():is_alt_screen_active()` status branches switch between
   static alternate-screen active/inactive strings, static
-  `pane:has_unseen_output()` branches switch between static seen/unseen
-  strings from active-pane unseen-output metadata, and static `window:get_dimensions()`
+  `pane:has_unseen_output()` or
+  `window:active_pane():has_unseen_output()` branches switch between static
+  seen/unseen strings from active-pane unseen-output metadata, and static `window:get_dimensions()`
   field concatenations expose native `pixel_width`, `pixel_height`, `dpi`, and
   `is_full_screen`. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
