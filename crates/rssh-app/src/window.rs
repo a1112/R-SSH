@@ -30184,6 +30184,9 @@ impl NativeWindowApp {
     ) {
         let command = match action {
             WindowPromptInputLineAction::RenameActiveTab => WindowCommand::RenameTabTo(line),
+            WindowPromptInputLineAction::SwitchToWorkspaceName => {
+                WindowCommand::SwitchToWorkspaceName(line)
+            }
         };
         if let Err(error) = self.command_palette_apply_command(command) {
             eprintln!("prompt input line action failed: {error:?}");
@@ -43689,15 +43692,21 @@ fn prompt_input_line_action_from_lua_action_callback_query(
 ) -> Option<WindowPromptInputLineAction> {
     let callback = strip_lua_function_call_from_query(value, "wezterm.action_callback")
         .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
-    let (body, window_param, _, line_param) =
+    let (body, window_param, pane_param, line_param) =
         lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(callback)?;
     let line_param = line_param?;
-    prompt_input_line_action_from_lua_action_callback_body(body, window_param, line_param)
+    prompt_input_line_action_from_lua_action_callback_body(
+        body,
+        window_param,
+        pane_param,
+        line_param,
+    )
 }
 
 fn prompt_input_line_action_from_lua_action_callback_body(
     body: &str,
     window_param: &str,
+    pane_param: &str,
     line_param: &str,
 ) -> Option<WindowPromptInputLineAction> {
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
@@ -43709,6 +43718,14 @@ fn prompt_input_line_action_from_lua_action_callback_body(
         )? {
             return Some(WindowPromptInputLineAction::RenameActiveTab);
         }
+        if prompt_input_line_callback_statement_switches_to_workspace_name(
+            statement,
+            window_param,
+            pane_param,
+            line_param,
+        )? {
+            return Some(WindowPromptInputLineAction::SwitchToWorkspaceName);
+        }
         if let Some((branches, rest)) =
             lua_static_if_condition_and_body_branches_from_statement(statement)
         {
@@ -43717,13 +43734,22 @@ fn prompt_input_line_action_from_lua_action_callback_body(
             };
             if lua_callback_line_condition_from_expression(condition, line_param)?
                 && lua_trim_end_statement_separator(rest)?.trim().is_empty()
-                && prompt_input_line_callback_body_renames_active_tab(
+            {
+                if prompt_input_line_callback_body_renames_active_tab(
                     if_body,
                     window_param,
                     line_param,
-                )?
-            {
-                return Some(WindowPromptInputLineAction::RenameActiveTab);
+                )? {
+                    return Some(WindowPromptInputLineAction::RenameActiveTab);
+                }
+                if prompt_input_line_callback_body_switches_to_workspace_name(
+                    if_body,
+                    window_param,
+                    pane_param,
+                    line_param,
+                )? {
+                    return Some(WindowPromptInputLineAction::SwitchToWorkspaceName);
+                }
             }
         }
     }
@@ -43741,6 +43767,28 @@ fn prompt_input_line_callback_body_renames_active_tab(
         if !prompt_input_line_callback_statement_renames_active_tab(
             statement,
             window_param,
+            line_param,
+        )? {
+            return Some(false);
+        }
+        found = true;
+    }
+    Some(found)
+}
+
+fn prompt_input_line_callback_body_switches_to_workspace_name(
+    body: &str,
+    window_param: &str,
+    pane_param: &str,
+    line_param: &str,
+) -> Option<bool> {
+    let mut found = false;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if !prompt_input_line_callback_statement_switches_to_workspace_name(
+            statement,
+            window_param,
+            pane_param,
             line_param,
         )? {
             return Some(false);
@@ -43806,6 +43854,107 @@ fn prompt_input_line_callback_statement_renames_active_tab(
         return Some(false);
     }
     Some(lua_trim_end_statement_separator(rest)?.trim().is_empty())
+}
+
+fn prompt_input_line_callback_statement_switches_to_workspace_name(
+    statement: &str,
+    window_param: &str,
+    pane_param: &str,
+    line_param: &str,
+) -> Option<bool> {
+    let statement = lua_trim_start_comments(statement)?;
+    let Some(rest) = statement.strip_prefix(window_param) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("perform_action")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "perform_action")
+    {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest.get("perform_action".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [action, pane] = arguments.as_slice() else {
+        return Some(false);
+    };
+    let pane = lua_trim_start_comments(pane.trim())?;
+    let name = lua_identifier_literal_from_query(pane)?;
+    if name != pane_param
+        || !lua_static_identifier_value_rest_is_statement_end(pane.get(name.len()..)?)
+        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    {
+        return Some(false);
+    }
+    prompt_input_line_switch_to_workspace_action_uses_line(action.trim(), line_param)
+}
+
+fn prompt_input_line_switch_to_workspace_action_uses_line(
+    action: &str,
+    line_param: &str,
+) -> Option<bool> {
+    let indexed_action;
+    let action = if let Some(action) = strip_wezterm_action_prefix(action) {
+        action
+    } else if let Some(action) = strip_wezterm_action_index_prefix(action) {
+        indexed_action = action;
+        indexed_action.as_str()
+    } else {
+        action
+    };
+    let action = action.trim();
+    let action_name = lua_identifier_literal_from_query(action)?;
+    if normalized_action_name_query(action_name) != "switchtoworkspace" {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(action.get(action_name.len()..)?)?;
+    let table = if rest.starts_with('{') {
+        let table = rest.strip_prefix('{')?.strip_suffix('}')?.trim();
+        table
+    } else if rest.starts_with('(') {
+        let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+        let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+            return Some(false);
+        }
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [table] = arguments.as_slice() else {
+            return Some(false);
+        };
+        let table = table.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+        table
+    } else {
+        return Some(false);
+    };
+    let mut found_name = false;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query(key.trim())?;
+        if !key.eq_ignore_ascii_case("name") {
+            return Some(false);
+        }
+        if found_name {
+            return Some(false);
+        }
+        let value = lua_trim_start_comments(value.trim().trim_end_matches(',').trim())?;
+        let name = lua_identifier_literal_from_query(value)?;
+        if name != line_param
+            || !lua_static_identifier_value_rest_is_statement_end(value.get(name.len()..)?)
+        {
+            return Some(false);
+        }
+        found_name = true;
+    }
+    Some(found_name)
 }
 
 fn lua_action_callback_from_query(value: &str) -> bool {
@@ -55183,6 +55332,7 @@ struct WindowPromptInputLine {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WindowPromptInputLineAction {
     RenameActiveTab,
+    SwitchToWorkspaceName,
 }
 
 impl WindowPromptInputLine {
@@ -112988,6 +113138,33 @@ mod tests {
         );
 
         assert_eq!(app.app_shell.active_tab().title(), Some("build-prod"));
+        assert!(app.prompt_input_line.is_none());
+    }
+
+    #[test]
+    fn window_app_prompt_input_line_static_action_callback_switches_workspace_from_line() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine { description = \"Enter name for new workspace\", action = wezterm.action_callback(function(window, pane, line) if line then window:perform_action(wezterm.action.SwitchToWorkspace { name = line }, pane) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_prompt_input_line_key(
+                &Key::Character("ops".into()),
+                ModifiersState::empty()
+            )
+        );
+        assert!(
+            app.handle_prompt_input_line_key(&Key::Named(NamedKey::Enter), ModifiersState::empty())
+        );
+
+        assert_eq!(app.app_shell.workspaces().len(), 2);
+        assert_eq!(app.app_shell.active_workspace().name(), "ops");
         assert!(app.prompt_input_line.is_none());
     }
 
