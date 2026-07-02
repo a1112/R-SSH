@@ -9740,10 +9740,14 @@ fn lua_static_window_and_pane_status_text_from_query(
         if lua_window_zero_arg_method_name_from_query(segment, window_name) == Some("window_id") {
             parts.push(NativeLuaWindowPaneStatusPart::WindowId);
             has_dynamic_part = true;
-        } else if lua_window_active_tab_zero_arg_method_name_from_query(segment, window_name)
-            == Some("get_title")
+        } else if let Some(method) =
+            lua_window_active_tab_zero_arg_method_name_from_query(segment, window_name)
         {
-            parts.push(NativeLuaWindowPaneStatusPart::ActiveTabTitle);
+            match method {
+                "tab_id" => parts.push(NativeLuaWindowPaneStatusPart::ActiveTabId),
+                "get_title" => parts.push(NativeLuaWindowPaneStatusPart::ActiveTabTitle),
+                _ => return None,
+            }
             has_dynamic_part = true;
         } else if let Some(method) =
             lua_window_active_pane_zero_arg_method_name_from_query(segment, window_name)
@@ -25358,6 +25362,7 @@ enum NativeLuaWindowStatusText {
 enum NativeLuaWindowPaneStatusPart {
     Static(String),
     WindowId,
+    ActiveTabId,
     ActiveTabTitle,
     PaneId,
     PaneTitle,
@@ -41543,6 +41548,9 @@ impl NativeWindowApp {
                 .map(|part| match part {
                     NativeLuaWindowPaneStatusPart::Static(text) => text,
                     NativeLuaWindowPaneStatusPart::WindowId => self.app_window_id.get().to_string(),
+                    NativeLuaWindowPaneStatusPart::ActiveTabId => {
+                        self.app_shell.active_tab_id().get().to_string()
+                    }
                     NativeLuaWindowPaneStatusPart::ActiveTabTitle => {
                         tab_title_override(self.app_shell.active_tab())
                             .unwrap_or_default()
@@ -78144,6 +78152,30 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "tab=build");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_tab_id_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tab=' .. window:active_tab():tab_id())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab tab_id status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=1");
+
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=2");
     }
 
     #[test]
