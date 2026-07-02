@@ -425,9 +425,11 @@ keyboard, mouse, paste, resize
   assignment matches first. Native winit IME preedit text renders through the
   Builtin overlay path at the active pane cursor, and
   static Lua `colors.compose_cursor` overrides the cursor color while Builtin
-  preedit text, the leader modifier, or a dead key is active. The
-  `use_dead_keys` override disables the native dead-key pending-composition
-  state while retaining WezTerm's default `true`. Platform IME/XIM connection,
+  preedit text, the leader modifier, or a dead key is active. The documented
+  `window:composition_status()` status shape exposes Builtin preedit or current
+  dead-key text to static status callbacks. The `use_dead_keys` override
+  disables the native dead-key pending-composition state while retaining
+  WezTerm's default `true`. Platform IME/XIM connection,
   broader dead-key expansion, and broader dynamic `cell_widths` Lua
   parity remain future parity work.
 - Implemented in v1: native `leader` overrides expose a WezTerm-style
@@ -1883,8 +1885,10 @@ keyboard, mouse, paste, resize
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
   plus the documented `window:keyboard_modifiers()` status shape with current
-  modifier text and empty LED status, plus inline, static-table-variable, or
-  static-alias `wezterm.format`
+  modifier text and empty LED status, plus the documented
+  `window:composition_status()` status shape with Builtin IME preedit or
+  current dead-key text and static prefix/fallback, plus inline,
+  static-table-variable, or static-alias `wezterm.format`
   Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition onto that status state, with
   static item tables resolving from callback-local or top-level scope and

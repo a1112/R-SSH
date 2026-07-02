@@ -528,9 +528,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `macos_forward_to_ime_modifier_mask` are left for IME routing before native
   shortcut/input handling. Static Lua `colors.compose_cursor`
   overrides the cursor color while Builtin preedit text, the leader modifier,
-  or a dead key is active unless `use_dead_keys=false`. Broader dead-key
-  expansion, deeper platform IME/XIM setup, and broader dynamic `cell_widths`
-  Lua parity remain open.
+  or a dead key is active unless `use_dead_keys=false`. The documented
+  `window:composition_status()` status callback shape now exposes Builtin
+  preedit text or current dead-key text to static status callbacks. Broader
+  dead-key expansion, deeper platform IME/XIM setup, and broader dynamic
+  `cell_widths` Lua parity remain open.
 - Terminal core now implements DECALN `ESC # 8` screen alignment display,
   filling the visible grid with `E` cells and resetting margins/origin mode.
 - Terminal core now implements DECSTR `CSI ! p` soft reset without clearing
@@ -2516,7 +2518,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `name or ''` fallback, plus the documented `window:leader_is_active()`
   status example with static active/inactive strings, plus the documented
   `window:keyboard_modifiers()` status example with current modifier text and
-  empty LED status, plus inline,
+  empty LED status, plus the documented `window:composition_status()` status
+  example with static prefix and fallback text backed by Builtin IME preedit or
+  current dead-key text, plus inline,
   static-table-variable, or static-alias `wezterm.format`
   Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition update native tab-bar status

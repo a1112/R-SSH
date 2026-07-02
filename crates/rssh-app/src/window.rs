@@ -9751,17 +9751,24 @@ fn lua_static_window_status_variable_text_from_query(
         static_source.max_start,
     )?;
     if let Some(mut status) = lua_window_status_method_text_from_query(assignment, window_name) {
-        if let NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } = &mut status {
-            if let Some(parsed_prefix) = lua_static_window_status_variable_prefix_before_offset(
-                static_source.source,
-                variable,
-                static_source.max_start,
-            ) {
-                *prefix = parsed_prefix;
+        match &mut status {
+            NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback }
+            | NativeLuaWindowStatusText::CompositionStatus { prefix, fallback } => {
+                if let Some(parsed_prefix) = lua_static_window_status_variable_prefix_before_offset(
+                    static_source.source,
+                    variable,
+                    static_source.max_start,
+                ) {
+                    *prefix = parsed_prefix;
+                }
+                if let Some(parsed_fallback) = fallback_text {
+                    *fallback = parsed_fallback;
+                }
             }
-            if let Some(parsed_fallback) = fallback_text {
-                *fallback = parsed_fallback;
-            }
+            NativeLuaWindowStatusText::Static(_)
+            | NativeLuaWindowStatusText::ActiveWorkspace
+            | NativeLuaWindowStatusText::Leader { .. }
+            | NativeLuaWindowStatusText::KeyboardModifiers { .. } => {}
         }
         return Some(status);
     }
@@ -9926,6 +9933,10 @@ fn lua_window_status_method_text_from_query(
     match method {
         "active_workspace" => Some(NativeLuaWindowStatusText::ActiveWorkspace),
         "active_key_table" => Some(NativeLuaWindowStatusText::ActiveKeyTable {
+            prefix: String::new(),
+            fallback: String::new(),
+        }),
+        "composition_status" => Some(NativeLuaWindowStatusText::CompositionStatus {
             prefix: String::new(),
             fallback: String::new(),
         }),
@@ -24275,6 +24286,10 @@ enum NativeLuaWindowStatusText {
         prefix: String,
         fallback: String,
     },
+    CompositionStatus {
+        prefix: String,
+        fallback: String,
+    },
     Leader {
         active: String,
         inactive: String,
@@ -24712,6 +24727,7 @@ struct NativeWindowApp {
     macos_forward_to_ime_modifier_mask: ModifiersState,
     ime_preedit: Option<String>,
     dead_key_active: bool,
+    dead_key_text: Option<String>,
     xim_im_name: Option<String>,
     detect_password_input: bool,
     leader: Option<NativeLeaderKey>,
@@ -26262,6 +26278,7 @@ impl NativeWindowApp {
             macos_forward_to_ime_modifier_mask: DEFAULT_MACOS_FORWARD_TO_IME_MODIFIER_MASK,
             ime_preedit: None,
             dead_key_active: false,
+            dead_key_text: None,
             xim_im_name: None,
             detect_password_input: DEFAULT_DETECT_PASSWORD_INPUT,
             leader: None,
@@ -27783,6 +27800,7 @@ impl NativeWindowApp {
         self.macos_forward_to_ime_modifier_mask = source.macos_forward_to_ime_modifier_mask;
         self.ime_preedit = source.ime_preedit.clone();
         self.dead_key_active = false;
+        self.dead_key_text = None;
         self.xim_im_name.clone_from(&source.xim_im_name);
         self.detect_password_input = source.detect_password_input;
         self.leader.clone_from(&source.leader);
@@ -36898,6 +36916,7 @@ impl NativeWindowApp {
         self.use_dead_keys = overrides.use_dead_keys.unwrap_or(DEFAULT_USE_DEAD_KEYS);
         if !self.use_dead_keys {
             self.dead_key_active = false;
+            self.dead_key_text = None;
         }
         self.ime_preedit_rendering = overrides
             .ime_preedit_rendering
@@ -38472,6 +38491,7 @@ impl NativeWindowApp {
     fn handle_ime_commit(&mut self, text: &str) -> io::Result<()> {
         self.ime_preedit = None;
         self.dead_key_active = false;
+        self.dead_key_text = None;
         if !self.use_ime || text.is_empty() {
             return Ok(());
         }
@@ -38610,6 +38630,7 @@ impl NativeWindowApp {
         let is_dead_key = self.use_dead_keys && matches!(logical_key, Key::Dead(_));
         if !is_dead_key {
             self.dead_key_active = false;
+            self.dead_key_text = None;
         }
 
         self.hide_mouse_cursor_for_typing_if_needed();
@@ -38812,6 +38833,11 @@ impl NativeWindowApp {
 
         if is_dead_key {
             self.dead_key_active = true;
+            self.dead_key_text = match logical_key {
+                Key::Dead(Some(dead_key)) => Some(dead_key.to_string()),
+                Key::Dead(None) => Some(String::new()),
+                _ => None,
+            };
             return Ok(());
         }
 
@@ -40397,6 +40423,10 @@ impl NativeWindowApp {
                 .last()
                 .map(|activation| format!("{prefix}{}", activation.name))
                 .unwrap_or(fallback),
+            NativeLuaWindowStatusText::CompositionStatus { prefix, fallback } => self
+                .composition_status_text()
+                .map(|status| format!("{prefix}{status}"))
+                .unwrap_or(fallback),
             NativeLuaWindowStatusText::Leader { active, inactive } => {
                 if self.leader_active_since.is_some() {
                     active
@@ -40417,6 +40447,16 @@ impl NativeWindowApp {
                     .collect::<String>()
             }
         }
+    }
+
+    fn composition_status_text(&self) -> Option<String> {
+        if let Some(preedit) = self.ime_preedit.as_deref().filter(|text| !text.is_empty()) {
+            return Some(preedit.to_owned());
+        }
+        if self.dead_key_active {
+            return Some(self.dead_key_text.clone().unwrap_or_default());
+        }
+        None
     }
 
     #[allow(dead_code)]
@@ -76712,6 +76752,56 @@ mod tests {
         app.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
         app.dispatch_update_status();
         assert_eq!(app.right_status, "mods=CTRL|SHIFT leds=");
+    }
+
+    #[test]
+    fn window_app_parses_documented_wezterm_update_right_status_composition_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-right-status', function(window, pane)
+              local compose = window:composition_status()
+              if compose then
+                compose = 'COMPOSING: ' .. compose
+              end
+              window:set_right_status(compose or '')
+            end)
+            "#,
+        )
+        .expect("expected documented WezTerm composition status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
+
+        app.handle_ime_preedit("kan");
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "COMPOSING: kan");
+
+        app.handle_ime_preedit("");
+        app.handle_keyboard_input_event(
+            &Key::Dead(Some('^')),
+            PhysicalKey::Code(WinitKeyCode::Quote),
+            None,
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "COMPOSING: ^");
+
+        app.handle_keyboard_input_event(
+            &Key::Character("e".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyE),
+            Some("ê"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
     }
 
     #[test]

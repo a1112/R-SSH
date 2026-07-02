@@ -1671,7 +1671,9 @@ runtime storage for tabs and split panes.
   between static active/inactive strings as the leader state changes. The
   documented `window:keyboard_modifiers()` example resolves current modifier
   text into `mods=... leds=...` status strings, with keyboard LED state
-  currently reported as empty. Inline or
+  currently reported as empty. The documented `window:composition_status()`
+  example resolves Builtin IME preedit or current dead-key text with a static
+  prefix/fallback. Inline or
   static-table-variable
   `wezterm.format` Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition also maps into status text with
