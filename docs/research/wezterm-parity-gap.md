@@ -1294,9 +1294,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   in order after dispatching the typed native event. Top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls from those handlers
   re-enter matching static handlers, including through a top-level static
-  `local <alias> = wezterm.emit`, and static `return false` stops later static
-  handlers for that event. Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring
-  remains open.
+  `local <alias> = wezterm.emit` and callback-local or top-level static string
+  event-name variables, and static `return false` stops later static handlers
+  for that event. Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains
+  open.
 - Native `ActivateKeyTable`, `PopKeyTable`, and `ClearKeyTableStack` action
   payloads now maintain a per-window key-table activation stack and show the
   active table in native window status and title-formatting snapshots; reload

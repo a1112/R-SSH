@@ -705,7 +705,8 @@ keyboard, mouse, paste, resize
   `window:perform_action(<implemented action>, pane)` calls run those native
   commands in order after typed native event dispatch, and top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls, including through a
-  top-level static `local <alias> = wezterm.emit`, re-enter matching static
+  top-level static `local <alias> = wezterm.emit` and callback-local or
+  top-level static string event-name variables, re-enter matching static
   handlers. Static `return false` stops later static handlers for that event.
   Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains future parity work.
 - Completed in v1: native WezTerm-style `ActivateKeyTable`, `PopKeyTable`, and

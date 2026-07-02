@@ -554,7 +554,8 @@ runtime storage for tabs and split panes.
   `EmitEvent` names onto existing native commands in order after the typed
   native event dispatch, and top-level
   `wezterm.emit(<static-event-name>, window, pane)` calls, including through a
-  top-level static `local <alias> = wezterm.emit`, re-enter matching static
+  top-level static `local <alias> = wezterm.emit` and callback-local or
+  top-level static string event-name variables, re-enter matching static
   handlers. Static `return false` stops later static handlers for that event.
   Arbitrary Lua `wezterm.on`/`wezterm.emit` wiring remains later parity work.
 - `rssh-app` exposes native WezTerm-style `ActivateKeyTable`, `PopKeyTable`,
