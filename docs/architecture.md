@@ -1897,7 +1897,8 @@ keyboard, mouse, paste, resize
   user-var names
   plus static `pane:get_progress()` conditional status branches for
   `Percentage`, `Error`, and `Indeterminate`
-  plus static `pane:get_dimensions()` field concatenations for `cols`,
+  plus static `pane:get_dimensions()` or
+  `window:active_pane():get_dimensions()` field concatenations for `cols`,
   `viewport_rows`, `scrollback_rows`, `physical_top`, and `scrollback_top`
   plus static `pane:is_alt_screen_active()` status branches with static
   active/inactive strings
