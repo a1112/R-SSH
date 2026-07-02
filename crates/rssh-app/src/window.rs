@@ -52828,6 +52828,29 @@ fn quick_select_action_from_window_command(
     command: WindowCommand,
 ) -> Option<WindowQuickSelectAction> {
     match command {
+        WindowCommand::CompleteSelection
+        | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursor => Some(
+            WindowQuickSelectAction::CopyTo(WindowCopyDestination::ClipboardAndPrimarySelection),
+        ),
+        WindowCommand::CompleteSelectionTo(destination)
+        | WindowCommand::CompleteSelectionOrOpenLinkAtMouseCursorTo(destination)
+        | WindowCommand::CopyTo(destination) => Some(WindowQuickSelectAction::CopyTo(destination)),
+        WindowCommand::CopyToClipboard | WindowCommand::Copy => Some(
+            WindowQuickSelectAction::CopyTo(WindowCopyDestination::Clipboard),
+        ),
+        WindowCommand::CopyToPrimarySelection => Some(WindowQuickSelectAction::CopyTo(
+            WindowCopyDestination::PrimarySelection,
+        )),
+        WindowCommand::CopyToClipboardAndPrimarySelection => Some(WindowQuickSelectAction::CopyTo(
+            WindowCopyDestination::ClipboardAndPrimarySelection,
+        )),
+        WindowCommand::Paste | WindowCommand::PasteFromClipboard => Some(
+            WindowQuickSelectAction::PasteFrom(WindowPasteSource::Clipboard),
+        ),
+        WindowCommand::PastePrimarySelection | WindowCommand::PasteFromPrimarySelection => Some(
+            WindowQuickSelectAction::PasteFrom(WindowPasteSource::PrimarySelection),
+        ),
+        WindowCommand::PasteFrom(source) => Some(WindowQuickSelectAction::PasteFrom(source)),
         WindowCommand::SendString(value) => Some(WindowQuickSelectAction::SendString(value)),
         WindowCommand::SendKey(send_key) => Some(WindowQuickSelectAction::SendKey(send_key)),
         WindowCommand::EmitEvent(event) => Some(WindowQuickSelectAction::EmitEvent(event)),
@@ -52837,6 +52860,7 @@ fn quick_select_action_from_window_command(
         }
         WindowCommand::PopKeyTable => Some(WindowQuickSelectAction::PopKeyTable),
         WindowCommand::ClearKeyTableStack => Some(WindowQuickSelectAction::ClearKeyTableStack),
+        WindowCommand::Nop => Some(WindowQuickSelectAction::Nop),
         _ => None,
     }
 }
@@ -125324,6 +125348,112 @@ mod tests {
         assert_eq!(written.lock().unwrap().as_slice(), b"picked-ticket");
         assert!(copied.lock().unwrap().is_empty());
         assert!(primary_copied.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_callback_perform_action_clipboard_actions() {
+        struct Case {
+            query: &'static str,
+            action: WindowQuickSelectAction,
+            expected_written: Vec<u8>,
+            expected_clipboard: Vec<String>,
+            expected_primary: Vec<String>,
+        }
+
+        for case in [
+            Case {
+                query: "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action_callback(function(window, pane) window:perform_action(wezterm.action.CopyTo 'Clipboard', pane) end) }",
+                action: WindowQuickSelectAction::CopyTo(WindowCopyDestination::Clipboard),
+                expected_written: Vec::new(),
+                expected_clipboard: vec!["ticket-1234".to_owned()],
+                expected_primary: Vec::new(),
+            },
+            Case {
+                query: "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action_callback(function(window, pane) window:perform_action(act.CompleteSelectionOrOpenLinkAtMouseCursor('PrimarySelection'), pane) end) }",
+                action: WindowQuickSelectAction::CopyTo(WindowCopyDestination::PrimarySelection),
+                expected_written: Vec::new(),
+                expected_clipboard: Vec::new(),
+                expected_primary: vec!["ticket-1234".to_owned()],
+            },
+            Case {
+                query: "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action_callback(function(window, pane) window:perform_action(wezterm.action.PasteFrom 'PrimarySelection', pane) end) }",
+                action: WindowQuickSelectAction::PasteFrom(WindowPasteSource::PrimarySelection),
+                expected_written: encode_window_paste(
+                    "primary\ntext",
+                    false,
+                    DEFAULT_CANONICALIZE_PASTED_NEWLINES,
+                ),
+                expected_clipboard: Vec::new(),
+                expected_primary: Vec::new(),
+            },
+            Case {
+                query: "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action_callback(function(window, pane) window:perform_action(wezterm.action.Nop, pane) end) }",
+                action: WindowQuickSelectAction::Nop,
+                expected_written: Vec::new(),
+                expected_clipboard: Vec::new(),
+                expected_primary: Vec::new(),
+            },
+        ] {
+            let expected_options = WindowQuickSelectOptions {
+                patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                action: Some(case.action.clone()),
+                ..WindowQuickSelectOptions::default()
+            };
+
+            assert_eq!(
+                quick_select_options_from_query(case.query),
+                expected_options
+            );
+
+            let written = Arc::new(Mutex::new(Vec::new()));
+            let copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_copy = Arc::clone(&copied);
+            let primary_copied = Arc::new(Mutex::new(Vec::new()));
+            let recorded_primary = Arc::clone(&primary_copied);
+            let mut app = NativeWindowApp::new(None);
+            app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+            app.clipboard_reader = Box::new(|| Some("clipboard\ntext".to_owned()));
+            app.primary_selection_reader = Box::new(|| Some("primary\ntext".to_owned()));
+            app.clipboard_writer = Box::new(move |text: &str| {
+                recorded_copy.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.primary_selection_writer = Box::new(move |text: &str| {
+                recorded_primary.lock().unwrap().push(text.to_owned());
+                true
+            });
+            app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+            app.handle_pty_output(b"ticket-1234 https://default.test")
+                .unwrap();
+
+            app.enter_command_palette_mode();
+            app.command_palette_set_query(case.query.to_owned());
+            assert_eq!(
+                app.command_palette_filtered_commands(),
+                vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
+            );
+            app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
+
+            let quick_select = app.quick_select.as_ref().expect("quick select mode");
+            assert_eq!(quick_select.matches.len(), 1);
+            assert_eq!(quick_select.action, case.action);
+            assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+            let label = quick_select.labels[0].clone();
+
+            assert!(app.handle_quick_select_logical_key(
+                &Key::Character(label.into()),
+                ModifiersState::empty()
+            ));
+
+            assert!(app.quick_select.is_none());
+            assert!(app.selection.is_none());
+            assert_eq!(written.lock().unwrap().as_slice(), case.expected_written);
+            assert_eq!(copied.lock().unwrap().as_slice(), case.expected_clipboard);
+            assert_eq!(
+                primary_copied.lock().unwrap().as_slice(),
+                case.expected_primary
+            );
+        }
     }
 
     #[test]
