@@ -9667,7 +9667,7 @@ fn lua_static_window_status_text_from_query(
         return Some(status);
     }
     if let Some(status) =
-        lua_static_window_and_pane_id_status_text_from_query(window_name, pane_name, argument)
+        lua_static_window_and_pane_status_text_from_query(window_name, pane_name, argument)
     {
         return Some(status);
     }
@@ -9706,7 +9706,7 @@ fn lua_static_window_id_status_text_from_query(
     has_window_id.then_some(NativeLuaWindowStatusText::WindowId { prefix, suffix })
 }
 
-fn lua_static_window_and_pane_id_status_text_from_query(
+fn lua_static_window_and_pane_status_text_from_query(
     window_name: &str,
     pane_name: &str,
     value: &str,
@@ -9717,20 +9717,25 @@ fn lua_static_window_and_pane_id_status_text_from_query(
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
         if lua_window_zero_arg_method_name_from_query(segment, window_name) == Some("window_id") {
-            parts.push(NativeLuaWindowPaneIdStatusPart::WindowId);
+            parts.push(NativeLuaWindowPaneStatusPart::WindowId);
             has_dynamic_part = true;
         } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
         {
-            parts.push(NativeLuaWindowPaneIdStatusPart::PaneId);
+            parts.push(NativeLuaWindowPaneStatusPart::PaneId);
+            has_dynamic_part = true;
+        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
+            == Some("get_title")
+        {
+            parts.push(NativeLuaWindowPaneStatusPart::PaneTitle);
             has_dynamic_part = true;
         } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
-            parts.push(NativeLuaWindowPaneIdStatusPart::Static(text));
+            parts.push(NativeLuaWindowPaneStatusPart::Static(text));
         } else {
             return None;
         }
     }
 
-    has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowPaneIds { parts })
+    has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowPane { parts })
 }
 
 fn lua_static_window_dimensions_status_text_from_query(
@@ -9944,7 +9949,7 @@ fn lua_static_window_status_variable_text_from_query(
             NativeLuaWindowStatusText::Static(_)
             | NativeLuaWindowStatusText::ActiveWorkspace
             | NativeLuaWindowStatusText::WindowId { .. }
-            | NativeLuaWindowStatusText::WindowPaneIds { .. }
+            | NativeLuaWindowStatusText::WindowPane { .. }
             | NativeLuaWindowStatusText::Leader { .. }
             | NativeLuaWindowStatusText::Focus { .. }
             | NativeLuaWindowStatusText::WindowDimensions { .. }
@@ -24539,8 +24544,8 @@ enum NativeLuaWindowStatusText {
         prefix: String,
         suffix: String,
     },
-    WindowPaneIds {
-        parts: Vec<NativeLuaWindowPaneIdStatusPart>,
+    WindowPane {
+        parts: Vec<NativeLuaWindowPaneStatusPart>,
     },
     ActiveKeyTable {
         prefix: String,
@@ -24567,10 +24572,11 @@ enum NativeLuaWindowStatusText {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum NativeLuaWindowPaneIdStatusPart {
+enum NativeLuaWindowPaneStatusPart {
     Static(String),
     WindowId,
     PaneId,
+    PaneTitle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40709,16 +40715,17 @@ impl NativeWindowApp {
             NativeLuaWindowStatusText::WindowId { prefix, suffix } => {
                 format!("{prefix}{}{suffix}", self.app_window_id.get())
             }
-            NativeLuaWindowStatusText::WindowPaneIds { parts } => parts
+            NativeLuaWindowStatusText::WindowPane { parts } => parts
                 .into_iter()
                 .map(|part| match part {
-                    NativeLuaWindowPaneIdStatusPart::Static(text) => text,
-                    NativeLuaWindowPaneIdStatusPart::WindowId => {
-                        self.app_window_id.get().to_string()
-                    }
-                    NativeLuaWindowPaneIdStatusPart::PaneId => {
+                    NativeLuaWindowPaneStatusPart::Static(text) => text,
+                    NativeLuaWindowPaneStatusPart::WindowId => self.app_window_id.get().to_string(),
+                    NativeLuaWindowPaneStatusPart::PaneId => {
                         self.app_shell.active_pane_id().get().to_string()
                     }
+                    NativeLuaWindowPaneStatusPart::PaneTitle => self
+                        .pane_title(self.app_shell.active_pane_id())
+                        .unwrap_or_default(),
                 })
                 .collect::<String>(),
             NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => self
@@ -77123,6 +77130,27 @@ mod tests {
         app.dispatch_update_status();
 
         assert_eq!(app.right_status, "win=1 pane=1");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_title_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('title=' .. pane:get_title())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_title status setter");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.right_status, "title=PowerShell");
     }
 
     #[test]
