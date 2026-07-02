@@ -9743,6 +9743,11 @@ fn lua_static_window_and_pane_status_text_from_query(
         {
             parts.push(NativeLuaWindowPaneStatusPart::PaneForegroundProcessName);
             has_dynamic_part = true;
+        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
+            == Some("get_tty_name")
+        {
+            parts.push(NativeLuaWindowPaneStatusPart::PaneTtyName);
+            has_dynamic_part = true;
         } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
             parts.push(NativeLuaWindowPaneStatusPart::Static(text));
         } else {
@@ -24595,6 +24600,7 @@ enum NativeLuaWindowPaneStatusPart {
     PaneDomainName,
     PaneCurrentWorkingDir,
     PaneForegroundProcessName,
+    PaneTtyName,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40755,6 +40761,10 @@ impl NativeWindowApp {
                     NativeLuaWindowPaneStatusPart::PaneForegroundProcessName => {
                         self.app_shell.active_pane().launch().program().to_owned()
                     }
+                    NativeLuaWindowPaneStatusPart::PaneTtyName => self
+                        .pane_tty_name(self.app_shell.active_pane_id())
+                        .unwrap_or_default()
+                        .to_owned(),
                 })
                 .collect::<String>(),
             NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => self
@@ -77242,6 +77252,27 @@ mod tests {
         app.dispatch_update_status();
 
         assert_eq!(app.right_status, "proc=pwsh");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_tty_name_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tty=' .. pane:get_tty_name())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_tty_name status setter");
+        app.set_config_overrides(overrides);
+        app.session_tty_name = Some("/dev/pts/9".to_owned());
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.right_status, "tty=/dev/pts/9");
     }
 
     #[test]
