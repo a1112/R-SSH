@@ -9684,8 +9684,12 @@ fn lua_static_window_status_text_from_query(
         return Some(status);
     }
     if let Some(static_source) = static_source
-        && let Some(status) =
-            lua_static_pane_user_vars_status_text_from_query(static_source, pane_name, argument)
+        && let Some(status) = lua_static_pane_user_vars_status_text_from_query(
+            static_source,
+            window_name,
+            pane_name,
+            argument,
+        )
     {
         return Some(status);
     }
@@ -9900,11 +9904,13 @@ fn lua_static_pane_cursor_position_status_text_from_query(
 
 fn lua_static_pane_user_vars_status_text_from_query(
     static_source: LuaStaticSource<'_>,
+    window_name: &str,
     pane_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let variable = lua_static_pane_user_vars_variable_before_offset(
         static_source.source,
+        window_name,
         pane_name,
         static_source.max_start,
     )?;
@@ -9928,6 +9934,7 @@ fn lua_static_pane_user_vars_status_text_from_query(
 
 fn lua_static_pane_user_vars_variable_before_offset(
     source: &str,
+    window_name: &str,
     pane_name: &str,
     max_start: usize,
 ) -> Option<String> {
@@ -9936,7 +9943,7 @@ fn lua_static_pane_user_vars_variable_before_offset(
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
         let statement = lua_trim_start_comments(source.get(start..)?)?;
         if let Some(variable) =
-            lua_static_pane_user_vars_variable_from_statement(statement, pane_name)
+            lua_static_pane_user_vars_variable_from_statement(statement, window_name, pane_name)
         {
             selected = Some(variable);
         }
@@ -9947,6 +9954,7 @@ fn lua_static_pane_user_vars_variable_before_offset(
 
 fn lua_static_pane_user_vars_variable_from_statement(
     statement: &str,
+    window_name: &str,
     pane_name: &str,
 ) -> Option<String> {
     let statement = lua_trim_start_comments(statement)?;
@@ -9959,7 +9967,11 @@ fn lua_static_pane_user_vars_variable_from_statement(
     let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
     let rest = rest.strip_prefix('=')?;
     let value = lua_top_level_statement_value_from_query(rest)?;
-    if lua_window_zero_arg_method_name_from_query(value, pane_name)? != "get_user_vars" {
+    let is_callback_pane =
+        lua_window_zero_arg_method_name_from_query(value, pane_name) == Some("get_user_vars");
+    let is_active_pane = lua_window_active_pane_zero_arg_method_name_from_query(value, window_name)
+        == Some("get_user_vars");
+    if !is_callback_pane && !is_active_pane {
         return None;
     }
     Some(variable.to_owned())
@@ -78500,6 +78512,32 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm pane get_user_vars status setter");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(
+            b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07\x1b]1337;SetUserVar=WEZTERM_HOST=cHJvZA==\x07",
+        )
+        .unwrap();
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=psh host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_pane_user_vars_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local vars = window:active_pane():get_user_vars()
+              window:set_right_status(
+                'prog=' .. vars.WEZTERM_PROG .. ' host=' .. vars.WEZTERM_HOST
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active pane get_user_vars status setter");
         app.set_config_overrides(overrides);
         app.handle_pty_output(
             b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07\x1b]1337;SetUserVar=WEZTERM_HOST=cHJvZA==\x07",
