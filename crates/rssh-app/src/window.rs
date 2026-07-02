@@ -5942,10 +5942,12 @@ fn lua_static_wezterm_status_update_event_from_statement(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
-    let (body, window_name) = lua_anonymous_function_body_and_first_param_from_query(rest)?;
+    let (body, window_name, pane_name, _) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
     lua_static_status_update_from_function_body(
         body,
         window_name,
+        pane_name,
         Some(LuaStaticSource {
             source,
             max_start: start,
@@ -6395,22 +6397,6 @@ fn lua_static_wezterm_on_alias_before_offset(
 
 fn lua_static_wezterm_on_alias_value_from_query(value: &str) -> bool {
     value.trim() == "wezterm.on"
-}
-
-fn lua_anonymous_function_body_and_first_param_from_query<'a>(
-    value: &'a str,
-) -> Option<(&'a str, &'a str)> {
-    if !lua_source_keyword_at(value, 0, "function") {
-        return None;
-    }
-    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
-    let params_end = rest.find(')')?;
-    let params = rest.get(..params_end)?;
-    let first_param = params.split(',').next()?.trim();
-    let window_name = lua_function_param_identifier(first_param)?;
-    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
-    Some((body, window_name))
 }
 
 fn lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query<'a>(
@@ -9514,6 +9500,7 @@ fn lua_static_tab_title_return_from_statement(
 fn lua_static_status_update_from_function_body(
     body: &str,
     window_name: &str,
+    pane_name: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowStatusUpdate> {
     let mut update = NativeLuaWindowStatusUpdate {
@@ -9532,6 +9519,7 @@ fn lua_static_status_update_from_function_body(
             Some(static_source),
             outer_static_source,
             window_name,
+            pane_name,
             "set_left_status",
         ) {
             update.left_status = Some(left_status);
@@ -9541,6 +9529,7 @@ fn lua_static_status_update_from_function_body(
             Some(static_source),
             outer_static_source,
             window_name,
+            pane_name,
             "set_right_status",
         ) {
             update.right_status = Some(right_status);
@@ -9555,6 +9544,7 @@ fn lua_static_window_status_setter_from_statement(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
+    pane_name: &str,
     method: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let rest = statement.strip_prefix(window_name)?;
@@ -9577,6 +9567,7 @@ fn lua_static_window_status_setter_from_statement(
             static_source,
             outer_static_source,
             window_name,
+            pane_name,
             argument,
         );
     }
@@ -9588,12 +9579,17 @@ fn lua_static_window_status_text_from_parenthesized_argument(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
+    pane_name: &str,
     argument: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let argument = lua_trim_start_comments(argument)?;
     if let Some(static_source) = static_source
-        && let Some(status) =
-            lua_static_window_status_variable_text_from_query(static_source, window_name, argument)
+        && let Some(status) = lua_static_window_status_variable_text_from_query(
+            static_source,
+            window_name,
+            pane_name,
+            argument,
+        )
     {
         return Some(status);
     }
@@ -9608,6 +9604,7 @@ fn lua_static_window_status_text_from_parenthesized_argument(
             Some(static_source),
             outer_static_source,
             window_name,
+            pane_name,
             value,
         );
     }
@@ -9622,6 +9619,7 @@ fn lua_static_window_status_text_from_parenthesized_argument(
             None,
             Some(outer_static_source),
             window_name,
+            pane_name,
             value,
         );
     }
@@ -9629,6 +9627,7 @@ fn lua_static_window_status_text_from_parenthesized_argument(
         static_source,
         outer_static_source,
         window_name,
+        pane_name,
         argument,
     )
 }
@@ -9637,6 +9636,7 @@ fn lua_static_window_status_text_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
+    pane_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let argument = lua_trim_start_comments(value)?;
@@ -9664,6 +9664,11 @@ fn lua_static_window_status_text_from_query(
         return Some(status);
     }
     if let Some(status) = lua_static_window_id_status_text_from_query(window_name, argument) {
+        return Some(status);
+    }
+    if let Some(status) =
+        lua_static_window_and_pane_id_status_text_from_query(window_name, pane_name, argument)
+    {
         return Some(status);
     }
     if let Some(status) = lua_window_status_method_text_from_query(argument, window_name) {
@@ -9699,6 +9704,33 @@ fn lua_static_window_id_status_text_from_query(
     }
 
     has_window_id.then_some(NativeLuaWindowStatusText::WindowId { prefix, suffix })
+}
+
+fn lua_static_window_and_pane_id_status_text_from_query(
+    window_name: &str,
+    pane_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let mut parts = Vec::new();
+    let mut has_dynamic_part = false;
+
+    for segment in split_lua_string_concat_segments(value)? {
+        let segment = segment.trim();
+        if lua_window_zero_arg_method_name_from_query(segment, window_name) == Some("window_id") {
+            parts.push(NativeLuaWindowPaneIdStatusPart::WindowId);
+            has_dynamic_part = true;
+        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
+        {
+            parts.push(NativeLuaWindowPaneIdStatusPart::PaneId);
+            has_dynamic_part = true;
+        } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
+            parts.push(NativeLuaWindowPaneIdStatusPart::Static(text));
+        } else {
+            return None;
+        }
+    }
+
+    has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowPaneIds { parts })
 }
 
 fn lua_static_window_dimensions_status_text_from_query(
@@ -9885,6 +9917,7 @@ fn lua_static_window_keyboard_modifiers_variables_from_statement(
 fn lua_static_window_status_variable_text_from_query(
     static_source: LuaStaticSource<'_>,
     window_name: &str,
+    _pane_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let (variable, fallback_text) = lua_window_status_variable_fallback_from_query(value)?;
@@ -9911,6 +9944,7 @@ fn lua_static_window_status_variable_text_from_query(
             NativeLuaWindowStatusText::Static(_)
             | NativeLuaWindowStatusText::ActiveWorkspace
             | NativeLuaWindowStatusText::WindowId { .. }
+            | NativeLuaWindowStatusText::WindowPaneIds { .. }
             | NativeLuaWindowStatusText::Leader { .. }
             | NativeLuaWindowStatusText::Focus { .. }
             | NativeLuaWindowStatusText::WindowDimensions { .. }
@@ -24505,6 +24539,9 @@ enum NativeLuaWindowStatusText {
         prefix: String,
         suffix: String,
     },
+    WindowPaneIds {
+        parts: Vec<NativeLuaWindowPaneIdStatusPart>,
+    },
     ActiveKeyTable {
         prefix: String,
         fallback: String,
@@ -24527,6 +24564,13 @@ enum NativeLuaWindowStatusText {
     KeyboardModifiers {
         parts: Vec<NativeLuaKeyboardModifiersStatusPart>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaWindowPaneIdStatusPart {
+    Static(String),
+    WindowId,
+    PaneId,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40665,6 +40709,18 @@ impl NativeWindowApp {
             NativeLuaWindowStatusText::WindowId { prefix, suffix } => {
                 format!("{prefix}{}{suffix}", self.app_window_id.get())
             }
+            NativeLuaWindowStatusText::WindowPaneIds { parts } => parts
+                .into_iter()
+                .map(|part| match part {
+                    NativeLuaWindowPaneIdStatusPart::Static(text) => text,
+                    NativeLuaWindowPaneIdStatusPart::WindowId => {
+                        self.app_window_id.get().to_string()
+                    }
+                    NativeLuaWindowPaneIdStatusPart::PaneId => {
+                        self.app_shell.active_pane_id().get().to_string()
+                    }
+                })
+                .collect::<String>(),
             NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } => self
                 .key_table_stack
                 .last()
@@ -77047,6 +77103,26 @@ mod tests {
         app.dispatch_update_status();
 
         assert_eq!(app.right_status, "win=1");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_id_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('win=' .. window:window_id() .. ' pane=' .. pane:pane_id())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane_id status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.right_status, "win=1 pane=1");
     }
 
     #[test]
