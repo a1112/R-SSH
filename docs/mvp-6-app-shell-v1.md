@@ -1699,7 +1699,11 @@ runtime storage for tabs and split panes.
   `format`, and `highlight` fields; `table.insert(config.hyperlink_rules, ...)`
   appends rules, and the official `config.hyperlink_rules =
   wezterm.default_hyperlink_rules()` seed preserves default rules before
-  appended custom rules.
+  appended custom rules. Static `wezterm.on('open-uri', ...)` callbacks with
+  literal returns can suppress the default opener, and the documented
+  `uri:find 'mailto:'` branch can spawn `SpawnCommandInNewWindow { args = {
+  'mutt', recipient } }` using the prefix-stripped URI suffix before returning
+  `false`.
   Lua event wiring remains later parity work.
 - `rssh-app` answers WezTerm/iTerm2-compatible `OSC 1337;ReportCellSize`
   queries with the current fixed cell pixel dimensions, alongside the existing

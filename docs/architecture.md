@@ -1923,7 +1923,11 @@ keyboard, mouse, paste, resize
   appended custom rules while positioned inserts, indexed replacements, and
   indexed field mutations on the static rules variable, plus direct
   config-field inserts, replacements, and indexed field mutations, keep their
-  matching priority. Lua event wiring remains future parity work.
+  matching priority. Static `wezterm.on('open-uri', ...)` callbacks with
+  literal returns can suppress the default opener, and the documented
+  `uri:find 'mailto:'` branch can spawn `SpawnCommandInNewWindow { args = {
+  'mutt', recipient } }`, deriving `recipient` from `uri:sub(match_end + 1)`,
+  before returning `false`. Lua event wiring remains future parity work.
 - Implemented in v1: command-palette Reset Terminal injects RIS (`ESC c`) into
   the active pane output side, matching WezTerm-style `ResetTerminal`.
   Action-name `resetterminal` queries dispatch the same command.

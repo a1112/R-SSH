@@ -6055,11 +6055,13 @@ fn lua_static_wezterm_open_uri_event_from_statement(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
     let rest = lua_trim_start_comments(rest)?;
-    let (body, _, _, uri_param) =
+    let (body, window_param, pane_param, uri_param) =
         lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
     let uri_param = uri_param.unwrap_or("uri");
     lua_static_open_uri_return_from_function_body(
         body,
+        window_param,
+        pane_param,
         uri_param,
         Some(LuaStaticSource {
             source,
@@ -7182,6 +7184,8 @@ fn lua_static_new_tab_button_click_return_from_function_body(
 
 fn lua_static_open_uri_return_from_function_body(
     body: &str,
+    window_param: &str,
+    pane_param: &str,
     uri_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaOpenUri> {
@@ -7191,7 +7195,13 @@ fn lua_static_open_uri_return_from_function_body(
         return Some(NativeLuaOpenUri::Static { allow_default });
     }
 
-    lua_static_open_uri_prefix_return_from_function_body(body, uri_param, outer_static_source)
+    lua_static_open_uri_prefix_return_from_function_body(
+        body,
+        window_param,
+        pane_param,
+        uri_param,
+        outer_static_source,
+    )
 }
 
 fn lua_static_bool_return_from_function_body(
@@ -7480,6 +7490,8 @@ fn native_command_palette_entry_action_from_query_with_depth(
 
 fn lua_static_open_uri_prefix_return_from_function_body(
     body: &str,
+    window_param: &str,
+    pane_param: &str,
     uri_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaOpenUri> {
@@ -7502,13 +7514,246 @@ fn lua_static_open_uri_prefix_return_from_function_body(
             })
             .or(outer_static_source),
         )?;
+        let action = lua_static_open_uri_prefix_action_from_function_body(
+            if_body,
+            window_param,
+            pane_param,
+            uri_param,
+            outer_static_source,
+        )?;
         return Some(NativeLuaOpenUri::UriPrefix {
             prefix,
             allow_default,
+            action,
         });
     }
 
     None
+}
+
+fn lua_static_open_uri_prefix_action_from_function_body(
+    body: &str,
+    window_param: &str,
+    pane_param: &str,
+    uri_param: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<Option<NativeLuaOpenUriAction>> {
+    let starts = lua_top_level_statement_start_indices_before_offset(body, body.len())?;
+    for (index, start) in starts.iter().copied().enumerate() {
+        let end = starts.get(index + 1).copied().unwrap_or_else(|| body.len());
+        let statement = lua_trim_start_comments(body.get(start..end)?)?;
+        let Some(action_query) =
+            lua_callback_statement_perform_action_query(statement, window_param, pane_param)
+        else {
+            continue;
+        };
+        let action = lua_static_open_uri_action_from_query(
+            Some(LuaStaticSource {
+                source: body,
+                max_start: start,
+            }),
+            outer_static_source,
+            action_query,
+            uri_param,
+        )?;
+        return Some(Some(action));
+    }
+
+    Some(None)
+}
+
+fn lua_static_open_uri_action_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    uri_param: &str,
+) -> Option<NativeLuaOpenUriAction> {
+    let indexed_action;
+    let value = if let Some(value) = strip_wezterm_action_prefix(value) {
+        value
+    } else if let Some(value) = strip_wezterm_action_index_prefix(value) {
+        indexed_action = value;
+        indexed_action.as_str()
+    } else {
+        value
+    };
+    let value = value.trim();
+    let action_name = lua_identifier_literal_from_query(value)?;
+    if normalized_action_name_query(action_name) != "spawncommandinnewwindow" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(value.get(action_name.len()..)?)?;
+    let table = if rest.starts_with('{') {
+        rest.strip_prefix('{')?.strip_suffix('}')?.trim()
+    } else if rest.starts_with('(') {
+        let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+        let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+            return None;
+        }
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [table] = arguments.as_slice() else {
+            return None;
+        };
+        table.trim().strip_prefix('{')?.strip_suffix('}')?.trim()
+    } else {
+        return None;
+    };
+
+    let mut args = None;
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let (key, value) = split_lua_table_assignment_from_field(field)?;
+        let key = split_lua_table_key_from_query_with_static_sources(
+            static_source,
+            outer_static_source,
+            key.trim(),
+        )?;
+        if !key.eq_ignore_ascii_case("args") || args.is_some() {
+            return None;
+        }
+        args = Some(lua_static_open_uri_spawn_args_from_query(
+            static_source,
+            outer_static_source,
+            value.trim(),
+            uri_param,
+        )?);
+    }
+
+    let args = args?;
+    (!args.is_empty()).then_some(NativeLuaOpenUriAction::SpawnCommandInNewWindow { args })
+}
+
+fn lua_static_open_uri_spawn_args_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    uri_param: &str,
+) -> Option<Vec<NativeLuaOpenUriArg>> {
+    let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
+    let mut args = Vec::new();
+    for field in split_lua_table_top_level_fields(table)? {
+        let field = field.trim();
+        if field.is_empty() {
+            continue;
+        }
+        let value = if let Some((key, value)) = split_lua_table_assignment_from_field(field) {
+            split_lua_table_array_index_from_query(key.trim())?;
+            value.trim()
+        } else {
+            field
+        };
+        if let Some(value) =
+            lua_static_string_value_from_expression(static_source, outer_static_source, value)
+        {
+            args.push(NativeLuaOpenUriArg::Static(value));
+            continue;
+        }
+        if lua_static_open_uri_suffix_value_from_expression(static_source, value, uri_param)? {
+            args.push(NativeLuaOpenUriArg::UriSuffix);
+            continue;
+        }
+        return None;
+    }
+    Some(args)
+}
+
+fn lua_static_open_uri_suffix_value_from_expression(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    uri_param: &str,
+) -> Option<bool> {
+    if lua_open_uri_suffix_from_expression(value, uri_param)? {
+        return Some(true);
+    }
+    let Some(static_source) = static_source else {
+        return Some(false);
+    };
+    let name = lua_identifier_literal_from_query(value.trim())?;
+    if !lua_static_identifier_value_rest_is_statement_end(value.trim().get(name.len()..)?) {
+        return Some(false);
+    }
+    lua_open_uri_suffix_assignment_before_offset_from_query(
+        static_source.source,
+        name,
+        static_source.max_start,
+        uri_param,
+    )
+    .map(|matched| matched.is_some())
+}
+
+fn lua_open_uri_suffix_assignment_before_offset_from_query(
+    source: &str,
+    variable: &str,
+    max_start: usize,
+    uri_param: &str,
+) -> Option<Option<()>> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if lua_open_uri_suffix_assignment_from_statement(statement, variable, uri_param)? {
+            selected = Some(());
+        }
+    }
+    Some(selected)
+}
+
+fn lua_open_uri_suffix_assignment_from_statement(
+    statement: &str,
+    variable: &str,
+    uri_param: &str,
+) -> Option<bool> {
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let assigned_variable = lua_identifier_literal_from_query(rest)?;
+    if assigned_variable != variable {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest.get(assigned_variable.len()..)?)?;
+    let value = lua_trim_start_comments(rest)?.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(value)?;
+    lua_open_uri_suffix_from_expression(value, uri_param)
+}
+
+fn lua_open_uri_suffix_from_expression(value: &str, uri_param: &str) -> Option<bool> {
+    let value = lua_trim_start_comments(value.trim())?;
+    let Some(rest) = value.strip_prefix(uri_param) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("sub") || !lua_config_assignment_field_has_boundaries(rest, 0, "sub") {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest.get("sub".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, after) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_end_statement_separator(after)?.trim().is_empty() {
+        return Some(false);
+    }
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [start] = arguments.as_slice() else {
+        return Some(false);
+    };
+    lua_open_uri_suffix_start_expression_from_query(start.trim())
+}
+
+fn lua_open_uri_suffix_start_expression_from_query(value: &str) -> Option<bool> {
+    let value = lua_trim_start_comments(value.trim())?;
+    let name = lua_identifier_literal_from_query(value)?;
+    let rest = lua_trim_start_comments(value.get(name.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('+')?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('1')?)?;
+    Some(lua_static_identifier_value_rest_is_statement_end(rest))
 }
 
 fn lua_open_uri_prefix_condition_from_expression(
@@ -23591,8 +23836,25 @@ struct NativeWindowStatusUpdate {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaOpenUri {
-    Static { allow_default: bool },
-    UriPrefix { prefix: String, allow_default: bool },
+    Static {
+        allow_default: bool,
+    },
+    UriPrefix {
+        prefix: String,
+        allow_default: bool,
+        action: Option<NativeLuaOpenUriAction>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaOpenUriAction {
+    SpawnCommandInNewWindow { args: Vec<NativeLuaOpenUriArg> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NativeLuaOpenUriArg {
+    Static(String),
+    UriSuffix,
 }
 
 impl NativeLuaOpenUri {
@@ -23602,6 +23864,7 @@ impl NativeLuaOpenUri {
             Self::UriPrefix {
                 prefix,
                 allow_default,
+                ..
             } => {
                 if event.uri.starts_with(prefix) {
                     *allow_default
@@ -23609,6 +23872,54 @@ impl NativeLuaOpenUri {
                     true
                 }
             }
+        }
+    }
+
+    fn command_for_event(&self, event: &NativeWindowOpenUri) -> Option<WindowCommand> {
+        match self {
+            Self::Static { .. } => None,
+            Self::UriPrefix {
+                prefix,
+                action: Some(action),
+                ..
+            } if event.uri.starts_with(prefix) => action.command_for_uri(&event.uri, prefix),
+            Self::UriPrefix { .. } => None,
+        }
+    }
+}
+
+impl NativeLuaOpenUriAction {
+    fn command_for_uri(&self, uri: &str, prefix: &str) -> Option<WindowCommand> {
+        match self {
+            Self::SpawnCommandInNewWindow { args } => {
+                let mut args = args
+                    .iter()
+                    .map(|arg| arg.value_for_uri(uri, prefix))
+                    .collect::<Option<Vec<_>>>()?;
+                if args.is_empty() {
+                    return None;
+                }
+                let program = args.remove(0);
+                Some(WindowCommand::SpawnCommandInNewWindow(
+                    WindowSpawnCommandQuery {
+                        program,
+                        args,
+                        cwd: None,
+                        environment: BTreeMap::new(),
+                        domain: None,
+                        window_position: None,
+                    },
+                ))
+            }
+        }
+    }
+}
+
+impl NativeLuaOpenUriArg {
+    fn value_for_uri(&self, uri: &str, prefix: &str) -> Option<String> {
+        match self {
+            Self::Static(value) => Some(value.clone()),
+            Self::UriSuffix => uri.strip_prefix(prefix).map(str::to_owned),
         }
     }
 }
@@ -39564,9 +39875,13 @@ impl NativeWindowApp {
         if !(self.open_uri_handler)(event) {
             return false;
         }
-        self.lua_open_uri
-            .as_ref()
-            .is_none_or(|handler| handler.allows_default(event))
+        let Some(handler) = self.lua_open_uri.clone() else {
+            return true;
+        };
+        if let Some(command) = handler.command_for_event(event) {
+            self.command_palette_execute(command);
+        }
+        handler.allows_default(event)
     }
 
     fn dispatch_new_tab_button_click(&mut self, event: &NativeWindowNewTabButtonClick) -> bool {
@@ -45718,6 +46033,19 @@ fn lua_callback_statement_performs_action(
     window_param: &str,
     pane_param: &str,
 ) -> Option<WindowCommand> {
+    let action = lua_callback_statement_perform_action_query(statement, window_param, pane_param)?;
+    native_key_assignment_command_from_callback_action(
+        static_source,
+        outer_static_source,
+        action.trim(),
+    )
+}
+
+fn lua_callback_statement_perform_action_query<'a>(
+    statement: &'a str,
+    window_param: &str,
+    pane_param: &str,
+) -> Option<&'a str> {
     let statement = lua_trim_start_comments(statement)?;
     let rest = statement.strip_prefix(window_param)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
@@ -45745,11 +46073,7 @@ fn lua_callback_statement_performs_action(
     {
         return None;
     }
-    native_key_assignment_command_from_callback_action(
-        static_source,
-        outer_static_source,
-        action.trim(),
-    )
+    Some(action.trim())
 }
 
 fn native_key_assignment_command_from_callback_action(
@@ -87206,6 +87530,58 @@ mod tests {
         );
 
         assert_eq!(opened.lock().unwrap().as_slice(), ["https://example.com"]);
+    }
+
+    #[test]
+    fn window_app_parses_documented_wezterm_open_uri_mailto_spawn_action() {
+        let opened = Arc::new(Mutex::new(Vec::new()));
+        let recorded_open = Arc::clone(&opened);
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+        app.hyperlink_opener = Box::new(move |url: &str| {
+            recorded_open.lock().unwrap().push(url.to_owned());
+            true
+        });
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('open-uri', function(window, pane, uri)
+              local start, match_end = uri:find 'mailto:'
+              if start == 1 then
+                local recipient = uri:sub(match_end + 1)
+                window:perform_action(
+                  wezterm.action.SpawnCommandInNewWindow {
+                    args = { 'mutt', recipient },
+                  },
+                  pane
+                )
+                return false
+              end
+            end)
+            "#,
+        )
+        .expect("expected documented static WezTerm open-uri mailto spawn action");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::OpenUri(
+                "mailto:ops@example.com".to_owned()
+            ))
+        );
+
+        assert!(opened.lock().unwrap().is_empty());
+        assert_eq!(app.app_shell.pending_windows().len(), 1);
+        let pending_window = app
+            .app_shell
+            .pending_windows()
+            .first()
+            .expect("spawn window should request a pending window");
+        let launch = pending_window.tab().panes()[0].launch();
+        assert_eq!(launch.program(), "mutt");
+        assert_eq!(launch.args(), ["ops@example.com"]);
     }
 
     #[test]

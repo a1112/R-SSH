@@ -2560,8 +2560,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   returns now suppress the default opener through the same hook path, and the
   documented static `uri:find 'mailto:'` prefix-branch shape suppresses
   matching URI prefixes while allowing non-matches to continue to the default
-  opener; arbitrary Lua event execution and broader dynamic URI-condition logic
-  remain open.
+  opener. That documented branch also maps
+  `window:perform_action(wezterm.action.SpawnCommandInNewWindow { args = {
+  'mutt', recipient } }, pane)` onto a native new-window spawn, deriving
+  `recipient` from `uri:sub(match_end + 1)` before the `return false`;
+  arbitrary Lua event execution and broader dynamic URI-condition logic remain
+  open.
 - Terminal core now aligns OSC 8 hyperlink reset behavior with WezTerm: SGR
   reset preserves the active hyperlink, and an empty OSC 8 URI clears it.
 - Terminal core can extract text from retained row/column regions and semantic
