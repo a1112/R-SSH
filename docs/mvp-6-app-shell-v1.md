@@ -1401,10 +1401,10 @@ runtime storage for tabs and split panes.
   OSC/ST forms, does not treat progress reports as OSC 9 notifications, and
   syncs active/inactive pane progress into app-shell pane metadata. The native
   tab bar shows active-pane progress as `N%`, `err:N%`, or `~`; static
-  `update-status` callbacks can read active-pane `pane:get_progress()` through
-  documented `Percentage`, `Error`, and `Indeterminate` branches. Arbitrary Lua
-  pane API execution and broader configurable status formatting remain later
-  parity work.
+  `update-status` callbacks can read active-pane `pane:get_progress()` or
+  `window:active_pane():get_progress()` through documented `Percentage`,
+  `Error`, and `Indeterminate` branches. Arbitrary Lua pane API execution and
+  broader configurable status formatting remain later parity work.
 - `rssh-app` counts ASCII BEL events from active and inactive pane output and
   dispatches them through a typed native-window bell hook with the window id and
   originating pane id. Native per-window `audible_bell` overrides support
@@ -1686,9 +1686,9 @@ runtime storage for tabs and split panes.
   active pane `x`, `y`, `shape`, and `visibility`,
   static `pane:get_user_vars()` or `window:active_pane():get_user_vars()`
   dot-field concatenations expose stored active-pane user vars, static
-  `pane:get_progress()` conditional branches
-  expose active-pane `Percentage`, `Error`, and `Indeterminate` progress
-  states, static `pane:get_dimensions()` or
+  `pane:get_progress()` or `window:active_pane():get_progress()` conditional
+  branches expose active-pane `Percentage`, `Error`, and `Indeterminate`
+  progress states, static `pane:get_dimensions()` or
   `window:active_pane():get_dimensions()` field concatenations expose active
   pane `cols`, `viewport_rows`, `scrollback_rows`, `physical_top`, and
   `scrollback_top`, `pane:is_alt_screen_active()` status branches switch
