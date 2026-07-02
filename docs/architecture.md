@@ -1883,7 +1883,7 @@ keyboard, mouse, paste, resize
   the documented `window:set_right_status(window:active_workspace())` shape
   plus static string concatenations with `window:window_id()` or callback
   `pane:pane_id()`/`pane:get_title()`/`pane:get_domain_name()`/
-  `pane:get_current_working_dir()`
+  `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`
   plus static `window:get_dimensions()` field concatenations for
   `pixel_width`, `pixel_height`, `dpi`, and `is_full_screen`
   plus the documented `window:active_key_table()` key-table status shape with
