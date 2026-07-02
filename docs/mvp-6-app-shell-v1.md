@@ -463,8 +463,10 @@ runtime storage for tabs and split panes.
   entry. WezTerm-style `wezterm.action.QuickSelectArgs { patterns = { ... },
   alphabet = ..., label = ..., action = ... }` Lua table queries parse the same
   implemented options, including bracketed string table keys and nested
-  `wezterm.action { CopyTo = ... }` wrapper keys. Arbitrary custom callback actions
-  remain open.
+  `wezterm.action { CopyTo = ... }` wrapper keys. Static
+  `wezterm.action_callback` bodies that call
+  `window:perform_action(<implemented action>, pane)` map onto the same
+  QuickSelect action path; arbitrary custom callback execution remains open.
 - `rssh-app` exposes a native WezTerm-style `PromptInputLine` action payload
   with `description`, `prompt`, and `initial_value`. It opens a modal line-input
   overlay, honors WezTerm's `"> "` default prompt when `prompt` is omitted,

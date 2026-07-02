@@ -52824,6 +52824,23 @@ fn quick_select_action_from_value(action: &str) -> Option<WindowQuickSelectActio
     }
 }
 
+fn quick_select_action_from_window_command(
+    command: WindowCommand,
+) -> Option<WindowQuickSelectAction> {
+    match command {
+        WindowCommand::SendString(value) => Some(WindowQuickSelectAction::SendString(value)),
+        WindowCommand::SendKey(send_key) => Some(WindowQuickSelectAction::SendKey(send_key)),
+        WindowCommand::EmitEvent(event) => Some(WindowQuickSelectAction::EmitEvent(event)),
+        WindowCommand::Multiple(commands) => Some(WindowQuickSelectAction::Multiple(commands)),
+        WindowCommand::ActivateKeyTable(key_table) => {
+            Some(WindowQuickSelectAction::ActivateKeyTable(key_table))
+        }
+        WindowCommand::PopKeyTable => Some(WindowQuickSelectAction::PopKeyTable),
+        WindowCommand::ClearKeyTableStack => Some(WindowQuickSelectAction::ClearKeyTableStack),
+        _ => None,
+    }
+}
+
 fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQuickSelectAction> {
     if let Some(action) = quick_select_wrapped_key_assignment_action_from_value(action) {
         return Some(action);
@@ -52848,29 +52865,8 @@ fn quick_select_key_assignment_action_from_value(action: &str) -> Option<WindowQ
         return Some(WindowQuickSelectAction::PasteFrom(source));
     }
     if let Some(command) = command_palette_structured_query_command(action) {
-        match command {
-            WindowCommand::SendString(value) => {
-                return Some(WindowQuickSelectAction::SendString(value));
-            }
-            WindowCommand::SendKey(send_key) => {
-                return Some(WindowQuickSelectAction::SendKey(send_key));
-            }
-            WindowCommand::EmitEvent(event) => {
-                return Some(WindowQuickSelectAction::EmitEvent(event));
-            }
-            WindowCommand::Multiple(commands) => {
-                return Some(WindowQuickSelectAction::Multiple(commands));
-            }
-            WindowCommand::ActivateKeyTable(key_table) => {
-                return Some(WindowQuickSelectAction::ActivateKeyTable(key_table));
-            }
-            WindowCommand::PopKeyTable => {
-                return Some(WindowQuickSelectAction::PopKeyTable);
-            }
-            WindowCommand::ClearKeyTableStack => {
-                return Some(WindowQuickSelectAction::ClearKeyTableStack);
-            }
-            _ => {}
+        if let Some(action) = quick_select_action_from_window_command(command) {
+            return Some(action);
         }
     }
 
@@ -53379,7 +53375,13 @@ fn quick_select_action_callback_or_key_assignment_from_query(
             &value,
         );
     }
-    if lua_action_callback_from_query(value) {
+    if let Some(command) =
+        lua_action_callback_perform_action_command_with_static_source(static_source, value)
+        && let Some(action) = quick_select_action_from_window_command(command)
+    {
+        return Some(action);
+    }
+    if lua_action_callback_from_query_with_static_source(static_source, value) {
         return Some(WindowQuickSelectAction::Nop);
     }
     let action = parse_maybe_quoted_query_text(value)?;
@@ -125259,6 +125261,67 @@ mod tests {
 
         assert!(app.quick_select.is_none());
         assert!(app.selection.is_none());
+        assert!(copied.lock().unwrap().is_empty());
+        assert!(primary_copied.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn window_app_dispatches_quick_select_args_callback_perform_action() {
+        let query = "wezterm.action.QuickSelectArgs { pattern = 'ticket-[0-9]+', action = wezterm.action_callback(function(window, pane) window:perform_action(wezterm.action.SendString 'picked-ticket', pane) end) }";
+        let expected_options = WindowQuickSelectOptions {
+            patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+            action: Some(WindowQuickSelectAction::SendString(
+                "picked-ticket".to_owned(),
+            )),
+            ..WindowQuickSelectOptions::default()
+        };
+
+        assert_eq!(quick_select_options_from_query(query), expected_options);
+
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_copy = Arc::clone(&copied);
+        let primary_copied = Arc::new(Mutex::new(Vec::new()));
+        let recorded_primary = Arc::clone(&primary_copied);
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+        app.clipboard_writer = Box::new(move |text: &str| {
+            recorded_copy.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.primary_selection_writer = Box::new(move |text: &str| {
+            recorded_primary.lock().unwrap().push(text.to_owned());
+            true
+        });
+        app.runtime.resize(rssh_core::TerminalSize::new(64, 1));
+        app.handle_pty_output(b"ticket-1234 https://default.test")
+            .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(query.to_owned());
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::QuickSelectArgs(expected_options.clone())]
+        );
+        app.command_palette_execute(WindowCommand::QuickSelectArgs(expected_options));
+
+        let quick_select = app.quick_select.as_ref().expect("quick select mode");
+        assert_eq!(quick_select.matches.len(), 1);
+        assert_eq!(
+            quick_select.action,
+            WindowQuickSelectAction::SendString("picked-ticket".to_owned())
+        );
+        assert_eq!(app.selected_text().as_deref(), Some("ticket-1234"));
+        let label = quick_select.labels[0].clone();
+
+        assert!(app.handle_quick_select_logical_key(
+            &Key::Character(label.into()),
+            ModifiersState::empty()
+        ));
+
+        assert!(app.quick_select.is_none());
+        assert!(app.selection.is_none());
+        assert_eq!(written.lock().unwrap().as_slice(), b"picked-ticket");
         assert!(copied.lock().unwrap().is_empty());
         assert!(primary_copied.lock().unwrap().is_empty());
     }
