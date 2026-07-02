@@ -44908,7 +44908,12 @@ fn confirmation_callback_or_nested_command_from_query_with_static_source(
         }
         return confirmation_callback_or_nested_command_from_query(value);
     }
-    if lua_action_callback_from_query(value) {
+    if let Some(command) =
+        confirmation_command_from_lua_action_callback_with_static_source(static_source, value)
+    {
+        return Some(command);
+    }
+    if lua_action_callback_from_query_with_static_source(static_source, value) {
         return Some(WindowCommand::Nop);
     }
     if let Some(static_source) = static_source
@@ -44918,6 +44923,137 @@ fn confirmation_callback_or_nested_command_from_query_with_static_source(
     }
     let value = parse_maybe_static_query_text(static_source, value)?;
     confirmation_nested_command_from_query(&value)
+}
+
+fn confirmation_command_from_lua_action_callback_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCommand> {
+    confirmation_command_from_lua_action_callback_with_static_source_and_depth(
+        static_source,
+        value,
+        0,
+    )
+}
+
+fn confirmation_command_from_lua_action_callback_with_static_source_and_depth(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    depth: usize,
+) -> Option<WindowCommand> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+    if let Some(command) = confirmation_command_from_lua_action_callback_query(static_source, value)
+    {
+        return Some(command);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_wezterm_action_callback_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return confirmation_command_from_lua_action_callback_query(Some(static_source), &value);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        if let Some(value) = lua_static_wezterm_action_callback_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        ) {
+            return confirmation_command_from_lua_action_callback_query(
+                Some(static_source),
+                &value,
+            );
+        }
+        return confirmation_command_from_lua_action_callback_with_static_source_and_depth(
+            Some(static_source),
+            value,
+            depth + 1,
+        );
+    }
+    None
+}
+
+fn confirmation_command_from_lua_action_callback_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowCommand> {
+    let callback = strip_lua_function_call_from_query(value, "wezterm.action_callback")
+        .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
+    let (body, window_param, pane_param, _) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(callback)?;
+    confirmation_command_from_lua_action_callback_body(
+        static_source,
+        body,
+        window_param,
+        pane_param,
+    )
+}
+
+fn confirmation_command_from_lua_action_callback_body(
+    static_source: Option<LuaStaticSource<'_>>,
+    body: &str,
+    window_param: &str,
+    pane_param: &str,
+) -> Option<WindowCommand> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(command) = confirmation_callback_statement_performs_action(
+            static_source,
+            statement,
+            window_param,
+            pane_param,
+        ) {
+            return Some(command);
+        }
+    }
+    None
+}
+
+fn confirmation_callback_statement_performs_action(
+    static_source: Option<LuaStaticSource<'_>>,
+    statement: &str,
+    window_param: &str,
+    pane_param: &str,
+) -> Option<WindowCommand> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = statement.strip_prefix(window_param)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("perform_action")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "perform_action")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("perform_action".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [action, pane] = arguments.as_slice() else {
+        return None;
+    };
+    let pane = lua_trim_start_comments(pane.trim())?;
+    let name = lua_identifier_literal_from_query(pane)?;
+    if name != pane_param
+        || !lua_static_identifier_value_rest_is_statement_end(pane.get(name.len()..)?)
+        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    {
+        return None;
+    }
+    native_key_assignment_command_from_query(static_source, action.trim())
+        .or_else(|| native_key_assignment_command_from_query(None, action.trim()))
 }
 
 #[derive(Clone, Default)]
@@ -112151,6 +112287,48 @@ mod tests {
                 accepted: true,
             }]
         );
+    }
+
+    #[test]
+    fn window_app_confirmation_static_action_callback_performs_nested_action() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Confirmation { message = \"Send command?\", action = wezterm.action_callback(function(window, pane) window:perform_action(wezterm.action.SendString 'yes', pane) end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(app.handle_confirmation_key(&Key::Named(NamedKey::Enter), ModifiersState::empty()));
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"yes");
+        assert!(app.confirmation.is_none());
+    }
+
+    #[test]
+    fn window_app_confirmation_static_cancel_callback_performs_nested_action() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.Confirmation { message = \"Send command?\", action = \"sendstring yes\", cancel = wezterm.action_callback(function(window, pane) window:perform_action(wezterm.action.SendString 'no', pane) end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_confirmation_key(&Key::Named(NamedKey::Escape), ModifiersState::empty())
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"no");
+        assert!(app.confirmation.is_none());
     }
 
     #[test]

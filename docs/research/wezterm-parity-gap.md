@@ -1261,10 +1261,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   top-level static `wezterm.action` aliases, parenthesized calls with top-level
   static options table variables, and static
   `action`/`cancel = wezterm.action_callback(...)` fields as
-  native-handler placeholders. Static Lua
+  native-handler placeholders. Static callback bodies that call
+  `window:perform_action(<implemented action>, pane)` now map the nested action
+  onto the existing native `WindowCommand` path for accept or cancel. Static Lua
   `wezterm.format { { Text = ... } }` values for `message` are reduced to
   their visible text for the native overlay, while styled confirmation
-  rendering and actual Lua `wezterm.action_callback` wiring remain open.
+  rendering and arbitrary Lua `wezterm.action_callback` execution remain open.
 - Native `EmitEvent` action payloads now carry a custom event name and dispatch
   it through a typed native handler with the active window id and pane id.
   Structured command-palette `emit event <name>` and action-name
