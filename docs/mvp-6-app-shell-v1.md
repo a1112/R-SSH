@@ -1666,7 +1666,9 @@ runtime storage for tabs and split panes.
   current workspace at status-update time. The documented key-table status
   example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
-  to an empty right status for an empty key-table stack. Inline or
+  to an empty right status for an empty key-table stack. The documented
+  leader-status example resolves `window:leader_is_active()` and switches
+  between static active/inactive strings as the leader state changes. Inline or
   static-table-variable
   `wezterm.format` Text/Foreground/Background/ResetAttributes and Attribute
   Intensity/Italic/Underline item composition also maps into status text with

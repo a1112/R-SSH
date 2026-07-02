@@ -9663,20 +9663,80 @@ fn lua_static_window_status_variable_text_from_query(
         variable,
         static_source.max_start,
     )?;
-    let mut status = lua_window_status_method_text_from_query(assignment, window_name)?;
-    if let NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } = &mut status {
-        if let Some(parsed_prefix) = lua_static_window_status_variable_prefix_before_offset(
-            static_source.source,
-            variable,
-            static_source.max_start,
-        ) {
-            *prefix = parsed_prefix;
+    if let Some(mut status) = lua_window_status_method_text_from_query(assignment, window_name) {
+        if let NativeLuaWindowStatusText::ActiveKeyTable { prefix, fallback } = &mut status {
+            if let Some(parsed_prefix) = lua_static_window_status_variable_prefix_before_offset(
+                static_source.source,
+                variable,
+                static_source.max_start,
+            ) {
+                *prefix = parsed_prefix;
+            }
+            if let Some(parsed_fallback) = fallback_text {
+                *fallback = parsed_fallback;
+            }
         }
-        if let Some(parsed_fallback) = fallback_text {
-            *fallback = parsed_fallback;
+        return Some(status);
+    }
+
+    let inactive = lua_static_string_value_from_expression(None, None, assignment)?;
+    let active = lua_static_window_status_variable_leader_active_text_before_offset(
+        static_source.source,
+        variable,
+        window_name,
+        static_source.max_start,
+    )?;
+    Some(NativeLuaWindowStatusText::Leader {
+        active,
+        inactive: fallback_text.unwrap_or(inactive),
+    })
+}
+
+fn lua_static_window_status_variable_leader_active_text_before_offset(
+    source: &str,
+    variable: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(active) = lua_static_window_status_variable_leader_active_text_from_statement(
+            statement,
+            variable,
+            window_name,
+        ) {
+            selected = Some(active);
         }
     }
-    Some(status)
+
+    selected
+}
+
+fn lua_static_window_status_variable_leader_active_text_from_statement(
+    statement: &str,
+    variable: &str,
+    window_name: &str,
+) -> Option<String> {
+    let (branches, _) = lua_static_if_condition_and_body_branches_from_statement(statement)?;
+    let [(condition, body)] = branches.as_slice() else {
+        return None;
+    };
+    if lua_window_zero_arg_method_name_from_query(condition, window_name)? != "leader_is_active" {
+        return None;
+    }
+
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(value) =
+            lua_static_window_status_variable_static_assignment_from_statement(statement, variable)
+        {
+            selected = Some(value);
+        }
+    }
+    selected
 }
 
 fn lua_window_status_variable_fallback_from_query(value: &str) -> Option<(&str, Option<String>)> {
@@ -9757,10 +9817,39 @@ fn lua_static_window_status_variable_prefix_assignment_from_statement(
     lua_static_string_value_from_expression(None, None, prefix)
 }
 
+fn lua_static_window_status_variable_static_assignment_from_statement(
+    statement: &str,
+    variable: &str,
+) -> Option<String> {
+    let rest = statement.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    lua_static_string_value_from_expression(None, None, value)
+}
+
 fn lua_window_status_method_text_from_query(
     value: &str,
     window_name: &str,
 ) -> Option<NativeLuaWindowStatusText> {
+    let method = lua_window_zero_arg_method_name_from_query(value, window_name)?;
+
+    match method {
+        "active_workspace" => Some(NativeLuaWindowStatusText::ActiveWorkspace),
+        "active_key_table" => Some(NativeLuaWindowStatusText::ActiveKeyTable {
+            prefix: String::new(),
+            fallback: String::new(),
+        }),
+        _ => None,
+    }
+}
+
+fn lua_window_zero_arg_method_name_from_query<'a>(
+    value: &'a str,
+    window_name: &str,
+) -> Option<&'a str> {
     let rest = value.strip_prefix(window_name)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
@@ -9779,15 +9868,7 @@ fn lua_window_status_method_text_from_query(
     {
         return None;
     }
-
-    match method {
-        "active_workspace" => Some(NativeLuaWindowStatusText::ActiveWorkspace),
-        "active_key_table" => Some(NativeLuaWindowStatusText::ActiveKeyTable {
-            prefix: String::new(),
-            fallback: String::new(),
-        }),
-        _ => None,
-    }
+    Some(method)
 }
 
 fn lua_inline_string_literal_value_and_len(value: &str) -> Option<(String, usize)> {
@@ -24104,6 +24185,7 @@ enum NativeLuaWindowStatusText {
     Static(String),
     ActiveWorkspace,
     ActiveKeyTable { prefix: String, fallback: String },
+    Leader { active: String, inactive: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40212,6 +40294,13 @@ impl NativeWindowApp {
                 .last()
                 .map(|activation| format!("{prefix}{}", activation.name))
                 .unwrap_or(fallback),
+            NativeLuaWindowStatusText::Leader { active, inactive } => {
+                if self.leader_active_since.is_some() {
+                    active
+                } else {
+                    inactive
+                }
+            }
         }
     }
 
@@ -76409,6 +76498,61 @@ mod tests {
         assert_eq!(app.right_status, "TABLE: resize_pane");
 
         assert!(app.command_palette_execute(WindowCommand::ClearKeyTableStack));
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
+    }
+
+    #[test]
+    fn window_app_parses_documented_wezterm_update_right_status_leader_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            wezterm.on('update-right-status', function(window, pane)
+              local leader = ''
+              if window:leader_is_active() then
+                leader = 'LEADER'
+              end
+              window:set_right_status(leader)
+            end)
+
+            config.leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 }
+            config.colors = {
+              compose_cursor = 'orange',
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected documented WezTerm leader status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
+
+        app.modifiers = ModifiersState::CONTROL;
+        app.handle_keyboard_input_event(
+            &Key::Character("a".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyA),
+            Some("a"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "LEADER");
+
+        app.modifiers = ModifiersState::empty();
+        app.handle_keyboard_input_event(
+            &Key::Character("x".into()),
+            PhysicalKey::Code(WinitKeyCode::KeyX),
+            Some("x"),
+            ElementState::Pressed,
+            KittyKeyEventKind::Press,
+        )
+        .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "");
     }
