@@ -45481,7 +45481,10 @@ fn lua_action_callback_perform_action_command_body(
             statement,
             window_param,
             pane_param,
-        ) {
+        )
+        .or_else(|| {
+            lua_callback_statement_emits_event(static_source, statement, window_param, pane_param)
+        }) {
             commands.push(command);
         }
     }
@@ -45527,6 +45530,45 @@ fn lua_callback_statement_performs_action(
     }
     native_key_assignment_command_from_query(static_source, action.trim())
         .or_else(|| native_key_assignment_command_from_query(None, action.trim()))
+}
+
+fn lua_callback_statement_emits_event(
+    static_source: Option<LuaStaticSource<'_>>,
+    statement: &str,
+    window_param: &str,
+    pane_param: &str,
+) -> Option<WindowCommand> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = statement.strip_prefix("wezterm")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("emit") || !lua_config_assignment_field_has_boundaries(rest, 0, "emit") {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get("emit".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [event_name, window, pane] = arguments.as_slice() else {
+        return None;
+    };
+    let window = lua_trim_start_comments(window.trim())?;
+    let window_name = lua_identifier_literal_from_query(window)?;
+    let pane = lua_trim_start_comments(pane.trim())?;
+    let pane_name = lua_identifier_literal_from_query(pane)?;
+    if window_name != window_param
+        || !lua_static_identifier_value_rest_is_statement_end(window.get(window_name.len()..)?)
+        || pane_name != pane_param
+        || !lua_static_identifier_value_rest_is_statement_end(pane.get(pane_name.len()..)?)
+        || !lua_trim_end_statement_separator(rest)?.trim().is_empty()
+    {
+        return None;
+    }
+    let name = lua_static_string_value_from_expression(static_source, None, event_name.trim())?;
+    (!name.is_empty()).then_some(WindowCommand::EmitEvent(WindowEmitEvent { name }))
 }
 
 #[derive(Clone, Default)]
@@ -93621,6 +93663,40 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"hello world");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+
+            wezterm.on('send-greeting', function(window, pane)
+              wezterm.emit('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello");
     }
 
     #[test]
