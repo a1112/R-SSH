@@ -30109,17 +30109,37 @@ impl NativeWindowApp {
     }
 
     fn submit_prompt_input_line(&mut self, line: Option<String>) {
+        let action = self
+            .prompt_input_line
+            .as_ref()
+            .and_then(|prompt| prompt.action.clone());
         let event = NativePromptInputLine {
             window_id: self.app_window_id,
             pane: self.app_shell.active_pane_id(),
             line,
         };
         self.dispatch_prompt_input_line(&event);
+        if let (Some(action), Some(line)) = (action, event.line.clone()) {
+            self.perform_prompt_input_line_action(action, line);
+        }
         self.exit_prompt_input_line_mode();
     }
 
     fn dispatch_prompt_input_line(&mut self, event: &NativePromptInputLine) -> bool {
         (self.prompt_input_line_handler)(event)
+    }
+
+    fn perform_prompt_input_line_action(
+        &mut self,
+        action: WindowPromptInputLineAction,
+        line: String,
+    ) {
+        let command = match action {
+            WindowPromptInputLineAction::RenameActiveTab => WindowCommand::RenameTabTo(line),
+        };
+        if let Err(error) = self.command_palette_apply_command(command) {
+            eprintln!("prompt input line action failed: {error:?}");
+        }
     }
 
     fn handle_prompt_input_line_key(&mut self, key: &Key, modifiers: ModifiersState) -> bool {
@@ -43537,8 +43557,16 @@ fn prompt_input_line_lua_table_from_query_with_static_source(
                 parsed_initial_value = true;
             }
             "action" => {
-                if parsed_action
-                    || !lua_action_callback_from_query_with_static_source(
+                if parsed_action {
+                    return None;
+                }
+                options.action =
+                    prompt_input_line_action_from_lua_action_callback_with_static_source(
+                        static_source,
+                        value.trim(),
+                    );
+                if options.action.is_none()
+                    && !lua_action_callback_from_query_with_static_source(
                         static_source,
                         value.trim(),
                     )
@@ -43552,6 +43580,184 @@ fn prompt_input_line_lua_table_from_query_with_static_source(
     }
 
     parsed_description.then_some(options)
+}
+
+fn prompt_input_line_action_from_lua_action_callback_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowPromptInputLineAction> {
+    prompt_input_line_action_from_lua_action_callback_with_static_source_and_depth(
+        static_source,
+        value,
+        0,
+    )
+}
+
+fn prompt_input_line_action_from_lua_action_callback_with_static_source_and_depth(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    depth: usize,
+) -> Option<WindowPromptInputLineAction> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+    if let Some(action) = prompt_input_line_action_from_lua_action_callback_query(value) {
+        return Some(action);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_wezterm_action_callback_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        return prompt_input_line_action_from_lua_action_callback_query(&value);
+    }
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        )
+    {
+        if let Some(value) = lua_static_wezterm_action_callback_alias_query_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+        ) {
+            return prompt_input_line_action_from_lua_action_callback_query(&value);
+        }
+        return prompt_input_line_action_from_lua_action_callback_with_static_source_and_depth(
+            Some(static_source),
+            value,
+            depth + 1,
+        );
+    }
+    None
+}
+
+fn prompt_input_line_action_from_lua_action_callback_query(
+    value: &str,
+) -> Option<WindowPromptInputLineAction> {
+    let callback = strip_lua_function_call_from_query(value, "wezterm.action_callback")
+        .or_else(|| strip_lua_function_call_from_query(value, "action_callback"))?;
+    let (body, window_param, _, line_param) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(callback)?;
+    let line_param = line_param?;
+    prompt_input_line_action_from_lua_action_callback_body(body, window_param, line_param)
+}
+
+fn prompt_input_line_action_from_lua_action_callback_body(
+    body: &str,
+    window_param: &str,
+    line_param: &str,
+) -> Option<WindowPromptInputLineAction> {
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if prompt_input_line_callback_statement_renames_active_tab(
+            statement,
+            window_param,
+            line_param,
+        )? {
+            return Some(WindowPromptInputLineAction::RenameActiveTab);
+        }
+        if let Some((branches, rest)) =
+            lua_static_if_condition_and_body_branches_from_statement(statement)
+        {
+            let [(condition, if_body)] = branches.as_slice() else {
+                continue;
+            };
+            if lua_callback_line_condition_from_expression(condition, line_param)?
+                && lua_trim_end_statement_separator(rest)?.trim().is_empty()
+                && prompt_input_line_callback_body_renames_active_tab(
+                    if_body,
+                    window_param,
+                    line_param,
+                )?
+            {
+                return Some(WindowPromptInputLineAction::RenameActiveTab);
+            }
+        }
+    }
+    None
+}
+
+fn prompt_input_line_callback_body_renames_active_tab(
+    body: &str,
+    window_param: &str,
+    line_param: &str,
+) -> Option<bool> {
+    let mut found = false;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if !prompt_input_line_callback_statement_renames_active_tab(
+            statement,
+            window_param,
+            line_param,
+        )? {
+            return Some(false);
+        }
+        found = true;
+    }
+    Some(found)
+}
+
+fn lua_callback_line_condition_from_expression(condition: &str, line_param: &str) -> Option<bool> {
+    let condition = lua_trim_start_comments(condition.trim())?;
+    let name = lua_identifier_literal_from_query(condition)?;
+    Some(
+        name == line_param
+            && lua_static_identifier_value_rest_is_statement_end(condition.get(name.len()..)?),
+    )
+}
+
+fn prompt_input_line_callback_statement_renames_active_tab(
+    statement: &str,
+    window_param: &str,
+    line_param: &str,
+) -> Option<bool> {
+    let statement = lua_trim_start_comments(statement)?;
+    let Some(rest) = statement.strip_prefix(window_param) else {
+        return Some(false);
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("active_tab")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "active_tab")
+    {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest.get("active_tab".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !arguments.trim().is_empty() {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    if !rest.starts_with("set_title")
+        || !lua_config_assignment_field_has_boundaries(rest, 0, "set_title")
+    {
+        return Some(false);
+    }
+    let rest = lua_trim_start_comments(rest.get("set_title".len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [argument] = arguments.as_slice() else {
+        return Some(false);
+    };
+    let argument = lua_trim_start_comments(argument.trim())?;
+    let name = lua_identifier_literal_from_query(argument)?;
+    if name != line_param
+        || !lua_static_identifier_value_rest_is_statement_end(argument.get(name.len()..)?)
+    {
+        return Some(false);
+    }
+    Some(lua_trim_end_statement_separator(rest)?.trim().is_empty())
 }
 
 fn lua_action_callback_from_query(value: &str) -> bool {
@@ -54590,6 +54796,7 @@ struct WindowPromptInputLineOptions {
     description: String,
     prompt: Option<String>,
     initial_value: Option<String>,
+    action: Option<WindowPromptInputLineAction>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54597,6 +54804,12 @@ struct WindowPromptInputLine {
     description: String,
     prompt: String,
     input: String,
+    action: Option<WindowPromptInputLineAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WindowPromptInputLineAction {
+    RenameActiveTab,
 }
 
 impl WindowPromptInputLine {
@@ -54605,6 +54818,7 @@ impl WindowPromptInputLine {
             description: options.description,
             prompt: options.prompt.unwrap_or_else(|| "> ".to_owned()),
             input: options.initial_value.unwrap_or_default(),
+            action: options.action,
         }
     }
 }
@@ -62655,11 +62869,11 @@ mod tests {
         WindowConfirmationOptions, WindowCopyDestination, WindowDomainSelector, WindowEmitEvent,
         WindowFontSizeAction, WindowInputSelectorChoice, WindowInputSelectorOptions,
         WindowMouseEvent, WindowMouseEventKind, WindowMouseSelectionMode, WindowPaneSelectMode,
-        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineOptions,
-        WindowQuickSelectAction, WindowQuickSelectOptions, WindowScrollByPageAmount, WindowSearch,
-        WindowSearchCommandQuery, WindowSearchMatchType, WindowSelection, WindowSendKey,
-        WindowShowLauncherArgs, WindowShowLauncherFlags, WindowSpawnCommandQuery,
-        WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
+        WindowPaneSelectOptions, WindowPasteSource, WindowPromptInputLineAction,
+        WindowPromptInputLineOptions, WindowQuickSelectAction, WindowQuickSelectOptions,
+        WindowScrollByPageAmount, WindowSearch, WindowSearchCommandQuery, WindowSearchMatchType,
+        WindowSelection, WindowSendKey, WindowShowLauncherArgs, WindowShowLauncherFlags,
+        WindowSpawnCommandQuery, WindowSpawnTabDomain, WindowSplitPaneOptions, WindowSplitPaneSize,
         WindowSwitchToWorkspaceOptions, activate_window_absolute_index,
         activate_window_relative_index, command_palette_basic_structured_query_command,
         default_gui_startup_args, default_hyperlink_rules, default_integrated_title_buttons,
@@ -99497,6 +99711,7 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
                 }),
             }])
         );
@@ -99540,6 +99755,7 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
                 }),
             }])
         );
@@ -99579,6 +99795,7 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
                 }),
             }])
         );
@@ -99619,6 +99836,52 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_prompt_input_line_static_rename_tab_callback_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local prompt_action = wezterm.action_callback(function(window, pane, line)
+              if line then
+                window:active_tab():set_title(line)
+              end
+            end)
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine {
+                  description = 'Rename tab',
+                  prompt = 'name: ',
+                  initial_value = 'old name',
+                  action = prompt_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine static rename-tab callback variable config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Rename tab".to_owned(),
+                    prompt: Some("name: ".to_owned()),
+                    initial_value: Some("old name".to_owned()),
+                    action: Some(WindowPromptInputLineAction::RenameActiveTab),
                 }),
             }])
         );
@@ -99659,6 +99922,7 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
                 }),
             }])
         );
@@ -99702,6 +99966,7 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
                 }),
             }])
         );
@@ -112012,6 +112277,7 @@ mod tests {
                 description: "Rename tab".to_owned(),
                 prompt: Some("name: ".to_owned()),
                 initial_value: Some("old".to_owned()),
+                action: None,
             },
         )));
 
@@ -112055,6 +112321,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name:".to_owned()),
             initial_value: Some("old".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112086,6 +112353,7 @@ mod tests {
                     description: "Confirm prompt text".to_owned(),
                     prompt: Some(">".to_owned()),
                     initial_value: Some("ok".to_owned()),
+                    action: None,
                 }
             )]
         );
@@ -112108,6 +112376,7 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
                 }
             )]
         );
@@ -112127,6 +112396,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112155,6 +112425,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112183,6 +112454,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112211,6 +112483,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112223,6 +112496,30 @@ mod tests {
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:1 pane:1] - Rename tab: name: old name"
         );
+    }
+
+    #[test]
+    fn window_app_prompt_input_line_static_action_callback_can_rename_tab() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine { description = \"Enter new name for tab\", action = wezterm.action_callback(function(window, pane, line) if line then window:active_tab():set_title(line) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(app.handle_prompt_input_line_key(
+            &Key::Character("build-prod".into()),
+            ModifiersState::empty(),
+        ));
+        assert!(
+            app.handle_prompt_input_line_key(&Key::Named(NamedKey::Enter), ModifiersState::empty())
+        );
+
+        assert_eq!(app.app_shell.active_tab().title(), Some("build-prod"));
+        assert!(app.prompt_input_line.is_none());
     }
 
     #[test]
@@ -112239,6 +112536,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112267,6 +112565,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112295,6 +112594,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112323,6 +112623,7 @@ mod tests {
             description: "Rename tab".to_owned(),
             prompt: Some("name: ".to_owned()),
             initial_value: Some("old name".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112354,6 +112655,7 @@ mod tests {
                     description: "Rename tab".to_owned(),
                     prompt: Some("name: ".to_owned()),
                     initial_value: Some("old name".to_owned()),
+                    action: None,
                 }
             )]
         );
@@ -112372,6 +112674,7 @@ mod tests {
             description: "Rename".to_owned(),
             prompt: Some("name:".to_owned()),
             initial_value: Some("old".to_owned()),
+            action: None,
         });
         assert_eq!(
             app.command_palette_filtered_commands(),
@@ -112402,6 +112705,7 @@ mod tests {
                     description: "Rename".to_owned(),
                     prompt: Some("name:".to_owned()),
                     initial_value: Some("old".to_owned()),
+                    action: None,
                 }
             )]
         );
@@ -112423,6 +112727,7 @@ mod tests {
                     description: "Rename".to_owned(),
                     prompt: Some("name:".to_owned()),
                     initial_value: Some("old".to_owned()),
+                    action: None,
                 }
             )]
         );
@@ -112444,6 +112749,7 @@ mod tests {
                     description: "Rename".to_owned(),
                     prompt: Some("name:".to_owned()),
                     initial_value: Some("old".to_owned()),
+                    action: None,
                 }
             )]
         );
@@ -112465,6 +112771,7 @@ mod tests {
                     description: "Rename".to_owned(),
                     prompt: Some("name:".to_owned()),
                     initial_value: Some("old".to_owned()),
+                    action: None,
                 }
             )]
         );
@@ -112485,6 +112792,7 @@ mod tests {
                 description: "Workspace".to_owned(),
                 prompt: None,
                 initial_value: None,
+                action: None,
             },
         )));
 

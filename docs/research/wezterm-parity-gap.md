@@ -1178,9 +1178,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   text for the native overlay, and static
   `action = wezterm.action_callback(...)` fields plus top-level static callback
   variables and callbacks built from top-level static `wezterm.action_callback`
-  aliases are accepted as native-handler placeholders, while styled
-  prompt-line rendering and actual Lua `wezterm.action_callback` wiring remain
-  open.
+  aliases are accepted as native-handler placeholders. The documented static
+  rename-tab callback form `function(window, pane, line) if line then
+  window:active_tab():set_title(line) end end` is mapped to the native
+  `RenameTabTo` command on submit, while styled prompt-line rendering and
+  arbitrary Lua `wezterm.action_callback` execution remain open.
 - Native `InputSelector` action payloads now carry `title`, `choices`, optional
   `alphabet`, optional `description`, optional `fuzzy_description`, and `fuzzy`,
   open a modal selector, support default-mode alphabet shortcuts, `/` fuzzy
