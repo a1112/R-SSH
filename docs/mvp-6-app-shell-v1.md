@@ -1670,11 +1670,13 @@ runtime storage for tabs and split panes.
   resolves the active pane domain, `pane:get_current_working_dir()` resolves
   the active pane current working directory, `pane:get_foreground_process_name()`
   resolves the active pane foreground process name, `pane:get_tty_name()`
-  resolves the active pane tty name, static `pane:get_dimensions()` field
-  concatenations expose active pane `cols`, `viewport_rows`,
-  `scrollback_rows`, `physical_top`, and `scrollback_top`,
-  `pane:is_alt_screen_active()` status branches switch between static
-  alternate-screen active/inactive strings, and static `window:get_dimensions()`
+  resolves the active pane tty name, static `pane:get_cursor_position()` field
+  concatenations expose active pane `x`, `y`, `shape`, and `visibility`,
+  static `pane:get_dimensions()` field concatenations expose active pane
+  `cols`, `viewport_rows`, `scrollback_rows`, `physical_top`, and
+  `scrollback_top`, `pane:is_alt_screen_active()` status branches switch
+  between static alternate-screen active/inactive strings, and static
+  `window:get_dimensions()`
   field concatenations expose native `pixel_width`, `pixel_height`, `dpi`, and
   `is_full_screen`. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
