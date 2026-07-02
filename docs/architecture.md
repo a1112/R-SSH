@@ -668,7 +668,11 @@ keyboard, mouse, paste, resize
   `action = wezterm.action_callback(...)` fields, top-level static callback
   variables, and callbacks built from top-level static
   `wezterm.action_callback` aliases are accepted as native-handler
-  placeholders.
+  placeholders. Static callback bodies that send the selected choice through
+  `pane:send_text(id)` / `pane:send_text(label)` map onto the native
+  `SendString` path, while `pane:send_paste(id)` / `pane:send_paste(label)`
+  map onto the native `SendPaste` path with paste newline and bracketed-paste
+  encoding.
   Duplicate `fuzzy` fields are rejected instead of silently overriding them;
   actual Lua `wezterm.action_callback` wiring remains future parity work.
 - Completed in v1: a native WezTerm-style `Confirmation` action payload carries

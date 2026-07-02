@@ -517,10 +517,12 @@ runtime storage for tabs and split panes.
   semicolon-delimited string form or WezTerm's Lua table-of-tables choice form
   with `{ label = ..., id = ... }` entries, including bracketed string keys on
   those nested choice tables. Static callback bodies that call
-  `pane:send_text(id)` or `pane:send_text(label)` map selected choice data to
-  the native `SendString` path, and static callbacks that call
-  `inner_window:perform_action(act.SwitchToWorkspace { name = label, spawn = {
-  cwd = id } }, inner_pane)` map selected choice data to the native
+  `pane:send_text(id)` / `pane:send_text(label)` map selected choice data to
+  the native `SendString` path, `pane:send_paste(id)` /
+  `pane:send_paste(label)` map selected choice data to the native `SendPaste`
+  path with paste newline and bracketed-paste encoding, and static callbacks
+  that call `inner_window:perform_action(act.SwitchToWorkspace { name = label,
+  spawn = { cwd = id } }, inner_pane)` map selected choice data to the native
   `SwitchToWorkspace` path; arbitrary Lua `wezterm.action_callback` execution
   remains later parity work.
 - `rssh-app` exposes a native WezTerm-style `Confirmation` action payload with a

@@ -29865,6 +29865,14 @@ impl NativeWindowApp {
                 };
                 WindowCommand::SendString(value)
             }
+            WindowInputSelectorAction::SendIdPaste => {
+                let Some(value) =
+                    Self::input_selector_event_value(event, WindowInputSelectorValueParam::Id)
+                else {
+                    return;
+                };
+                WindowCommand::SendPaste(value)
+            }
             WindowInputSelectorAction::SendLabelText => {
                 let Some(value) =
                     Self::input_selector_event_value(event, WindowInputSelectorValueParam::Label)
@@ -29872,6 +29880,14 @@ impl NativeWindowApp {
                     return;
                 };
                 WindowCommand::SendString(value)
+            }
+            WindowInputSelectorAction::SendLabelPaste => {
+                let Some(value) =
+                    Self::input_selector_event_value(event, WindowInputSelectorValueParam::Label)
+                else {
+                    return;
+                };
+                WindowCommand::SendPaste(value)
             }
             WindowInputSelectorAction::SwitchToWorkspace { name, cwd } => {
                 let Some(name) = Self::input_selector_event_value(event, name) else {
@@ -44964,7 +44980,7 @@ fn input_selector_action_from_lua_action_callback_statement(
     id_param: &str,
     label_param: &str,
 ) -> Option<WindowInputSelectorAction> {
-    if let Some(action) = input_selector_callback_statement_sends_text_param(
+    if let Some(action) = input_selector_callback_statement_sends_pane_input_param(
         statement,
         pane_param,
         id_param,
@@ -45029,7 +45045,7 @@ fn input_selector_merge_static_action(
     Some(())
 }
 
-fn input_selector_callback_statement_sends_text_param(
+fn input_selector_callback_statement_sends_pane_input_param(
     statement: &str,
     pane_param: &str,
     id_param: &str,
@@ -45042,12 +45058,26 @@ fn input_selector_callback_statement_sends_text_param(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
     let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("send_text")
-        || !lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
+    let (command_name, id_action, label_action) = if rest.starts_with("send_text")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_text")
     {
+        (
+            "send_text",
+            WindowInputSelectorAction::SendIdText,
+            WindowInputSelectorAction::SendLabelText,
+        )
+    } else if rest.starts_with("send_paste")
+        && lua_config_assignment_field_has_boundaries(rest, 0, "send_paste")
+    {
+        (
+            "send_paste",
+            WindowInputSelectorAction::SendIdPaste,
+            WindowInputSelectorAction::SendLabelPaste,
+        )
+    } else {
         return None;
-    }
-    let rest = lua_trim_start_comments(rest.get("send_text".len()..)?)?;
+    };
+    let rest = lua_trim_start_comments(rest.get(command_name.len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
     let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
     let arguments = split_lua_top_level_arguments(arguments)?;
@@ -45063,9 +45093,9 @@ fn input_selector_callback_statement_sends_text_param(
         return None;
     }
     if name == id_param {
-        Some(WindowInputSelectorAction::SendIdText)
+        Some(id_action)
     } else if name == label_param {
-        Some(WindowInputSelectorAction::SendLabelText)
+        Some(label_action)
     } else {
         None
     }
@@ -55984,7 +56014,9 @@ impl WindowInputSelector {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WindowInputSelectorAction {
     SendIdText,
+    SendIdPaste,
     SendLabelText,
+    SendLabelPaste,
     SwitchToWorkspace {
         name: WindowInputSelectorValueParam,
         cwd: Option<WindowInputSelectorValueParam>,
@@ -114816,6 +114848,30 @@ mod tests {
     }
 
     #[test]
+    fn window_app_input_selector_static_action_callback_pastes_choice_id() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Pick Reply\", choices = { { label = \"No thanks\", id = \"Regretfully, I decline.\" }, { label = \"LGTM\", id = \"hello\\nworld\" } }, alphabet = \"ab\", action = wezterm.action_callback(function(window, pane, id, label) if id then pane:send_paste(id) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        let expected =
+            encode_window_paste("hello\nworld", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
+        assert!(app.input_selector.is_none());
+    }
+
+    #[test]
     fn window_app_input_selector_static_action_callback_sends_choice_label_without_id() {
         let written = Arc::new(Mutex::new(Vec::new()));
         let mut app = NativeWindowApp::new(None);
@@ -114834,6 +114890,30 @@ mod tests {
         );
 
         assert_eq!(written.lock().unwrap().as_slice(), b"Two");
+        assert!(app.input_selector.is_none());
+    }
+
+    #[test]
+    fn window_app_input_selector_static_action_callback_pastes_choice_label_without_id() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.InputSelector { title = \"Pick Number\", choices = { { label = \"One\" }, { label = \"hello\\nworld\" } }, alphabet = \"ab\", action = wezterm.action_callback(function(window, pane, id, label) if label then pane:send_paste(label) end end) }"
+                .to_owned(),
+        );
+
+        let [command] = app.command_palette_filtered_commands().try_into().unwrap();
+        assert!(app.command_palette_execute(command));
+        assert!(
+            app.handle_input_selector_key(&Key::Character("b".into()), ModifiersState::empty())
+        );
+
+        let expected =
+            encode_window_paste("hello\nworld", false, DEFAULT_CANONICALIZE_PASTED_NEWLINES);
+        assert_eq!(written.lock().unwrap().as_slice(), expected.as_slice());
         assert!(app.input_selector.is_none());
     }
 

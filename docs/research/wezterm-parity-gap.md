@@ -1239,12 +1239,14 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables, and callbacks built from top-level static
   `wezterm.action_callback` aliases are accepted as native-handler
   placeholders. Static callback bodies that send the selected choice through
-  `pane:send_text(id)` or `pane:send_text(label)` now map onto the native
-  `SendString` path on selection, and the documented static workspace callback
-  form `inner_window:perform_action(act.SwitchToWorkspace { name = label, spawn
-  = { cwd = id } }, inner_pane)` maps selected choice data onto the native
-  `SwitchToWorkspace` path, while arbitrary Lua `wezterm.action_callback`
-  execution remains open.
+  `pane:send_text(id)` / `pane:send_text(label)` now map onto the native
+  `SendString` path on selection, while `pane:send_paste(id)` /
+  `pane:send_paste(label)` map onto the native `SendPaste` path with paste
+  newline and bracketed-paste encoding. The documented static workspace
+  callback form `inner_window:perform_action(act.SwitchToWorkspace { name =
+  label, spawn = { cwd = id } }, inner_pane)` maps selected choice data onto
+  the native `SwitchToWorkspace` path, while arbitrary Lua
+  `wezterm.action_callback` execution remains open.
 - Native `Confirmation` action payloads now carry a message string, required Yes
   action, and optional No/cancel action. They open a modal confirmation overlay,
   dispatch typed native `accepted = true` events on Enter/`Y`/Space before
