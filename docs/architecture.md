@@ -1580,8 +1580,10 @@ keyboard, mouse, paste, resize
   terminal-runtime progress state as None, percentage, error, or indeterminate
   from ESC plus UTF-8 C1 OSC/ST forms, are not misrouted as OSC 9 notifications,
   sync into active/inactive app-shell pane metadata, and mark native tab bar
-  entries as `N%`, `err:N%`, or `~`. Lua pane API exposure and configurable
-  status formatting remain future parity work.
+  entries as `N%`, `err:N%`, or `~`. Static `update-status` callbacks can read
+  active-pane `pane:get_progress()` through documented `Percentage`, `Error`,
+  and `Indeterminate` branches; arbitrary Lua pane API execution and broader
+  configurable status formatting remain future parity work.
 - Implemented in v1: ASCII BEL from active and inactive pane output is counted
   in metrics and dispatched through a typed native-window bell hook with the
   window id and originating pane id. Native per-window `audible_bell` overrides
@@ -1889,6 +1891,8 @@ keyboard, mouse, paste, resize
   `shape`, and `visibility`
   plus static `pane:get_user_vars()` dot-field concatenations for stored
   user-var names
+  plus static `pane:get_progress()` conditional status branches for
+  `Percentage`, `Error`, and `Indeterminate`
   plus static `pane:get_dimensions()` field concatenations for `cols`,
   `viewport_rows`, `scrollback_rows`, `physical_top`, and `scrollback_top`
   plus static `pane:is_alt_screen_active()` status branches with static

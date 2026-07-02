@@ -10299,6 +10299,7 @@ fn lua_static_window_status_variable_text_from_query(
             | NativeLuaWindowStatusText::PaneDimensions { .. }
             | NativeLuaWindowStatusText::PaneCursorPosition { .. }
             | NativeLuaWindowStatusText::PaneUserVars { .. }
+            | NativeLuaWindowStatusText::PaneProgress { .. }
             | NativeLuaWindowStatusText::KeyboardModifiers { .. } => {}
         }
         return Some(status);
@@ -10337,6 +10338,15 @@ fn lua_static_window_status_variable_text_from_query(
                 .unwrap_or_else(|| inactive.clone()),
         });
     }
+    if let Some(status) = lua_static_pane_progress_status_variable_text_before_offset(
+        static_source.source,
+        variable,
+        pane_name,
+        fallback_text.as_deref().unwrap_or(&inactive),
+        static_source.max_start,
+    ) {
+        return Some(status);
+    }
     let active = lua_static_window_status_variable_leader_active_text_before_offset(
         static_source.source,
         variable,
@@ -10347,6 +10357,302 @@ fn lua_static_window_status_variable_text_from_query(
         active,
         inactive: fallback_text.unwrap_or(inactive),
     })
+}
+
+fn lua_static_pane_progress_status_variable_text_before_offset(
+    source: &str,
+    status_variable: &str,
+    pane_name: &str,
+    none: &str,
+    max_start: usize,
+) -> Option<NativeLuaWindowStatusText> {
+    let progress_variable =
+        lua_static_pane_progress_variable_before_offset(source, pane_name, max_start)?;
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(status) = lua_static_pane_progress_status_variable_text_from_statement(
+            statement,
+            status_variable,
+            &progress_variable,
+            none,
+        ) {
+            selected = Some(status);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_pane_progress_status_variable_text_from_statement(
+    statement: &str,
+    status_variable: &str,
+    progress_variable: &str,
+    none: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let (branches, else_body, _) =
+        lua_static_if_condition_and_body_branches_and_else_from_statement(statement)?;
+    if else_body.is_some() {
+        return None;
+    }
+
+    let mut percentage_prefix = None;
+    let mut error_prefix = None;
+    let mut indeterminate = None;
+
+    for (condition, body) in branches {
+        if lua_static_pane_progress_field_not_nil_condition_from_query(
+            condition,
+            progress_variable,
+            "Percentage",
+        ) {
+            percentage_prefix = Some(lua_static_pane_progress_field_assignment_prefix_from_body(
+                body,
+                status_variable,
+                progress_variable,
+                "Percentage",
+            )?);
+        } else if lua_static_pane_progress_field_not_nil_condition_from_query(
+            condition,
+            progress_variable,
+            "Error",
+        ) {
+            error_prefix = Some(lua_static_pane_progress_field_assignment_prefix_from_body(
+                body,
+                status_variable,
+                progress_variable,
+                "Error",
+            )?);
+        } else if lua_static_pane_progress_string_condition_from_query(
+            condition,
+            progress_variable,
+            "Indeterminate",
+        ) {
+            indeterminate = Some(lua_static_pane_progress_state_assignment_text_from_body(
+                body,
+                status_variable,
+                progress_variable,
+                "Indeterminate",
+            )?);
+        } else {
+            return None;
+        }
+    }
+
+    Some(NativeLuaWindowStatusText::PaneProgress {
+        none: none.to_owned(),
+        percentage_prefix: percentage_prefix?,
+        error_prefix: error_prefix?,
+        indeterminate: indeterminate.unwrap_or_else(|| "Indeterminate".to_owned()),
+    })
+}
+
+fn lua_static_pane_progress_variable_before_offset(
+    source: &str,
+    pane_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_pane_progress_variable_from_statement(statement, pane_name)
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_pane_progress_variable_from_statement(
+    statement: &str,
+    pane_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if lua_window_zero_arg_method_name_from_query(value, pane_name)? != "get_progress" {
+        return None;
+    }
+    Some(variable.to_owned())
+}
+
+fn lua_static_pane_progress_field_not_nil_condition_from_query(
+    condition: &str,
+    progress_variable: &str,
+    field: &str,
+) -> bool {
+    let Some(rest) =
+        lua_static_pane_progress_field_rest_from_query(condition, progress_variable, field)
+    else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix("~=") else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    lua_source_keyword_at(rest, 0, "nil")
+        && lua_static_identifier_value_rest_is_statement_end(
+            rest.get("nil".len()..).unwrap_or_default(),
+        )
+}
+
+fn lua_static_pane_progress_string_condition_from_query(
+    condition: &str,
+    progress_variable: &str,
+    expected: &str,
+) -> bool {
+    let Some(rest) = lua_trim_start_comments(condition) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix(progress_variable) else {
+        return false;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let Some(rest) = rest.strip_prefix("==") else {
+        return false;
+    };
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    lua_static_string_value_from_expression(None, None, rest).is_some_and(|value| value == expected)
+}
+
+fn lua_static_pane_progress_field_rest_from_query<'a>(
+    value: &'a str,
+    progress_variable: &str,
+    field: &str,
+) -> Option<&'a str> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix(progress_variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let parsed_field = lua_identifier_literal_from_query(rest)?;
+    if parsed_field != field {
+        return None;
+    }
+    rest.get(parsed_field.len()..)
+}
+
+fn lua_static_pane_progress_field_assignment_prefix_from_body(
+    body: &str,
+    status_variable: &str,
+    progress_variable: &str,
+    field: &str,
+) -> Option<String> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(prefix) = lua_static_pane_progress_field_assignment_prefix_from_statement(
+            statement,
+            status_variable,
+            progress_variable,
+            field,
+        ) {
+            selected = Some(prefix);
+        }
+    }
+    selected
+}
+
+fn lua_static_pane_progress_field_assignment_prefix_from_statement(
+    statement: &str,
+    status_variable: &str,
+    progress_variable: &str,
+    field: &str,
+) -> Option<String> {
+    let rest = statement.strip_prefix(status_variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    let segments = split_lua_string_concat_segments(value)?;
+    let [prefix, dynamic] = segments.as_slice() else {
+        return None;
+    };
+    if !lua_static_pane_progress_field_expression_from_query(dynamic, progress_variable, field) {
+        return None;
+    }
+    lua_static_string_value_from_expression(None, None, prefix)
+}
+
+fn lua_static_pane_progress_field_expression_from_query(
+    value: &str,
+    progress_variable: &str,
+    field: &str,
+) -> bool {
+    let Some(rest) =
+        lua_static_pane_progress_field_rest_from_query(value, progress_variable, field)
+    else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
+}
+
+fn lua_static_pane_progress_state_assignment_text_from_body(
+    body: &str,
+    status_variable: &str,
+    progress_variable: &str,
+    default_text: &str,
+) -> Option<String> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        if let Some(text) = lua_static_pane_progress_state_assignment_text_from_statement(
+            statement,
+            status_variable,
+            progress_variable,
+            default_text,
+        ) {
+            selected = Some(text);
+        }
+    }
+    selected
+}
+
+fn lua_static_pane_progress_state_assignment_text_from_statement(
+    statement: &str,
+    status_variable: &str,
+    progress_variable: &str,
+    default_text: &str,
+) -> Option<String> {
+    let rest = statement.strip_prefix(status_variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    let value = lua_trim_start_comments(value)?;
+    if value.strip_prefix(progress_variable).is_some_and(|rest| {
+        !rest.chars().next().is_some_and(is_lua_identifier_character)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+    }) {
+        return Some(default_text.to_owned());
+    }
+    lua_static_string_value_from_expression(None, None, value)
 }
 
 fn lua_static_window_status_variable_bool_method_text_before_offset(
@@ -24940,6 +25246,12 @@ enum NativeLuaWindowStatusText {
     },
     PaneUserVars {
         parts: Vec<NativeLuaPaneUserVarsStatusPart>,
+    },
+    PaneProgress {
+        none: String,
+        percentage_prefix: String,
+        error_prefix: String,
+        indeterminate: String,
     },
     KeyboardModifiers {
         parts: Vec<NativeLuaKeyboardModifiersStatusPart>,
@@ -41223,6 +41535,12 @@ impl NativeWindowApp {
                     }
                 })
                 .collect::<String>(),
+            NativeLuaWindowStatusText::PaneProgress {
+                none,
+                percentage_prefix,
+                error_prefix,
+                indeterminate,
+            } => self.lua_pane_progress_text(none, percentage_prefix, error_prefix, indeterminate),
             NativeLuaWindowStatusText::KeyboardModifiers { parts } => {
                 let modifiers = native_lua_keyboard_modifiers_text(self.modifiers);
                 let leds = String::new();
@@ -41292,6 +41610,24 @@ impl NativeWindowApp {
         self.pane_user_var(self.app_shell.active_pane_id(), name)
             .unwrap_or_default()
             .to_owned()
+    }
+
+    fn lua_pane_progress_text(
+        &self,
+        none: String,
+        percentage_prefix: String,
+        error_prefix: String,
+        indeterminate: String,
+    ) -> String {
+        match self
+            .pane_progress(self.app_shell.active_pane_id())
+            .unwrap_or(PaneProgress::None)
+        {
+            PaneProgress::None => none,
+            PaneProgress::Percentage(value) => format!("{percentage_prefix}{value}"),
+            PaneProgress::Error(value) => format!("{error_prefix}{value}"),
+            PaneProgress::Indeterminate => indeterminate,
+        }
     }
 
     fn composition_status_text(&self) -> Option<String> {
@@ -77866,6 +78202,46 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "prog=psh host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_progress_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local progress = pane:get_progress()
+              local status = 'None'
+              if progress.Percentage ~= nil then
+                status = 'pct=' .. progress.Percentage
+              elseif progress.Error ~= nil then
+                status = 'err=' .. progress.Error
+              elseif progress == 'Indeterminate' then
+                status = progress
+              end
+              window:set_right_status(status)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_progress status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "None");
+
+        app.handle_pty_output(b"\x1b]9;4;1;42\x07").unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "pct=42");
+
+        app.handle_pty_output(b"\x1b]9;4;2;7\x07").unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "err=7");
+
+        app.handle_pty_output(b"\x1b]9;4;3;0\x07").unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "Indeterminate");
     }
 
     #[test]

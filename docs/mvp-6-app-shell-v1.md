@@ -1399,8 +1399,11 @@ runtime storage for tabs and split panes.
   state as None, percentage, error, or indeterminate from ESC plus UTF-8 C1
   OSC/ST forms, does not treat progress reports as OSC 9 notifications, and
   syncs active/inactive pane progress into app-shell pane metadata. The native
-  tab bar shows active-pane progress as `N%`, `err:N%`, or `~`; Lua pane API
-  exposure and configurable status formatting remain later parity work.
+  tab bar shows active-pane progress as `N%`, `err:N%`, or `~`; static
+  `update-status` callbacks can read active-pane `pane:get_progress()` through
+  documented `Percentage`, `Error`, and `Indeterminate` branches. Arbitrary Lua
+  pane API execution and broader configurable status formatting remain later
+  parity work.
 - `rssh-app` counts ASCII BEL events from active and inactive pane output and
   dispatches them through a typed native-window bell hook with the window id and
   originating pane id. Native per-window `audible_bell` overrides support
@@ -1675,11 +1678,13 @@ runtime storage for tabs and split panes.
   resolves the active pane tty name, static `pane:get_cursor_position()` field
   concatenations expose active pane `x`, `y`, `shape`, and `visibility`,
   static `pane:get_user_vars()` dot-field concatenations expose stored
-  active-pane user vars, static `pane:get_dimensions()` field concatenations
-  expose active pane `cols`, `viewport_rows`, `scrollback_rows`,
-  `physical_top`, and `scrollback_top`, `pane:is_alt_screen_active()` status
-  branches switch between static alternate-screen active/inactive strings, and
-  static `window:get_dimensions()`
+  active-pane user vars, static `pane:get_progress()` conditional branches
+  expose active-pane `Percentage`, `Error`, and `Indeterminate` progress
+  states, static `pane:get_dimensions()` field concatenations expose active
+  pane `cols`, `viewport_rows`, `scrollback_rows`, `physical_top`, and
+  `scrollback_top`, `pane:is_alt_screen_active()` status branches switch
+  between static alternate-screen active/inactive strings, and static
+  `window:get_dimensions()`
   field concatenations expose native `pixel_width`, `pixel_height`, `dpi`, and
   `is_full_screen`. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
