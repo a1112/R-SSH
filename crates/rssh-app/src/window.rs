@@ -11280,6 +11280,24 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "mux_env_remove" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::MuxEnvRemove(index));
+        }
+        return None;
+    }
+    if field == "set_environment_variables" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let name = lua_identifier_literal_from_query(rest)?;
+        if lua_trim_start_comments(rest.get(name.len()..)?)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::SetEnvironmentVariable(
+                name.to_owned(),
+            ));
+        }
+        return None;
+    }
     if field == "default_prog" {
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
@@ -26096,7 +26114,7 @@ enum NativeLuaWindowDimensionsField {
     IsFullScreen,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaWindowEffectiveConfigField {
     FontSize,
     DefaultWorkspace,
@@ -26140,6 +26158,8 @@ enum NativeLuaWindowEffectiveConfigField {
     RatelimitMuxLinePrefetchesPerSecond,
     MuxOutputParserBufferSize,
     MuxOutputParserCoalesceDelayMs,
+    MuxEnvRemove(usize),
+    SetEnvironmentVariable(String),
     PeriodicStatLogging,
     UlimitNofile,
     UlimitNproc,
@@ -42667,6 +42687,16 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::MuxOutputParserCoalesceDelayMs => {
                 self.mux_output_parser_coalesce_delay_ms.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::MuxEnvRemove(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.mux_env_remove.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::SetEnvironmentVariable(name) => self
+                .set_environment_variables
+                .get(&name)
+                .cloned()
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::PeriodicStatLogging => {
                 self.periodic_stat_logging.to_string()
             }
@@ -80991,6 +81021,56 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "nproc=8192");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_mux_env_remove_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.mux_env_remove = { 'REMOVE_ME', 'REMOVE_TOO' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('mux-env-remove=' .. tostring(window:effective_config().mux_env_remove[1]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config mux_env_remove status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mux-env-remove=REMOVE_ME");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_environment_variables_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.set_environment_variables = {
+              PROJECT_MODE = 'dev',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('env=' .. tostring(window:effective_config().set_environment_variables.PROJECT_MODE))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config set_environment_variables status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "env=dev");
     }
 
     #[test]
