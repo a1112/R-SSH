@@ -1758,7 +1758,8 @@ runtime storage for tabs and split panes.
   `window:effective_config().show_tabs_in_tab_bar`,
   `window:effective_config().tab_and_split_indices_are_zero_based`,
   `window:effective_config().hide_tab_bar_if_only_one_tab`,
-  `window:effective_config().enable_scroll_bar`, and
+  `window:effective_config().enable_scroll_bar`,
+  `window:effective_config().min_scroll_bar_height`, and
   `window:effective_config().launch_menu[1].label` field concatenations expose current
   effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies

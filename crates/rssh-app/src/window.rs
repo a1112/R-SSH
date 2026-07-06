@@ -2170,6 +2170,31 @@ impl NativeScrollBarHeight {
 
         parse_non_negative_f64(value).map(|value| Self::Pixels(rounded_u32(value)))
     }
+
+    fn config_text(self) -> String {
+        match self {
+            Self::Pixels(pixels) => format!("{pixels}px"),
+            Self::Points(points) => format!("{points}pt"),
+            Self::CellFractionPerMille(per_mille) => {
+                format!("{}cell", native_per_mille_decimal_text(per_mille))
+            }
+            Self::Percent(percent) => format!("{percent}%"),
+        }
+    }
+}
+
+fn native_per_mille_decimal_text(per_mille: u32) -> String {
+    let whole = per_mille / 1_000;
+    let fraction = per_mille % 1_000;
+    if fraction == 0 {
+        return whole.to_string();
+    }
+
+    let mut fraction_text = format!("{fraction:03}");
+    while fraction_text.ends_with('0') {
+        fraction_text.pop();
+    }
+    format!("{whole}.{fraction_text}")
 }
 
 #[allow(dead_code)]
@@ -11245,6 +11270,7 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::HideTabBarIfOnlyOneTab)
         }
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
+        "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25817,6 +25843,7 @@ enum NativeLuaWindowEffectiveConfigField {
     TabAndSplitIndicesAreZeroBased,
     HideTabBarIfOnlyOneTab,
     EnableScrollBar,
+    MinScrollBarHeight,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42303,6 +42330,9 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
                 self.enable_scroll_bar.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::MinScrollBarHeight => self
+                .min_scroll_bar_height
+                .map_or_else(String::new, NativeScrollBarHeight::config_text),
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
             }
@@ -80840,6 +80870,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "scrollbar=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_min_scroll_bar_height_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.min_scroll_bar_height = '2cell'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('scrollbar-min=' .. tostring(window:effective_config().min_scroll_bar_height))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config min_scroll_bar_height status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "scrollbar-min=2cell");
     }
 
     #[test]
