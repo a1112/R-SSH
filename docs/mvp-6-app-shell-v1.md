@@ -1727,9 +1727,10 @@ runtime storage for tabs and split panes.
   `window:effective_config().text_blink_rapid_ease_in`,
   `window:effective_config().text_blink_rapid_ease_out`,
   `window:effective_config().hide_mouse_cursor_when_typing`,
-  `window:effective_config().periodic_stat_logging`, and
-  `window:effective_config().scroll_to_bottom_on_input` field concatenations
-  expose current effective config values. The documented
+  `window:effective_config().periodic_stat_logging`,
+  `window:effective_config().scroll_to_bottom_on_input`, and
+  `window:effective_config().use_ime` field concatenations expose current
+  effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
   to an empty right status for an empty key-table stack. The documented

@@ -11169,6 +11169,7 @@ fn lua_window_effective_config_field_from_query(
         "scroll_to_bottom_on_input" => {
             Some(NativeLuaWindowEffectiveConfigField::ScrollToBottomOnInput)
         }
+        "use_ime" => Some(NativeLuaWindowEffectiveConfigField::UseIme),
         _ => None,
     }
 }
@@ -25702,6 +25703,7 @@ enum NativeLuaWindowEffectiveConfigField {
     HideMouseCursorWhenTyping,
     PeriodicStatLogging,
     ScrollToBottomOnInput,
+    UseIme,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42099,6 +42101,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::ScrollToBottomOnInput => {
                 self.scroll_to_bottom_on_input.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::UseIme => self.use_ime.to_string(),
         }
     }
 
@@ -79850,6 +79853,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "scroll-input=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_use_ime_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.use_ime = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ime=' .. tostring(window:effective_config().use_ime))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config use_ime status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ime=false");
     }
 
     #[test]
