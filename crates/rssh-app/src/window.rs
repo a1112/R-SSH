@@ -11171,6 +11171,7 @@ fn lua_window_effective_config_field_from_query(
         }
         "use_ime" => Some(NativeLuaWindowEffectiveConfigField::UseIme),
         "xim_im_name" => Some(NativeLuaWindowEffectiveConfigField::XimImName),
+        "ime_preedit_rendering" => Some(NativeLuaWindowEffectiveConfigField::ImePreeditRendering),
         _ => None,
     }
 }
@@ -25706,6 +25707,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ScrollToBottomOnInput,
     UseIme,
     XimImName,
+    ImePreeditRendering,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42106,6 +42108,13 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::UseIme => self.use_ime.to_string(),
             NativeLuaWindowEffectiveConfigField::XimImName => {
                 self.xim_im_name.clone().unwrap_or_default()
+            }
+            NativeLuaWindowEffectiveConfigField::ImePreeditRendering => {
+                match self.ime_preedit_rendering {
+                    NativeImePreeditRendering::Builtin => "Builtin",
+                    NativeImePreeditRendering::System => "System",
+                }
+                .to_owned()
             }
         }
     }
@@ -79906,6 +79915,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "xim=fcitx");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_ime_preedit_rendering_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.ime_preedit_rendering = 'System'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('preedit=' .. tostring(window:effective_config().ime_preedit_rendering))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config ime_preedit_rendering status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "preedit=System");
     }
 
     #[test]
