@@ -11128,6 +11128,13 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "tiling_desktop_environments" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::TilingDesktopEnvironment(index));
+        }
+        return None;
+    }
     if !rest.is_empty() {
         return None;
     }
@@ -25765,6 +25772,7 @@ enum NativeLuaWindowEffectiveConfigField {
     SelectionWordBoundary,
     EnqAnswerback,
     AdjustWindowSizeWhenChangingFontSize,
+    TilingDesktopEnvironment(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42227,6 +42235,11 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::AdjustWindowSizeWhenChangingFontSize => {
                 self.adjust_window_size_when_changing_font_size.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::TilingDesktopEnvironment(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.tiling_desktop_environments.get(offset))
+                .cloned()
+                .unwrap_or_default(),
         }
     }
 
@@ -80393,6 +80406,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "adjust=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_tiling_desktop_environment_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.tiling_desktop_environments = { 'X11 i3', 'Wayland Sway' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tiling=' .. tostring(window:effective_config().tiling_desktop_environments[1]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config tiling_desktop_environments status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tiling=X11 i3");
     }
 
     #[test]
