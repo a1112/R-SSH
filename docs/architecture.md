@@ -1898,7 +1898,8 @@ keyboard, mouse, paste, resize
   `local pane = window:active_pane()` feeding those zero-argument methods,
   callback-local method-result variables such as `local title = tab:get_title()`,
   dynamic variable fallbacks such as `title or ''`, and direct dynamic method
-  fallbacks such as `window:active_tab():get_title() or ''`, or callback
+  fallbacks such as `window:active_tab():get_title() or ''` or
+  `tab:get_title() or ''`, or callback
   `pane:pane_id()`/`pane:get_title()`/`pane:get_domain_name()`/
   `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`/
   `pane:get_tty_name()`
