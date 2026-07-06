@@ -11502,6 +11502,12 @@ fn lua_window_effective_config_field_from_query(
         "swap_backspace_and_delete" => {
             Some(NativeLuaWindowEffectiveConfigField::SwapBackspaceAndDelete)
         }
+        "log_unknown_escape_sequences" => {
+            Some(NativeLuaWindowEffectiveConfigField::LogUnknownEscapeSequences)
+        }
+        "default_ssh_auth_sock" => Some(NativeLuaWindowEffectiveConfigField::DefaultSshAuthSock),
+        "mux_enable_ssh_agent" => Some(NativeLuaWindowEffectiveConfigField::MuxEnableSshAgent),
+        "detect_password_input" => Some(NativeLuaWindowEffectiveConfigField::DetectPasswordInput),
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
         "custom_block_glyphs" => Some(NativeLuaWindowEffectiveConfigField::CustomBlockGlyphs),
@@ -26154,6 +26160,10 @@ enum NativeLuaWindowEffectiveConfigField {
     KeyMapPreference,
     UiKeyCapRendering,
     SwapBackspaceAndDelete,
+    LogUnknownEscapeSequences,
+    DefaultSshAuthSock,
+    MuxEnableSshAgent,
+    DetectPasswordInput,
     EnableScrollBar,
     MinScrollBarHeight,
     CustomBlockGlyphs,
@@ -42781,6 +42791,18 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::SwapBackspaceAndDelete => {
                 self.swap_backspace_and_delete.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::LogUnknownEscapeSequences => {
+                self.log_unknown_escape_sequences.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::DefaultSshAuthSock => {
+                self.default_ssh_auth_sock.clone().unwrap_or_default()
+            }
+            NativeLuaWindowEffectiveConfigField::MuxEnableSshAgent => {
+                self.mux_enable_ssh_agent.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::DetectPasswordInput => {
+                self.detect_password_input.to_string()
             }
             NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
                 self.enable_scroll_bar.to_string()
@@ -82202,6 +82224,102 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "swap-bs-del=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_log_unknown_escape_sequences_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.log_unknown_escape_sequences = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('unknown-esc=' .. tostring(window:effective_config().log_unknown_escape_sequences))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config log_unknown_escape_sequences status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "unknown-esc=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_default_ssh_auth_sock_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_ssh_auth_sock = '/tmp/wezterm-agent.sock'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ssh-auth=' .. tostring(window:effective_config().default_ssh_auth_sock))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_ssh_auth_sock status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ssh-auth=/tmp/wezterm-agent.sock");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_mux_enable_ssh_agent_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.mux_enable_ssh_agent = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('mux-agent=' .. tostring(window:effective_config().mux_enable_ssh_agent))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config mux_enable_ssh_agent status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mux-agent=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_detect_password_input_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.detect_password_input = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('detect-password=' .. tostring(window:effective_config().detect_password_input))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config detect_password_input status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "detect-password=false");
     }
 
     #[test]
