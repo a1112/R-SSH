@@ -11124,6 +11124,7 @@ fn lua_window_effective_config_field_from_query(
         "enable_zwlr_output_manager" => {
             Some(NativeLuaWindowEffectiveConfigField::EnableZwlrOutputManager)
         }
+        "use_box_model_render" => Some(NativeLuaWindowEffectiveConfigField::UseBoxModelRender),
         _ => None,
     }
 }
@@ -25638,6 +25639,7 @@ enum NativeLuaWindowEffectiveConfigField {
     PreferEgl,
     EnableWayland,
     EnableZwlrOutputManager,
+    UseBoxModelRender,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41977,6 +41979,9 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::EnableWayland => self.enable_wayland.to_string(),
             NativeLuaWindowEffectiveConfigField::EnableZwlrOutputManager => {
                 self.enable_zwlr_output_manager.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::UseBoxModelRender => {
+                self.use_box_model_render.to_string()
             }
         }
     }
@@ -79272,6 +79277,31 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "zwlr=true");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_use_box_model_render_status_setter()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.use_box_model_render = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('box=' .. tostring(window:effective_config().use_box_model_render))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config use_box_model_render status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "box=true");
     }
 
     #[test]
