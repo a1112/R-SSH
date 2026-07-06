@@ -11121,6 +11121,9 @@ fn lua_window_effective_config_field_from_query(
         }
         "prefer_egl" => Some(NativeLuaWindowEffectiveConfigField::PreferEgl),
         "enable_wayland" => Some(NativeLuaWindowEffectiveConfigField::EnableWayland),
+        "enable_zwlr_output_manager" => {
+            Some(NativeLuaWindowEffectiveConfigField::EnableZwlrOutputManager)
+        }
         _ => None,
     }
 }
@@ -25634,6 +25637,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WebGpuForceFallbackAdapter,
     PreferEgl,
     EnableWayland,
+    EnableZwlrOutputManager,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41971,6 +41975,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::PreferEgl => self.prefer_egl.to_string(),
             NativeLuaWindowEffectiveConfigField::EnableWayland => self.enable_wayland.to_string(),
+            NativeLuaWindowEffectiveConfigField::EnableZwlrOutputManager => {
+                self.enable_zwlr_output_manager.to_string()
+            }
         }
     }
 
@@ -79240,6 +79247,31 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "wayland=false");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_zwlr_output_manager_status_setter()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_zwlr_output_manager = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('zwlr=' .. tostring(window:effective_config().enable_zwlr_output_manager))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config zwlr output manager status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "zwlr=true");
     }
 
     #[test]

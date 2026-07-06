@@ -1708,7 +1708,8 @@ runtime storage for tabs and split panes.
   `window:effective_config().webgpu_power_preference`,
   `window:effective_config().webgpu_force_fallback_adapter`,
   `window:effective_config().prefer_egl`, and
-  `window:effective_config().enable_wayland` field concatenations expose current
+  `window:effective_config().enable_wayland`, and
+  `window:effective_config().enable_zwlr_output_manager` field concatenations expose current
   effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
