@@ -1737,7 +1737,8 @@ runtime storage for tabs and split panes.
   `window:effective_config().automatically_reload_config`,
   `window:effective_config().check_for_updates`,
   `window:effective_config().show_update_window`,
-  `window:effective_config().check_for_updates_interval_seconds`, and
+  `window:effective_config().check_for_updates_interval_seconds`,
+  `window:effective_config().enable_csi_u_key_encoding`, and
   `window:effective_config().launch_menu[1].label` field concatenations expose current
   effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
