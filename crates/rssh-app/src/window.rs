@@ -10208,6 +10208,13 @@ fn lua_static_window_effective_config_status_text_from_query(
             static_source.max_start,
         )
     });
+    let palette_variable = static_source.and_then(|static_source| {
+        lua_static_window_effective_config_resolved_palette_variable_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )
+    });
     let mut parts = Vec::new();
     let mut has_dynamic_part = false;
 
@@ -10217,6 +10224,15 @@ fn lua_static_window_effective_config_status_text_from_query(
             .or_else(|| {
                 variable.as_deref().and_then(|variable| {
                     lua_static_window_effective_config_field_from_query(
+                        segment,
+                        variable,
+                        window_name,
+                    )
+                })
+            })
+            .or_else(|| {
+                palette_variable.as_deref().and_then(|variable| {
+                    lua_static_window_effective_config_resolved_palette_field_from_query(
                         segment,
                         variable,
                         window_name,
@@ -10275,6 +10291,80 @@ fn lua_static_window_effective_config_variable_from_statement(
     Some(variable.to_owned())
 }
 
+fn lua_static_window_effective_config_resolved_palette_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_effective_config_resolved_palette_variable_from_statement(
+                statement,
+                window_name,
+            )
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_effective_config_resolved_palette_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if !lua_window_effective_config_resolved_palette_from_query(value, window_name)? {
+        return None;
+    }
+    Some(variable.to_owned())
+}
+
+fn lua_window_effective_config_resolved_palette_from_query(
+    value: &str,
+    window_name: &str,
+) -> Option<bool> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "effective_config" || !lua_config_assignment_field_has_boundaries(rest, 0, method)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if field != "resolved_palette" {
+        return None;
+    }
+    lua_trim_start_comments(rest.get(field.len()..)?)?
+        .is_empty()
+        .then_some(true)
+}
+
 fn lua_static_window_effective_config_field_from_query(
     value: &str,
     variable: &str,
@@ -10299,6 +10389,33 @@ fn lua_static_window_effective_config_field_from_query(
         return None;
     }
     let synthetic = format!("{window_name}:effective_config(){rest}");
+    lua_window_effective_config_field_from_query(&synthetic, window_name)
+}
+
+fn lua_static_window_effective_config_resolved_palette_field_from_query(
+    value: &str,
+    variable: &str,
+    window_name: &str,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let synthetic = format!("{window_name}:effective_config().resolved_palette{rest}");
     lua_window_effective_config_field_from_query(&synthetic, window_name)
 }
 
@@ -11689,6 +11806,12 @@ fn lua_window_effective_config_field_from_query(
             "foreground" => NativeLuaResolvedPaletteField::Foreground,
             "background" => NativeLuaResolvedPaletteField::Background,
             "cursor_bg" => NativeLuaResolvedPaletteField::CursorBg,
+            "cursor_fg" => NativeLuaResolvedPaletteField::CursorFg,
+            "cursor_border" => NativeLuaResolvedPaletteField::CursorBorder,
+            "selection_fg" => NativeLuaResolvedPaletteField::SelectionFg,
+            "selection_bg" => NativeLuaResolvedPaletteField::SelectionBg,
+            "compose_cursor" => NativeLuaResolvedPaletteField::ComposeCursor,
+            "visual_bell" => NativeLuaResolvedPaletteField::VisualBell,
             _ => return None,
         };
         return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
@@ -26773,6 +26896,12 @@ enum NativeLuaResolvedPaletteField {
     Foreground,
     Background,
     CursorBg,
+    CursorFg,
+    CursorBorder,
+    SelectionFg,
+    SelectionBg,
+    ComposeCursor,
+    VisualBell,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43136,6 +43265,31 @@ impl NativeWindowApp {
                     NativeLuaResolvedPaletteField::CursorBg => {
                         native_lua_color_config_text(palette.cursor_bg)
                     }
+                    NativeLuaResolvedPaletteField::CursorFg => palette
+                        .cursor_fg
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::CursorBorder => palette
+                        .cursor_border
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::SelectionFg => palette
+                        .selection_fg
+                        .flatten()
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::SelectionBg => palette
+                        .selection_bg
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::ComposeCursor => palette
+                        .compose_cursor
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::VisualBell => palette
+                        .visual_bell
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
                 }
             }
             NativeLuaWindowEffectiveConfigField::ColorScheme => {
@@ -82930,6 +83084,53 @@ mod tests {
         assert_eq!(
             app.right_status,
             "palette-fg=#010203 palette-bg=#040506 cursor=#070809"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_resolved_palette_optional_color_status_setter()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              cursor_fg = '#010203',
+              cursor_border = '#040506',
+              selection_fg = '#070809',
+              selection_bg = '#0a0b0c',
+              compose_cursor = '#0d0e0f',
+              visual_bell = '#101112',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local palette = window:effective_config().resolved_palette
+              window:set_right_status(
+                'cursor-fg=' .. tostring(palette.cursor_fg) ..
+                ' cursor-border=' .. tostring(palette.cursor_border) ..
+                ' selection-fg=' .. tostring(palette.selection_fg) ..
+                ' selection-bg=' .. tostring(palette.selection_bg) ..
+                ' compose=' .. tostring(palette.compose_cursor) ..
+                ' bell=' .. tostring(palette.visual_bell)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config resolved_palette optional colors status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(
+            app.right_status,
+            concat!(
+                "cursor-fg=#010203 cursor-border=#040506 ",
+                "selection-fg=#070809 selection-bg=#0a0b0c ",
+                "compose=#0d0e0f bell=#101112"
+            )
         );
     }
 
