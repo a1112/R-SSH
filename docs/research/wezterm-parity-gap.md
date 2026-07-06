@@ -2601,7 +2601,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().show_new_tab_button_in_tab_bar`,
   `window:effective_config().show_tab_index_in_tab_bar`,
   `window:effective_config().show_tabs_in_tab_bar`,
-  `window:effective_config().tab_and_split_indices_are_zero_based`, and
+  `window:effective_config().tab_and_split_indices_are_zero_based`,
+  `window:effective_config().hide_tab_bar_if_only_one_tab`, and
   `window:effective_config().launch_menu[1].label` field concatenations for current
   effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and

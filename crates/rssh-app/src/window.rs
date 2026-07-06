@@ -11241,6 +11241,9 @@ fn lua_window_effective_config_field_from_query(
         "tab_and_split_indices_are_zero_based" => {
             Some(NativeLuaWindowEffectiveConfigField::TabAndSplitIndicesAreZeroBased)
         }
+        "hide_tab_bar_if_only_one_tab" => {
+            Some(NativeLuaWindowEffectiveConfigField::HideTabBarIfOnlyOneTab)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25811,6 +25814,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ShowTabIndexInTabBar,
     ShowTabsInTabBar,
     TabAndSplitIndicesAreZeroBased,
+    HideTabBarIfOnlyOneTab,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42290,6 +42294,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::TabAndSplitIndicesAreZeroBased => {
                 self.tab_and_split_indices_are_zero_based.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::HideTabBarIfOnlyOneTab => {
+                self.hide_tab_bar_if_only_one_tab.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -80780,6 +80787,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "zero-based=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_hide_tab_bar_if_only_one_tab_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.hide_tab_bar_if_only_one_tab = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('hide-tab=' .. tostring(window:effective_config().hide_tab_bar_if_only_one_tab))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config hide_tab_bar_if_only_one_tab status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "hide-tab=true");
     }
 
     #[test]
