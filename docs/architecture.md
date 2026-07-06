@@ -1940,8 +1940,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().text_blink_ease_out`,
   `window:effective_config().text_blink_rapid_ease_in`,
   `window:effective_config().text_blink_rapid_ease_out`, and
-  `window:effective_config().hide_mouse_cursor_when_typing` field
-  concatenations for current effective config values
+  `window:effective_config().hide_mouse_cursor_when_typing`, and
+  `window:effective_config().periodic_stat_logging` field concatenations for
+  current effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
