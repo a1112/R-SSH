@@ -10123,7 +10123,14 @@ fn lua_static_window_and_pane_status_text_from_query(
 
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
-        if lua_window_zero_arg_method_name_from_query(segment, window_name) == Some("window_id") {
+        if lua_window_zero_arg_method_name_from_query(segment, window_name)
+            == Some("active_workspace")
+        {
+            parts.push(NativeLuaWindowPaneStatusPart::ActiveWorkspace);
+            has_dynamic_part = true;
+        } else if lua_window_zero_arg_method_name_from_query(segment, window_name)
+            == Some("window_id")
+        {
             parts.push(NativeLuaWindowPaneStatusPart::WindowId);
             has_dynamic_part = true;
         } else if let Some(method) =
@@ -27634,6 +27641,7 @@ enum NativeLuaWindowStatusText {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaWindowPaneStatusPart {
     Static(String),
+    ActiveWorkspace,
     WindowId,
     ActiveTabId,
     ActiveTabTitle,
@@ -44086,6 +44094,9 @@ impl NativeWindowApp {
                 .into_iter()
                 .map(|part| match part {
                     NativeLuaWindowPaneStatusPart::Static(text) => text,
+                    NativeLuaWindowPaneStatusPart::ActiveWorkspace => {
+                        self.app_shell.active_workspace().name().to_owned()
+                    }
                     NativeLuaWindowPaneStatusPart::WindowId => self.app_window_id.get().to_string(),
                     NativeLuaWindowPaneStatusPart::ActiveTabId => {
                         self.app_shell.active_tab_id().get().to_string()
@@ -81323,6 +81334,28 @@ mod tests {
 
         assert_eq!(app.app_shell.active_workspace().name(), "ops");
         assert_eq!(app.right_status, "ops");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_active_workspace_concat_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let mut overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ws=' .. window:active_workspace())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active workspace concat status setter");
+        overrides.default_workspace = Some("ops".to_owned());
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.app_shell.active_workspace().name(), "ops");
+        assert_eq!(app.right_status, "ws=ops");
     }
 
     #[test]

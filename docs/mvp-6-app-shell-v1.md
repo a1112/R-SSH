@@ -1671,8 +1671,9 @@ runtime storage for tabs and split panes.
   into the same status state, and the documented
   `window:set_right_status(window:active_workspace())` shape resolves the
   current workspace at status-update time. Static string concatenations with
-  `window:window_id()` resolve the native window id, static concatenations
-  with `window:active_tab():tab_id()` resolve the active tab id,
+  `window:active_workspace()` resolve the active workspace name,
+  static concatenations with `window:window_id()` resolve the native window id,
+  static concatenations with `window:active_tab():tab_id()` resolve the active tab id,
   `window:active_tab():get_title()` resolves the active tab's explicit title,
   static concatenations with `window:active_pane():pane_id()`/
   `get_title()`/`get_domain_name()`/`get_current_working_dir()`/
