@@ -666,6 +666,14 @@ impl NativeFontAntialias {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Greyscale => "Greyscale",
+            Self::Subpixel => "Subpixel",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -687,6 +695,15 @@ impl NativeFontHinting {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Vertical => "Vertical",
+            Self::VerticalSubpixel => "VerticalSubpixel",
+            Self::Full => "Full",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -704,6 +721,13 @@ impl NativeFontRasterizer {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::FreeType => "FreeType",
+            Self::Harfbuzz => "Harfbuzz",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -717,6 +741,12 @@ impl NativeFontShaper {
         match value {
             "Harfbuzz" => Some(Self::Harfbuzz),
             _ => None,
+        }
+    }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Harfbuzz => "Harfbuzz",
         }
     }
 }
@@ -800,6 +830,14 @@ impl NativeSquareGlyphOverflow {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::WhenFollowedBySpace => "WhenFollowedBySpace",
+            Self::Always => "Always",
+            Self::Never => "Never",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -838,6 +876,13 @@ impl NativeDisplayPixelGeometry {
             "RGB" => Some(Self::Rgb),
             "BGR" => Some(Self::Bgr),
             _ => None,
+        }
+    }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Rgb => "RGB",
+            Self::Bgr => "BGR",
         }
     }
 }
@@ -11459,6 +11504,15 @@ fn lua_window_effective_config_field_from_query(
         "bidi_direction" => Some(NativeLuaWindowEffectiveConfigField::BidiDirection),
         "cell_width" => Some(NativeLuaWindowEffectiveConfigField::CellWidth),
         "line_height" => Some(NativeLuaWindowEffectiveConfigField::LineHeight),
+        "font_antialias" => Some(NativeLuaWindowEffectiveConfigField::FontAntialias),
+        "font_hinting" => Some(NativeLuaWindowEffectiveConfigField::FontHinting),
+        "font_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontRasterizer),
+        "font_colr_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontColrRasterizer),
+        "font_shaper" => Some(NativeLuaWindowEffectiveConfigField::FontShaper),
+        "allow_square_glyphs_to_overflow_width" => {
+            Some(NativeLuaWindowEffectiveConfigField::AllowSquareGlyphsToOverflowWidth)
+        }
+        "display_pixel_geometry" => Some(NativeLuaWindowEffectiveConfigField::DisplayPixelGeometry),
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         "line_quad_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineQuadCacheSize),
@@ -26220,6 +26274,13 @@ enum NativeLuaWindowEffectiveConfigField {
     BidiDirection,
     CellWidth,
     LineHeight,
+    FontAntialias,
+    FontHinting,
+    FontRasterizer,
+    FontColrRasterizer,
+    FontShaper,
+    AllowSquareGlyphsToOverflowWidth,
+    DisplayPixelGeometry,
     ShapeCacheSize,
     LineStateCacheSize,
     LineQuadCacheSize,
@@ -42721,6 +42782,30 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::LineHeight => {
                 native_ratio_config_text(self.line_height.as_f64())
             }
+            NativeLuaWindowEffectiveConfigField::FontAntialias => {
+                self.font_antialias.as_wezterm_config_value().to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::FontHinting => {
+                self.font_hinting.as_wezterm_config_value().to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::FontRasterizer => {
+                self.font_rasterizer.as_wezterm_config_value().to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::FontColrRasterizer => self
+                .font_colr_rasterizer
+                .as_wezterm_config_value()
+                .to_owned(),
+            NativeLuaWindowEffectiveConfigField::FontShaper => {
+                self.font_shaper.as_wezterm_config_value().to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::AllowSquareGlyphsToOverflowWidth => self
+                .allow_square_glyphs_to_overflow_width
+                .as_wezterm_config_value()
+                .to_owned(),
+            NativeLuaWindowEffectiveConfigField::DisplayPixelGeometry => self
+                .display_pixel_geometry
+                .as_wezterm_config_value()
+                .to_owned(),
             NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
                 self.shape_cache_size.to_string()
             }
@@ -80600,6 +80685,174 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "line-height=1.5");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_font_antialias_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_antialias = 'Subpixel'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('font-aa=' .. tostring(window:effective_config().font_antialias))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_antialias status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "font-aa=Subpixel");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_font_hinting_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_hinting = 'VerticalSubpixel'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('hinting=' .. tostring(window:effective_config().font_hinting))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_hinting status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "hinting=VerticalSubpixel");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_font_rasterizer_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_rasterizer = 'Harfbuzz'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('rasterizer=' .. tostring(window:effective_config().font_rasterizer))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_rasterizer status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "rasterizer=Harfbuzz");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_font_colr_rasterizer_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_colr_rasterizer = 'FreeType'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('colr=' .. tostring(window:effective_config().font_colr_rasterizer))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_colr_rasterizer status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "colr=FreeType");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_font_shaper_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_shaper = 'Harfbuzz'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('shaper=' .. tostring(window:effective_config().font_shaper))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_shaper status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "shaper=Harfbuzz");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_square_glyph_overflow_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.allow_square_glyphs_to_overflow_width = 'Always'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('overflow=' .. tostring(window:effective_config().allow_square_glyphs_to_overflow_width))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config allow_square_glyphs_to_overflow_width status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "overflow=Always");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_display_pixel_geometry_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.display_pixel_geometry = 'BGR'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('geometry=' .. tostring(window:effective_config().display_pixel_geometry))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config display_pixel_geometry status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "geometry=BGR");
     }
 
     #[test]
