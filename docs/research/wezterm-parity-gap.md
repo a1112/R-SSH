@@ -2596,7 +2596,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().ignore_svg_fonts`,
   `window:effective_config().bidi_enabled`,
   `window:effective_config().bidi_direction`,
-  `window:effective_config().skip_close_confirmation_for_processes_named[1]`, and
+  `window:effective_config().skip_close_confirmation_for_processes_named[1]`,
+  `window:effective_config().show_close_tab_button_in_tabs`, and
   `window:effective_config().launch_menu[1].label` field concatenations for current
   effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
