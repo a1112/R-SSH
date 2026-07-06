@@ -1920,8 +1920,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().animation_fps`,
   `window:effective_config().front_end`,
   `window:effective_config().webgpu_power_preference`, and
-  `window:effective_config().webgpu_force_fallback_adapter` field concatenations
-  for current effective config values
+  `window:effective_config().webgpu_force_fallback_adapter`, and
+  `window:effective_config().prefer_egl` field concatenations for current
+  effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,

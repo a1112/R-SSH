@@ -11119,6 +11119,7 @@ fn lua_window_effective_config_field_from_query(
         "webgpu_force_fallback_adapter" => {
             Some(NativeLuaWindowEffectiveConfigField::WebGpuForceFallbackAdapter)
         }
+        "prefer_egl" => Some(NativeLuaWindowEffectiveConfigField::PreferEgl),
         _ => None,
     }
 }
@@ -25630,6 +25631,7 @@ enum NativeLuaWindowEffectiveConfigField {
     FrontEnd,
     WebGpuPowerPreference,
     WebGpuForceFallbackAdapter,
+    PreferEgl,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41965,6 +41967,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::WebGpuForceFallbackAdapter => {
                 self.webgpu_force_fallback_adapter.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::PreferEgl => self.prefer_egl.to_string(),
         }
     }
 
@@ -79186,6 +79189,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "fallback=true");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_prefer_egl_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.prefer_egl = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('egl=' .. tostring(window:effective_config().prefer_egl))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config prefer_egl status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "egl=false");
     }
 
     #[test]

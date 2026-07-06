@@ -2551,8 +2551,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().animation_fps`,
   `window:effective_config().front_end`,
   `window:effective_config().webgpu_power_preference`, and
-  `window:effective_config().webgpu_force_fallback_adapter` field concatenations
-  for current effective config values, and the documented
+  `window:effective_config().webgpu_force_fallback_adapter`, and
+  `window:effective_config().prefer_egl` field concatenations for current
+  effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`
   status example with static active/inactive strings, plus the documented
