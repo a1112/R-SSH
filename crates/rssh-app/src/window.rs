@@ -11238,6 +11238,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::ShowTabIndexInTabBar)
         }
         "show_tabs_in_tab_bar" => Some(NativeLuaWindowEffectiveConfigField::ShowTabsInTabBar),
+        "tab_and_split_indices_are_zero_based" => {
+            Some(NativeLuaWindowEffectiveConfigField::TabAndSplitIndicesAreZeroBased)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25807,6 +25810,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ShowNewTabButtonInTabBar,
     ShowTabIndexInTabBar,
     ShowTabsInTabBar,
+    TabAndSplitIndicesAreZeroBased,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42283,6 +42287,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::ShowTabsInTabBar => {
                 self.show_tabs_in_tab_bar.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::TabAndSplitIndicesAreZeroBased => {
+                self.tab_and_split_indices_are_zero_based.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -80747,6 +80754,32 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "tabs=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_zero_based_tab_index_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.tab_and_split_indices_are_zero_based = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('zero-based=' .. tostring(window:effective_config().tab_and_split_indices_are_zero_based))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config tab_and_split_indices_are_zero_based status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "zero-based=true");
     }
 
     #[test]

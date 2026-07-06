@@ -1969,7 +1969,8 @@ keyboard, mouse, paste, resize
   `window:effective_config().show_close_tab_button_in_tabs`,
   `window:effective_config().show_new_tab_button_in_tab_bar`,
   `window:effective_config().show_tab_index_in_tab_bar`,
-  `window:effective_config().show_tabs_in_tab_bar`, and
+  `window:effective_config().show_tabs_in_tab_bar`,
+  `window:effective_config().tab_and_split_indices_are_zero_based`, and
   `window:effective_config().launch_menu[1].label` field concatenations for current
   effective config values
   plus the documented `window:active_key_table()` key-table status shape with
