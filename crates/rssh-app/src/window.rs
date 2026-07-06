@@ -10256,6 +10256,13 @@ fn lua_static_window_effective_config_status_text_from_query(
             static_source.max_start,
         )
     });
+    let environment_variable = static_source.and_then(|static_source| {
+        lua_static_window_effective_config_environment_variable_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )
+    });
     let cell_widths_variable = static_source.and_then(|static_source| {
         lua_static_window_effective_config_cell_widths_variable_before_offset(
             static_source.source,
@@ -10313,6 +10320,17 @@ fn lua_static_window_effective_config_status_text_from_query(
         .or_else(|| {
             visual_bell_variable.as_deref().and_then(|variable| {
                 lua_static_window_effective_config_visual_bell_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                    static_source,
+                    outer_static_source,
+                )
+            })
+        })
+        .or_else(|| {
+            environment_variable.as_deref().and_then(|variable| {
+                lua_static_window_effective_config_environment_field_from_query(
                     segment,
                     variable,
                     window_name,
@@ -10484,6 +10502,48 @@ fn lua_static_window_effective_config_visual_bell_variable_from_statement(
     let rest = rest.strip_prefix('=')?;
     let value = lua_top_level_statement_value_from_query(rest)?;
     if !lua_window_effective_config_visual_bell_from_query(value, window_name)? {
+        return None;
+    }
+    Some(variable.to_owned())
+}
+
+fn lua_static_window_effective_config_environment_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_effective_config_environment_variable_from_statement(
+                statement,
+                window_name,
+            )
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_effective_config_environment_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if !lua_window_effective_config_environment_from_query(value, window_name)? {
         return None;
     }
     Some(variable.to_owned())
@@ -10693,6 +10753,38 @@ fn lua_window_effective_config_visual_bell_from_query(
     let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let field = lua_identifier_literal_from_query(rest)?;
     if field != "visual_bell" {
+        return None;
+    }
+    lua_trim_start_comments(rest.get(field.len()..)?)?
+        .is_empty()
+        .then_some(true)
+}
+
+fn lua_window_effective_config_environment_from_query(
+    value: &str,
+    window_name: &str,
+) -> Option<bool> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "effective_config" || !lua_config_assignment_field_has_boundaries(rest, 0, method)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if field != "set_environment_variables" {
         return None;
     }
     lua_trim_start_comments(rest.get(field.len()..)?)?
@@ -10917,6 +11009,40 @@ fn lua_static_window_effective_config_visual_bell_field_from_query(
         return None;
     }
     let synthetic = format!("{window_name}:effective_config().visual_bell{rest}");
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
+}
+
+fn lua_static_window_effective_config_environment_field_from_query(
+    value: &str,
+    variable: &str,
+    window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let synthetic = format!("{window_name}:effective_config().set_environment_variables{rest}");
     lua_window_effective_config_field_from_query_with_static_sources(
         &synthetic,
         window_name,
@@ -84026,6 +84152,34 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config set_environment_variables bracket status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "env=dev");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_environment_variables_alias_static_bracket_status() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local env_key = 'PROJECT_MODE'
+
+            config.set_environment_variables = {
+              PROJECT_MODE = 'dev',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local env = window:effective_config().set_environment_variables
+              window:set_right_status('env=' .. tostring(env[env_key]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config set_environment_variables alias static bracket status");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();

@@ -2783,7 +2783,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   bracket access such as
   `window:effective_config()['default_prog'][1]`,
   `window:effective_config().visual_bell['target']`, or
-  `local field = 'default_prog'; local idx = 1; local effective = window:effective_config(); effective[field][idx]`, and the documented
+  `local env_key = 'PROJECT_MODE'; local env = window:effective_config().set_environment_variables; env[env_key]`, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`
   status example with static active/inactive strings, plus the documented
