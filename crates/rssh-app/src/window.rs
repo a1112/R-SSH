@@ -2169,6 +2169,14 @@ impl NativeIntegratedTitleButton {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Hide => "Hide",
+            Self::Maximize => "Maximize",
+            Self::Close => "Close",
+        }
+    }
 }
 
 fn default_integrated_title_buttons() -> Vec<NativeIntegratedTitleButton> {
@@ -11731,6 +11739,15 @@ fn lua_window_effective_config_field_from_query(
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::SkipCloseConfirmationProcess(index));
+        }
+        return None;
+    }
+    if field == "integrated_title_buttons" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::IntegratedTitleButton(
+                index,
+            ));
         }
         return None;
     }
@@ -26907,6 +26924,7 @@ enum NativeLuaWindowEffectiveConfigField {
     Win32SystemBackdrop,
     Win32AcrylicAccentColor,
     WindowDecorations,
+    IntegratedTitleButton(usize),
     IntegratedTitleButtonAlignment,
     IntegratedTitleButtonColor,
     IntegratedTitleButtonStyle,
@@ -43922,6 +43940,11 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::WindowDecorations => {
                 self.window_decorations.as_wezterm_config_value()
             }
+            NativeLuaWindowEffectiveConfigField::IntegratedTitleButton(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.integrated_title_buttons.get(offset).copied())
+                .map(|button| button.as_wezterm_config_value().to_owned())
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonAlignment => self
                 .integrated_title_button_alignment
                 .as_wezterm_config_value()
@@ -85793,6 +85816,34 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "button-align=Left");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_integrated_title_buttons_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.integrated_title_buttons = { 'Close', 'Hide', 'Maximize' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(
+                'buttons=' .. tostring(window:effective_config().integrated_title_buttons[1]) ..
+                '/' .. tostring(window:effective_config().integrated_title_buttons[2]) ..
+                '/' .. tostring(window:effective_config().integrated_title_buttons[3])
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config integrated_title_buttons status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "buttons=Close/Hide/Maximize");
     }
 
     #[test]
