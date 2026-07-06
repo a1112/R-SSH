@@ -2605,6 +2605,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().kde_window_background_blur`,
   `window:effective_config().macos_window_background_blur`,
   `window:effective_config().win32_system_backdrop`,
+  `window:effective_config().window_decorations`,
   `window:effective_config().bidi_enabled`,
   `window:effective_config().bidi_direction`,
   `window:effective_config().skip_close_confirmation_for_processes_named[1]`,

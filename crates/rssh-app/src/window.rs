@@ -1932,6 +1932,38 @@ impl NativeWindowDecorations {
     const fn winit_decorations_enabled(self) -> bool {
         self.title || self.resize
     }
+
+    fn as_wezterm_config_value(self) -> String {
+        let mut flags = Vec::new();
+
+        if self.title {
+            flags.push("TITLE");
+        }
+        if self.resize {
+            flags.push("RESIZE");
+        }
+        if self.integrated_buttons {
+            flags.push("INTEGRATED_BUTTONS");
+        }
+        if self.macos_force_disable_shadow {
+            flags.push("MACOS_FORCE_DISABLE_SHADOW");
+        }
+        if self.macos_force_enable_shadow {
+            flags.push("MACOS_FORCE_ENABLE_SHADOW");
+        }
+        if self.macos_force_square_corners {
+            flags.push("MACOS_FORCE_SQUARE_CORNERS");
+        }
+        if self.macos_use_background_color_as_titlebar_color {
+            flags.push("MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR");
+        }
+
+        if flags.is_empty() {
+            "NONE".to_owned()
+        } else {
+            flags.join("|")
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11335,6 +11367,7 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::MacosWindowBackgroundBlur)
         }
         "win32_system_backdrop" => Some(NativeLuaWindowEffectiveConfigField::Win32SystemBackdrop),
+        "window_decorations" => Some(NativeLuaWindowEffectiveConfigField::WindowDecorations),
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25919,6 +25952,7 @@ enum NativeLuaWindowEffectiveConfigField {
     KdeWindowBackgroundBlur,
     MacosWindowBackgroundBlur,
     Win32SystemBackdrop,
+    WindowDecorations,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42452,6 +42486,9 @@ impl NativeWindowApp {
                 .win32_system_backdrop
                 .as_wezterm_config_value()
                 .to_string(),
+            NativeLuaWindowEffectiveConfigField::WindowDecorations => {
+                self.window_decorations.as_wezterm_config_value()
+            }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
             }
@@ -81303,6 +81340,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "backdrop=Mica");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_decorations_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_decorations = 'INTEGRATED_BUTTONS|RESIZE'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('decorations=' .. tostring(window:effective_config().window_decorations))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_decorations status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "decorations=RESIZE|INTEGRATED_BUTTONS");
     }
 
     #[test]
