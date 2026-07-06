@@ -10244,6 +10244,13 @@ fn lua_static_window_effective_config_status_text_from_query(
             static_source.max_start,
         )
     });
+    let cell_widths_variable = static_source.and_then(|static_source| {
+        lua_static_window_effective_config_cell_widths_variable_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )
+    });
     let mut parts = Vec::new();
     let mut has_dynamic_part = false;
 
@@ -10271,6 +10278,15 @@ fn lua_static_window_effective_config_status_text_from_query(
             .or_else(|| {
                 visual_bell_variable.as_deref().and_then(|variable| {
                     lua_static_window_effective_config_visual_bell_field_from_query(
+                        segment,
+                        variable,
+                        window_name,
+                    )
+                })
+            })
+            .or_else(|| {
+                cell_widths_variable.as_ref().and_then(|variable| {
+                    lua_static_window_effective_config_cell_widths_field_from_query(
                         segment,
                         variable,
                         window_name,
@@ -10413,6 +10429,55 @@ fn lua_static_window_effective_config_visual_bell_variable_from_statement(
     Some(variable.to_owned())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaCellWidthsVariableReference {
+    variable: String,
+    index: usize,
+}
+
+fn lua_static_window_effective_config_cell_widths_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<NativeLuaCellWidthsVariableReference> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_effective_config_cell_widths_variable_from_statement(
+                statement,
+                window_name,
+            )
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_effective_config_cell_widths_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<NativeLuaCellWidthsVariableReference> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    let index = lua_window_effective_config_cell_widths_entry_from_query(value, window_name)?;
+    Some(NativeLuaCellWidthsVariableReference {
+        variable: variable.to_owned(),
+        index,
+    })
+}
+
 fn lua_window_effective_config_resolved_palette_from_query(
     value: &str,
     window_name: &str,
@@ -10475,6 +10540,38 @@ fn lua_window_effective_config_visual_bell_from_query(
     lua_trim_start_comments(rest.get(field.len()..)?)?
         .is_empty()
         .then_some(true)
+}
+
+fn lua_window_effective_config_cell_widths_entry_from_query(
+    value: &str,
+    window_name: &str,
+) -> Option<usize> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "effective_config" || !lua_config_assignment_field_has_boundaries(rest, 0, method)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if field != "cell_widths" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
+    let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    lua_trim_start_comments(rest)?.is_empty().then_some(index)
 }
 
 fn lua_static_window_effective_config_field_from_query(
@@ -10555,6 +10652,36 @@ fn lua_static_window_effective_config_visual_bell_field_from_query(
         return None;
     }
     let synthetic = format!("{window_name}:effective_config().visual_bell{rest}");
+    lua_window_effective_config_field_from_query(&synthetic, window_name)
+}
+
+fn lua_static_window_effective_config_cell_widths_field_from_query(
+    value: &str,
+    variable: &NativeLuaCellWidthsVariableReference,
+    window_name: &str,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(&variable.variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let synthetic = format!(
+        "{window_name}:effective_config().cell_widths[{}]{rest}",
+        variable.index
+    );
     lua_window_effective_config_field_from_query(&synthetic, window_name)
 }
 
@@ -11817,6 +11944,26 @@ fn lua_window_effective_config_field_from_query(
             return Some(NativeLuaWindowEffectiveConfigField::FontDir(index));
         }
         return None;
+    }
+    if field == "cell_widths" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if !nested_rest.is_empty() {
+            return None;
+        }
+        let cell_width_field = match nested_field {
+            "first" => NativeLuaCellWidthOverrideField::First,
+            "last" => NativeLuaCellWidthOverrideField::Last,
+            "width" => NativeLuaCellWidthOverrideField::Width,
+            _ => return None,
+        };
+        return Some(NativeLuaWindowEffectiveConfigField::CellWidths(
+            index,
+            cell_width_field,
+        ));
     }
     if field == "quick_select_patterns" {
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
@@ -26935,6 +27082,7 @@ enum NativeLuaWindowEffectiveConfigField {
     FontShaper,
     HarfbuzzFeature(usize),
     FontDir(usize),
+    CellWidths(usize, NativeLuaCellWidthOverrideField),
     FontLocator,
     UseCapHeightToScaleFallbackFonts,
     SortFallbackFontsByCoverage,
@@ -27118,6 +27266,13 @@ enum NativeLuaVisualBellField {
     FadeInFunction,
     FadeOutFunction,
     Target,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaCellWidthOverrideField {
+    First,
+    Last,
+    Width,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43645,6 +43800,15 @@ impl NativeWindowApp {
                 .checked_sub(1)
                 .and_then(|offset| self.font_dirs.get(offset))
                 .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CellWidths(index, field) => index
+                .checked_sub(1)
+                .and_then(|offset| self.cell_widths.get(offset))
+                .map(|override_| match field {
+                    NativeLuaCellWidthOverrideField::First => override_.first.to_string(),
+                    NativeLuaCellWidthOverrideField::Last => override_.last.to_string(),
+                    NativeLuaCellWidthOverrideField::Width => override_.width.to_string(),
+                })
                 .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::FontLocator => self
                 .font_locator
@@ -81783,6 +81947,38 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "cell-width=1.25");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_cell_widths_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cell_widths = {
+              { first = 0x2606, last = 0x2606, width = 1 },
+              { first = 0xe000, last = 0xf8ff, width = 2 },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local width = window:effective_config().cell_widths[2]
+              window:set_right_status(
+                'first=' .. tostring(width.first) ..
+                ' last=' .. tostring(width.last) ..
+                ' width=' .. tostring(width.width)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config cell_widths status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "first=57344 last=63743 width=2");
     }
 
     #[test]
