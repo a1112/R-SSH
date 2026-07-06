@@ -2570,10 +2570,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().text_blink_ease_in`,
   `window:effective_config().text_blink_ease_out`,
   `window:effective_config().text_blink_rapid_ease_in`,
-  `window:effective_config().text_blink_rapid_ease_out`, and
-  `window:effective_config().hide_mouse_cursor_when_typing`, and
-  `window:effective_config().periodic_stat_logging` field concatenations for
-  current effective config values, and the documented
+  `window:effective_config().text_blink_rapid_ease_out`,
+  `window:effective_config().hide_mouse_cursor_when_typing`,
+  `window:effective_config().periodic_stat_logging`, and
+  `window:effective_config().scroll_to_bottom_on_input` field concatenations
+  for current effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`
   status example with static active/inactive strings, plus the documented

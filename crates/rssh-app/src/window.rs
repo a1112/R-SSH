@@ -11166,6 +11166,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::HideMouseCursorWhenTyping)
         }
         "periodic_stat_logging" => Some(NativeLuaWindowEffectiveConfigField::PeriodicStatLogging),
+        "scroll_to_bottom_on_input" => {
+            Some(NativeLuaWindowEffectiveConfigField::ScrollToBottomOnInput)
+        }
         _ => None,
     }
 }
@@ -25698,6 +25701,7 @@ enum NativeLuaWindowEffectiveConfigField {
     TextBlinkRapidEaseOut,
     HideMouseCursorWhenTyping,
     PeriodicStatLogging,
+    ScrollToBottomOnInput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42091,6 +42095,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::PeriodicStatLogging => {
                 self.periodic_stat_logging.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ScrollToBottomOnInput => {
+                self.scroll_to_bottom_on_input.to_string()
             }
         }
     }
@@ -79819,6 +79826,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "stats=15");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_scroll_to_bottom_on_input_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.scroll_to_bottom_on_input = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('scroll-input=' .. tostring(window:effective_config().scroll_to_bottom_on_input))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config scroll_to_bottom_on_input status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "scroll-input=false");
     }
 
     #[test]
