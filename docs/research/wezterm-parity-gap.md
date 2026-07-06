@@ -2543,8 +2543,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   seen/unseen strings from stored pane unseen-output state, static `window:get_dimensions()` field
   concatenations for `pixel_width`,
   `pixel_height`, `dpi`, and `is_full_screen`, static
-  `window:effective_config().font_size` and
-  `window:effective_config().default_workspace` field concatenations for
+  `window:effective_config().font_size`,
+  `window:effective_config().default_workspace`, and
+  `window:effective_config().status_update_interval` field concatenations for
   current effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`

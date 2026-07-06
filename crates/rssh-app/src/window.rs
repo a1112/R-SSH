@@ -11093,6 +11093,7 @@ fn lua_window_effective_config_field_from_query(
     match field {
         "font_size" => Some(NativeLuaWindowEffectiveConfigField::FontSize),
         "default_workspace" => Some(NativeLuaWindowEffectiveConfigField::DefaultWorkspace),
+        "status_update_interval" => Some(NativeLuaWindowEffectiveConfigField::StatusUpdateInterval),
         _ => None,
     }
 }
@@ -25597,6 +25598,7 @@ enum NativeLuaWindowDimensionsField {
 enum NativeLuaWindowEffectiveConfigField {
     FontSize,
     DefaultWorkspace,
+    StatusUpdateInterval,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41916,6 +41918,9 @@ impl NativeWindowApp {
                 native_lua_font_size_points_text(self.font_size)
             }
             NativeLuaWindowEffectiveConfigField::DefaultWorkspace => self.default_workspace.clone(),
+            NativeLuaWindowEffectiveConfigField::StatusUpdateInterval => {
+                self.status_update_interval.as_millis().to_string()
+            }
         }
     }
 
@@ -78969,6 +78974,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "workspace=ops");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_interval_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.status_update_interval = 250
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('interval=' .. window:effective_config().status_update_interval)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config status_update_interval status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "interval=250");
     }
 
     #[test]
