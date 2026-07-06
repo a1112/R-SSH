@@ -11356,6 +11356,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::EnableCsiUKeyEncoding)
         }
         "enable_kitty_keyboard" => Some(NativeLuaWindowEffectiveConfigField::EnableKittyKeyboard),
+        "allow_download_protocols" => {
+            Some(NativeLuaWindowEffectiveConfigField::AllowDownloadProtocols)
+        }
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25963,6 +25966,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableTitleReporting,
     EnableCsiUKeyEncoding,
     EnableKittyKeyboard,
+    AllowDownloadProtocols,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42455,6 +42459,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::EnableKittyKeyboard => {
                 self.enable_kitty_keyboard.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::AllowDownloadProtocols => {
+                self.allow_download_protocols.to_string()
             }
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
@@ -80687,6 +80694,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "kitty-graphics=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_allow_download_protocols_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.allow_download_protocols = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('downloads=' .. tostring(window:effective_config().allow_download_protocols))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config allow_download_protocols status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "downloads=false");
     }
 
     #[test]
