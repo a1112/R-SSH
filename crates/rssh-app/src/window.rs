@@ -11208,6 +11208,9 @@ fn lua_window_effective_config_field_from_query(
         "macos_fullscreen_extend_behind_notch" => {
             Some(NativeLuaWindowEffectiveConfigField::MacosFullscreenExtendBehindNotch)
         }
+        "selection_word_boundary" => {
+            Some(NativeLuaWindowEffectiveConfigField::SelectionWordBoundary)
+        }
         _ => None,
     }
 }
@@ -25755,6 +25758,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowCloseConfirmation,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
+    SelectionWordBoundary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42209,6 +42213,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::MacosFullscreenExtendBehindNotch => {
                 self.macos_fullscreen_extend_behind_notch.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SelectionWordBoundary => {
+                self.selection_word_boundary.clone()
             }
         }
     }
@@ -80302,6 +80309,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "notch=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_selection_word_boundary_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.selection_word_boundary = ' <>[]{}'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('boundary=' .. tostring(window:effective_config().selection_word_boundary))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config selection_word_boundary status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "boundary= <>[]{}");
     }
 
     #[test]

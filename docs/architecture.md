@@ -1955,7 +1955,8 @@ keyboard, mouse, paste, resize
   `window:effective_config().enable_csi_u_key_encoding`,
   `window:effective_config().window_close_confirmation`,
   `window:effective_config().native_macos_fullscreen_mode`,
-  `window:effective_config().macos_fullscreen_extend_behind_notch`, and
+  `window:effective_config().macos_fullscreen_extend_behind_notch`,
+  `window:effective_config().selection_word_boundary`, and
   `window:effective_config().launch_menu[1].label` field concatenations for current
   effective config values
   plus the documented `window:active_key_table()` key-table status shape with
