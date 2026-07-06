@@ -10305,6 +10305,8 @@ fn lua_static_window_effective_config_status_text_from_query(
                     segment,
                     variable,
                     window_name,
+                    static_source,
+                    outer_static_source,
                 )
             })
         })
@@ -10314,6 +10316,8 @@ fn lua_static_window_effective_config_status_text_from_query(
                     segment,
                     variable,
                     window_name,
+                    static_source,
+                    outer_static_source,
                 )
             })
         })
@@ -10323,6 +10327,8 @@ fn lua_static_window_effective_config_status_text_from_query(
                     segment,
                     variable,
                     window_name,
+                    static_source,
+                    outer_static_source,
                 )
             })
         })
@@ -10332,6 +10338,8 @@ fn lua_static_window_effective_config_status_text_from_query(
                     segment,
                     variable,
                     window_name,
+                    static_source,
+                    outer_static_source,
                 )
             })
         })
@@ -10341,6 +10349,8 @@ fn lua_static_window_effective_config_status_text_from_query(
                     segment,
                     variable,
                     window_name,
+                    static_source,
+                    outer_static_source,
                 )
             })
         }) {
@@ -10851,6 +10861,8 @@ fn lua_static_window_effective_config_resolved_palette_field_from_query(
     value: &str,
     variable: &str,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
@@ -10871,13 +10883,20 @@ fn lua_static_window_effective_config_resolved_palette_field_from_query(
         return None;
     }
     let synthetic = format!("{window_name}:effective_config().resolved_palette{rest}");
-    lua_window_effective_config_field_from_query(&synthetic, window_name)
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
 }
 
 fn lua_static_window_effective_config_visual_bell_field_from_query(
     value: &str,
     variable: &str,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
@@ -10898,13 +10917,20 @@ fn lua_static_window_effective_config_visual_bell_field_from_query(
         return None;
     }
     let synthetic = format!("{window_name}:effective_config().visual_bell{rest}");
-    lua_window_effective_config_field_from_query(&synthetic, window_name)
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
 }
 
 fn lua_static_window_effective_config_cell_widths_field_from_query(
     value: &str,
     variable: &NativeLuaCellWidthsVariableReference,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
@@ -10928,13 +10954,20 @@ fn lua_static_window_effective_config_cell_widths_field_from_query(
         "{window_name}:effective_config().cell_widths[{}]{rest}",
         variable.index
     );
-    lua_window_effective_config_field_from_query(&synthetic, window_name)
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
 }
 
 fn lua_static_window_effective_config_launch_menu_field_from_query(
     value: &str,
     variable: &NativeLuaLaunchMenuVariableReference,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
@@ -10958,13 +10991,20 @@ fn lua_static_window_effective_config_launch_menu_field_from_query(
         "{window_name}:effective_config().launch_menu[{}]{rest}",
         variable.index
     );
-    lua_window_effective_config_field_from_query(&synthetic, window_name)
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
 }
 
 fn lua_static_window_effective_config_launch_menu_env_field_from_query(
     value: &str,
     variable: &NativeLuaLaunchMenuEnvVariableReference,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
@@ -10988,7 +11028,12 @@ fn lua_static_window_effective_config_launch_menu_env_field_from_query(
         "{window_name}:effective_config().launch_menu[{}].set_environment_variables{rest}",
         variable.index
     );
-    lua_window_effective_config_field_from_query(&synthetic, window_name)
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
 }
 
 fn lua_static_pane_dimensions_status_text_from_query(
@@ -12170,13 +12215,6 @@ fn lua_window_status_method_text_from_query(
         }),
         _ => None,
     }
-}
-
-fn lua_window_effective_config_field_from_query(
-    value: &str,
-    window_name: &str,
-) -> Option<NativeLuaWindowEffectiveConfigField> {
-    lua_window_effective_config_field_from_query_with_static_source(value, window_name, None)
 }
 
 fn lua_window_effective_config_field_from_query_with_static_sources(
@@ -84473,6 +84511,36 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config nested static bracket key status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "bell-target=CursorColor");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_visual_bell_alias_top_level_static_bracket_status() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local target_field = 'target'
+
+            config.visual_bell = {
+              target = 'CursorColor',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local bell = window:effective_config().visual_bell
+              window:set_right_status('bell-target=' .. tostring(bell[target_field]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config visual_bell alias top-level static bracket status",
+        );
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();

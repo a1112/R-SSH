@@ -1934,9 +1934,9 @@ runtime storage for tabs and split panes.
   `window:effective_config().launch_menu[n].set_environment_variables.NAME` field concatenations expose current
   effective config values, with default-program launch-menu items exposing the
   inherited or configured default command through `launch_menu[n].args[k]`.
-  Direct or aliased top-level and nested effective-config fields also accept
-  literal, callback-local, or top-level static string/numeric-variable bracket
-  access such as
+  Direct or aliased top-level, sub-object, and nested effective-config fields
+  also accept literal, callback-local, or top-level static string/numeric-variable
+  bracket access such as
   `window:effective_config()['default_prog'][1]`,
   `window:effective_config().visual_bell['target']`, or
   `local field = 'default_prog'; local idx = 1; local effective = window:effective_config(); effective[field][idx]`. The documented
