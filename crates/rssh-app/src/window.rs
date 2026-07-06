@@ -11199,6 +11199,9 @@ fn lua_window_effective_config_field_from_query(
         "enable_csi_u_key_encoding" => {
             Some(NativeLuaWindowEffectiveConfigField::EnableCsiUKeyEncoding)
         }
+        "window_close_confirmation" => {
+            Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
+        }
         _ => None,
     }
 }
@@ -25743,6 +25746,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ShowUpdateWindow,
     CheckForUpdatesIntervalSeconds,
     EnableCsiUKeyEncoding,
+    WindowCloseConfirmation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42184,6 +42188,13 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::EnableCsiUKeyEncoding => {
                 self.enable_csi_u_key_encoding.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
+                match self.window_close_confirmation {
+                    NativeWindowCloseConfirmation::AlwaysPrompt => "AlwaysPrompt",
+                    NativeWindowCloseConfirmation::NeverPrompt => "NeverPrompt",
+                }
+                .to_owned()
             }
         }
     }
@@ -80205,6 +80216,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "csi-u=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_close_confirmation_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_close_confirmation = 'NeverPrompt'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('close=' .. tostring(window:effective_config().window_close_confirmation))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_close_confirmation status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "close=NeverPrompt");
     }
 
     #[test]
