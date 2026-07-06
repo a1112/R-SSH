@@ -12195,7 +12195,8 @@ fn lua_window_effective_config_field_from_query_with_static_source(
     )?;
     let rest = lua_trim_start_comments(rest)?;
     if field == "launch_menu" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         let (nested_field, nested_rest) = lua_table_map_field_key_from_query_with_static_source(
             static_source,
             lua_trim_start_comments(rest)?,
@@ -12220,7 +12221,11 @@ fn lua_window_effective_config_field_from_query_with_static_source(
             ));
         }
         if nested_field == "args" {
-            let (arg_index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
+            let (arg_index, rest) =
+                lua_table_array_index_access_rest_from_query_with_static_source(
+                    static_source,
+                    nested_rest,
+                )?;
             if lua_trim_start_comments(rest)?.is_empty() {
                 return Some(NativeLuaWindowEffectiveConfigField::LaunchMenu(
                     index,
@@ -12241,35 +12246,40 @@ fn lua_window_effective_config_field_from_query_with_static_source(
         return None;
     }
     if field == "tiling_desktop_environments" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::TilingDesktopEnvironment(index));
         }
         return None;
     }
     if field == "mux_env_remove" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::MuxEnvRemove(index));
         }
         return None;
     }
     if field == "harfbuzz_features" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::HarfbuzzFeature(index));
         }
         return None;
     }
     if field == "font_dirs" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::FontDir(index));
         }
         return None;
     }
     if field == "cell_widths" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         let (nested_field, nested_rest) = lua_table_map_field_key_from_query_with_static_source(
             static_source,
             lua_trim_start_comments(rest)?,
@@ -12290,7 +12300,8 @@ fn lua_window_effective_config_field_from_query_with_static_source(
         ));
     }
     if field == "quick_select_patterns" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::QuickSelectPattern(
                 index,
@@ -12299,14 +12310,16 @@ fn lua_window_effective_config_field_from_query_with_static_source(
         return None;
     }
     if field == "color_scheme_dirs" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::ColorSchemeDir(index));
         }
         return None;
     }
     if field == "clean_exit_codes" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::CleanExitCode(index));
         }
@@ -12323,14 +12336,16 @@ fn lua_window_effective_config_field_from_query_with_static_source(
         return None;
     }
     if field == "default_prog" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::DefaultProg(index));
         }
         return None;
     }
     if field == "default_gui_startup_args" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::DefaultGuiStartupArg(
                 index,
@@ -12339,7 +12354,8 @@ fn lua_window_effective_config_field_from_query_with_static_source(
         return None;
     }
     if field == "skip_close_confirmation_for_processes_named" {
-        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::SkipCloseConfirmationProcess(index));
         }
@@ -12447,7 +12463,10 @@ fn lua_window_effective_config_field_from_query_with_static_source(
         )?;
         let nested_rest = lua_trim_start_comments(nested_rest)?;
         if nested_field == "ansi" {
-            let (index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
+            let (index, rest) = lua_table_array_index_access_rest_from_query_with_static_source(
+                static_source,
+                nested_rest,
+            )?;
             if lua_trim_start_comments(rest)?.is_empty() {
                 return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
                     NativeLuaResolvedPaletteField::Ansi(index),
@@ -12456,7 +12475,10 @@ fn lua_window_effective_config_field_from_query_with_static_source(
             return None;
         }
         if nested_field == "brights" {
-            let (index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
+            let (index, rest) = lua_table_array_index_access_rest_from_query_with_static_source(
+                static_source,
+                nested_rest,
+            )?;
             if lua_trim_start_comments(rest)?.is_empty() {
                 return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
                     NativeLuaResolvedPaletteField::Bright(index),
@@ -12465,7 +12487,10 @@ fn lua_window_effective_config_field_from_query_with_static_source(
             return None;
         }
         if nested_field == "indexed" {
-            let (index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
+            let (index, rest) = lua_table_array_index_access_rest_from_query_with_static_source(
+                static_source,
+                nested_rest,
+            )?;
             if lua_trim_start_comments(rest)?.is_empty() {
                 return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
                     NativeLuaResolvedPaletteField::Indexed(index),
@@ -16896,6 +16921,31 @@ fn lua_table_array_index_access_rest_from_query(query: &str) -> Option<(usize, &
     let index = literal.parse().ok()?;
     let rest = lua_trim_start_comments(after_open.get(literal.len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    Some((index, rest))
+}
+
+fn lua_table_array_index_access_rest_from_query_with_static_source<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    query: &'a str,
+) -> Option<(usize, &'a str)> {
+    if let Some(parsed) = lua_table_array_index_access_rest_from_query(query) {
+        return Some(parsed);
+    }
+
+    let static_source = static_source?;
+    let after_open = lua_trim_start_comments(query)?.strip_prefix('[')?;
+    let after_open = lua_trim_start_comments(after_open)?;
+    let variable = lua_identifier_literal_from_query(after_open)?;
+    let rest = lua_trim_start_comments(after_open.get(variable.len()..)?)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix(']')?)?;
+    let index = lua_static_number_assignment_value_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+        lua_unsigned_integer_literal_from_query,
+    )?
+    .parse()
+    .ok()?;
     Some((index, rest))
 }
 
@@ -83488,6 +83538,31 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config direct static bracket key status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=nu");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_static_array_index_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+
+            wezterm.on('update-status', function(window, pane)
+              local prog_index = 1
+              window:set_right_status('prog=' .. tostring(window:effective_config().default_prog[prog_index]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config static array index status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
