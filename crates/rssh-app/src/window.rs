@@ -11764,6 +11764,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::TextMinContrastRatio)
         }
         "command_palette_rows" => Some(NativeLuaWindowEffectiveConfigField::CommandPaletteRows),
+        "command_palette_font_size" => {
+            Some(NativeLuaWindowEffectiveConfigField::CommandPaletteFontSize)
+        }
         "char_select_font_size" => Some(NativeLuaWindowEffectiveConfigField::CharSelectFontSize),
         "pane_select_font_size" => Some(NativeLuaWindowEffectiveConfigField::PaneSelectFontSize),
         "launcher_alphabet" => Some(NativeLuaWindowEffectiveConfigField::LauncherAlphabet),
@@ -26486,6 +26489,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ReverseVideoCursorMinContrast,
     TextMinContrastRatio,
     CommandPaletteRows,
+    CommandPaletteFontSize,
     CharSelectFontSize,
     PaneSelectFontSize,
     LauncherAlphabet,
@@ -43237,6 +43241,9 @@ impl NativeWindowApp {
                 .command_palette_rows
                 .map(|rows| rows.to_string())
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CommandPaletteFontSize => {
+                self.command_palette_font_size.config_text()
+            }
             NativeLuaWindowEffectiveConfigField::CharSelectFontSize => {
                 self.char_select_font_size.config_text()
             }
@@ -83539,6 +83546,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "palette-rows=3");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_command_palette_font_size_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.command_palette_font_size = 15.5
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('palette-font=' .. tostring(window:effective_config().command_palette_font_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config command_palette_font_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "palette-font=15.5");
     }
 
     #[test]

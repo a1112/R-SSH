@@ -2032,6 +2032,7 @@ keyboard, mouse, paste, resize
   `window:effective_config().reverse_video_cursor_min_contrast`,
   `window:effective_config().text_min_contrast_ratio`,
   `window:effective_config().command_palette_rows`,
+  `window:effective_config().command_palette_font_size`,
   `window:effective_config().char_select_font_size`,
   `window:effective_config().pane_select_font_size`,
   `window:effective_config().launcher_alphabet`,
