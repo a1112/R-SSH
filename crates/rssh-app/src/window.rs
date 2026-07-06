@@ -10290,11 +10290,12 @@ fn lua_static_window_effective_config_status_text_from_query(
         )
         .or_else(|| {
             variable.as_deref().and_then(|variable| {
-                lua_static_window_effective_config_field_from_query(
+                lua_static_window_effective_config_field_from_query_with_static_sources(
                     segment,
                     variable,
                     window_name,
                     static_source,
+                    outer_static_source,
                 )
             })
         })
@@ -10793,11 +10794,12 @@ fn lua_window_effective_config_launch_menu_env_from_query(
         .then_some(index)
 }
 
-fn lua_static_window_effective_config_field_from_query(
+fn lua_static_window_effective_config_field_from_query_with_static_sources(
     value: &str,
     variable: &str,
     window_name: &str,
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
@@ -10817,16 +10819,27 @@ fn lua_static_window_effective_config_field_from_query(
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
-    if let Some(static_source) = static_source
-        && let Some((key, field_rest)) =
-            lua_table_map_field_key_from_query_with_static_source(Some(static_source), rest)
-    {
+    if let Some((key, field_rest)) = lua_table_map_field_key_from_query_with_static_sources(
+        static_source,
+        outer_static_source,
+        rest,
+    ) {
         let quoted_key = lua_single_quoted_string_query_literal(&key);
         let synthetic = format!("{window_name}:effective_config()[{quoted_key}]{field_rest}");
-        return lua_window_effective_config_field_from_query(&synthetic, window_name);
+        return lua_window_effective_config_field_from_query_with_static_sources(
+            &synthetic,
+            window_name,
+            static_source,
+            outer_static_source,
+        );
     }
     let synthetic = format!("{window_name}:effective_config(){rest}");
-    lua_window_effective_config_field_from_query(&synthetic, window_name)
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
 }
 
 fn lua_single_quoted_string_query_literal(value: &str) -> String {
@@ -16945,6 +16958,16 @@ fn lua_table_map_field_key_from_query_with_static_source<'a>(
     )
     .and_then(parse_maybe_quoted_query_text)?;
     Some((key, rest))
+}
+
+fn lua_table_map_field_key_from_query_with_static_sources<'a>(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    query: &'a str,
+) -> Option<(String, &'a str)> {
+    lua_table_map_field_key_from_query_with_static_source(static_source, query).or_else(|| {
+        lua_table_map_field_key_from_query_with_static_source(outer_static_source, query)
+    })
 }
 
 fn lua_table_array_index_access_rest_from_query(query: &str) -> Option<(usize, &str)> {
@@ -83546,6 +83569,33 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config alias static bracket key status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=nu");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_alias_top_level_static_bracket_status() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local field = 'default_prog'
+            local prog_index = 1
+
+            config.default_prog = { 'nu', '--login' }
+
+            wezterm.on('update-status', function(window, pane)
+              local effective = window:effective_config()
+              window:set_right_status('prog=' .. tostring(effective[field][prog_index]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config alias top-level static bracket status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
