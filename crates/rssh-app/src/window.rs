@@ -998,6 +998,10 @@ impl NativeTextBackgroundOpacity {
     fn as_alpha(self) -> u8 {
         opacity_alpha(f64::from(self.0.min(1_000)) / 1_000.0)
     }
+
+    fn config_text(self) -> String {
+        native_per_mille_decimal_text(u32::from(self.0.min(1_000)))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2635,6 +2639,10 @@ impl NativeHsbMultiplier {
 
     fn as_f64(self) -> f64 {
         f64::from(self.0) / 1_000.0
+    }
+
+    fn config_text(self) -> String {
+        native_per_mille_decimal_text(u32::from(self.0))
     }
 }
 
@@ -11478,6 +11486,38 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "foreground_text_hsb" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if nested_field == "hue" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::ForegroundTextHsbHue);
+        }
+        if nested_field == "saturation" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::ForegroundTextHsbSaturation);
+        }
+        if nested_field == "brightness" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::ForegroundTextHsbBrightness);
+        }
+        return None;
+    }
+    if field == "inactive_pane_hsb" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if nested_field == "hue" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::InactivePaneHsbHue);
+        }
+        if nested_field == "saturation" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::InactivePaneHsbSaturation);
+        }
+        if nested_field == "brightness" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::InactivePaneHsbBrightness);
+        }
+        return None;
+    }
     if !rest.is_empty() {
         return None;
     }
@@ -11522,6 +11562,12 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::AllowSquareGlyphsToOverflowWidth)
         }
         "display_pixel_geometry" => Some(NativeLuaWindowEffectiveConfigField::DisplayPixelGeometry),
+        "text_background_opacity" => {
+            Some(NativeLuaWindowEffectiveConfigField::TextBackgroundOpacity)
+        }
+        "window_background_opacity" => {
+            Some(NativeLuaWindowEffectiveConfigField::WindowBackgroundOpacity)
+        }
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         "line_quad_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineQuadCacheSize),
@@ -26301,6 +26347,14 @@ enum NativeLuaWindowEffectiveConfigField {
     FontShaper,
     AllowSquareGlyphsToOverflowWidth,
     DisplayPixelGeometry,
+    TextBackgroundOpacity,
+    WindowBackgroundOpacity,
+    ForegroundTextHsbHue,
+    ForegroundTextHsbSaturation,
+    ForegroundTextHsbBrightness,
+    InactivePaneHsbHue,
+    InactivePaneHsbSaturation,
+    InactivePaneHsbBrightness,
     ShapeCacheSize,
     LineStateCacheSize,
     LineQuadCacheSize,
@@ -42833,6 +42887,30 @@ impl NativeWindowApp {
                 .display_pixel_geometry
                 .as_wezterm_config_value()
                 .to_owned(),
+            NativeLuaWindowEffectiveConfigField::TextBackgroundOpacity => {
+                self.text_background_opacity.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::WindowBackgroundOpacity => {
+                self.window_background_opacity.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::ForegroundTextHsbHue => {
+                self.foreground_text_hsb.hue.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::ForegroundTextHsbSaturation => {
+                self.foreground_text_hsb.saturation.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::ForegroundTextHsbBrightness => {
+                self.foreground_text_hsb.brightness.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::InactivePaneHsbHue => {
+                self.inactive_pane_hsb.hue.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::InactivePaneHsbSaturation => {
+                self.inactive_pane_hsb.saturation.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::InactivePaneHsbBrightness => {
+                self.inactive_pane_hsb.brightness.config_text()
+            }
             NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
                 self.shape_cache_size.to_string()
             }
@@ -80896,6 +80974,120 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "geometry=BGR");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_text_background_opacity_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.text_background_opacity = 0.4
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('text-bg-opacity=' .. tostring(window:effective_config().text_background_opacity))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config text_background_opacity status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "text-bg-opacity=0.4");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_background_opacity_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_background_opacity = 0.5
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('window-bg-opacity=' .. tostring(window:effective_config().window_background_opacity))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_background_opacity status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "window-bg-opacity=0.5");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_foreground_text_hsb_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.foreground_text_hsb = {
+              hue = 0.5,
+              saturation = 1.25,
+              brightness = 0.75,
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(
+                'fg-hsb=' ..
+                tostring(window:effective_config().foreground_text_hsb.hue) .. ',' ..
+                tostring(window:effective_config().foreground_text_hsb.saturation) .. ',' ..
+                tostring(window:effective_config().foreground_text_hsb.brightness)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config foreground_text_hsb status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "fg-hsb=0.5,1.25,0.75");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_inactive_pane_hsb_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.inactive_pane_hsb = {
+              hue = 0.8,
+              saturation = 0.9,
+              brightness = 1.1,
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(
+                'inactive-hsb=' ..
+                tostring(window:effective_config().inactive_pane_hsb.hue) .. ',' ..
+                tostring(window:effective_config().inactive_pane_hsb.saturation) .. ',' ..
+                tostring(window:effective_config().inactive_pane_hsb.brightness)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config inactive_pane_hsb status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "inactive-hsb=0.8,0.9,1.1");
     }
 
     #[test]
