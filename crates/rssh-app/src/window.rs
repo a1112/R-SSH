@@ -12163,9 +12163,8 @@ fn lua_window_effective_config_field_from_query(
     if !lua_trim_start_comments(arguments)?.trim().is_empty() {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-    let field = lua_identifier_literal_from_query(rest)?;
-    let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
+    let (field, rest) = lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+    let rest = lua_trim_start_comments(rest)?;
     if field == "launch_menu" {
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
@@ -12489,7 +12488,7 @@ fn lua_window_effective_config_field_from_query(
     if !rest.is_empty() {
         return None;
     }
-    match field {
+    match field.as_str() {
         "font_size" => Some(NativeLuaWindowEffectiveConfigField::FontSize),
         "default_workspace" => Some(NativeLuaWindowEffectiveConfigField::DefaultWorkspace),
         "default_cwd" => Some(NativeLuaWindowEffectiveConfigField::DefaultCwd),
@@ -83373,6 +83372,30 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config default_prog status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=nu");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_bracket_field_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('prog=' .. tostring(window:effective_config()['default_prog'][1]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config bracket field status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();

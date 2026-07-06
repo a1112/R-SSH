@@ -1933,7 +1933,9 @@ runtime storage for tabs and split panes.
   `window:effective_config().launch_menu[n].domain`, and
   `window:effective_config().launch_menu[n].set_environment_variables.NAME` field concatenations expose current
   effective config values, with default-program launch-menu items exposing the
-  inherited or configured default command through `launch_menu[n].args[k]`. The documented
+  inherited or configured default command through `launch_menu[n].args[k]`.
+  Top-level effective-config fields also accept static bracket string access
+  such as `window:effective_config()['default_prog'][1]`. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
   to an empty right status for an empty key-table stack. The documented
