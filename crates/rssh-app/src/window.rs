@@ -11365,6 +11365,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::PaletteMaxKeyAssigmentsForAction)
         }
         "allow_win32_input_mode" => Some(NativeLuaWindowEffectiveConfigField::AllowWin32InputMode),
+        "treat_left_ctrlalt_as_altgr" => {
+            Some(NativeLuaWindowEffectiveConfigField::TreatLeftCtrlAltAsAltGr)
+        }
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25977,6 +25980,7 @@ enum NativeLuaWindowEffectiveConfigField {
     XcursorSize,
     PaletteMaxKeyAssigmentsForAction,
     AllowWin32InputMode,
+    TreatLeftCtrlAltAsAltGr,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42485,6 +42489,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::AllowWin32InputMode => {
                 self.allow_win32_input_mode.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::TreatLeftCtrlAltAsAltGr => {
+                self.treat_left_ctrlalt_as_altgr.to_string()
             }
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
@@ -80837,6 +80844,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "win32-input=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_treat_left_ctrlalt_as_altgr_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.treat_left_ctrlalt_as_altgr = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('altgr=' .. tostring(window:effective_config().treat_left_ctrlalt_as_altgr))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config treat_left_ctrlalt_as_altgr status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "altgr=true");
     }
 
     #[test]
