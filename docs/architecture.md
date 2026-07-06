@@ -1959,7 +1959,8 @@ keyboard, mouse, paste, resize
   `window:effective_config().selection_word_boundary`,
   `window:effective_config().enq_answerback`,
   `window:effective_config().adjust_window_size_when_changing_font_size`,
-  `window:effective_config().tiling_desktop_environments[1]`, and
+  `window:effective_config().tiling_desktop_environments[1]`,
+  `window:effective_config().use_resize_increments`, and
   `window:effective_config().launch_menu[1].label` field concatenations for current
   effective config values
   plus the documented `window:active_key_table()` key-table status shape with

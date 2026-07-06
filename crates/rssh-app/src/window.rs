@@ -11222,6 +11222,7 @@ fn lua_window_effective_config_field_from_query(
         "adjust_window_size_when_changing_font_size" => {
             Some(NativeLuaWindowEffectiveConfigField::AdjustWindowSizeWhenChangingFontSize)
         }
+        "use_resize_increments" => Some(NativeLuaWindowEffectiveConfigField::UseResizeIncrements),
         _ => None,
     }
 }
@@ -25773,6 +25774,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnqAnswerback,
     AdjustWindowSizeWhenChangingFontSize,
     TilingDesktopEnvironment(usize),
+    UseResizeIncrements,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42240,6 +42242,9 @@ impl NativeWindowApp {
                 .and_then(|offset| self.tiling_desktop_environments.get(offset))
                 .cloned()
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::UseResizeIncrements => {
+                self.use_resize_increments.to_string()
+            }
         }
     }
 
@@ -80430,6 +80435,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "tiling=X11 i3");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_use_resize_increments_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.use_resize_increments = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('resize-increments=' .. tostring(window:effective_config().use_resize_increments))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config use_resize_increments status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "resize-increments=true");
     }
 
     #[test]
