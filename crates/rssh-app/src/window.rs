@@ -11211,6 +11211,7 @@ fn lua_window_effective_config_field_from_query(
         "selection_word_boundary" => {
             Some(NativeLuaWindowEffectiveConfigField::SelectionWordBoundary)
         }
+        "enq_answerback" => Some(NativeLuaWindowEffectiveConfigField::EnqAnswerback),
         _ => None,
     }
 }
@@ -25759,6 +25760,7 @@ enum NativeLuaWindowEffectiveConfigField {
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
+    EnqAnswerback,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42217,6 +42219,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::SelectionWordBoundary => {
                 self.selection_word_boundary.clone()
             }
+            NativeLuaWindowEffectiveConfigField::EnqAnswerback => self.enq_answerback.clone(),
         }
     }
 
@@ -80333,6 +80336,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "boundary= <>[]{}");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_enq_answerback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enq_answerback = 'rssh'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('enq=' .. tostring(window:effective_config().enq_answerback))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config enq_answerback status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "enq=rssh");
     }
 
     #[test]
