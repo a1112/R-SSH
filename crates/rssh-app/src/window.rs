@@ -11096,6 +11096,7 @@ fn lua_window_effective_config_field_from_query(
         "status_update_interval" => Some(NativeLuaWindowEffectiveConfigField::StatusUpdateInterval),
         "tab_max_width" => Some(NativeLuaWindowEffectiveConfigField::TabMaxWidth),
         "max_fps" => Some(NativeLuaWindowEffectiveConfigField::MaxFps),
+        "animation_fps" => Some(NativeLuaWindowEffectiveConfigField::AnimationFps),
         _ => None,
     }
 }
@@ -25603,6 +25604,7 @@ enum NativeLuaWindowEffectiveConfigField {
     StatusUpdateInterval,
     TabMaxWidth,
     MaxFps,
+    AnimationFps,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41927,6 +41929,7 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::TabMaxWidth => self.tab_max_width.to_string(),
             NativeLuaWindowEffectiveConfigField::MaxFps => self.max_fps.to_string(),
+            NativeLuaWindowEffectiveConfigField::AnimationFps => self.animation_fps.to_string(),
         }
     }
 
@@ -79052,6 +79055,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "fps=144");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_animation_fps_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.animation_fps = 24
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('anim=' .. window:effective_config().animation_fps)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config animation_fps status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "anim=24");
     }
 
     #[test]
