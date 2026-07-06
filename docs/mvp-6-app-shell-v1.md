@@ -1187,8 +1187,8 @@ runtime storage for tabs and split panes.
   and value when a stored pane value changes. Static `update-status` callbacks
   can read active-pane `pane:get_user_vars()` or
   `window:active_pane():get_user_vars()` dot fields, static string keys, and
-  static string-key variables from the same stored metadata, including static
-  `or` fallbacks.
+  callback-local/top-level static string-key variables from the same stored
+  metadata, including static `or` fallbacks.
 - `rssh-terminal` base64-decodes iTerm2 `OSC 1337;SetBadgeFormat` metadata into
   terminal badge format state. `rssh-app` syncs that badge metadata per pane for
   active and inactive panes, interpolates `\(user.NAME)` badge variables from
@@ -1699,8 +1699,9 @@ runtime storage for tabs and split panes.
   `window:active_pane():get_cursor_position()` field concatenations expose
   active pane `x`, `y`, `shape`, and `visibility`,
   static `pane:get_user_vars()` or `window:active_pane():get_user_vars()`
-  dot-field, static string-key, or static string-key-variable concatenations
-  expose stored active-pane user vars, including static `or` fallbacks, static
+  dot-field, static string-key, or callback-local/top-level static
+  string-key-variable concatenations expose stored active-pane user vars,
+  including static `or` fallbacks, static
   `pane:get_progress()` or `window:active_pane():get_progress()` conditional
   branches expose active-pane `Percentage`, `Error`, and `Indeterminate`
   progress states, static `pane:get_dimensions()` or
