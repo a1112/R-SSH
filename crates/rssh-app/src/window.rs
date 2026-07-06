@@ -1646,6 +1646,18 @@ impl NativeEasingFunction {
             _ => None,
         }
     }
+
+    fn config_text(&self) -> &'static str {
+        match self {
+            Self::Constant => "Constant",
+            Self::Linear => "Linear",
+            Self::Ease => "Ease",
+            Self::EaseIn => "EaseIn",
+            Self::EaseOut => "EaseOut",
+            Self::EaseInOut => "EaseInOut",
+            Self::CubicBezier(_) => "CubicBezier",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -11138,6 +11150,7 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::GlyphCacheImageCacheSize)
         }
         "cursor_blink_rate" => Some(NativeLuaWindowEffectiveConfigField::CursorBlinkRate),
+        "cursor_blink_ease_in" => Some(NativeLuaWindowEffectiveConfigField::CursorBlinkEaseIn),
         _ => None,
     }
 }
@@ -25660,6 +25673,7 @@ enum NativeLuaWindowEffectiveConfigField {
     LineToEleShapeCacheSize,
     GlyphCacheImageCacheSize,
     CursorBlinkRate,
+    CursorBlinkEaseIn,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42023,6 +42037,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::CursorBlinkRate => {
                 self.cursor_blink_rate.as_millis().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::CursorBlinkEaseIn => {
+                self.cursor_blink_ease_in.config_text().to_string()
             }
         }
     }
@@ -79511,6 +79528,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "cursor-rate=375");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_cursor_blink_ease_in_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cursor_blink_ease_in = 'EaseIn'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cursor-ease-in=' .. tostring(window:effective_config().cursor_blink_ease_in))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config cursor_blink_ease_in status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cursor-ease-in=EaseIn");
     }
 
     #[test]
