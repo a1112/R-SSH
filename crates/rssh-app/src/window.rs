@@ -11384,6 +11384,12 @@ fn lua_window_effective_config_field_from_query(
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
+        "enable_tab_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableTabBar),
+        "use_fancy_tab_bar" => Some(NativeLuaWindowEffectiveConfigField::UseFancyTabBar),
+        "tab_bar_at_bottom" => Some(NativeLuaWindowEffectiveConfigField::TabBarAtBottom),
+        "mouse_wheel_scrolls_tabs" => {
+            Some(NativeLuaWindowEffectiveConfigField::MouseWheelScrollsTabs)
+        }
         "show_close_tab_button_in_tabs" => {
             Some(NativeLuaWindowEffectiveConfigField::ShowCloseTabButtonInTabs)
         }
@@ -26000,6 +26006,10 @@ enum NativeLuaWindowEffectiveConfigField {
     NormalizeOutputToUnicodeNfc,
     UnicodeVersion,
     WindowCloseConfirmation,
+    EnableTabBar,
+    UseFancyTabBar,
+    TabBarAtBottom,
+    MouseWheelScrollsTabs,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
     ShowTabIndexInTabBar,
@@ -42530,6 +42540,16 @@ impl NativeWindowApp {
                     NativeWindowCloseConfirmation::NeverPrompt => "NeverPrompt",
                 }
                 .to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::EnableTabBar => self.enable_tab_bar.to_string(),
+            NativeLuaWindowEffectiveConfigField::UseFancyTabBar => {
+                self.use_fancy_tab_bar.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::TabBarAtBottom => {
+                self.tab_bar_at_bottom.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::MouseWheelScrollsTabs => {
+                self.mouse_wheel_scrolls_tabs.to_string()
             }
             NativeLuaWindowEffectiveConfigField::ShowCloseTabButtonInTabs => {
                 self.show_close_tab_button_in_tabs.to_string()
@@ -81337,6 +81357,102 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "skip-close=top");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_enable_tab_bar_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_tab_bar = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tabbar=' .. tostring(window:effective_config().enable_tab_bar))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config enable_tab_bar status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tabbar=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_use_fancy_tab_bar_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.use_fancy_tab_bar = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('fancy-tab=' .. tostring(window:effective_config().use_fancy_tab_bar))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config use_fancy_tab_bar status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "fancy-tab=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_tab_bar_at_bottom_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.tab_bar_at_bottom = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tab-bottom=' .. tostring(window:effective_config().tab_bar_at_bottom))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config tab_bar_at_bottom status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab-bottom=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_mouse_wheel_scrolls_tabs_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.mouse_wheel_scrolls_tabs = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('wheel-tabs=' .. tostring(window:effective_config().mouse_wheel_scrolls_tabs))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config mouse_wheel_scrolls_tabs status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "wheel-tabs=false");
     }
 
     #[test]
