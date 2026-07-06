@@ -12163,6 +12163,9 @@ fn lua_window_effective_config_field_from_query(
         "integrated_title_button_alignment" => {
             Some(NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonAlignment)
         }
+        "integrated_title_button_color" => {
+            Some(NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonColor)
+        }
         "integrated_title_button_style" => {
             Some(NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonStyle)
         }
@@ -26889,6 +26892,7 @@ enum NativeLuaWindowEffectiveConfigField {
     Win32AcrylicAccentColor,
     WindowDecorations,
     IntegratedTitleButtonAlignment,
+    IntegratedTitleButtonColor,
     IntegratedTitleButtonStyle,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
@@ -43882,6 +43886,14 @@ impl NativeWindowApp {
                 .integrated_title_button_alignment
                 .as_wezterm_config_value()
                 .to_string(),
+            NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonColor => {
+                match self.integrated_title_button_color {
+                    NativeIntegratedTitleButtonColor::Auto => "Auto".to_owned(),
+                    NativeIntegratedTitleButtonColor::Color(color) => {
+                        native_lua_color_config_text(color)
+                    }
+                }
+            }
             NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonStyle => self
                 .integrated_title_button_style
                 .as_wezterm_config_value()
@@ -85701,6 +85713,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "button-align=Left");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_integrated_title_button_color_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.integrated_title_button_color = '#010203'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('button-color=' .. tostring(window:effective_config().integrated_title_button_color))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config integrated_title_button_color status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "button-color=#010203");
     }
 
     #[test]

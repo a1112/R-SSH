@@ -1896,6 +1896,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().win32_acrylic_accent_color`,
   `window:effective_config().window_decorations`,
   `window:effective_config().integrated_title_button_alignment`,
+  `window:effective_config().integrated_title_button_color`,
   `window:effective_config().integrated_title_button_style`,
   `window:effective_config().bidi_enabled`,
   `window:effective_config().bidi_direction`,
