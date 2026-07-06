@@ -2018,6 +2018,13 @@ impl NativeIntegratedTitleButtonAlignment {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Left => "Left",
+            Self::Right => "Right",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -11368,6 +11375,9 @@ fn lua_window_effective_config_field_from_query(
         }
         "win32_system_backdrop" => Some(NativeLuaWindowEffectiveConfigField::Win32SystemBackdrop),
         "window_decorations" => Some(NativeLuaWindowEffectiveConfigField::WindowDecorations),
+        "integrated_title_button_alignment" => {
+            Some(NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonAlignment)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25953,6 +25963,7 @@ enum NativeLuaWindowEffectiveConfigField {
     MacosWindowBackgroundBlur,
     Win32SystemBackdrop,
     WindowDecorations,
+    IntegratedTitleButtonAlignment,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42489,6 +42500,10 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::WindowDecorations => {
                 self.window_decorations.as_wezterm_config_value()
             }
+            NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonAlignment => self
+                .integrated_title_button_alignment
+                .as_wezterm_config_value()
+                .to_string(),
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
             }
@@ -81364,6 +81379,32 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "decorations=RESIZE|INTEGRATED_BUTTONS");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_integrated_title_button_alignment_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.integrated_title_button_alignment = 'Left'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('button-align=' .. tostring(window:effective_config().integrated_title_button_alignment))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config integrated_title_button_alignment status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "button-align=Left");
     }
 
     #[test]
