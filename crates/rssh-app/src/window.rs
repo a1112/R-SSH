@@ -10034,6 +10034,7 @@ fn lua_static_window_status_text_from_query(
     }
     if let Some(status) = lua_static_window_effective_config_status_text_from_query(
         static_source,
+        outer_static_source,
         window_name,
         argument,
     ) {
@@ -10220,16 +10221,27 @@ fn lua_static_window_dimensions_status_text_from_query(
 
 fn lua_static_window_effective_config_status_text_from_query(
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
-    let variable = static_source.and_then(|static_source| {
-        lua_static_window_effective_config_variable_before_offset(
-            static_source.source,
-            window_name,
-            static_source.max_start,
-        )
-    });
+    let variable = static_source
+        .and_then(|static_source| {
+            lua_static_window_effective_config_variable_before_offset(
+                static_source.source,
+                window_name,
+                static_source.max_start,
+            )
+        })
+        .or_else(|| {
+            outer_static_source.and_then(|outer_static_source| {
+                lua_static_window_effective_config_variable_before_offset(
+                    outer_static_source.source,
+                    window_name,
+                    outer_static_source.max_start,
+                )
+            })
+        });
     let palette_variable = static_source.and_then(|static_source| {
         lua_static_window_effective_config_resolved_palette_variable_before_offset(
             static_source.source,
@@ -10270,10 +10282,11 @@ fn lua_static_window_effective_config_status_text_from_query(
 
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
-        if let Some(field) = lua_window_effective_config_field_from_query_with_static_source(
+        if let Some(field) = lua_window_effective_config_field_from_query_with_static_sources(
             segment,
             window_name,
             static_source,
+            outer_static_source,
         )
         .or_else(|| {
             variable.as_deref().and_then(|variable| {
@@ -12151,6 +12164,26 @@ fn lua_window_effective_config_field_from_query(
     window_name: &str,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
     lua_window_effective_config_field_from_query_with_static_source(value, window_name, None)
+}
+
+fn lua_window_effective_config_field_from_query_with_static_sources(
+    value: &str,
+    window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    lua_window_effective_config_field_from_query_with_static_source(
+        value,
+        window_name,
+        static_source,
+    )
+    .or_else(|| {
+        lua_window_effective_config_field_from_query_with_static_source(
+            value,
+            window_name,
+            outer_static_source,
+        )
+    })
 }
 
 fn lua_window_effective_config_field_from_query_with_static_source(
@@ -83563,6 +83596,32 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config static array index status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=nu");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_top_level_static_array_index_status_setter()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local prog_index = 1
+
+            config.default_prog = { 'nu', '--login' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('prog=' .. tostring(window:effective_config().default_prog[prog_index]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config top-level static array index status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
