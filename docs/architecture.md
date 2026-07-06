@@ -1990,6 +1990,7 @@ keyboard, mouse, paste, resize
   `window:effective_config().debug_key_events`,
   `window:effective_config().key_map_preference`,
   `window:effective_config().ui_key_cap_rendering`,
+  `window:effective_config().swap_backspace_and_delete`,
   `window:effective_config().native_macos_fullscreen_mode`,
   `window:effective_config().macos_fullscreen_extend_behind_notch`,
   `window:effective_config().selection_word_boundary`,

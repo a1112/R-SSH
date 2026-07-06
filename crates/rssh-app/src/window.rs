@@ -11475,6 +11475,9 @@ fn lua_window_effective_config_field_from_query(
         "debug_key_events" => Some(NativeLuaWindowEffectiveConfigField::DebugKeyEvents),
         "key_map_preference" => Some(NativeLuaWindowEffectiveConfigField::KeyMapPreference),
         "ui_key_cap_rendering" => Some(NativeLuaWindowEffectiveConfigField::UiKeyCapRendering),
+        "swap_backspace_and_delete" => {
+            Some(NativeLuaWindowEffectiveConfigField::SwapBackspaceAndDelete)
+        }
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
         "custom_block_glyphs" => Some(NativeLuaWindowEffectiveConfigField::CustomBlockGlyphs),
@@ -26119,6 +26122,7 @@ enum NativeLuaWindowEffectiveConfigField {
     DebugKeyEvents,
     KeyMapPreference,
     UiKeyCapRendering,
+    SwapBackspaceAndDelete,
     EnableScrollBar,
     MinScrollBarHeight,
     CustomBlockGlyphs,
@@ -42723,6 +42727,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::UiKeyCapRendering => {
                 self.ui_key_cap_rendering.config_text().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SwapBackspaceAndDelete => {
+                self.swap_backspace_and_delete.to_string()
             }
             NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
                 self.enable_scroll_bar.to_string()
@@ -82024,6 +82031,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "key-caps=Emacs");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_swap_backspace_and_delete_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.swap_backspace_and_delete = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('swap-bs-del=' .. tostring(window:effective_config().swap_backspace_and_delete))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config swap_backspace_and_delete status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "swap-bs-del=true");
     }
 
     #[test]
