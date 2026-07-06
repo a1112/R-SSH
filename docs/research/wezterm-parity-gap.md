@@ -2600,6 +2600,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().window_padding.right`,
   `window:effective_config().window_padding.top`,
   `window:effective_config().window_padding.bottom`,
+  `window:effective_config().window_content_alignment.horizontal`,
   `window:effective_config().bidi_enabled`,
   `window:effective_config().bidi_direction`,
   `window:effective_config().skip_close_confirmation_for_processes_named[1]`,

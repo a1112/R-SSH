@@ -11206,6 +11206,16 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "window_content_alignment" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if nested_field == "horizontal" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::WindowContentAlignmentHorizontal);
+        }
+        return None;
+    }
     if !rest.is_empty() {
         return None;
     }
@@ -25884,6 +25894,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowPaddingRight,
     WindowPaddingTop,
     WindowPaddingBottom,
+    WindowContentAlignmentHorizontal,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42390,6 +42401,14 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::WindowPaddingBottom => {
                 self.window_padding.bottom.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::WindowContentAlignmentHorizontal => {
+                match self.window_content_alignment.horizontal {
+                    NativeHorizontalContentAlignment::Left => "Left",
+                    NativeHorizontalContentAlignment::Center => "Center",
+                    NativeHorizontalContentAlignment::Right => "Right",
+                }
+                .to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -81116,6 +81135,33 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "padding-bottom=2pt");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_content_alignment_horizontal_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_content_alignment = {
+              horizontal = 'Right',
+              vertical = 'Bottom',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('align-h=' .. tostring(window:effective_config().window_content_alignment.horizontal))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_content_alignment.horizontal status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "align-h=Right");
     }
 
     #[test]
