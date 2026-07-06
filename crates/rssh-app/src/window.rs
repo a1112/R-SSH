@@ -764,6 +764,12 @@ impl NativeFontLocator {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::ConfigDirsOnly => "ConfigDirsOnly",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11456,6 +11462,20 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "harfbuzz_features" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::HarfbuzzFeature(index));
+        }
+        return None;
+    }
+    if field == "font_dirs" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::FontDir(index));
+        }
+        return None;
+    }
     if field == "set_environment_variables" {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = lua_trim_start_comments(rest)?;
@@ -11594,6 +11614,7 @@ fn lua_window_effective_config_field_from_query(
         "font_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontRasterizer),
         "font_colr_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontColrRasterizer),
         "font_shaper" => Some(NativeLuaWindowEffectiveConfigField::FontShaper),
+        "font_locator" => Some(NativeLuaWindowEffectiveConfigField::FontLocator),
         "use_cap_height_to_scale_fallback_fonts" => {
             Some(NativeLuaWindowEffectiveConfigField::UseCapHeightToScaleFallbackFonts)
         }
@@ -26405,6 +26426,9 @@ enum NativeLuaWindowEffectiveConfigField {
     FontRasterizer,
     FontColrRasterizer,
     FontShaper,
+    HarfbuzzFeature(usize),
+    FontDir(usize),
+    FontLocator,
     UseCapHeightToScaleFallbackFonts,
     SortFallbackFontsByCoverage,
     SearchFontDirsForFallback,
@@ -42949,6 +42973,20 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::FontShaper => {
                 self.font_shaper.as_wezterm_config_value().to_owned()
             }
+            NativeLuaWindowEffectiveConfigField::HarfbuzzFeature(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.harfbuzz_features.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::FontDir(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.font_dirs.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::FontLocator => self
+                .font_locator
+                .map(|font_locator| font_locator.as_wezterm_config_value().to_owned())
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::UseCapHeightToScaleFallbackFonts => {
                 self.use_cap_height_to_scale_fallback_fonts.to_string()
             }
@@ -80958,6 +80996,78 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "hinting=VerticalSubpixel");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_harfbuzz_features_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.harfbuzz_features = { 'liga=0', 'calt=0' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('hb=' .. tostring(window:effective_config().harfbuzz_features[2]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config harfbuzz_features status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "hb=calt=0");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_font_dirs_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_dirs = { 'fonts', 'vendor/fonts' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('font-dir=' .. tostring(window:effective_config().font_dirs[2]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_dirs status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "font-dir=vendor/fonts");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_font_locator_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font_locator = 'ConfigDirsOnly'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('font-locator=' .. tostring(window:effective_config().font_locator))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config font_locator status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "font-locator=ConfigDirsOnly");
     }
 
     #[test]
