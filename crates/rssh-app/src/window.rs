@@ -2047,6 +2047,16 @@ impl NativeWin32SystemBackdrop {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Disable => "Disable",
+            Self::Acrylic => "Acrylic",
+            Self::Mica => "Mica",
+            Self::Tabbed => "Tabbed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -11324,6 +11334,7 @@ fn lua_window_effective_config_field_from_query(
         "macos_window_background_blur" => {
             Some(NativeLuaWindowEffectiveConfigField::MacosWindowBackgroundBlur)
         }
+        "win32_system_backdrop" => Some(NativeLuaWindowEffectiveConfigField::Win32SystemBackdrop),
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25907,6 +25918,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowContentAlignmentVertical,
     KdeWindowBackgroundBlur,
     MacosWindowBackgroundBlur,
+    Win32SystemBackdrop,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42436,6 +42448,10 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::MacosWindowBackgroundBlur => {
                 self.macos_window_background_blur.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::Win32SystemBackdrop => self
+                .win32_system_backdrop
+                .as_wezterm_config_value()
+                .to_string(),
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
             }
@@ -81263,6 +81279,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "macos-blur=20");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_win32_system_backdrop_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.win32_system_backdrop = 'Mica'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('backdrop=' .. tostring(window:effective_config().win32_system_backdrop))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config win32_system_backdrop status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "backdrop=Mica");
     }
 
     #[test]
