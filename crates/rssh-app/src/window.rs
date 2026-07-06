@@ -582,6 +582,13 @@ impl NativeWebGpuPowerPreference {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_str(self) -> &'static str {
+        match self {
+            Self::LowPower => "LowPower",
+            Self::HighPerformance => "HighPerformance",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11106,6 +11113,9 @@ fn lua_window_effective_config_field_from_query(
         "max_fps" => Some(NativeLuaWindowEffectiveConfigField::MaxFps),
         "animation_fps" => Some(NativeLuaWindowEffectiveConfigField::AnimationFps),
         "front_end" => Some(NativeLuaWindowEffectiveConfigField::FrontEnd),
+        "webgpu_power_preference" => {
+            Some(NativeLuaWindowEffectiveConfigField::WebGpuPowerPreference)
+        }
         _ => None,
     }
 }
@@ -25615,6 +25625,7 @@ enum NativeLuaWindowEffectiveConfigField {
     MaxFps,
     AnimationFps,
     FrontEnd,
+    WebGpuPowerPreference,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41943,6 +41954,10 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::FrontEnd => {
                 self.front_end.as_wezterm_config_str().to_owned()
             }
+            NativeLuaWindowEffectiveConfigField::WebGpuPowerPreference => self
+                .webgpu_power_preference
+                .as_wezterm_config_str()
+                .to_owned(),
         }
     }
 
@@ -79116,6 +79131,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "front=WebGpu");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_webgpu_power_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.webgpu_power_preference = 'HighPerformance'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('power=' .. window:effective_config().webgpu_power_preference)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config webgpu_power_preference status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "power=HighPerformance");
     }
 
     #[test]
