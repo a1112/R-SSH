@@ -2575,8 +2575,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().periodic_stat_logging`,
   `window:effective_config().scroll_to_bottom_on_input`,
   `window:effective_config().use_ime`,
-  `window:effective_config().xim_im_name`, and
-  `window:effective_config().ime_preedit_rendering` field concatenations for
+  `window:effective_config().xim_im_name`,
+  `window:effective_config().ime_preedit_rendering`, and
+  `window:effective_config().notification_handling` field concatenations for
   current effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`

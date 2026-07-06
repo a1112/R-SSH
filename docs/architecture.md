@@ -1944,8 +1944,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().periodic_stat_logging`,
   `window:effective_config().scroll_to_bottom_on_input`,
   `window:effective_config().use_ime`,
-  `window:effective_config().xim_im_name`, and
-  `window:effective_config().ime_preedit_rendering` field concatenations for
+  `window:effective_config().xim_im_name`,
+  `window:effective_config().ime_preedit_rendering`, and
+  `window:effective_config().notification_handling` field concatenations for
   current effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
