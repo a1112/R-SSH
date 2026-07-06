@@ -1700,8 +1700,9 @@ runtime storage for tabs and split panes.
   field concatenations expose native `pixel_width`, `pixel_height`, `dpi`, and
   `is_full_screen`. Static `window:effective_config().font_size`,
   `window:effective_config().default_workspace`, and
-  `window:effective_config().status_update_interval` field concatenations
-  expose current effective config values. The documented
+  `window:effective_config().status_update_interval`, and
+  `window:effective_config().tab_max_width` field concatenations expose
+  current effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
   to an empty right status for an empty key-table stack. The documented

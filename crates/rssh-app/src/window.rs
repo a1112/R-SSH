@@ -11094,6 +11094,7 @@ fn lua_window_effective_config_field_from_query(
         "font_size" => Some(NativeLuaWindowEffectiveConfigField::FontSize),
         "default_workspace" => Some(NativeLuaWindowEffectiveConfigField::DefaultWorkspace),
         "status_update_interval" => Some(NativeLuaWindowEffectiveConfigField::StatusUpdateInterval),
+        "tab_max_width" => Some(NativeLuaWindowEffectiveConfigField::TabMaxWidth),
         _ => None,
     }
 }
@@ -25599,6 +25600,7 @@ enum NativeLuaWindowEffectiveConfigField {
     FontSize,
     DefaultWorkspace,
     StatusUpdateInterval,
+    TabMaxWidth,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41921,6 +41923,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::StatusUpdateInterval => {
                 self.status_update_interval.as_millis().to_string()
             }
+            NativeLuaWindowEffectiveConfigField::TabMaxWidth => self.tab_max_width.to_string(),
         }
     }
 
@@ -78998,6 +79001,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "interval=250");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_tab_max_width_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.tab_max_width = 32
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tab=' .. window:effective_config().tab_max_width)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config tab_max_width status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=32");
     }
 
     #[test]
