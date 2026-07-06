@@ -1883,7 +1883,8 @@ keyboard, mouse, paste, resize
   `wezterm.on('update-status', function(window, pane) ... end)` and deprecated
   `update-right-status` static subsets map literal
   `window:set_left_status(...)` and `window:set_right_status(...)` calls plus
-  the documented `window:set_right_status(window:active_workspace())` shape,
+  the documented `window:set_right_status(window:active_workspace())` and
+  `window:set_right_status(tostring(window:active_workspace()))` shapes,
   static string concatenations with `window:active_workspace()` or
   `tostring(window:active_workspace())`, plus static string concatenations
   with `window:window_id()`,

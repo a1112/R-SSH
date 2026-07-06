@@ -1669,8 +1669,9 @@ runtime storage for tabs and split panes.
   `wezterm.on('update-status', ...)` and deprecated `update-right-status`
   literal `window:set_left_status(...)` / `set_right_status(...)` setters map
   into the same status state, and the documented
-  `window:set_right_status(window:active_workspace())` shape resolves the
-  current workspace at status-update time. Static string concatenations with
+  `window:set_right_status(window:active_workspace())` and
+  `window:set_right_status(tostring(window:active_workspace()))` shapes resolve
+  the current workspace at status-update time. Static string concatenations with
   `window:active_workspace()` or `tostring(window:active_workspace())`
   resolve the active workspace name,
   static concatenations with `window:window_id()` resolve the native window id,

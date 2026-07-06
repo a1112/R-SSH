@@ -10009,6 +10009,7 @@ fn lua_static_window_status_text_from_query(
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let argument = lua_trim_start_comments(value)?;
+    let argument = lua_tostring_argument_from_query(argument).unwrap_or(argument);
     if let Some(status) =
         lua_static_string_value_from_expression(static_source, outer_static_source, argument)
     {
@@ -81394,6 +81395,28 @@ mod tests {
 
         assert_eq!(app.app_shell.active_workspace().name(), "ops");
         assert_eq!(app.right_status, "ws=ops");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_tostring_active_workspace_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let mut overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(tostring(window:active_workspace()))
+            end)
+            "#,
+        )
+        .expect("expected WezTerm tostring active workspace status setter");
+        overrides.default_workspace = Some("ops".to_owned());
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.app_shell.active_workspace().name(), "ops");
+        assert_eq!(app.right_status, "ops");
     }
 
     #[test]
