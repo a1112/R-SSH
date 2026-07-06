@@ -11128,6 +11128,7 @@ fn lua_window_effective_config_field_from_query(
         "experimental_pixel_positioning" => {
             Some(NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning)
         }
+        "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         _ => None,
     }
 }
@@ -25644,6 +25645,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableZwlrOutputManager,
     UseBoxModelRender,
     ExperimentalPixelPositioning,
+    ShapeCacheSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41989,6 +41991,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning => {
                 self.experimental_pixel_positioning.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
+                self.shape_cache_size.to_string()
             }
         }
     }
@@ -79333,6 +79338,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "pixel=true");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_shape_cache_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.shape_cache_size = 2048
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('shape=' .. tostring(window:effective_config().shape_cache_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config shape_cache_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "shape=2048");
     }
 
     #[test]
