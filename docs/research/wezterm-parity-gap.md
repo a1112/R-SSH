@@ -2564,9 +2564,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().glyph_cache_image_cache_size`,
   `window:effective_config().cursor_blink_rate`,
   `window:effective_config().cursor_blink_ease_in`,
-  `window:effective_config().cursor_blink_ease_out`, and
-  `window:effective_config().text_blink_rate` field concatenations for current
-  effective config values, and the documented
+  `window:effective_config().cursor_blink_ease_out`,
+  `window:effective_config().text_blink_rate`, and
+  `window:effective_config().text_blink_rate_rapid` field concatenations for
+  current effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`
   status example with static active/inactive strings, plus the documented
