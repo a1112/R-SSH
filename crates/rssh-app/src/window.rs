@@ -11799,7 +11799,35 @@ fn lua_window_effective_config_field_from_query(
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = lua_trim_start_comments(rest)?;
         let nested_field = lua_identifier_literal_from_query(rest)?;
-        if !lua_trim_start_comments(rest.get(nested_field.len()..)?)?.is_empty() {
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if nested_field == "ansi" {
+            let (index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
+            if lua_trim_start_comments(rest)?.is_empty() {
+                return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
+                    NativeLuaResolvedPaletteField::Ansi(index),
+                ));
+            }
+            return None;
+        }
+        if nested_field == "brights" {
+            let (index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
+            if lua_trim_start_comments(rest)?.is_empty() {
+                return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
+                    NativeLuaResolvedPaletteField::Bright(index),
+                ));
+            }
+            return None;
+        }
+        if nested_field == "indexed" {
+            let (index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
+            if lua_trim_start_comments(rest)?.is_empty() {
+                return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
+                    NativeLuaResolvedPaletteField::Indexed(index),
+                ));
+            }
+            return None;
+        }
+        if !nested_rest.is_empty() {
             return None;
         }
         let palette_field = match nested_field {
@@ -26902,6 +26930,9 @@ enum NativeLuaResolvedPaletteField {
     SelectionBg,
     ComposeCursor,
     VisualBell,
+    Ansi(usize),
+    Bright(usize),
+    Indexed(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43288,6 +43319,23 @@ impl NativeWindowApp {
                         .unwrap_or_default(),
                     NativeLuaResolvedPaletteField::VisualBell => palette
                         .visual_bell
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::Ansi(index) => index
+                        .checked_sub(1)
+                        .and_then(|offset| palette.ansi.get(offset).copied())
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::Bright(index) => index
+                        .checked_sub(1)
+                        .and_then(|offset| palette.brights.get(offset).copied())
+                        .map(native_lua_color_config_text)
+                        .unwrap_or_default(),
+                    NativeLuaResolvedPaletteField::Indexed(index) => palette
+                        .indexed
+                        .get(index)
+                        .copied()
+                        .flatten()
                         .map(native_lua_color_config_text)
                         .unwrap_or_default(),
                 }
@@ -83131,6 +83179,50 @@ mod tests {
                 "selection-fg=#070809 selection-bg=#0a0b0c ",
                 "compose=#0d0e0f bell=#101112"
             )
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_resolved_palette_indexed_color_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              ansi = {
+                '#010203', '#040506', '#070809', '#0a0b0c',
+                '#0d0e0f', '#101112', '#131415', '#161718',
+              },
+              brights = {
+                '#191a1b', '#1c1d1e', '#1f2021', '#222324',
+                '#252627', '#28292a', '#2b2c2d', '#2e2f30',
+              },
+              indexed = {
+                [136] = '#313233',
+              },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local palette = window:effective_config().resolved_palette
+              window:set_right_status(
+                'ansi=' .. tostring(palette.ansi[2]) ..
+                ' bright=' .. tostring(palette.brights[3]) ..
+                ' indexed=' .. tostring(palette.indexed[136])
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config resolved_palette indexed colors status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(
+            app.right_status,
+            "ansi=#040506 bright=#1f2021 indexed=#313233"
         );
     }
 
