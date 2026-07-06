@@ -11223,6 +11223,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::AdjustWindowSizeWhenChangingFontSize)
         }
         "use_resize_increments" => Some(NativeLuaWindowEffectiveConfigField::UseResizeIncrements),
+        "alternate_buffer_wheel_scroll_speed" => {
+            Some(NativeLuaWindowEffectiveConfigField::AlternateBufferWheelScrollSpeed)
+        }
         _ => None,
     }
 }
@@ -25775,6 +25778,7 @@ enum NativeLuaWindowEffectiveConfigField {
     AdjustWindowSizeWhenChangingFontSize,
     TilingDesktopEnvironment(usize),
     UseResizeIncrements,
+    AlternateBufferWheelScrollSpeed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42244,6 +42248,9 @@ impl NativeWindowApp {
                 .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::UseResizeIncrements => {
                 self.use_resize_increments.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::AlternateBufferWheelScrollSpeed => {
+                self.alternate_buffer_wheel_scroll_speed.to_string()
             }
         }
     }
@@ -80459,6 +80466,32 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "resize-increments=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_alternate_buffer_wheel_scroll_speed_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.alternate_buffer_wheel_scroll_speed = 2
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('alt-wheel=' .. tostring(window:effective_config().alternate_buffer_wheel_scroll_speed))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config alternate_buffer_wheel_scroll_speed status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "alt-wheel=2");
     }
 
     #[test]
