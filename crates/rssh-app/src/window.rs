@@ -11212,6 +11212,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::SelectionWordBoundary)
         }
         "enq_answerback" => Some(NativeLuaWindowEffectiveConfigField::EnqAnswerback),
+        "adjust_window_size_when_changing_font_size" => {
+            Some(NativeLuaWindowEffectiveConfigField::AdjustWindowSizeWhenChangingFontSize)
+        }
         _ => None,
     }
 }
@@ -25761,6 +25764,7 @@ enum NativeLuaWindowEffectiveConfigField {
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
     EnqAnswerback,
+    AdjustWindowSizeWhenChangingFontSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42220,6 +42224,9 @@ impl NativeWindowApp {
                 self.selection_word_boundary.clone()
             }
             NativeLuaWindowEffectiveConfigField::EnqAnswerback => self.enq_answerback.clone(),
+            NativeLuaWindowEffectiveConfigField::AdjustWindowSizeWhenChangingFontSize => {
+                self.adjust_window_size_when_changing_font_size.to_string()
+            }
         }
     }
 
@@ -80360,6 +80367,32 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "enq=rssh");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_adjust_window_size_when_changing_font_size_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.adjust_window_size_when_changing_font_size = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('adjust=' .. tostring(window:effective_config().adjust_window_size_when_changing_font_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config adjust_window_size_when_changing_font_size status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "adjust=false");
     }
 
     #[test]
