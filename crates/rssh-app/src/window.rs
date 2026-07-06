@@ -10010,9 +10010,11 @@ fn lua_static_window_status_text_from_query(
     {
         return Some(status);
     }
-    if let Some(status) =
-        lua_static_window_effective_config_status_text_from_query(window_name, argument)
-    {
+    if let Some(status) = lua_static_window_effective_config_status_text_from_query(
+        static_source,
+        window_name,
+        argument,
+    ) {
         return Some(status);
     }
     if let Some(static_source) = static_source
@@ -10195,15 +10197,33 @@ fn lua_static_window_dimensions_status_text_from_query(
 }
 
 fn lua_static_window_effective_config_status_text_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
+    let variable = static_source.and_then(|static_source| {
+        lua_static_window_effective_config_variable_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )
+    });
     let mut parts = Vec::new();
     let mut has_dynamic_part = false;
 
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
-        if let Some(field) = lua_window_effective_config_field_from_query(segment, window_name) {
+        if let Some(field) = lua_window_effective_config_field_from_query(segment, window_name)
+            .or_else(|| {
+                variable.as_deref().and_then(|variable| {
+                    lua_static_window_effective_config_field_from_query(
+                        segment,
+                        variable,
+                        window_name,
+                    )
+                })
+            })
+        {
             parts.push(NativeLuaWindowEffectiveConfigStatusPart::Field(field));
             has_dynamic_part = true;
         } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
@@ -10214,6 +10234,72 @@ fn lua_static_window_effective_config_status_text_from_query(
     }
 
     has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowEffectiveConfig { parts })
+}
+
+fn lua_static_window_effective_config_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_effective_config_variable_from_statement(statement, window_name)
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_effective_config_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if lua_window_zero_arg_method_name_from_query(value, window_name)? != "effective_config" {
+        return None;
+    }
+    Some(variable.to_owned())
+}
+
+fn lua_static_window_effective_config_field_from_query(
+    value: &str,
+    variable: &str,
+    window_name: &str,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let synthetic = format!("{window_name}:effective_config(){rest}");
+    lua_window_effective_config_field_from_query(&synthetic, window_name)
 }
 
 fn lua_static_pane_dimensions_status_text_from_query(
@@ -11638,6 +11724,8 @@ fn lua_window_effective_config_field_from_query(
         "tab_max_width" => Some(NativeLuaWindowEffectiveConfigField::TabMaxWidth),
         "dpi" => Some(NativeLuaWindowEffectiveConfigField::Dpi),
         "color_scheme" => Some(NativeLuaWindowEffectiveConfigField::ColorScheme),
+        "foreground_color" => Some(NativeLuaWindowEffectiveConfigField::ForegroundColor),
+        "background_color" => Some(NativeLuaWindowEffectiveConfigField::BackgroundColor),
         "max_fps" => Some(NativeLuaWindowEffectiveConfigField::MaxFps),
         "animation_fps" => Some(NativeLuaWindowEffectiveConfigField::AnimationFps),
         "front_end" => Some(NativeLuaWindowEffectiveConfigField::FrontEnd),
@@ -26467,6 +26555,8 @@ enum NativeLuaWindowEffectiveConfigField {
     Dpi,
     DpiByScreen(String),
     ColorScheme,
+    ForegroundColor,
+    BackgroundColor,
     MaxFps,
     AnimationFps,
     FrontEnd,
@@ -43008,6 +43098,12 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::ColorScheme => {
                 self.color_scheme.clone().unwrap_or_default()
             }
+            NativeLuaWindowEffectiveConfigField::ForegroundColor => {
+                native_lua_color_config_text(self.foreground_color)
+            }
+            NativeLuaWindowEffectiveConfigField::BackgroundColor => {
+                native_lua_color_config_text(self.background_color)
+            }
             NativeLuaWindowEffectiveConfigField::MaxFps => self.max_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::AnimationFps => self.animation_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::FrontEnd => {
@@ -48470,6 +48566,17 @@ fn push_native_format_color_status_sgr(text: &mut String, target: u16, color: Co
         }
         Color::Rgb(red, green, blue) | Color::Rgba(red, green, blue, _) => {
             text.push_str(&format!("\x1b[{target};2;{red};{green};{blue}m"));
+        }
+    }
+}
+
+fn native_lua_color_config_text(color: Color) -> String {
+    match color {
+        Color::Default => "Default".to_owned(),
+        Color::Indexed(index) => index.to_string(),
+        Color::Rgb(red, green, blue) => format!("#{red:02x}{green:02x}{blue:02x}"),
+        Color::Rgba(red, green, blue, alpha) => {
+            format!("rgba({red},{green},{blue},{alpha})")
         }
     }
 }
@@ -82709,6 +82816,38 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "scheme=Project Scheme");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_foreground_background_colors_status_setter()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#010203',
+              background = '#040506',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local config = window:effective_config()
+              window:set_right_status(
+                'fg=' .. tostring(config.foreground_color) ..
+                ' bg=' .. tostring(config.background_color)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config foreground/background color status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "fg=#010203 bg=#040506");
     }
 
     #[test]

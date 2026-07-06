@@ -1934,6 +1934,8 @@ keyboard, mouse, paste, resize
   `window:effective_config().dpi_by_screen.NAME`,
   `window:effective_config().dpi_by_screen['SCREEN-NAME']`,
   `window:effective_config().color_scheme`,
+  `window:effective_config().foreground_color`,
+  `window:effective_config().background_color`,
   `window:effective_config().max_fps`,
   `window:effective_config().animation_fps`,
   `window:effective_config().front_end`,
