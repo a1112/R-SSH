@@ -2554,8 +2554,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().webgpu_force_fallback_adapter`,
   `window:effective_config().prefer_egl`,
   `window:effective_config().enable_wayland`,
-  `window:effective_config().enable_zwlr_output_manager`, and
-  `window:effective_config().use_box_model_render` field concatenations for current
+  `window:effective_config().enable_zwlr_output_manager`,
+  `window:effective_config().use_box_model_render`, and
+  `window:effective_config().experimental_pixel_positioning` field concatenations for current
   effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`

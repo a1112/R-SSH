@@ -11125,6 +11125,9 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::EnableZwlrOutputManager)
         }
         "use_box_model_render" => Some(NativeLuaWindowEffectiveConfigField::UseBoxModelRender),
+        "experimental_pixel_positioning" => {
+            Some(NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning)
+        }
         _ => None,
     }
 }
@@ -25640,6 +25643,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableWayland,
     EnableZwlrOutputManager,
     UseBoxModelRender,
+    ExperimentalPixelPositioning,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41982,6 +41986,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::UseBoxModelRender => {
                 self.use_box_model_render.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning => {
+                self.experimental_pixel_positioning.to_string()
             }
         }
     }
@@ -79302,6 +79309,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "box=true");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_pixel_positioning_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.experimental_pixel_positioning = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('pixel=' .. tostring(window:effective_config().experimental_pixel_positioning))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config experimental_pixel_positioning status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "pixel=true");
     }
 
     #[test]
