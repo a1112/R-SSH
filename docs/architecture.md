@@ -1964,6 +1964,7 @@ keyboard, mouse, paste, resize
   `window:effective_config().alternate_buffer_wheel_scroll_speed`,
   `window:effective_config().ignore_svg_fonts`,
   `window:effective_config().custom_block_glyphs`,
+  `window:effective_config().anti_alias_custom_block_glyphs`,
   `window:effective_config().bidi_enabled`,
   `window:effective_config().bidi_direction`,
   `window:effective_config().skip_close_confirmation_for_processes_named[1]`,

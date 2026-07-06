@@ -11272,6 +11272,9 @@ fn lua_window_effective_config_field_from_query(
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
         "custom_block_glyphs" => Some(NativeLuaWindowEffectiveConfigField::CustomBlockGlyphs),
+        "anti_alias_custom_block_glyphs" => {
+            Some(NativeLuaWindowEffectiveConfigField::AntiAliasCustomBlockGlyphs)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25846,6 +25849,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableScrollBar,
     MinScrollBarHeight,
     CustomBlockGlyphs,
+    AntiAliasCustomBlockGlyphs,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42337,6 +42341,9 @@ impl NativeWindowApp {
                 .map_or_else(String::new, NativeScrollBarHeight::config_text),
             NativeLuaWindowEffectiveConfigField::CustomBlockGlyphs => {
                 self.custom_block_glyphs.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::AntiAliasCustomBlockGlyphs => {
+                self.anti_alias_custom_block_glyphs.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -80923,6 +80930,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "blocks=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_anti_alias_custom_block_glyphs_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.anti_alias_custom_block_glyphs = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('aa-blocks=' .. tostring(window:effective_config().anti_alias_custom_block_glyphs))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config anti_alias_custom_block_glyphs status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "aa-blocks=false");
     }
 
     #[test]
