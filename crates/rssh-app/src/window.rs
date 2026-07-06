@@ -11551,11 +11551,13 @@ fn lua_static_pane_user_vars_status_text_from_query(
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
         if let Some((name, fallback)) =
-            lua_static_pane_user_var_fallback_from_query(segment, &variable)
+            lua_static_pane_user_var_fallback_from_query(static_source, segment, &variable)
         {
             parts.push(NativeLuaPaneUserVarsStatusPart::UserVar { name, fallback });
             has_dynamic_part = true;
-        } else if let Some(name) = lua_static_pane_user_var_name_from_query(segment, &variable) {
+        } else if let Some(name) =
+            lua_static_pane_user_var_name_from_query(Some(static_source), segment, &variable)
+        {
             parts.push(NativeLuaPaneUserVarsStatusPart::UserVar {
                 name,
                 fallback: String::new(),
@@ -11617,16 +11619,21 @@ fn lua_static_pane_user_vars_variable_from_statement(
 }
 
 fn lua_static_pane_user_var_fallback_from_query(
+    static_source: LuaStaticSource<'_>,
     value: &str,
     variable: &str,
 ) -> Option<(String, String)> {
     let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
-    let name = lua_static_pane_user_var_name_from_query(dynamic, variable)?;
+    let name = lua_static_pane_user_var_name_from_query(Some(static_source), dynamic, variable)?;
     let fallback = lua_static_string_value_from_expression(None, None, fallback)?;
     Some((name, fallback))
 }
 
-fn lua_static_pane_user_var_name_from_query(value: &str, variable: &str) -> Option<String> {
+fn lua_static_pane_user_var_name_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    variable: &str,
+) -> Option<String> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
         && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
@@ -11655,8 +11662,17 @@ fn lua_static_pane_user_var_name_from_query(value: &str, variable: &str) -> Opti
     }
     let rest = rest.strip_prefix('[')?;
     let rest = lua_trim_start_comments(rest)?;
-    let (name, len) = lua_inline_string_literal_value_and_len(rest)?;
-    let rest = lua_trim_start_comments(rest.get(len..)?)?.strip_prefix(']')?;
+    let (name, rest) = if let Some(static_source) = static_source {
+        lua_config_bracket_assignment_key_from_query(
+            static_source.source,
+            rest,
+            static_source.max_start,
+        )?
+    } else {
+        let (name, len) = lua_inline_string_literal_value_and_len(rest)?;
+        (name, rest.get(len..)?)
+    };
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(']')?;
     lua_trim_start_comments(rest)?.is_empty().then_some(name)
 }
 
@@ -82633,6 +82649,38 @@ mod tests {
             .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "prog=psh host=none");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_user_vars_static_key_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local vars = pane:get_user_vars()
+              local prog_key = 'WEZTERM-PROG'
+              local host_key = "WEZTERM-HOST"
+              window:set_right_status(
+                'prog=' .. vars[prog_key]
+                  .. ' host=' .. (vars[host_key] or 'none')
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_user_vars static-key status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog= host=none");
+
+        app.handle_pty_output(
+            b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07\x1b]1337;SetUserVar=WEZTERM-HOST=cHJvZA==\x07",
+        )
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=psh host=prod");
     }
 
     #[test]
