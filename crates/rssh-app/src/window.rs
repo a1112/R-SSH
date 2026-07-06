@@ -11280,6 +11280,22 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "default_prog" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::DefaultProg(index));
+        }
+        return None;
+    }
+    if field == "default_gui_startup_args" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::DefaultGuiStartupArg(
+                index,
+            ));
+        }
+        return None;
+    }
     if field == "skip_close_confirmation_for_processes_named" {
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
@@ -11325,6 +11341,10 @@ fn lua_window_effective_config_field_from_query(
     match field {
         "font_size" => Some(NativeLuaWindowEffectiveConfigField::FontSize),
         "default_workspace" => Some(NativeLuaWindowEffectiveConfigField::DefaultWorkspace),
+        "default_cwd" => Some(NativeLuaWindowEffectiveConfigField::DefaultCwd),
+        "default_domain" => Some(NativeLuaWindowEffectiveConfigField::DefaultDomain),
+        "prefer_to_spawn_tabs" => Some(NativeLuaWindowEffectiveConfigField::PreferToSpawnTabs),
+        "ssh_backend" => Some(NativeLuaWindowEffectiveConfigField::SshBackend),
         "status_update_interval" => Some(NativeLuaWindowEffectiveConfigField::StatusUpdateInterval),
         "tab_max_width" => Some(NativeLuaWindowEffectiveConfigField::TabMaxWidth),
         "max_fps" => Some(NativeLuaWindowEffectiveConfigField::MaxFps),
@@ -26080,6 +26100,12 @@ enum NativeLuaWindowDimensionsField {
 enum NativeLuaWindowEffectiveConfigField {
     FontSize,
     DefaultWorkspace,
+    DefaultProg(usize),
+    DefaultGuiStartupArg(usize),
+    DefaultCwd,
+    DefaultDomain,
+    PreferToSpawnTabs,
+    SshBackend,
     StatusUpdateInterval,
     TabMaxWidth,
     MaxFps,
@@ -42528,6 +42554,28 @@ impl NativeWindowApp {
                 native_lua_font_size_points_text(self.font_size)
             }
             NativeLuaWindowEffectiveConfigField::DefaultWorkspace => self.default_workspace.clone(),
+            NativeLuaWindowEffectiveConfigField::DefaultProg(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.default_prog.as_ref()?.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::DefaultGuiStartupArg(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.default_gui_startup_args.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::DefaultCwd => {
+                self.default_cwd.clone().unwrap_or_default()
+            }
+            NativeLuaWindowEffectiveConfigField::DefaultDomain => self.default_domain.clone(),
+            NativeLuaWindowEffectiveConfigField::PreferToSpawnTabs => {
+                self.prefer_to_spawn_tabs.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SshBackend => match self.ssh_backend {
+                NativeSshBackend::Ssh2 => "Ssh2",
+                NativeSshBackend::LibSsh => "LibSsh",
+            }
+            .to_owned(),
             NativeLuaWindowEffectiveConfigField::StatusUpdateInterval => {
                 self.status_update_interval.as_millis().to_string()
             }
@@ -80679,6 +80727,150 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "mux-domain=mux-main");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_default_prog_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('prog=' .. tostring(window:effective_config().default_prog[1]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_prog status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=nu");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_default_gui_startup_args_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_gui_startup_args = { 'connect', 'prod' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('startup=' .. tostring(window:effective_config().default_gui_startup_args[2]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_gui_startup_args status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "startup=prod");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_default_cwd_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_cwd = 'C:/Project Dir'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cwd=' .. tostring(window:effective_config().default_cwd))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_cwd status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cwd=C:/Project Dir");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_default_domain_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_domain = 'ssh-prod'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('domain=' .. tostring(window:effective_config().default_domain))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_domain status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "domain=ssh-prod");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_prefer_to_spawn_tabs_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.prefer_to_spawn_tabs = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('prefer-tabs=' .. tostring(window:effective_config().prefer_to_spawn_tabs))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config prefer_to_spawn_tabs status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prefer-tabs=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_ssh_backend_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.ssh_backend = 'Ssh2'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ssh-backend=' .. tostring(window:effective_config().ssh_backend))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config ssh_backend status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ssh-backend=Ssh2");
     }
 
     #[test]

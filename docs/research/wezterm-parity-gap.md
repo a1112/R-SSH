@@ -2545,6 +2545,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `pixel_height`, `dpi`, and `is_full_screen`, static
   `window:effective_config().font_size`,
   `window:effective_config().default_workspace`,
+  `window:effective_config().default_prog[n]`,
+  `window:effective_config().default_gui_startup_args[n]`,
+  `window:effective_config().default_cwd`,
+  `window:effective_config().default_domain`,
+  `window:effective_config().prefer_to_spawn_tabs`,
+  `window:effective_config().ssh_backend`,
   `window:effective_config().status_update_interval`,
   `window:effective_config().tab_max_width`,
   `window:effective_config().max_fps`,
