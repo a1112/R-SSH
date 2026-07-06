@@ -11244,6 +11244,7 @@ fn lua_window_effective_config_field_from_query(
         "hide_tab_bar_if_only_one_tab" => {
             Some(NativeLuaWindowEffectiveConfigField::HideTabBarIfOnlyOneTab)
         }
+        "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25815,6 +25816,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ShowTabsInTabBar,
     TabAndSplitIndicesAreZeroBased,
     HideTabBarIfOnlyOneTab,
+    EnableScrollBar,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42297,6 +42299,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::HideTabBarIfOnlyOneTab => {
                 self.hide_tab_bar_if_only_one_tab.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
+                self.enable_scroll_bar.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -80811,6 +80816,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "hide-tab=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_enable_scroll_bar_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_scroll_bar = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('scrollbar=' .. tostring(window:effective_config().enable_scroll_bar))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config enable_scroll_bar status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "scrollbar=true");
     }
 
     #[test]
