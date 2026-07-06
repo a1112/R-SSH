@@ -11364,6 +11364,7 @@ fn lua_window_effective_config_field_from_query(
         "palette_max_key_assigments_for_action" => {
             Some(NativeLuaWindowEffectiveConfigField::PaletteMaxKeyAssigmentsForAction)
         }
+        "allow_win32_input_mode" => Some(NativeLuaWindowEffectiveConfigField::AllowWin32InputMode),
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25975,6 +25976,7 @@ enum NativeLuaWindowEffectiveConfigField {
     XcursorTheme,
     XcursorSize,
     PaletteMaxKeyAssigmentsForAction,
+    AllowWin32InputMode,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42480,6 +42482,9 @@ impl NativeWindowApp {
                 .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::PaletteMaxKeyAssigmentsForAction => {
                 self.palette_max_key_assigments_for_action.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::AllowWin32InputMode => {
+                self.allow_win32_input_mode.to_string()
             }
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
@@ -80808,6 +80813,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "palette-max=3");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_allow_win32_input_mode_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.allow_win32_input_mode = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('win32-input=' .. tostring(window:effective_config().allow_win32_input_mode))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config allow_win32_input_mode status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "win32-input=false");
     }
 
     #[test]
