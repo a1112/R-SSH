@@ -10082,6 +10082,11 @@ fn lua_static_window_status_text_from_query(
     ) {
         return Some(status);
     }
+    if let Some(status) =
+        lua_static_window_and_pane_status_fallback_text_from_query(window_name, pane_name, argument)
+    {
+        return Some(status);
+    }
     if let Some(status) = lua_window_status_method_text_from_query(argument, window_name) {
         return Some(status);
     }
@@ -10115,6 +10120,127 @@ fn lua_static_window_id_status_text_from_query(
     }
 
     has_window_id.then_some(NativeLuaWindowStatusText::WindowId { prefix, suffix })
+}
+
+fn lua_static_window_and_pane_status_fallback_text_from_query(
+    window_name: &str,
+    pane_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowStatusText> {
+    let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
+    lua_static_string_value_from_expression(None, None, fallback)?;
+    let part = lua_static_window_and_pane_status_part_from_query(dynamic, window_name, pane_name)?;
+    Some(NativeLuaWindowStatusText::WindowPane { parts: vec![part] })
+}
+
+fn lua_dynamic_status_fallback_from_query(value: &str) -> Option<(&str, &str)> {
+    let value = lua_trim_start_comments(value)?;
+    let mut quote = None;
+    let mut escape = false;
+    let mut line_comment = false;
+    let mut block_comment_end = None;
+    let mut long_bracket_end = None;
+    let mut table_depth = 0usize;
+    let mut paren_depth = 0usize;
+
+    for (index, character) in value.char_indices() {
+        if let Some(end) = block_comment_end {
+            if index < end {
+                continue;
+            }
+            block_comment_end = None;
+        }
+
+        if let Some(end) = long_bracket_end {
+            if index < end {
+                continue;
+            }
+            long_bracket_end = None;
+        }
+
+        if line_comment {
+            if character == '\n' {
+                line_comment = false;
+            }
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if escape {
+                escape = false;
+            } else if character == '\\' {
+                escape = true;
+            } else if character == active_quote {
+                quote = None;
+            }
+            continue;
+        }
+
+        if value[index..].starts_with("--") {
+            if let Some((content_start, closing)) =
+                parse_lua_long_bracket_delimiters(&value[index + 2..])
+            {
+                let content_and_rest = &value[index + 2 + content_start..];
+                block_comment_end = Some(
+                    content_and_rest
+                        .find(&closing)
+                        .map_or(value.len(), |close_index| {
+                            index + 2 + content_start + close_index + closing.len()
+                        }),
+                );
+                continue;
+            }
+            line_comment = true;
+            continue;
+        }
+
+        match character {
+            '\'' | '"' => {
+                quote = Some(character);
+                continue;
+            }
+            '[' => {
+                if let Some((content_start, closing)) =
+                    parse_lua_long_bracket_delimiters(&value[index..])
+                {
+                    let content_and_rest = &value[index + content_start..];
+                    long_bracket_end = Some(
+                        content_and_rest
+                            .find(&closing)
+                            .map_or(value.len(), |close_index| {
+                                index + content_start + close_index + closing.len()
+                            }),
+                    );
+                    continue;
+                }
+            }
+            '{' => {
+                table_depth = table_depth.saturating_add(1);
+                continue;
+            }
+            '}' => {
+                table_depth = table_depth.checked_sub(1)?;
+                continue;
+            }
+            '(' => {
+                paren_depth = paren_depth.saturating_add(1);
+                continue;
+            }
+            ')' => {
+                paren_depth = paren_depth.checked_sub(1)?;
+                continue;
+            }
+            _ => {}
+        }
+
+        if table_depth == 0 && paren_depth == 0 && lua_source_keyword_at(value, index, "or") {
+            let dynamic = value[..index].trim();
+            let fallback = value[index + "or".len()..].trim();
+            return (!dynamic.is_empty() && !fallback.is_empty()).then_some((dynamic, fallback));
+        }
+    }
+
+    None
 }
 
 fn lua_static_window_and_pane_status_text_from_query(
@@ -81772,6 +81898,33 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "tab=build");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_tab_title_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(window:active_tab():get_title() or '')
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab get_title fallback status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: app.app_shell.active_tab_id(),
+            title: "build".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "build");
     }
 
     #[test]

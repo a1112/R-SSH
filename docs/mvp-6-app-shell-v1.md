@@ -1685,7 +1685,8 @@ runtime storage for tabs and split panes.
   such as `local tab = window:active_tab()` or
   `local pane = window:active_pane()` feeding those zero-argument methods and
   callback-local method-result variables such as `local title = tab:get_title()`,
-  including dynamic variable fallbacks such as `title or ''`,
+  including dynamic variable fallbacks such as `title or ''` and direct dynamic
+  method fallbacks such as `window:active_tab():get_title() or ''`,
   static concatenations with callback `pane:pane_id()` resolve the active pane id,
   `pane:get_title()` resolves the active pane title, `pane:get_domain_name()`
   resolves the active pane domain, `pane:get_current_working_dir()` resolves
