@@ -11721,6 +11721,9 @@ fn lua_window_effective_config_field_from_query(
         "use_ime" => Some(NativeLuaWindowEffectiveConfigField::UseIme),
         "xim_im_name" => Some(NativeLuaWindowEffectiveConfigField::XimImName),
         "ime_preedit_rendering" => Some(NativeLuaWindowEffectiveConfigField::ImePreeditRendering),
+        "macos_forward_to_ime_modifier_mask" => {
+            Some(NativeLuaWindowEffectiveConfigField::MacosForwardToImeModifierMask)
+        }
         "notification_handling" => Some(NativeLuaWindowEffectiveConfigField::NotificationHandling),
         "use_dead_keys" => Some(NativeLuaWindowEffectiveConfigField::UseDeadKeys),
         "automatically_reload_config" => {
@@ -11801,6 +11804,9 @@ fn lua_window_effective_config_field_from_query(
         }
         "swallow_mouse_click_on_window_focus" => {
             Some(NativeLuaWindowEffectiveConfigField::SwallowMouseClickOnWindowFocus)
+        }
+        "bypass_mouse_reporting_modifiers" => {
+            Some(NativeLuaWindowEffectiveConfigField::BypassMouseReportingModifiers)
         }
         "unzoom_on_switch_pane" => Some(NativeLuaWindowEffectiveConfigField::UnzoomOnSwitchPane),
         "quit_when_all_windows_are_closed" => {
@@ -26503,6 +26509,7 @@ enum NativeLuaWindowEffectiveConfigField {
     UseIme,
     XimImName,
     ImePreeditRendering,
+    MacosForwardToImeModifierMask,
     NotificationHandling,
     UseDeadKeys,
     LaunchMenuLabel(usize),
@@ -26541,6 +26548,7 @@ enum NativeLuaWindowEffectiveConfigField {
     PaneFocusFollowsMouse,
     SwallowMouseClickOnPaneFocus,
     SwallowMouseClickOnWindowFocus,
+    BypassMouseReportingModifiers,
     UnzoomOnSwitchPane,
     QuitWhenAllWindowsAreClosed,
     DefaultCursorStyle,
@@ -43178,6 +43186,9 @@ impl NativeWindowApp {
                 }
                 .to_owned()
             }
+            NativeLuaWindowEffectiveConfigField::MacosForwardToImeModifierMask => {
+                native_lua_keyboard_modifiers_text(self.macos_forward_to_ime_modifier_mask)
+            }
             NativeLuaWindowEffectiveConfigField::NotificationHandling => match self
                 .notification_handling
             {
@@ -43302,6 +43313,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::SwallowMouseClickOnWindowFocus => {
                 self.swallow_mouse_click_on_window_focus.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::BypassMouseReportingModifiers => {
+                native_lua_keyboard_modifiers_text(self.bypass_mouse_reporting_modifiers)
             }
             NativeLuaWindowEffectiveConfigField::UnzoomOnSwitchPane => {
                 self.unzoom_on_switch_pane.to_string()
@@ -82380,6 +82394,30 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_update_status_macos_forward_to_ime_modifier_mask_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.macos_forward_to_ime_modifier_mask = 'SHIFT|CTRL'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ime-mask=' .. tostring(window:effective_config().macos_forward_to_ime_modifier_mask))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config macos_forward_to_ime_modifier_mask status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ime-mask=CTRL|SHIFT");
+    }
+
+    #[test]
     fn window_app_parses_update_status_notification_handling_status_setter() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -83666,6 +83704,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "swallow-window=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_bypass_mouse_reporting_modifiers_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.bypass_mouse_reporting_modifiers = 'ALT|SHIFT'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('bypass=' .. tostring(window:effective_config().bypass_mouse_reporting_modifiers))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config bypass_mouse_reporting_modifiers status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "bypass=SHIFT|ALT");
     }
 
     #[test]
