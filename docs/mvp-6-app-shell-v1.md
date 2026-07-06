@@ -1720,8 +1720,9 @@ runtime storage for tabs and split panes.
   `window:effective_config().cursor_blink_rate`,
   `window:effective_config().cursor_blink_ease_in`,
   `window:effective_config().cursor_blink_ease_out`,
-  `window:effective_config().text_blink_rate`, and
-  `window:effective_config().text_blink_rate_rapid` field concatenations expose
+  `window:effective_config().text_blink_rate`,
+  `window:effective_config().text_blink_rate_rapid`, and
+  `window:effective_config().text_blink_ease_in` field concatenations expose
   current effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
