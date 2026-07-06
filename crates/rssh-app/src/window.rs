@@ -12111,8 +12111,18 @@ fn lua_window_effective_config_field_from_query(
         "command_palette_font_size" => {
             Some(NativeLuaWindowEffectiveConfigField::CommandPaletteFontSize)
         }
+        "command_palette_bg_color" => {
+            Some(NativeLuaWindowEffectiveConfigField::CommandPaletteBgColor)
+        }
+        "command_palette_fg_color" => {
+            Some(NativeLuaWindowEffectiveConfigField::CommandPaletteFgColor)
+        }
         "char_select_font_size" => Some(NativeLuaWindowEffectiveConfigField::CharSelectFontSize),
+        "char_select_bg_color" => Some(NativeLuaWindowEffectiveConfigField::CharSelectBgColor),
+        "char_select_fg_color" => Some(NativeLuaWindowEffectiveConfigField::CharSelectFgColor),
         "pane_select_font_size" => Some(NativeLuaWindowEffectiveConfigField::PaneSelectFontSize),
+        "pane_select_bg_color" => Some(NativeLuaWindowEffectiveConfigField::PaneSelectBgColor),
+        "pane_select_fg_color" => Some(NativeLuaWindowEffectiveConfigField::PaneSelectFgColor),
         "launcher_alphabet" => Some(NativeLuaWindowEffectiveConfigField::LauncherAlphabet),
         "quick_select_alphabet" => Some(NativeLuaWindowEffectiveConfigField::QuickSelectAlphabet),
         "disable_default_quick_select_patterns" => {
@@ -26855,8 +26865,14 @@ enum NativeLuaWindowEffectiveConfigField {
     TextMinContrastRatio,
     CommandPaletteRows,
     CommandPaletteFontSize,
+    CommandPaletteBgColor,
+    CommandPaletteFgColor,
     CharSelectFontSize,
+    CharSelectBgColor,
+    CharSelectFgColor,
     PaneSelectFontSize,
+    PaneSelectBgColor,
+    PaneSelectFgColor,
     LauncherAlphabet,
     QuickSelectAlphabet,
     QuickSelectPattern(usize),
@@ -43758,12 +43774,36 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::CommandPaletteFontSize => {
                 self.command_palette_font_size.config_text()
             }
+            NativeLuaWindowEffectiveConfigField::CommandPaletteBgColor => self
+                .command_palette_bg_color
+                .map(native_lua_color_config_text)
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CommandPaletteFgColor => self
+                .command_palette_fg_color
+                .map(native_lua_color_config_text)
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::CharSelectFontSize => {
                 self.char_select_font_size.config_text()
             }
+            NativeLuaWindowEffectiveConfigField::CharSelectBgColor => self
+                .char_select_bg_color
+                .map(native_lua_color_config_text)
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CharSelectFgColor => self
+                .char_select_fg_color
+                .map(native_lua_color_config_text)
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::PaneSelectFontSize => {
                 self.pane_select_font_size.config_text()
             }
+            NativeLuaWindowEffectiveConfigField::PaneSelectBgColor => self
+                .pane_select_bg_color
+                .map(native_lua_color_config_text)
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::PaneSelectFgColor => self
+                .pane_select_fg_color
+                .map(native_lua_color_config_text)
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::LauncherAlphabet => self.launcher_alphabet.clone(),
             NativeLuaWindowEffectiveConfigField::QuickSelectAlphabet => {
                 self.quick_select_alphabet.clone()
@@ -84697,6 +84737,46 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "palette-font=15.5");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_overlay_color_status_setters() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.command_palette_bg_color = '#010203'
+            config.command_palette_fg_color = '#040506'
+            config.char_select_bg_color = '#070809'
+            config.char_select_fg_color = '#0a0b0c'
+            config.pane_select_bg_color = '#0d0e0f'
+            config.pane_select_fg_color = '#101112'
+
+            wezterm.on('update-status', function(window, pane)
+              local config = window:effective_config()
+              window:set_right_status(
+                'palette=' .. tostring(config.command_palette_bg_color) ..
+                '/' .. tostring(config.command_palette_fg_color) ..
+                ' char=' .. tostring(config.char_select_bg_color) ..
+                '/' .. tostring(config.char_select_fg_color) ..
+                ' pane=' .. tostring(config.pane_select_bg_color) ..
+                '/' .. tostring(config.pane_select_fg_color)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config overlay color status setters");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(
+            app.right_status,
+            "palette=#010203/#040506 char=#070809/#0a0b0c pane=#0d0e0f/#101112"
+        );
     }
 
     #[test]
