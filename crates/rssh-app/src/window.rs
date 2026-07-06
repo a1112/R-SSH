@@ -12167,10 +12167,9 @@ fn lua_window_effective_config_field_from_query(
     let rest = lua_trim_start_comments(rest)?;
     if field == "launch_menu" {
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if nested_field == "label" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::LaunchMenu(
                 index,
@@ -12239,14 +12238,13 @@ fn lua_window_effective_config_field_from_query(
     }
     if field == "cell_widths" {
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if !nested_rest.is_empty() {
             return None;
         }
-        let cell_width_field = match nested_field {
+        let cell_width_field = match nested_field.as_str() {
             "first" => NativeLuaCellWidthOverrideField::First,
             "last" => NativeLuaCellWidthOverrideField::Last,
             "width" => NativeLuaCellWidthOverrideField::Width,
@@ -12322,10 +12320,9 @@ fn lua_window_effective_config_field_from_query(
         return None;
     }
     if field == "window_padding" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if nested_field == "left" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::WindowPaddingLeft);
         }
@@ -12341,10 +12338,9 @@ fn lua_window_effective_config_field_from_query(
         return None;
     }
     if field == "window_content_alignment" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if nested_field == "horizontal" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::WindowContentAlignmentHorizontal);
         }
@@ -12354,14 +12350,13 @@ fn lua_window_effective_config_field_from_query(
         return None;
     }
     if field == "webgpu_preferred_adapter" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if !nested_rest.is_empty() {
             return None;
         }
-        let adapter_field = match nested_field {
+        let adapter_field = match nested_field.as_str() {
             "backend" => NativeLuaWebGpuPreferredAdapterField::Backend,
             "device" => NativeLuaWebGpuPreferredAdapterField::Device,
             "device_type" => NativeLuaWebGpuPreferredAdapterField::DeviceType,
@@ -12376,14 +12371,13 @@ fn lua_window_effective_config_field_from_query(
         ));
     }
     if field == "visual_bell" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if !nested_rest.is_empty() {
             return None;
         }
-        let visual_bell_field = match nested_field {
+        let visual_bell_field = match nested_field.as_str() {
             "fade_in_duration_ms" => NativeLuaVisualBellField::FadeInDurationMs,
             "fade_out_duration_ms" => NativeLuaVisualBellField::FadeOutDurationMs,
             "fade_in_function" => NativeLuaVisualBellField::FadeInFunction,
@@ -12403,10 +12397,9 @@ fn lua_window_effective_config_field_from_query(
         return None;
     }
     if field == "resolved_palette" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if nested_field == "ansi" {
             let (index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
             if lua_trim_start_comments(rest)?.is_empty() {
@@ -12437,7 +12430,7 @@ fn lua_window_effective_config_field_from_query(
         if !nested_rest.is_empty() {
             return None;
         }
-        let palette_field = match nested_field {
+        let palette_field = match nested_field.as_str() {
             "foreground" => NativeLuaResolvedPaletteField::Foreground,
             "background" => NativeLuaResolvedPaletteField::Background,
             "cursor_bg" => NativeLuaResolvedPaletteField::CursorBg,
@@ -12454,10 +12447,9 @@ fn lua_window_effective_config_field_from_query(
         ));
     }
     if field == "foreground_text_hsb" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if nested_field == "hue" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::ForegroundTextHsbHue);
         }
@@ -12470,10 +12462,9 @@ fn lua_window_effective_config_field_from_query(
         return None;
     }
     if field == "inactive_pane_hsb" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let nested_field = lua_identifier_literal_from_query(rest)?;
-        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        let (nested_field, nested_rest) =
+            lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+        let nested_rest = lua_trim_start_comments(nested_rest)?;
         if nested_field == "hue" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::InactivePaneHsbHue);
         }
@@ -84143,6 +84134,32 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config visual_bell.target status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "bell-target=CursorColor");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_visual_bell_bracket_field_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.visual_bell = {
+              target = 'CursorColor',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('bell-target=' .. tostring(window:effective_config().visual_bell['target']))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config visual_bell bracket target status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();

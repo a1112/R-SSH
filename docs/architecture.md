@@ -2147,8 +2147,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().launch_menu[n].set_environment_variables.NAME` field concatenations for current
   effective config values, with default-program launch-menu items exposing the
   inherited or configured default command through `launch_menu[n].args[k]`;
-  top-level effective-config fields also accept static bracket string access
-  such as `window:effective_config()['default_prog'][1]`,
+  top-level and nested effective-config fields also accept static bracket
+  string access such as `window:effective_config()['default_prog'][1]` and
+  `window:effective_config().visual_bell['target']`,
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
