@@ -2568,9 +2568,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().text_blink_rate`,
   `window:effective_config().text_blink_rate_rapid`,
   `window:effective_config().text_blink_ease_in`,
-  `window:effective_config().text_blink_ease_out`, and
-  `window:effective_config().text_blink_rapid_ease_in` field concatenations for
-  current effective config values, and the documented
+  `window:effective_config().text_blink_ease_out`,
+  `window:effective_config().text_blink_rapid_ease_in`, and
+  `window:effective_config().text_blink_rapid_ease_out` field concatenations
+  for current effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`
   status example with static active/inactive strings, plus the documented
