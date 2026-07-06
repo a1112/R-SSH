@@ -1928,8 +1928,9 @@ runtime storage for tabs and split panes.
   `window:effective_config().enable_scroll_bar`,
   `window:effective_config().min_scroll_bar_height`,
   `window:effective_config().launch_menu[n].label`,
-  `window:effective_config().launch_menu[n].args[k]`, and
-  `window:effective_config().launch_menu[n].cwd` field concatenations expose current
+  `window:effective_config().launch_menu[n].args[k]`,
+  `window:effective_config().launch_menu[n].cwd`, and
+  `window:effective_config().launch_menu[n].set_environment_variables.NAME` field concatenations expose current
   effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back

@@ -10258,6 +10258,13 @@ fn lua_static_window_effective_config_status_text_from_query(
             static_source.max_start,
         )
     });
+    let launch_menu_env_variable = static_source.and_then(|static_source| {
+        lua_static_window_effective_config_launch_menu_env_variable_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )
+    });
     let mut parts = Vec::new();
     let mut has_dynamic_part = false;
 
@@ -10303,6 +10310,15 @@ fn lua_static_window_effective_config_status_text_from_query(
             .or_else(|| {
                 launch_menu_variable.as_ref().and_then(|variable| {
                     lua_static_window_effective_config_launch_menu_field_from_query(
+                        segment,
+                        variable,
+                        window_name,
+                    )
+                })
+            })
+            .or_else(|| {
+                launch_menu_env_variable.as_ref().and_then(|variable| {
+                    lua_static_window_effective_config_launch_menu_env_field_from_query(
                         segment,
                         variable,
                         window_name,
@@ -10457,6 +10473,12 @@ struct NativeLuaLaunchMenuVariableReference {
     index: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaLaunchMenuEnvVariableReference {
+    variable: String,
+    index: usize,
+}
+
 fn lua_static_window_effective_config_cell_widths_variable_before_offset(
     source: &str,
     window_name: &str,
@@ -10538,6 +10560,49 @@ fn lua_static_window_effective_config_launch_menu_variable_from_statement(
     let value = lua_top_level_statement_value_from_query(rest)?;
     let index = lua_window_effective_config_launch_menu_entry_from_query(value, window_name)?;
     Some(NativeLuaLaunchMenuVariableReference {
+        variable: variable.to_owned(),
+        index,
+    })
+}
+
+fn lua_static_window_effective_config_launch_menu_env_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<NativeLuaLaunchMenuEnvVariableReference> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_effective_config_launch_menu_env_variable_from_statement(
+                statement,
+                window_name,
+            )
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_effective_config_launch_menu_env_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<NativeLuaLaunchMenuEnvVariableReference> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    let index = lua_window_effective_config_launch_menu_env_from_query(value, window_name)?;
+    Some(NativeLuaLaunchMenuEnvVariableReference {
         variable: variable.to_owned(),
         index,
     })
@@ -10669,6 +10734,46 @@ fn lua_window_effective_config_launch_menu_entry_from_query(
     let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
     let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
     lua_trim_start_comments(rest)?.is_empty().then_some(index)
+}
+
+fn lua_window_effective_config_launch_menu_env_from_query(
+    value: &str,
+    window_name: &str,
+) -> Option<usize> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "effective_config" || !lua_config_assignment_field_has_boundaries(rest, 0, method)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if field != "launch_menu" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
+    let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let nested_field = lua_identifier_literal_from_query(rest)?;
+    if nested_field != "set_environment_variables" {
+        return None;
+    }
+    lua_trim_start_comments(rest.get(nested_field.len()..)?)?
+        .is_empty()
+        .then_some(index)
 }
 
 fn lua_static_window_effective_config_field_from_query(
@@ -10807,6 +10912,36 @@ fn lua_static_window_effective_config_launch_menu_field_from_query(
     }
     let synthetic = format!(
         "{window_name}:effective_config().launch_menu[{}]{rest}",
+        variable.index
+    );
+    lua_window_effective_config_field_from_query(&synthetic, window_name)
+}
+
+fn lua_static_window_effective_config_launch_menu_env_field_from_query(
+    value: &str,
+    variable: &NativeLuaLaunchMenuEnvVariableReference,
+    window_name: &str,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(&variable.variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let synthetic = format!(
+        "{window_name}:effective_config().launch_menu[{}].set_environment_variables{rest}",
         variable.index
     );
     lua_window_effective_config_field_from_query(&synthetic, window_name)
@@ -12055,6 +12190,15 @@ fn lua_window_effective_config_field_from_query(
                 return Some(NativeLuaWindowEffectiveConfigField::LaunchMenu(
                     index,
                     NativeLuaLaunchMenuField::Arg(arg_index),
+                ));
+            }
+        }
+        if nested_field == "set_environment_variables" {
+            let (name, rest) = lua_table_map_field_key_from_query(nested_rest)?;
+            if lua_trim_start_comments(rest)?.is_empty() {
+                return Some(NativeLuaWindowEffectiveConfigField::LaunchMenu(
+                    index,
+                    NativeLuaLaunchMenuField::SetEnvironmentVariable(name),
                 ));
             }
         }
@@ -27418,11 +27562,12 @@ enum NativeLuaCellWidthOverrideField {
     Width,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaLaunchMenuField {
     Label,
     Arg(usize),
     Cwd,
+    SetEnvironmentVariable(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44173,6 +44318,14 @@ impl NativeWindowApp {
                         }
                         NativeLaunchMenuCommand::Options(options) => {
                             options.cwd.clone().unwrap_or_default()
+                        }
+                    },
+                    NativeLuaLaunchMenuField::SetEnvironmentVariable(name) => match &item.command {
+                        NativeLaunchMenuCommand::Command(command) => {
+                            command.environment.get(&name).cloned().unwrap_or_default()
+                        }
+                        NativeLaunchMenuCommand::Options(options) => {
+                            options.environment.get(&name).cloned().unwrap_or_default()
                         }
                     },
                 })
@@ -84029,6 +84182,43 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "program=top arg=-H cwd=/tmp/project");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_launch_menu_environment_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'Project Shell',
+                args = { 'nu' },
+                set_environment_variables = {
+                  PROJECT_MODE = 'dev',
+                  FEATURE_FLAG = 'on',
+                },
+              },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local env = window:effective_config().launch_menu[1].set_environment_variables
+              window:set_right_status(
+                'mode=' .. tostring(env.PROJECT_MODE) ..
+                ' flag=' .. tostring(env['FEATURE_FLAG'])
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config launch_menu environment status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mode=dev flag=on");
     }
 
     #[test]

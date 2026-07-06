@@ -2772,8 +2772,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().enable_scroll_bar`,
   `window:effective_config().min_scroll_bar_height`,
   `window:effective_config().launch_menu[n].label`,
-  `window:effective_config().launch_menu[n].args[k]`, and
-  `window:effective_config().launch_menu[n].cwd` field concatenations for current
+  `window:effective_config().launch_menu[n].args[k]`,
+  `window:effective_config().launch_menu[n].cwd`, and
+  `window:effective_config().launch_menu[n].set_environment_variables.NAME` field concatenations for current
   effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`
