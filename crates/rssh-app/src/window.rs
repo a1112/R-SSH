@@ -11373,7 +11373,21 @@ fn lua_window_effective_config_field_from_query(
         "hide_mouse_cursor_when_typing" => {
             Some(NativeLuaWindowEffectiveConfigField::HideMouseCursorWhenTyping)
         }
+        "default_mux_server_domain" => {
+            Some(NativeLuaWindowEffectiveConfigField::DefaultMuxServerDomain)
+        }
+        "ratelimit_mux_line_prefetches_per_second" => {
+            Some(NativeLuaWindowEffectiveConfigField::RatelimitMuxLinePrefetchesPerSecond)
+        }
+        "mux_output_parser_buffer_size" => {
+            Some(NativeLuaWindowEffectiveConfigField::MuxOutputParserBufferSize)
+        }
+        "mux_output_parser_coalesce_delay_ms" => {
+            Some(NativeLuaWindowEffectiveConfigField::MuxOutputParserCoalesceDelayMs)
+        }
         "periodic_stat_logging" => Some(NativeLuaWindowEffectiveConfigField::PeriodicStatLogging),
+        "ulimit_nofile" => Some(NativeLuaWindowEffectiveConfigField::UlimitNofile),
+        "ulimit_nproc" => Some(NativeLuaWindowEffectiveConfigField::UlimitNproc),
         "scroll_to_bottom_on_input" => {
             Some(NativeLuaWindowEffectiveConfigField::ScrollToBottomOnInput)
         }
@@ -26096,7 +26110,13 @@ enum NativeLuaWindowEffectiveConfigField {
     TextBlinkRapidEaseIn,
     TextBlinkRapidEaseOut,
     HideMouseCursorWhenTyping,
+    DefaultMuxServerDomain,
+    RatelimitMuxLinePrefetchesPerSecond,
+    MuxOutputParserBufferSize,
+    MuxOutputParserCoalesceDelayMs,
     PeriodicStatLogging,
+    UlimitNofile,
+    UlimitNproc,
     ScrollToBottomOnInput,
     UseIme,
     XimImName,
@@ -42587,9 +42607,23 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::HideMouseCursorWhenTyping => {
                 self.hide_mouse_cursor_when_typing.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::DefaultMuxServerDomain => {
+                self.default_mux_server_domain.clone().unwrap_or_default()
+            }
+            NativeLuaWindowEffectiveConfigField::RatelimitMuxLinePrefetchesPerSecond => {
+                self.ratelimit_mux_line_prefetches_per_second.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::MuxOutputParserBufferSize => {
+                self.mux_output_parser_buffer_size.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::MuxOutputParserCoalesceDelayMs => {
+                self.mux_output_parser_coalesce_delay_ms.to_string()
+            }
             NativeLuaWindowEffectiveConfigField::PeriodicStatLogging => {
                 self.periodic_stat_logging.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::UlimitNofile => self.ulimit_nofile.to_string(),
+            NativeLuaWindowEffectiveConfigField::UlimitNproc => self.ulimit_nproc.to_string(),
             NativeLuaWindowEffectiveConfigField::ScrollToBottomOnInput => {
                 self.scroll_to_bottom_on_input.to_string()
             }
@@ -80621,6 +80655,150 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "stats=15");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_default_mux_server_domain_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_mux_server_domain = 'mux-main'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('mux-domain=' .. tostring(window:effective_config().default_mux_server_domain))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_mux_server_domain status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mux-domain=mux-main");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_ratelimit_mux_line_prefetches_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.ratelimit_mux_line_prefetches_per_second = 12
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('mux-prefetch=' .. tostring(window:effective_config().ratelimit_mux_line_prefetches_per_second))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config ratelimit mux prefetch status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mux-prefetch=12");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_mux_output_parser_buffer_size_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.mux_output_parser_buffer_size = 4096
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('mux-buffer=' .. tostring(window:effective_config().mux_output_parser_buffer_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config mux parser buffer status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mux-buffer=4096");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_mux_output_parser_coalesce_delay_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.mux_output_parser_coalesce_delay_ms = 7
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('mux-coalesce=' .. tostring(window:effective_config().mux_output_parser_coalesce_delay_ms))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config mux parser coalesce status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "mux-coalesce=7");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_ulimit_nofile_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.ulimit_nofile = 4096
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('nofile=' .. tostring(window:effective_config().ulimit_nofile))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config ulimit_nofile status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "nofile=4096");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_ulimit_nproc_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.ulimit_nproc = 8192
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('nproc=' .. tostring(window:effective_config().ulimit_nproc))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config ulimit_nproc status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "nproc=8192");
     }
 
     #[test]
