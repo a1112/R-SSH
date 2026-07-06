@@ -11637,6 +11637,7 @@ fn lua_window_effective_config_field_from_query(
         "status_update_interval" => Some(NativeLuaWindowEffectiveConfigField::StatusUpdateInterval),
         "tab_max_width" => Some(NativeLuaWindowEffectiveConfigField::TabMaxWidth),
         "dpi" => Some(NativeLuaWindowEffectiveConfigField::Dpi),
+        "color_scheme" => Some(NativeLuaWindowEffectiveConfigField::ColorScheme),
         "max_fps" => Some(NativeLuaWindowEffectiveConfigField::MaxFps),
         "animation_fps" => Some(NativeLuaWindowEffectiveConfigField::AnimationFps),
         "front_end" => Some(NativeLuaWindowEffectiveConfigField::FrontEnd),
@@ -26465,6 +26466,7 @@ enum NativeLuaWindowEffectiveConfigField {
     TabMaxWidth,
     Dpi,
     DpiByScreen(String),
+    ColorScheme,
     MaxFps,
     AnimationFps,
     FrontEnd,
@@ -43003,6 +43005,9 @@ impl NativeWindowApp {
                 .get(&name)
                 .map(|dpi| dpi.to_string())
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::ColorScheme => {
+                self.color_scheme.clone().unwrap_or_default()
+            }
             NativeLuaWindowEffectiveConfigField::MaxFps => self.max_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::AnimationFps => self.animation_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::FrontEnd => {
@@ -82674,6 +82679,36 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "scheme-dir=/opt/wezterm/colors");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_color_scheme_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme = 'Project Scheme'
+            config.color_schemes = {
+              ['Project Scheme'] = {
+                foreground = '#101112',
+                background = '#131415',
+              },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('scheme=' .. tostring(window:effective_config().color_scheme))
+            end)
+
+            return config
+            "##,
+        )
+        .expect("expected WezTerm effective_config color_scheme status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "scheme=Project Scheme");
     }
 
     #[test]

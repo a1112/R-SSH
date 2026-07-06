@@ -1720,6 +1720,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().dpi`,
   `window:effective_config().dpi_by_screen.NAME`,
   `window:effective_config().dpi_by_screen['SCREEN-NAME']`,
+  `window:effective_config().color_scheme`,
   `window:effective_config().max_fps`,
   `window:effective_config().animation_fps`,
   `window:effective_config().front_end`,
