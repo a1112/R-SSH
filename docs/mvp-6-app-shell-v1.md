@@ -1738,6 +1738,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().check_for_updates`,
   `window:effective_config().show_update_window`,
   `window:effective_config().check_for_updates_interval_seconds`,
+  `window:effective_config().enable_title_reporting`,
   `window:effective_config().enable_csi_u_key_encoding`,
   `window:effective_config().enable_kitty_keyboard`,
   `window:effective_config().window_close_confirmation`,
