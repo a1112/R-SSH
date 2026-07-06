@@ -1886,6 +1886,77 @@ impl NativeStrikethroughPosition {
     }
 }
 
+fn native_ratio_config_text(value: f64) -> String {
+    let mut text = format!("{value:.3}");
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.pop();
+    }
+    text
+}
+
+fn native_cell_fraction_config_text(per_mille: u32) -> String {
+    format!(
+        "{}cell",
+        native_ratio_config_text(f64::from(per_mille) / 1_000.0)
+    )
+}
+
+fn native_signed_cell_fraction_config_text(per_mille: i32) -> String {
+    let text = native_cell_fraction_config_text(per_mille.unsigned_abs());
+    if per_mille < 0 {
+        format!("-{text}")
+    } else {
+        text
+    }
+}
+
+fn native_cursor_thickness_config_text(value: NativeCursorThickness) -> String {
+    match value {
+        NativeCursorThickness::Pixels(pixels) => format!("{pixels}px"),
+        NativeCursorThickness::Points(points) => format!("{points}pt"),
+        NativeCursorThickness::Percent(percent) => format!("{percent}%"),
+        NativeCursorThickness::CellFractionPerMille(per_mille) => {
+            native_cell_fraction_config_text(per_mille)
+        }
+    }
+}
+
+fn native_underline_thickness_config_text(value: NativeUnderlineThickness) -> String {
+    match value {
+        NativeUnderlineThickness::Pixels(pixels) => format!("{pixels}px"),
+        NativeUnderlineThickness::Points(points) => format!("{points}pt"),
+        NativeUnderlineThickness::Percent(percent) => format!("{percent}%"),
+        NativeUnderlineThickness::CellFractionPerMille(per_mille) => {
+            native_cell_fraction_config_text(per_mille)
+        }
+    }
+}
+
+fn native_underline_position_config_text(value: NativeUnderlinePosition) -> String {
+    match value {
+        NativeUnderlinePosition::Pixels(pixels) => format!("{pixels}px"),
+        NativeUnderlinePosition::Points(points) => format!("{points}pt"),
+        NativeUnderlinePosition::Percent(percent) => format!("{percent}%"),
+        NativeUnderlinePosition::CellFractionPerMille(per_mille) => {
+            native_signed_cell_fraction_config_text(per_mille)
+        }
+    }
+}
+
+fn native_strikethrough_position_config_text(value: NativeStrikethroughPosition) -> String {
+    match value {
+        NativeStrikethroughPosition::Pixels(pixels) => format!("{pixels}px"),
+        NativeStrikethroughPosition::Points(points) => format!("{points}pt"),
+        NativeStrikethroughPosition::Percent(percent) => format!("{percent}%"),
+        NativeStrikethroughPosition::CellFractionPerMille(per_mille) => {
+            native_cell_fraction_config_text(per_mille)
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[allow(dead_code)]
 enum NativeWindowCloseConfirmation {
@@ -11386,6 +11457,8 @@ fn lua_window_effective_config_field_from_query(
         "ignore_svg_fonts" => Some(NativeLuaWindowEffectiveConfigField::IgnoreSvgFonts),
         "bidi_enabled" => Some(NativeLuaWindowEffectiveConfigField::BidiEnabled),
         "bidi_direction" => Some(NativeLuaWindowEffectiveConfigField::BidiDirection),
+        "cell_width" => Some(NativeLuaWindowEffectiveConfigField::CellWidth),
+        "line_height" => Some(NativeLuaWindowEffectiveConfigField::LineHeight),
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         "line_quad_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineQuadCacheSize),
@@ -11407,6 +11480,12 @@ fn lua_window_effective_config_field_from_query(
         }
         "text_blink_rapid_ease_out" => {
             Some(NativeLuaWindowEffectiveConfigField::TextBlinkRapidEaseOut)
+        }
+        "cursor_thickness" => Some(NativeLuaWindowEffectiveConfigField::CursorThickness),
+        "underline_thickness" => Some(NativeLuaWindowEffectiveConfigField::UnderlineThickness),
+        "underline_position" => Some(NativeLuaWindowEffectiveConfigField::UnderlinePosition),
+        "strikethrough_position" => {
+            Some(NativeLuaWindowEffectiveConfigField::StrikethroughPosition)
         }
         "hide_mouse_cursor_when_typing" => {
             Some(NativeLuaWindowEffectiveConfigField::HideMouseCursorWhenTyping)
@@ -26139,6 +26218,8 @@ enum NativeLuaWindowEffectiveConfigField {
     IgnoreSvgFonts,
     BidiEnabled,
     BidiDirection,
+    CellWidth,
+    LineHeight,
     ShapeCacheSize,
     LineStateCacheSize,
     LineQuadCacheSize,
@@ -26153,6 +26234,10 @@ enum NativeLuaWindowEffectiveConfigField {
     TextBlinkEaseOut,
     TextBlinkRapidEaseIn,
     TextBlinkRapidEaseOut,
+    CursorThickness,
+    UnderlineThickness,
+    UnderlinePosition,
+    StrikethroughPosition,
     HideMouseCursorWhenTyping,
     DefaultMuxServerDomain,
     RatelimitMuxLinePrefetchesPerSecond,
@@ -42630,6 +42715,12 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::BidiDirection => {
                 self.bidi_direction.as_wezterm_config_value().to_owned()
             }
+            NativeLuaWindowEffectiveConfigField::CellWidth => {
+                native_ratio_config_text(self.cell_width.as_f64())
+            }
+            NativeLuaWindowEffectiveConfigField::LineHeight => {
+                native_ratio_config_text(self.line_height.as_f64())
+            }
             NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
                 self.shape_cache_size.to_string()
             }
@@ -42672,6 +42763,22 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::TextBlinkRapidEaseOut => {
                 self.text_blink_rapid_ease_out.config_text().to_string()
             }
+            NativeLuaWindowEffectiveConfigField::CursorThickness => self
+                .cursor_thickness
+                .map(native_cursor_thickness_config_text)
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::UnderlineThickness => self
+                .underline_thickness
+                .map(native_underline_thickness_config_text)
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::UnderlinePosition => self
+                .underline_position
+                .map(native_underline_position_config_text)
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::StrikethroughPosition => self
+                .strikethrough_position
+                .map(native_strikethrough_position_config_text)
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::HideMouseCursorWhenTyping => {
                 self.hide_mouse_cursor_when_typing.to_string()
             }
@@ -80448,6 +80555,54 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_update_status_cell_width_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cell_width = 1.25
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cell-width=' .. tostring(window:effective_config().cell_width))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config cell_width status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cell-width=1.25");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_line_height_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.line_height = 1.5
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('line-height=' .. tostring(window:effective_config().line_height))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config line_height status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "line-height=1.5");
+    }
+
+    #[test]
     fn window_app_parses_update_status_glyph_cache_image_cache_status_setter() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -80685,6 +80840,102 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "rapid-ease-out=Constant");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_cursor_thickness_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cursor_thickness = '25%'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cursor-thickness=' .. tostring(window:effective_config().cursor_thickness))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config cursor_thickness status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cursor-thickness=25%");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_underline_thickness_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.underline_thickness = '2px'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('underline-thickness=' .. tostring(window:effective_config().underline_thickness))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config underline_thickness status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "underline-thickness=2px");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_underline_position_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.underline_position = '-2px'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('underline-position=' .. tostring(window:effective_config().underline_position))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config underline_position status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "underline-position=-2px");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_strikethrough_position_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.strikethrough_position = '0.5cell'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('strike-position=' .. tostring(window:effective_config().strikethrough_position))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config strikethrough_position status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "strike-position=0.5cell");
     }
 
     #[test]
