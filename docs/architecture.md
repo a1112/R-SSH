@@ -1936,8 +1936,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().cursor_blink_ease_out`,
   `window:effective_config().text_blink_rate`,
   `window:effective_config().text_blink_rate_rapid`,
-  `window:effective_config().text_blink_ease_in`, and
-  `window:effective_config().text_blink_ease_out` field concatenations for
+  `window:effective_config().text_blink_ease_in`,
+  `window:effective_config().text_blink_ease_out`, and
+  `window:effective_config().text_blink_rapid_ease_in` field concatenations for
   current effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented

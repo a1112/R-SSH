@@ -11156,6 +11156,9 @@ fn lua_window_effective_config_field_from_query(
         "text_blink_rate_rapid" => Some(NativeLuaWindowEffectiveConfigField::TextBlinkRateRapid),
         "text_blink_ease_in" => Some(NativeLuaWindowEffectiveConfigField::TextBlinkEaseIn),
         "text_blink_ease_out" => Some(NativeLuaWindowEffectiveConfigField::TextBlinkEaseOut),
+        "text_blink_rapid_ease_in" => {
+            Some(NativeLuaWindowEffectiveConfigField::TextBlinkRapidEaseIn)
+        }
         _ => None,
     }
 }
@@ -25684,6 +25687,7 @@ enum NativeLuaWindowEffectiveConfigField {
     TextBlinkRateRapid,
     TextBlinkEaseIn,
     TextBlinkEaseOut,
+    TextBlinkRapidEaseIn,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42065,6 +42069,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::TextBlinkEaseOut => {
                 self.text_blink_ease_out.config_text().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::TextBlinkRapidEaseIn => {
+                self.text_blink_rapid_ease_in.config_text().to_string()
             }
         }
     }
@@ -79697,6 +79704,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "text-ease-out=EaseOut");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_text_blink_rapid_ease_in_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.text_blink_rapid_ease_in = 'EaseInOut'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('rapid-ease-in=' .. tostring(window:effective_config().text_blink_rapid_ease_in))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config text_blink_rapid_ease_in status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "rapid-ease-in=EaseInOut");
     }
 
     #[test]
