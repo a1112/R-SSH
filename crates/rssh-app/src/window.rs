@@ -11120,6 +11120,7 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::WebGpuForceFallbackAdapter)
         }
         "prefer_egl" => Some(NativeLuaWindowEffectiveConfigField::PreferEgl),
+        "enable_wayland" => Some(NativeLuaWindowEffectiveConfigField::EnableWayland),
         _ => None,
     }
 }
@@ -25632,6 +25633,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WebGpuPowerPreference,
     WebGpuForceFallbackAdapter,
     PreferEgl,
+    EnableWayland,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41968,6 +41970,7 @@ impl NativeWindowApp {
                 self.webgpu_force_fallback_adapter.to_string()
             }
             NativeLuaWindowEffectiveConfigField::PreferEgl => self.prefer_egl.to_string(),
+            NativeLuaWindowEffectiveConfigField::EnableWayland => self.enable_wayland.to_string(),
         }
     }
 
@@ -79213,6 +79216,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "egl=false");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_enable_wayland_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_wayland = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('wayland=' .. tostring(window:effective_config().enable_wayland))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config enable_wayland status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "wayland=false");
     }
 
     #[test]
