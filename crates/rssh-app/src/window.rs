@@ -11116,6 +11116,9 @@ fn lua_window_effective_config_field_from_query(
         "webgpu_power_preference" => {
             Some(NativeLuaWindowEffectiveConfigField::WebGpuPowerPreference)
         }
+        "webgpu_force_fallback_adapter" => {
+            Some(NativeLuaWindowEffectiveConfigField::WebGpuForceFallbackAdapter)
+        }
         _ => None,
     }
 }
@@ -25626,6 +25629,7 @@ enum NativeLuaWindowEffectiveConfigField {
     AnimationFps,
     FrontEnd,
     WebGpuPowerPreference,
+    WebGpuForceFallbackAdapter,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41958,6 +41962,9 @@ impl NativeWindowApp {
                 .webgpu_power_preference
                 .as_wezterm_config_str()
                 .to_owned(),
+            NativeLuaWindowEffectiveConfigField::WebGpuForceFallbackAdapter => {
+                self.webgpu_force_fallback_adapter.to_string()
+            }
         }
     }
 
@@ -79155,6 +79162,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "power=HighPerformance");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_webgpu_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.webgpu_force_fallback_adapter = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('fallback=' .. tostring(window:effective_config().webgpu_force_fallback_adapter))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config webgpu_force_fallback_adapter status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "fallback=true");
     }
 
     #[test]
