@@ -11131,6 +11131,9 @@ fn lua_window_effective_config_field_from_query(
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         "line_quad_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineQuadCacheSize),
+        "line_to_ele_shape_cache_size" => {
+            Some(NativeLuaWindowEffectiveConfigField::LineToEleShapeCacheSize)
+        }
         _ => None,
     }
 }
@@ -25650,6 +25653,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ShapeCacheSize,
     LineStateCacheSize,
     LineQuadCacheSize,
+    LineToEleShapeCacheSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42004,6 +42008,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::LineQuadCacheSize => {
                 self.line_quad_cache_size.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::LineToEleShapeCacheSize => {
+                self.line_to_ele_shape_cache_size.to_string()
             }
         }
     }
@@ -79420,6 +79427,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "line-quad=768");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_line_to_ele_shape_cache_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.line_to_ele_shape_cache_size = 1536
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('line-to-ele=' .. tostring(window:effective_config().line_to_ele_shape_cache_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config line_to_ele_shape_cache_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "line-to-ele=1536");
     }
 
     #[test]

@@ -1927,8 +1927,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().use_box_model_render`,
   `window:effective_config().experimental_pixel_positioning`,
   `window:effective_config().shape_cache_size`,
-  `window:effective_config().line_state_cache_size`, and
-  `window:effective_config().line_quad_cache_size` field concatenations for current
+  `window:effective_config().line_state_cache_size`,
+  `window:effective_config().line_quad_cache_size`, and
+  `window:effective_config().line_to_ele_shape_cache_size` field concatenations for current
   effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
