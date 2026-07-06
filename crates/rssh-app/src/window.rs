@@ -2187,6 +2187,15 @@ impl NativeCanonicalizePastedNewlines {
             _ => None,
         }
     }
+
+    fn config_text(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::LineFeed => "LineFeed",
+            Self::CarriageReturn => "CarriageReturn",
+            Self::CarriageReturnAndLineFeed => "CarriageReturnAndLineFeed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -2209,6 +2218,16 @@ impl NativeQuoteDroppedFiles {
             "Windows" => Some(Self::Windows),
             "WindowsAlwaysQuoted" => Some(Self::WindowsAlwaysQuoted),
             _ => None,
+        }
+    }
+
+    fn config_text(self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::SpacesOnly => "SpacesOnly",
+            Self::Posix => "Posix",
+            Self::Windows => "Windows",
+            Self::WindowsAlwaysQuoted => "WindowsAlwaysQuoted",
         }
     }
 }
@@ -11442,6 +11461,16 @@ fn lua_window_effective_config_field_from_query(
         }
         "text_min_contrast_ratio" => {
             Some(NativeLuaWindowEffectiveConfigField::TextMinContrastRatio)
+        }
+        "canonicalize_pasted_newlines" => {
+            Some(NativeLuaWindowEffectiveConfigField::CanonicalizePastedNewlines)
+        }
+        "quote_dropped_files" => Some(NativeLuaWindowEffectiveConfigField::QuoteDroppedFiles),
+        "disable_default_key_bindings" => {
+            Some(NativeLuaWindowEffectiveConfigField::DisableDefaultKeyBindings)
+        }
+        "disable_default_mouse_bindings" => {
+            Some(NativeLuaWindowEffectiveConfigField::DisableDefaultMouseBindings)
         }
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
@@ -26063,6 +26092,10 @@ enum NativeLuaWindowEffectiveConfigField {
     ForceReverseVideoCursor,
     ReverseVideoCursorMinContrast,
     TextMinContrastRatio,
+    CanonicalizePastedNewlines,
+    QuoteDroppedFiles,
+    DisableDefaultKeyBindings,
+    DisableDefaultMouseBindings,
     EnableScrollBar,
     MinScrollBarHeight,
     CustomBlockGlyphs,
@@ -42647,6 +42680,18 @@ impl NativeWindowApp {
                 .text_min_contrast_ratio
                 .map(|ratio| ratio.as_f64().to_string())
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CanonicalizePastedNewlines => {
+                self.canonicalize_pasted_newlines.config_text().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::QuoteDroppedFiles => {
+                self.quote_dropped_files.config_text().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::DisableDefaultKeyBindings => {
+                self.disable_default_key_bindings.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::DisableDefaultMouseBindings => {
+                self.disable_default_mouse_bindings.to_string()
+            }
             NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
                 self.enable_scroll_bar.to_string()
             }
@@ -81779,6 +81824,102 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "text-contrast=4.5");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_canonicalize_pasted_newlines_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.canonicalize_pasted_newlines = 'CarriageReturnAndLineFeed'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('paste-newlines=' .. tostring(window:effective_config().canonicalize_pasted_newlines))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config canonicalize_pasted_newlines status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "paste-newlines=CarriageReturnAndLineFeed");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_quote_dropped_files_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.quote_dropped_files = 'Posix'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('quote-drop=' .. tostring(window:effective_config().quote_dropped_files))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config quote_dropped_files status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "quote-drop=Posix");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_disable_default_key_bindings_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.disable_default_key_bindings = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('disable-keys=' .. tostring(window:effective_config().disable_default_key_bindings))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config disable_default_key_bindings status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "disable-keys=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_disable_default_mouse_bindings_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.disable_default_mouse_bindings = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('disable-mouse=' .. tostring(window:effective_config().disable_default_mouse_bindings))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config disable_default_mouse_bindings status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "disable-mouse=true");
     }
 
     #[test]
