@@ -10074,9 +10074,12 @@ fn lua_static_window_status_text_from_query(
     if let Some(status) = lua_static_window_id_status_text_from_query(window_name, argument) {
         return Some(status);
     }
-    if let Some(status) =
-        lua_static_window_and_pane_status_text_from_query(window_name, pane_name, argument)
-    {
+    if let Some(status) = lua_static_window_and_pane_status_text_from_query(
+        static_source,
+        window_name,
+        pane_name,
+        argument,
+    ) {
         return Some(status);
     }
     if let Some(status) = lua_window_status_method_text_from_query(argument, window_name) {
@@ -10115,6 +10118,7 @@ fn lua_static_window_id_status_text_from_query(
 }
 
 fn lua_static_window_and_pane_status_text_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     pane_name: &str,
     value: &str,
@@ -10125,70 +10129,20 @@ fn lua_static_window_and_pane_status_text_from_query(
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
         let segment = lua_tostring_argument_from_query(segment).unwrap_or(segment);
-        if lua_window_zero_arg_method_name_from_query(segment, window_name)
-            == Some("active_workspace")
+        if let Some(part) =
+            lua_static_window_and_pane_status_part_from_query(segment, window_name, pane_name)
+                .or_else(|| {
+                    static_source.and_then(|static_source| {
+                        lua_static_window_and_pane_status_part_variable_from_query(
+                            static_source,
+                            segment,
+                            window_name,
+                            pane_name,
+                        )
+                    })
+                })
         {
-            parts.push(NativeLuaWindowPaneStatusPart::ActiveWorkspace);
-            has_dynamic_part = true;
-        } else if lua_window_zero_arg_method_name_from_query(segment, window_name)
-            == Some("window_id")
-        {
-            parts.push(NativeLuaWindowPaneStatusPart::WindowId);
-            has_dynamic_part = true;
-        } else if let Some(method) =
-            lua_window_active_tab_zero_arg_method_name_from_query(segment, window_name)
-        {
-            match method {
-                "tab_id" => parts.push(NativeLuaWindowPaneStatusPart::ActiveTabId),
-                "get_title" => parts.push(NativeLuaWindowPaneStatusPart::ActiveTabTitle),
-                _ => return None,
-            }
-            has_dynamic_part = true;
-        } else if let Some(method) =
-            lua_window_active_pane_zero_arg_method_name_from_query(segment, window_name)
-        {
-            match method {
-                "pane_id" => parts.push(NativeLuaWindowPaneStatusPart::PaneId),
-                "get_title" => parts.push(NativeLuaWindowPaneStatusPart::PaneTitle),
-                "get_domain_name" => parts.push(NativeLuaWindowPaneStatusPart::PaneDomainName),
-                "get_current_working_dir" => {
-                    parts.push(NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir);
-                }
-                "get_foreground_process_name" => {
-                    parts.push(NativeLuaWindowPaneStatusPart::PaneForegroundProcessName);
-                }
-                "get_tty_name" => parts.push(NativeLuaWindowPaneStatusPart::PaneTtyName),
-                _ => return None,
-            }
-            has_dynamic_part = true;
-        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
-        {
-            parts.push(NativeLuaWindowPaneStatusPart::PaneId);
-            has_dynamic_part = true;
-        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
-            == Some("get_title")
-        {
-            parts.push(NativeLuaWindowPaneStatusPart::PaneTitle);
-            has_dynamic_part = true;
-        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
-            == Some("get_domain_name")
-        {
-            parts.push(NativeLuaWindowPaneStatusPart::PaneDomainName);
-            has_dynamic_part = true;
-        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
-            == Some("get_current_working_dir")
-        {
-            parts.push(NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir);
-            has_dynamic_part = true;
-        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
-            == Some("get_foreground_process_name")
-        {
-            parts.push(NativeLuaWindowPaneStatusPart::PaneForegroundProcessName);
-            has_dynamic_part = true;
-        } else if lua_window_zero_arg_method_name_from_query(segment, pane_name)
-            == Some("get_tty_name")
-        {
-            parts.push(NativeLuaWindowPaneStatusPart::PaneTtyName);
+            parts.push(part);
             has_dynamic_part = true;
         } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
             parts.push(NativeLuaWindowPaneStatusPart::Static(text));
@@ -10198,6 +10152,84 @@ fn lua_static_window_and_pane_status_text_from_query(
     }
 
     has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowPane { parts })
+}
+
+fn lua_static_window_and_pane_status_part_variable_from_query(
+    static_source: LuaStaticSource<'_>,
+    value: &str,
+    window_name: &str,
+    pane_name: &str,
+) -> Option<NativeLuaWindowPaneStatusPart> {
+    let variable = lua_identifier_literal_from_query(value)?;
+    let rest = value.get(variable.len()..)?;
+    if !lua_static_identifier_value_rest_is_statement_end(rest) {
+        return None;
+    }
+    let assignment = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        variable,
+        static_source.max_start,
+    )?;
+    let assignment = lua_tostring_argument_from_query(assignment).unwrap_or(assignment);
+    lua_static_window_and_pane_status_part_from_query(assignment, window_name, pane_name)
+}
+
+fn lua_static_window_and_pane_status_part_from_query(
+    value: &str,
+    window_name: &str,
+    pane_name: &str,
+) -> Option<NativeLuaWindowPaneStatusPart> {
+    if lua_window_zero_arg_method_name_from_query(value, window_name) == Some("active_workspace") {
+        return Some(NativeLuaWindowPaneStatusPart::ActiveWorkspace);
+    }
+    if lua_window_zero_arg_method_name_from_query(value, window_name) == Some("window_id") {
+        return Some(NativeLuaWindowPaneStatusPart::WindowId);
+    }
+    if let Some(method) = lua_window_active_tab_zero_arg_method_name_from_query(value, window_name)
+    {
+        return match method {
+            "tab_id" => Some(NativeLuaWindowPaneStatusPart::ActiveTabId),
+            "get_title" => Some(NativeLuaWindowPaneStatusPart::ActiveTabTitle),
+            _ => None,
+        };
+    }
+    if let Some(method) = lua_window_active_pane_zero_arg_method_name_from_query(value, window_name)
+    {
+        return match method {
+            "pane_id" => Some(NativeLuaWindowPaneStatusPart::PaneId),
+            "get_title" => Some(NativeLuaWindowPaneStatusPart::PaneTitle),
+            "get_domain_name" => Some(NativeLuaWindowPaneStatusPart::PaneDomainName),
+            "get_current_working_dir" => Some(NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir),
+            "get_foreground_process_name" => {
+                Some(NativeLuaWindowPaneStatusPart::PaneForegroundProcessName)
+            }
+            "get_tty_name" => Some(NativeLuaWindowPaneStatusPart::PaneTtyName),
+            _ => None,
+        };
+    }
+    if lua_window_zero_arg_method_name_from_query(value, pane_name) == Some("pane_id") {
+        return Some(NativeLuaWindowPaneStatusPart::PaneId);
+    }
+    if lua_window_zero_arg_method_name_from_query(value, pane_name) == Some("get_title") {
+        return Some(NativeLuaWindowPaneStatusPart::PaneTitle);
+    }
+    if lua_window_zero_arg_method_name_from_query(value, pane_name) == Some("get_domain_name") {
+        return Some(NativeLuaWindowPaneStatusPart::PaneDomainName);
+    }
+    if lua_window_zero_arg_method_name_from_query(value, pane_name)
+        == Some("get_current_working_dir")
+    {
+        return Some(NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir);
+    }
+    if lua_window_zero_arg_method_name_from_query(value, pane_name)
+        == Some("get_foreground_process_name")
+    {
+        return Some(NativeLuaWindowPaneStatusPart::PaneForegroundProcessName);
+    }
+    if lua_window_zero_arg_method_name_from_query(value, pane_name) == Some("get_tty_name") {
+        return Some(NativeLuaWindowPaneStatusPart::PaneTtyName);
+    }
+    None
 }
 
 fn lua_tostring_argument_from_query(value: &str) -> Option<&str> {
@@ -81417,6 +81449,29 @@ mod tests {
 
         assert_eq!(app.app_shell.active_workspace().name(), "ops");
         assert_eq!(app.right_status, "ops");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_active_workspace_alias_concat_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let mut overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local ws = window:active_workspace()
+              window:set_right_status('ws=' .. ws)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active workspace alias concat status setter");
+        overrides.default_workspace = Some("ops".to_owned());
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.app_shell.active_workspace().name(), "ops");
+        assert_eq!(app.right_status, "ws=ops");
     }
 
     #[test]

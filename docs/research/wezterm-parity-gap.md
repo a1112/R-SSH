@@ -2519,7 +2519,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   static string-variable/concatenated `window:set_left_status(...)` /
   `window:set_right_status(...)` arguments, documented
   `window:active_workspace()` and `tostring(window:active_workspace())`
-  status arguments and static concatenations,
+  status arguments and static concatenations, including callback-local aliases
+  such as `local ws = window:active_workspace()` feeding static concatenations,
   static string concatenations with `window:window_id()`,
   `window:active_tab():tab_id()`/`get_title()`,
   `window:active_pane():pane_id()`/`get_title()`/`get_domain_name()`/

@@ -1886,7 +1886,9 @@ keyboard, mouse, paste, resize
   the documented `window:set_right_status(window:active_workspace())` and
   `window:set_right_status(tostring(window:active_workspace()))` shapes,
   static string concatenations with `window:active_workspace()` or
-  `tostring(window:active_workspace())`, plus static string concatenations
+  `tostring(window:active_workspace())`, callback-local aliases such as
+  `local ws = window:active_workspace()` feeding static concatenations, plus
+  static string concatenations
   with `window:window_id()`,
   `window:active_tab():tab_id()`/`get_title()`,
   `window:active_pane():pane_id()`/`get_title()`/`get_domain_name()`/
