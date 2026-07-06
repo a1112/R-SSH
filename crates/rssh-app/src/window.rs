@@ -12184,6 +12184,12 @@ fn lua_window_effective_config_field_from_query(
                 NativeLuaLaunchMenuField::Cwd,
             ));
         }
+        if nested_field == "domain" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::LaunchMenu(
+                index,
+                NativeLuaLaunchMenuField::Domain,
+            ));
+        }
         if nested_field == "args" {
             let (arg_index, rest) = lua_table_array_index_access_rest_from_query(nested_rest)?;
             if lua_trim_start_comments(rest)?.is_empty() {
@@ -27567,6 +27573,7 @@ enum NativeLuaLaunchMenuField {
     Label,
     Arg(usize),
     Cwd,
+    Domain,
     SetEnvironmentVariable(String),
 }
 
@@ -44320,6 +44327,18 @@ impl NativeWindowApp {
                             options.cwd.clone().unwrap_or_default()
                         }
                     },
+                    NativeLuaLaunchMenuField::Domain => match &item.command {
+                        NativeLaunchMenuCommand::Command(command) => command
+                            .domain
+                            .as_ref()
+                            .map(native_spawn_domain_config_text)
+                            .unwrap_or_default(),
+                        NativeLaunchMenuCommand::Options(options) => options
+                            .domain
+                            .as_ref()
+                            .map(native_spawn_domain_config_text)
+                            .unwrap_or_default(),
+                    },
                     NativeLuaLaunchMenuField::SetEnvironmentVariable(name) => match &item.command {
                         NativeLaunchMenuCommand::Command(command) => {
                             command.environment.get(&name).cloned().unwrap_or_default()
@@ -60556,6 +60575,14 @@ fn spawn_command_domain_from_query(domain: &str) -> Option<WindowSpawnTabDomain>
         }
         "defaultdomain" | "default" => Some(WindowSpawnTabDomain::DefaultDomain),
         _ => Some(WindowSpawnTabDomain::DomainName(domain.to_owned())),
+    }
+}
+
+fn native_spawn_domain_config_text(domain: &WindowSpawnTabDomain) -> String {
+    match domain {
+        WindowSpawnTabDomain::CurrentPaneDomain => "CurrentPaneDomain".to_owned(),
+        WindowSpawnTabDomain::DefaultDomain => "DefaultDomain".to_owned(),
+        WindowSpawnTabDomain::DomainName(name) => name.clone(),
     }
 }
 
@@ -84219,6 +84246,37 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "mode=dev flag=on");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_launch_menu_domain_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'Local Shell',
+                args = { 'nu' },
+                domain = 'local',
+              },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local item = window:effective_config().launch_menu[1]
+              window:set_right_status('domain=' .. tostring(item.domain))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config launch_menu domain status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "domain=local");
     }
 
     #[test]
