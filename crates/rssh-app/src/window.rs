@@ -11162,6 +11162,7 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning)
         }
         "ignore_svg_fonts" => Some(NativeLuaWindowEffectiveConfigField::IgnoreSvgFonts),
+        "bidi_enabled" => Some(NativeLuaWindowEffectiveConfigField::BidiEnabled),
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         "line_quad_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineQuadCacheSize),
@@ -25744,6 +25745,7 @@ enum NativeLuaWindowEffectiveConfigField {
     UseBoxModelRender,
     ExperimentalPixelPositioning,
     IgnoreSvgFonts,
+    BidiEnabled,
     ShapeCacheSize,
     LineStateCacheSize,
     LineQuadCacheSize,
@@ -42130,6 +42132,7 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::IgnoreSvgFonts => {
                 self.ignore_svg_fonts.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::BidiEnabled => self.bidi_enabled.to_string(),
             NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
                 self.shape_cache_size.to_string()
             }
@@ -80521,6 +80524,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "ignore-svg=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_bidi_enabled_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.bidi_enabled = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('bidi=' .. tostring(window:effective_config().bidi_enabled))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config bidi_enabled status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "bidi=true");
     }
 
     #[test]
