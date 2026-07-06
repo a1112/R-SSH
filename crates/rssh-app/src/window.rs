@@ -11406,6 +11406,22 @@ fn lua_window_effective_config_field_from_query(
         "hide_tab_bar_if_only_one_tab" => {
             Some(NativeLuaWindowEffectiveConfigField::HideTabBarIfOnlyOneTab)
         }
+        "warn_about_missing_glyphs" => {
+            Some(NativeLuaWindowEffectiveConfigField::WarnAboutMissingGlyphs)
+        }
+        "pane_focus_follows_mouse" => {
+            Some(NativeLuaWindowEffectiveConfigField::PaneFocusFollowsMouse)
+        }
+        "swallow_mouse_click_on_pane_focus" => {
+            Some(NativeLuaWindowEffectiveConfigField::SwallowMouseClickOnPaneFocus)
+        }
+        "swallow_mouse_click_on_window_focus" => {
+            Some(NativeLuaWindowEffectiveConfigField::SwallowMouseClickOnWindowFocus)
+        }
+        "unzoom_on_switch_pane" => Some(NativeLuaWindowEffectiveConfigField::UnzoomOnSwitchPane),
+        "quit_when_all_windows_are_closed" => {
+            Some(NativeLuaWindowEffectiveConfigField::QuitWhenAllWindowsAreClosed)
+        }
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
         "custom_block_glyphs" => Some(NativeLuaWindowEffectiveConfigField::CustomBlockGlyphs),
@@ -26016,6 +26032,12 @@ enum NativeLuaWindowEffectiveConfigField {
     ShowTabsInTabBar,
     TabAndSplitIndicesAreZeroBased,
     HideTabBarIfOnlyOneTab,
+    WarnAboutMissingGlyphs,
+    PaneFocusFollowsMouse,
+    SwallowMouseClickOnPaneFocus,
+    SwallowMouseClickOnWindowFocus,
+    UnzoomOnSwitchPane,
+    QuitWhenAllWindowsAreClosed,
     EnableScrollBar,
     MinScrollBarHeight,
     CustomBlockGlyphs,
@@ -42568,6 +42590,24 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::HideTabBarIfOnlyOneTab => {
                 self.hide_tab_bar_if_only_one_tab.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::WarnAboutMissingGlyphs => {
+                self.warn_about_missing_glyphs.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::PaneFocusFollowsMouse => {
+                self.pane_focus_follows_mouse.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SwallowMouseClickOnPaneFocus => {
+                self.swallow_mouse_click_on_pane_focus.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SwallowMouseClickOnWindowFocus => {
+                self.swallow_mouse_click_on_window_focus.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::UnzoomOnSwitchPane => {
+                self.unzoom_on_switch_pane.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::QuitWhenAllWindowsAreClosed => {
+                self.quit_when_all_windows_are_closed.to_string()
             }
             NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
                 self.enable_scroll_bar.to_string()
@@ -81453,6 +81493,156 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "wheel-tabs=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_warn_missing_glyphs_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.warn_about_missing_glyphs = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('glyph-warn=' .. tostring(window:effective_config().warn_about_missing_glyphs))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config warn_about_missing_glyphs status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "glyph-warn=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_pane_focus_follows_mouse_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.pane_focus_follows_mouse = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('focus-follows=' .. tostring(window:effective_config().pane_focus_follows_mouse))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config pane_focus_follows_mouse status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "focus-follows=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_swallow_pane_focus_click_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.swallow_mouse_click_on_pane_focus = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('swallow-pane=' .. tostring(window:effective_config().swallow_mouse_click_on_pane_focus))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config swallow_mouse_click_on_pane_focus status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "swallow-pane=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_swallow_window_focus_click_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.swallow_mouse_click_on_window_focus = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('swallow-window=' .. tostring(window:effective_config().swallow_mouse_click_on_window_focus))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config swallow_mouse_click_on_window_focus status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "swallow-window=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_unzoom_on_switch_pane_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.unzoom_on_switch_pane = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('unzoom=' .. tostring(window:effective_config().unzoom_on_switch_pane))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config unzoom_on_switch_pane status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "unzoom=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_quit_when_all_windows_closed_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.quit_when_all_windows_are_closed = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('quit-all=' .. tostring(window:effective_config().quit_when_all_windows_are_closed))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config quit_when_all_windows_are_closed status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "quit-all=false");
     }
 
     #[test]
