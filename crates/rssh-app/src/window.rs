@@ -11234,6 +11234,9 @@ fn lua_window_effective_config_field_from_query(
         "show_new_tab_button_in_tab_bar" => {
             Some(NativeLuaWindowEffectiveConfigField::ShowNewTabButtonInTabBar)
         }
+        "show_tab_index_in_tab_bar" => {
+            Some(NativeLuaWindowEffectiveConfigField::ShowTabIndexInTabBar)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25801,6 +25804,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
+    ShowTabIndexInTabBar,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42271,6 +42275,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::ShowNewTabButtonInTabBar => {
                 self.show_new_tab_button_in_tab_bar.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ShowTabIndexInTabBar => {
+                self.show_tab_index_in_tab_bar.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -80687,6 +80694,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "new-tab=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_show_tab_index_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.show_tab_index_in_tab_bar = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('tab-index=' .. tostring(window:effective_config().show_tab_index_in_tab_bar))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config show_tab_index_in_tab_bar status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab-index=false");
     }
 
     #[test]
