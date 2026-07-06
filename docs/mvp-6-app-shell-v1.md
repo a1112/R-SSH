@@ -1938,7 +1938,7 @@ runtime storage for tabs and split panes.
   string-variable bracket access such as
   `window:effective_config()['default_prog'][1]`,
   `window:effective_config().visual_bell['target']`, or
-  `local field = 'default_prog'; window:effective_config()[field][1]`. The documented
+  `local field = 'visual_bell'; local nested = 'target'; window:effective_config()[field][nested]`. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
   to an empty right status for an empty key-table stack. The documented

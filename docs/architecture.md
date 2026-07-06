@@ -2151,7 +2151,7 @@ keyboard, mouse, paste, resize
   string-variable bracket access such as
   `window:effective_config()['default_prog'][1]`,
   `window:effective_config().visual_bell['target']`, or
-  `local field = 'default_prog'; window:effective_config()[field][1]`,
+  `local field = 'visual_bell'; local nested = 'target'; window:effective_config()[field][nested]`,
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
