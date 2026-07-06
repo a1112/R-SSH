@@ -11161,6 +11161,7 @@ fn lua_window_effective_config_field_from_query(
         "experimental_pixel_positioning" => {
             Some(NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning)
         }
+        "ignore_svg_fonts" => Some(NativeLuaWindowEffectiveConfigField::IgnoreSvgFonts),
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         "line_quad_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineQuadCacheSize),
@@ -25742,6 +25743,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableZwlrOutputManager,
     UseBoxModelRender,
     ExperimentalPixelPositioning,
+    IgnoreSvgFonts,
     ShapeCacheSize,
     LineStateCacheSize,
     LineQuadCacheSize,
@@ -42124,6 +42126,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning => {
                 self.experimental_pixel_positioning.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::IgnoreSvgFonts => {
+                self.ignore_svg_fonts.to_string()
             }
             NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
                 self.shape_cache_size.to_string()
@@ -80492,6 +80497,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "alt-wheel=2");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_ignore_svg_fonts_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.ignore_svg_fonts = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ignore-svg=' .. tostring(window:effective_config().ignore_svg_fonts))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config ignore_svg_fonts status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ignore-svg=true");
     }
 
     #[test]
