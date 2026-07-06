@@ -10157,6 +10157,16 @@ fn lua_static_window_and_pane_status_fallback_part_from_query(
             )
         })
         .or_else(|| {
+            static_source.and_then(|static_source| {
+                lua_static_window_and_pane_status_part_variable_from_query(
+                    static_source,
+                    dynamic,
+                    window_name,
+                    pane_name,
+                )
+            })
+        })
+        .or_else(|| {
             lua_static_window_and_pane_status_part_from_query(dynamic, window_name, pane_name)
         })
 }
@@ -82115,6 +82125,36 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "build");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_tab_alias_title_variable_fallback_concat_status_setter()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local tab = window:active_tab()
+              local title = tab:get_title()
+              window:set_right_status('tab=' .. (title or ''))
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab alias title variable fallback concat status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: app.app_shell.active_tab_id(),
+            title: "build".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=build");
     }
 
     #[test]
