@@ -11350,6 +11350,7 @@ fn lua_window_effective_config_field_from_query(
         "enable_csi_u_key_encoding" => {
             Some(NativeLuaWindowEffectiveConfigField::EnableCsiUKeyEncoding)
         }
+        "enable_kitty_keyboard" => Some(NativeLuaWindowEffectiveConfigField::EnableKittyKeyboard),
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25953,6 +25954,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ShowUpdateWindow,
     CheckForUpdatesIntervalSeconds,
     EnableCsiUKeyEncoding,
+    EnableKittyKeyboard,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42433,6 +42435,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::EnableCsiUKeyEncoding => {
                 self.enable_csi_u_key_encoding.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::EnableKittyKeyboard => {
+                self.enable_kitty_keyboard.to_string()
             }
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
@@ -80569,6 +80574,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "csi-u=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_enable_kitty_keyboard_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_kitty_keyboard = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('kitty-keyboard=' .. tostring(window:effective_config().enable_kitty_keyboard))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config enable_kitty_keyboard status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "kitty-keyboard=true");
     }
 
     #[test]

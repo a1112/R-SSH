@@ -2584,6 +2584,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().show_update_window`,
   `window:effective_config().check_for_updates_interval_seconds`,
   `window:effective_config().enable_csi_u_key_encoding`,
+  `window:effective_config().enable_kitty_keyboard`,
   `window:effective_config().window_close_confirmation`,
   `window:effective_config().native_macos_fullscreen_mode`,
   `window:effective_config().macos_fullscreen_extend_behind_notch`,
