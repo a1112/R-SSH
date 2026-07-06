@@ -11321,6 +11321,9 @@ fn lua_window_effective_config_field_from_query(
         "kde_window_background_blur" => {
             Some(NativeLuaWindowEffectiveConfigField::KdeWindowBackgroundBlur)
         }
+        "macos_window_background_blur" => {
+            Some(NativeLuaWindowEffectiveConfigField::MacosWindowBackgroundBlur)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25903,6 +25906,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowContentAlignmentHorizontal,
     WindowContentAlignmentVertical,
     KdeWindowBackgroundBlur,
+    MacosWindowBackgroundBlur,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42428,6 +42432,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::KdeWindowBackgroundBlur => {
                 self.kde_window_background_blur.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::MacosWindowBackgroundBlur => {
+                self.macos_window_background_blur.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -81232,6 +81239,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "kde-blur=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_macos_window_background_blur_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.macos_window_background_blur = 20
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('macos-blur=' .. tostring(window:effective_config().macos_window_background_blur))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config macos_window_background_blur status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "macos-blur=20");
     }
 
     #[test]
