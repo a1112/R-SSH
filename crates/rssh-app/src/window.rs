@@ -11371,6 +11371,9 @@ fn lua_window_effective_config_field_from_query(
         "send_composed_key_when_left_alt_is_pressed" => {
             Some(NativeLuaWindowEffectiveConfigField::SendComposedKeyWhenLeftAltIsPressed)
         }
+        "send_composed_key_when_right_alt_is_pressed" => {
+            Some(NativeLuaWindowEffectiveConfigField::SendComposedKeyWhenRightAltIsPressed)
+        }
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25985,6 +25988,7 @@ enum NativeLuaWindowEffectiveConfigField {
     AllowWin32InputMode,
     TreatLeftCtrlAltAsAltGr,
     SendComposedKeyWhenLeftAltIsPressed,
+    SendComposedKeyWhenRightAltIsPressed,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42499,6 +42503,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::SendComposedKeyWhenLeftAltIsPressed => {
                 self.send_composed_key_when_left_alt_is_pressed.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SendComposedKeyWhenRightAltIsPressed => {
+                self.send_composed_key_when_right_alt_is_pressed.to_string()
             }
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
@@ -80899,6 +80906,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "left-alt-compose=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_send_composed_right_alt_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.send_composed_key_when_right_alt_is_pressed = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('right-alt-compose=' .. tostring(window:effective_config().send_composed_key_when_right_alt_is_pressed))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config right Alt composed-key status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "right-alt-compose=false");
     }
 
     #[test]
