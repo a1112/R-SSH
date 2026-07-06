@@ -1701,9 +1701,10 @@ runtime storage for tabs and split panes.
   `is_full_screen`. Static `window:effective_config().font_size`,
   `window:effective_config().default_workspace`,
   `window:effective_config().status_update_interval`,
-  `window:effective_config().tab_max_width`, and
-  `window:effective_config().max_fps`, and
-  `window:effective_config().animation_fps` field concatenations expose current
+  `window:effective_config().tab_max_width`,
+  `window:effective_config().max_fps`,
+  `window:effective_config().animation_fps`, and
+  `window:effective_config().front_end` field concatenations expose current
   effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back

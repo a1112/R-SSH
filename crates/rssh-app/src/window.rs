@@ -540,6 +540,14 @@ impl NativeRenderFrontEnd {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_str(self) -> &'static str {
+        match self {
+            Self::OpenGl => "OpenGL",
+            Self::Software => "Software",
+            Self::WebGpu => "WebGpu",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11097,6 +11105,7 @@ fn lua_window_effective_config_field_from_query(
         "tab_max_width" => Some(NativeLuaWindowEffectiveConfigField::TabMaxWidth),
         "max_fps" => Some(NativeLuaWindowEffectiveConfigField::MaxFps),
         "animation_fps" => Some(NativeLuaWindowEffectiveConfigField::AnimationFps),
+        "front_end" => Some(NativeLuaWindowEffectiveConfigField::FrontEnd),
         _ => None,
     }
 }
@@ -25605,6 +25614,7 @@ enum NativeLuaWindowEffectiveConfigField {
     TabMaxWidth,
     MaxFps,
     AnimationFps,
+    FrontEnd,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41930,6 +41940,9 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::TabMaxWidth => self.tab_max_width.to_string(),
             NativeLuaWindowEffectiveConfigField::MaxFps => self.max_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::AnimationFps => self.animation_fps.to_string(),
+            NativeLuaWindowEffectiveConfigField::FrontEnd => {
+                self.front_end.as_wezterm_config_str().to_owned()
+            }
         }
     }
 
@@ -79079,6 +79092,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "anim=24");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_front_end_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.front_end = 'WebGpu'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('front=' .. window:effective_config().front_end)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config front_end status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "front=WebGpu");
     }
 
     #[test]

@@ -1915,10 +1915,11 @@ keyboard, mouse, paste, resize
   plus static `window:effective_config().font_size`,
   `window:effective_config().default_workspace`,
   `window:effective_config().status_update_interval`,
-  `window:effective_config().tab_max_width`, and
-  `window:effective_config().max_fps`, and
-  `window:effective_config().animation_fps` field concatenations for current
-  effective config values
+  `window:effective_config().tab_max_width`,
+  `window:effective_config().max_fps`,
+  `window:effective_config().animation_fps`, and
+  `window:effective_config().front_end` field concatenations for current effective
+  config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
