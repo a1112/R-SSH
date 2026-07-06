@@ -1630,6 +1630,17 @@ impl NativeCursorStyle {
             _ => None,
         }
     }
+
+    fn config_text(self) -> &'static str {
+        match self {
+            Self::SteadyBlock => "SteadyBlock",
+            Self::BlinkingBlock => "BlinkingBlock",
+            Self::SteadyUnderline => "SteadyUnderline",
+            Self::BlinkingUnderline => "BlinkingUnderline",
+            Self::SteadyBar => "SteadyBar",
+            Self::BlinkingBar => "BlinkingBar",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11421,6 +11432,16 @@ fn lua_window_effective_config_field_from_query(
         "unzoom_on_switch_pane" => Some(NativeLuaWindowEffectiveConfigField::UnzoomOnSwitchPane),
         "quit_when_all_windows_are_closed" => {
             Some(NativeLuaWindowEffectiveConfigField::QuitWhenAllWindowsAreClosed)
+        }
+        "default_cursor_style" => Some(NativeLuaWindowEffectiveConfigField::DefaultCursorStyle),
+        "force_reverse_video_cursor" => {
+            Some(NativeLuaWindowEffectiveConfigField::ForceReverseVideoCursor)
+        }
+        "reverse_video_cursor_min_contrast" => {
+            Some(NativeLuaWindowEffectiveConfigField::ReverseVideoCursorMinContrast)
+        }
+        "text_min_contrast_ratio" => {
+            Some(NativeLuaWindowEffectiveConfigField::TextMinContrastRatio)
         }
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
@@ -26038,6 +26059,10 @@ enum NativeLuaWindowEffectiveConfigField {
     SwallowMouseClickOnWindowFocus,
     UnzoomOnSwitchPane,
     QuitWhenAllWindowsAreClosed,
+    DefaultCursorStyle,
+    ForceReverseVideoCursor,
+    ReverseVideoCursorMinContrast,
+    TextMinContrastRatio,
     EnableScrollBar,
     MinScrollBarHeight,
     CustomBlockGlyphs,
@@ -42609,6 +42634,19 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::QuitWhenAllWindowsAreClosed => {
                 self.quit_when_all_windows_are_closed.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::DefaultCursorStyle => {
+                self.default_cursor_style.config_text().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ForceReverseVideoCursor => {
+                self.force_reverse_video_cursor.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ReverseVideoCursorMinContrast => {
+                self.reverse_video_cursor_min_contrast.as_f64().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::TextMinContrastRatio => self
+                .text_min_contrast_ratio
+                .map(|ratio| ratio.as_f64().to_string())
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
                 self.enable_scroll_bar.to_string()
             }
@@ -81643,6 +81681,104 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "quit-all=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_default_cursor_style_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_cursor_style = 'BlinkingBar'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cursor=' .. tostring(window:effective_config().default_cursor_style))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config default_cursor_style status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cursor=BlinkingBar");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_force_reverse_video_cursor_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.force_reverse_video_cursor = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('reverse-cursor=' .. tostring(window:effective_config().force_reverse_video_cursor))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config force_reverse_video_cursor status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "reverse-cursor=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_reverse_video_cursor_min_contrast_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.reverse_video_cursor_min_contrast = 3.25
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('reverse-contrast=' .. tostring(window:effective_config().reverse_video_cursor_min_contrast))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config reverse_video_cursor_min_contrast status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "reverse-contrast=3.25");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_text_min_contrast_ratio_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.text_min_contrast_ratio = 4.5
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('text-contrast=' .. tostring(window:effective_config().text_min_contrast_ratio))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config text_min_contrast_ratio status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "text-contrast=4.5");
     }
 
     #[test]
