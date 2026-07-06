@@ -11201,6 +11201,9 @@ fn lua_window_effective_config_field_from_query(
         if nested_field == "top" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::WindowPaddingTop);
         }
+        if nested_field == "bottom" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::WindowPaddingBottom);
+        }
         return None;
     }
     if !rest.is_empty() {
@@ -25880,6 +25883,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowPaddingLeft,
     WindowPaddingRight,
     WindowPaddingTop,
+    WindowPaddingBottom,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42383,6 +42387,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::WindowPaddingTop => {
                 self.window_padding.top.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::WindowPaddingBottom => {
+                self.window_padding.bottom.config_text()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -81080,6 +81087,35 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "padding-top=1cell");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_padding_bottom_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_padding = {
+              left = 8,
+              right = 16,
+              top = '1cell',
+              bottom = '2pt',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('padding-bottom=' .. tostring(window:effective_config().window_padding.bottom))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_padding.bottom status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "padding-bottom=2pt");
     }
 
     #[test]
