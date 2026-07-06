@@ -1815,6 +1815,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().macos_forward_to_ime_modifier_mask`,
   `window:effective_config().notification_handling`,
   `window:effective_config().use_dead_keys`,
+  `window:effective_config().audible_bell`,
   `window:effective_config().automatically_reload_config`,
   `window:effective_config().check_for_updates`,
   `window:effective_config().show_update_window`,

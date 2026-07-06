@@ -521,6 +521,13 @@ impl NativeAudibleBell {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::SystemBeep => "SystemBeep",
+            Self::Disabled => "Disabled",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12028,6 +12035,7 @@ fn lua_window_effective_config_field_from_query(
         }
         "notification_handling" => Some(NativeLuaWindowEffectiveConfigField::NotificationHandling),
         "use_dead_keys" => Some(NativeLuaWindowEffectiveConfigField::UseDeadKeys),
+        "audible_bell" => Some(NativeLuaWindowEffectiveConfigField::AudibleBell),
         "automatically_reload_config" => {
             Some(NativeLuaWindowEffectiveConfigField::AutomaticallyReloadConfig)
         }
@@ -26837,6 +26845,7 @@ enum NativeLuaWindowEffectiveConfigField {
     MacosForwardToImeModifierMask,
     NotificationHandling,
     UseDeadKeys,
+    AudibleBell,
     LaunchMenuLabel(usize),
     AutomaticallyReloadConfig,
     CheckForUpdates,
@@ -43651,6 +43660,9 @@ impl NativeWindowApp {
             }
             .to_owned(),
             NativeLuaWindowEffectiveConfigField::UseDeadKeys => self.use_dead_keys.to_string(),
+            NativeLuaWindowEffectiveConfigField::AudibleBell => {
+                self.audible_bell.as_wezterm_config_value().to_owned()
+            }
             NativeLuaWindowEffectiveConfigField::LaunchMenuLabel(index) => index
                 .checked_sub(1)
                 .and_then(|offset| self.launch_menu.get(offset))
@@ -83323,6 +83335,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "dead-keys=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_audible_bell_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.audible_bell = 'Disabled'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('audible=' .. tostring(window:effective_config().audible_bell))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config audible_bell status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "audible=Disabled");
     }
 
     #[test]
