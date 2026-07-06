@@ -11134,6 +11134,9 @@ fn lua_window_effective_config_field_from_query(
         "line_to_ele_shape_cache_size" => {
             Some(NativeLuaWindowEffectiveConfigField::LineToEleShapeCacheSize)
         }
+        "glyph_cache_image_cache_size" => {
+            Some(NativeLuaWindowEffectiveConfigField::GlyphCacheImageCacheSize)
+        }
         _ => None,
     }
 }
@@ -25654,6 +25657,7 @@ enum NativeLuaWindowEffectiveConfigField {
     LineStateCacheSize,
     LineQuadCacheSize,
     LineToEleShapeCacheSize,
+    GlyphCacheImageCacheSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42011,6 +42015,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::LineToEleShapeCacheSize => {
                 self.line_to_ele_shape_cache_size.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::GlyphCacheImageCacheSize => {
+                self.glyph_cache_image_cache_size.to_string()
             }
         }
     }
@@ -79451,6 +79458,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "line-to-ele=1536");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_glyph_cache_image_cache_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.glyph_cache_image_cache_size = 128
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('glyph-cache=' .. tostring(window:effective_config().glyph_cache_image_cache_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config glyph_cache_image_cache_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "glyph-cache=128");
     }
 
     #[test]
