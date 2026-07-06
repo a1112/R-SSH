@@ -11360,6 +11360,7 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::AllowDownloadProtocols)
         }
         "xcursor_theme" => Some(NativeLuaWindowEffectiveConfigField::XcursorTheme),
+        "xcursor_size" => Some(NativeLuaWindowEffectiveConfigField::XcursorSize),
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25969,6 +25970,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableKittyKeyboard,
     AllowDownloadProtocols,
     XcursorTheme,
+    XcursorSize,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42468,6 +42470,10 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::XcursorTheme => {
                 self.xcursor_theme.clone().unwrap_or_default()
             }
+            NativeLuaWindowEffectiveConfigField::XcursorSize => self
+                .xcursor_size
+                .map(|xcursor_size| xcursor_size.to_string())
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
                     NativeWindowCloseConfirmation::AlwaysPrompt => "AlwaysPrompt",
@@ -80747,6 +80753,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "xcursor=Adwaita");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_xcursor_size_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.xcursor_size = 24
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('xcursor-size=' .. tostring(window:effective_config().xcursor_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config xcursor_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "xcursor-size=24");
     }
 
     #[test]
