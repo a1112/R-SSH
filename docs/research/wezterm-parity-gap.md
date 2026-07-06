@@ -2545,9 +2545,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `pixel_height`, `dpi`, and `is_full_screen`, static
   `window:effective_config().font_size`,
   `window:effective_config().default_workspace`,
-  `window:effective_config().status_update_interval`, and
-  `window:effective_config().tab_max_width` field concatenations for current
-  effective config values, and the documented
+  `window:effective_config().status_update_interval`,
+  `window:effective_config().tab_max_width`, and
+  `window:effective_config().max_fps` field concatenations for current effective
+  config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and
   `name or ''` fallback, plus the documented `window:leader_is_active()`
   status example with static active/inactive strings, plus the documented
