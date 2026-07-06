@@ -11361,6 +11361,9 @@ fn lua_window_effective_config_field_from_query(
         }
         "xcursor_theme" => Some(NativeLuaWindowEffectiveConfigField::XcursorTheme),
         "xcursor_size" => Some(NativeLuaWindowEffectiveConfigField::XcursorSize),
+        "palette_max_key_assigments_for_action" => {
+            Some(NativeLuaWindowEffectiveConfigField::PaletteMaxKeyAssigmentsForAction)
+        }
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25971,6 +25974,7 @@ enum NativeLuaWindowEffectiveConfigField {
     AllowDownloadProtocols,
     XcursorTheme,
     XcursorSize,
+    PaletteMaxKeyAssigmentsForAction,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42474,6 +42478,9 @@ impl NativeWindowApp {
                 .xcursor_size
                 .map(|xcursor_size| xcursor_size.to_string())
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::PaletteMaxKeyAssigmentsForAction => {
+                self.palette_max_key_assigments_for_action.to_string()
+            }
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
                     NativeWindowCloseConfirmation::AlwaysPrompt => "AlwaysPrompt",
@@ -80777,6 +80784,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "xcursor-size=24");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_palette_max_key_assigments_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.palette_max_key_assigments_for_action = 3
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('palette-max=' .. tostring(window:effective_config().palette_max_key_assigments_for_action))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config palette max key assigments status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "palette-max=3");
     }
 
     #[test]

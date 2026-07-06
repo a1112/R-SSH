@@ -1746,6 +1746,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().allow_download_protocols`,
   `window:effective_config().xcursor_theme`,
   `window:effective_config().xcursor_size`,
+  `window:effective_config().palette_max_key_assigments_for_action`,
   `window:effective_config().window_close_confirmation`,
   `window:effective_config().native_macos_fullscreen_mode`,
   `window:effective_config().macos_fullscreen_extend_behind_notch`,
