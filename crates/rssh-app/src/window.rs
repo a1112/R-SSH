@@ -11359,6 +11359,7 @@ fn lua_window_effective_config_field_from_query(
         "allow_download_protocols" => {
             Some(NativeLuaWindowEffectiveConfigField::AllowDownloadProtocols)
         }
+        "xcursor_theme" => Some(NativeLuaWindowEffectiveConfigField::XcursorTheme),
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
@@ -25967,6 +25968,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableCsiUKeyEncoding,
     EnableKittyKeyboard,
     AllowDownloadProtocols,
+    XcursorTheme,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
     ShowNewTabButtonInTabBar,
@@ -42462,6 +42464,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::AllowDownloadProtocols => {
                 self.allow_download_protocols.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::XcursorTheme => {
+                self.xcursor_theme.clone().unwrap_or_default()
             }
             NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation => {
                 match self.window_close_confirmation {
@@ -80718,6 +80723,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "downloads=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_xcursor_theme_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.xcursor_theme = 'Adwaita'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('xcursor=' .. window:effective_config().xcursor_theme)
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config xcursor_theme status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "xcursor=Adwaita");
     }
 
     #[test]
