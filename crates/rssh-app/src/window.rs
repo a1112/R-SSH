@@ -10237,6 +10237,13 @@ fn lua_static_window_effective_config_status_text_from_query(
             static_source.max_start,
         )
     });
+    let visual_bell_variable = static_source.and_then(|static_source| {
+        lua_static_window_effective_config_visual_bell_variable_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )
+    });
     let mut parts = Vec::new();
     let mut has_dynamic_part = false;
 
@@ -10255,6 +10262,15 @@ fn lua_static_window_effective_config_status_text_from_query(
             .or_else(|| {
                 palette_variable.as_deref().and_then(|variable| {
                     lua_static_window_effective_config_resolved_palette_field_from_query(
+                        segment,
+                        variable,
+                        window_name,
+                    )
+                })
+            })
+            .or_else(|| {
+                visual_bell_variable.as_deref().and_then(|variable| {
+                    lua_static_window_effective_config_visual_bell_field_from_query(
                         segment,
                         variable,
                         window_name,
@@ -10355,6 +10371,48 @@ fn lua_static_window_effective_config_resolved_palette_variable_from_statement(
     Some(variable.to_owned())
 }
 
+fn lua_static_window_effective_config_visual_bell_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<String> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_effective_config_visual_bell_variable_from_statement(
+                statement,
+                window_name,
+            )
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_effective_config_visual_bell_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+) -> Option<String> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    if !lua_window_effective_config_visual_bell_from_query(value, window_name)? {
+        return None;
+    }
+    Some(variable.to_owned())
+}
+
 fn lua_window_effective_config_resolved_palette_from_query(
     value: &str,
     window_name: &str,
@@ -10380,6 +10438,38 @@ fn lua_window_effective_config_resolved_palette_from_query(
     let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let field = lua_identifier_literal_from_query(rest)?;
     if field != "resolved_palette" {
+        return None;
+    }
+    lua_trim_start_comments(rest.get(field.len()..)?)?
+        .is_empty()
+        .then_some(true)
+}
+
+fn lua_window_effective_config_visual_bell_from_query(
+    value: &str,
+    window_name: &str,
+) -> Option<bool> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "effective_config" || !lua_config_assignment_field_has_boundaries(rest, 0, method)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if field != "visual_bell" {
         return None;
     }
     lua_trim_start_comments(rest.get(field.len()..)?)?
@@ -10438,6 +10528,33 @@ fn lua_static_window_effective_config_resolved_palette_field_from_query(
         return None;
     }
     let synthetic = format!("{window_name}:effective_config().resolved_palette{rest}");
+    lua_window_effective_config_field_from_query(&synthetic, window_name)
+}
+
+fn lua_static_window_effective_config_visual_bell_field_from_query(
+    value: &str,
+    variable: &str,
+    window_name: &str,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let synthetic = format!("{window_name}:effective_config().visual_bell{rest}");
     lua_window_effective_config_field_from_query(&synthetic, window_name)
 }
 
@@ -11828,6 +11945,10 @@ fn lua_window_effective_config_field_from_query(
             return None;
         }
         let visual_bell_field = match nested_field {
+            "fade_in_duration_ms" => NativeLuaVisualBellField::FadeInDurationMs,
+            "fade_out_duration_ms" => NativeLuaVisualBellField::FadeOutDurationMs,
+            "fade_in_function" => NativeLuaVisualBellField::FadeInFunction,
+            "fade_out_function" => NativeLuaVisualBellField::FadeOutFunction,
             "target" => NativeLuaVisualBellField::Target,
             _ => return None,
         };
@@ -26992,6 +27113,10 @@ enum NativeLuaWebGpuPreferredAdapterField {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeLuaVisualBellField {
+    FadeInDurationMs,
+    FadeOutDurationMs,
+    FadeInFunction,
+    FadeOutFunction,
     Target,
 }
 
@@ -43417,6 +43542,18 @@ impl NativeWindowApp {
                 }
             }
             NativeLuaWindowEffectiveConfigField::VisualBell(field) => match field {
+                NativeLuaVisualBellField::FadeInDurationMs => {
+                    self.visual_bell.fade_in_duration_ms.to_string()
+                }
+                NativeLuaVisualBellField::FadeOutDurationMs => {
+                    self.visual_bell.fade_out_duration_ms.to_string()
+                }
+                NativeLuaVisualBellField::FadeInFunction => {
+                    self.visual_bell.fade_in_function.config_text().to_owned()
+                }
+                NativeLuaVisualBellField::FadeOutFunction => {
+                    self.visual_bell.fade_out_function.config_text().to_owned()
+                }
                 NativeLuaVisualBellField::Target => {
                     self.visual_bell.target.as_wezterm_config_value().to_owned()
                 }
@@ -83419,6 +83556,46 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "bell-target=CursorColor");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_visual_bell_fields_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.visual_bell = {
+              fade_in_duration_ms = 25,
+              fade_out_duration_ms = 175,
+              fade_in_function = 'EaseIn',
+              fade_out_function = 'EaseOut',
+              target = 'CursorColor',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local bell = window:effective_config().visual_bell
+              window:set_right_status(
+                'in=' .. tostring(bell.fade_in_duration_ms) ..
+                ' out=' .. tostring(bell.fade_out_duration_ms) ..
+                ' in-fn=' .. tostring(bell.fade_in_function) ..
+                ' out-fn=' .. tostring(bell.fade_out_function) ..
+                ' target=' .. tostring(bell.target)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config visual_bell fields status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(
+            app.right_status,
+            "in=25 out=175 in-fn=EaseIn out-fn=EaseOut target=CursorColor"
+        );
     }
 
     #[test]
