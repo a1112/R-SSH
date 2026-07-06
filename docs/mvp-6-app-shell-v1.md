@@ -1683,7 +1683,8 @@ runtime storage for tabs and split panes.
   `get_foreground_process_name()`/`get_tty_name()` resolve active-pane
   metadata through the window accessor, including callback-local object aliases
   such as `local tab = window:active_tab()` or
-  `local pane = window:active_pane()` feeding those zero-argument methods,
+  `local pane = window:active_pane()` feeding those zero-argument methods and
+  callback-local method-result variables such as `local title = tab:get_title()`,
   static concatenations with callback `pane:pane_id()` resolve the active pane id,
   `pane:get_title()` resolves the active pane title, `pane:get_domain_name()`
   resolves the active pane domain, `pane:get_current_working_dir()` resolves

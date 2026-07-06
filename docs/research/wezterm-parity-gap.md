@@ -2527,7 +2527,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `get_current_working_dir()`/`get_foreground_process_name()`/
   `get_tty_name()`, callback-local object aliases such as
   `local tab = window:active_tab()` or
-  `local pane = window:active_pane()` feeding those zero-argument methods, or callback
+  `local pane = window:active_pane()` feeding those zero-argument methods,
+  callback-local method-result variables such as `local title = tab:get_title()`, or callback
   `pane:pane_id()`/`pane:get_title()`/`pane:get_domain_name()`/
   `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`/
   `pane:get_tty_name()`, static `pane:get_cursor_position()` or
