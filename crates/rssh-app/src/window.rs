@@ -1525,6 +1525,19 @@ impl NativeFontSize {
     fn scale_against_default(self) -> f64 {
         f64::from(self.millipoints) / f64::from(DEFAULT_FONT_SIZE.millipoints)
     }
+
+    fn config_text(self) -> String {
+        let whole_points = self.millipoints / 1000;
+        let fractional_points = self.millipoints % 1000;
+        if fractional_points == 0 {
+            return whole_points.to_string();
+        }
+        let mut fraction = format!("{fractional_points:03}");
+        while fraction.ends_with('0') {
+            fraction.pop();
+        }
+        format!("{whole_points}.{fraction}")
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -11462,6 +11475,10 @@ fn lua_window_effective_config_field_from_query(
         "text_min_contrast_ratio" => {
             Some(NativeLuaWindowEffectiveConfigField::TextMinContrastRatio)
         }
+        "command_palette_rows" => Some(NativeLuaWindowEffectiveConfigField::CommandPaletteRows),
+        "char_select_font_size" => Some(NativeLuaWindowEffectiveConfigField::CharSelectFontSize),
+        "pane_select_font_size" => Some(NativeLuaWindowEffectiveConfigField::PaneSelectFontSize),
+        "launcher_alphabet" => Some(NativeLuaWindowEffectiveConfigField::LauncherAlphabet),
         "quick_select_alphabet" => Some(NativeLuaWindowEffectiveConfigField::QuickSelectAlphabet),
         "disable_default_quick_select_patterns" => {
             Some(NativeLuaWindowEffectiveConfigField::DisableDefaultQuickSelectPatterns)
@@ -26122,6 +26139,10 @@ enum NativeLuaWindowEffectiveConfigField {
     ForceReverseVideoCursor,
     ReverseVideoCursorMinContrast,
     TextMinContrastRatio,
+    CommandPaletteRows,
+    CharSelectFontSize,
+    PaneSelectFontSize,
+    LauncherAlphabet,
     QuickSelectAlphabet,
     DisableDefaultQuickSelectPatterns,
     QuickSelectRemoveStyling,
@@ -42717,6 +42738,17 @@ impl NativeWindowApp {
                 .text_min_contrast_ratio
                 .map(|ratio| ratio.as_f64().to_string())
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CommandPaletteRows => self
+                .command_palette_rows
+                .map(|rows| rows.to_string())
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CharSelectFontSize => {
+                self.char_select_font_size.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::PaneSelectFontSize => {
+                self.pane_select_font_size.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::LauncherAlphabet => self.launcher_alphabet.clone(),
             NativeLuaWindowEffectiveConfigField::QuickSelectAlphabet => {
                 self.quick_select_alphabet.clone()
             }
@@ -81882,6 +81914,102 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "text-contrast=4.5");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_command_palette_rows_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.command_palette_rows = 3
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('palette-rows=' .. tostring(window:effective_config().command_palette_rows))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config command_palette_rows status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "palette-rows=3");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_char_select_font_size_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.char_select_font_size = 16.25
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('char-font=' .. tostring(window:effective_config().char_select_font_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config char_select_font_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "char-font=16.25");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_pane_select_font_size_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.pane_select_font_size = 36.5
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('pane-font=' .. tostring(window:effective_config().pane_select_font_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config pane_select_font_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "pane-font=36.5");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_launcher_alphabet_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launcher_alphabet = 'ab'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('launcher-alpha=' .. tostring(window:effective_config().launcher_alphabet))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config launcher_alphabet status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "launcher-alpha=ab");
     }
 
     #[test]
