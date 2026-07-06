@@ -2660,6 +2660,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().notification_handling`,
   `window:effective_config().use_dead_keys`,
   `window:effective_config().audible_bell`,
+  `window:effective_config().visual_bell.target`,
   `window:effective_config().automatically_reload_config`,
   `window:effective_config().check_for_updates`,
   `window:effective_config().show_update_window`,

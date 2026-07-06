@@ -1670,6 +1670,13 @@ impl NativeVisualBellTarget {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::BackgroundColor => "BackgroundColor",
+            Self::CursorColor => "CursorColor",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11810,6 +11817,22 @@ fn lua_window_effective_config_field_from_query(
         };
         return Some(NativeLuaWindowEffectiveConfigField::WebGpuPreferredAdapter(
             adapter_field,
+        ));
+    }
+    if field == "visual_bell" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if !nested_rest.is_empty() {
+            return None;
+        }
+        let visual_bell_field = match nested_field {
+            "target" => NativeLuaVisualBellField::Target,
+            _ => return None,
+        };
+        return Some(NativeLuaWindowEffectiveConfigField::VisualBell(
+            visual_bell_field,
         ));
     }
     if field == "dpi_by_screen" {
@@ -26764,6 +26787,7 @@ enum NativeLuaWindowEffectiveConfigField {
     Dpi,
     DpiByScreen(String),
     ResolvedPalette(NativeLuaResolvedPaletteField),
+    VisualBell(NativeLuaVisualBellField),
     ColorScheme,
     ForegroundColor,
     BackgroundColor,
@@ -26964,6 +26988,11 @@ enum NativeLuaWebGpuPreferredAdapterField {
     DriverInfo,
     Name,
     Vendor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaVisualBellField {
+    Target,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43387,6 +43416,11 @@ impl NativeWindowApp {
                         .unwrap_or_default(),
                 }
             }
+            NativeLuaWindowEffectiveConfigField::VisualBell(field) => match field {
+                NativeLuaVisualBellField::Target => {
+                    self.visual_bell.target.as_wezterm_config_value().to_owned()
+                }
+            },
             NativeLuaWindowEffectiveConfigField::ColorScheme => {
                 self.color_scheme.clone().unwrap_or_default()
             }
@@ -83359,6 +83393,32 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "audible=Disabled");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_visual_bell_target_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.visual_bell = {
+              target = 'CursorColor',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('bell-target=' .. tostring(window:effective_config().visual_bell.target))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config visual_bell.target status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "bell-target=CursorColor");
     }
 
     #[test]
