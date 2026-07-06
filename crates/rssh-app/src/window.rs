@@ -11462,6 +11462,13 @@ fn lua_window_effective_config_field_from_query(
         "text_min_contrast_ratio" => {
             Some(NativeLuaWindowEffectiveConfigField::TextMinContrastRatio)
         }
+        "quick_select_alphabet" => Some(NativeLuaWindowEffectiveConfigField::QuickSelectAlphabet),
+        "disable_default_quick_select_patterns" => {
+            Some(NativeLuaWindowEffectiveConfigField::DisableDefaultQuickSelectPatterns)
+        }
+        "quick_select_remove_styling" => {
+            Some(NativeLuaWindowEffectiveConfigField::QuickSelectRemoveStyling)
+        }
         "canonicalize_pasted_newlines" => {
             Some(NativeLuaWindowEffectiveConfigField::CanonicalizePastedNewlines)
         }
@@ -26115,6 +26122,9 @@ enum NativeLuaWindowEffectiveConfigField {
     ForceReverseVideoCursor,
     ReverseVideoCursorMinContrast,
     TextMinContrastRatio,
+    QuickSelectAlphabet,
+    DisableDefaultQuickSelectPatterns,
+    QuickSelectRemoveStyling,
     CanonicalizePastedNewlines,
     QuoteDroppedFiles,
     DisableDefaultKeyBindings,
@@ -42707,6 +42717,15 @@ impl NativeWindowApp {
                 .text_min_contrast_ratio
                 .map(|ratio| ratio.as_f64().to_string())
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::QuickSelectAlphabet => {
+                self.quick_select_alphabet.clone()
+            }
+            NativeLuaWindowEffectiveConfigField::DisableDefaultQuickSelectPatterns => {
+                self.disable_default_quick_select_patterns.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::QuickSelectRemoveStyling => {
+                self.quick_select_remove_styling.to_string()
+            }
             NativeLuaWindowEffectiveConfigField::CanonicalizePastedNewlines => {
                 self.canonicalize_pasted_newlines.config_text().to_string()
             }
@@ -82055,6 +82074,80 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "swap-bs-del=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_quick_select_alphabet_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.quick_select_alphabet = 'ab'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('quick-alpha=' .. tostring(window:effective_config().quick_select_alphabet))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config quick_select_alphabet status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "quick-alpha=ab");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_disable_default_quick_select_patterns_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.disable_default_quick_select_patterns = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('quick-defaults=' .. tostring(window:effective_config().disable_default_quick_select_patterns))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config disable_default_quick_select_patterns status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "quick-defaults=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_quick_select_remove_styling_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.quick_select_remove_styling = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('quick-style=' .. tostring(window:effective_config().quick_select_remove_styling))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config quick_select_remove_styling status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "quick-style=true");
     }
 
     #[test]
