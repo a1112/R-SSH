@@ -11565,6 +11565,28 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "webgpu_preferred_adapter" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if !nested_rest.is_empty() {
+            return None;
+        }
+        let adapter_field = match nested_field {
+            "backend" => NativeLuaWebGpuPreferredAdapterField::Backend,
+            "device" => NativeLuaWebGpuPreferredAdapterField::Device,
+            "device_type" => NativeLuaWebGpuPreferredAdapterField::DeviceType,
+            "driver" => NativeLuaWebGpuPreferredAdapterField::Driver,
+            "driver_info" => NativeLuaWebGpuPreferredAdapterField::DriverInfo,
+            "name" => NativeLuaWebGpuPreferredAdapterField::Name,
+            "vendor" => NativeLuaWebGpuPreferredAdapterField::Vendor,
+            _ => return None,
+        };
+        return Some(NativeLuaWindowEffectiveConfigField::WebGpuPreferredAdapter(
+            adapter_field,
+        ));
+    }
     if field == "foreground_text_hsb" {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = lua_trim_start_comments(rest)?;
@@ -26440,6 +26462,7 @@ enum NativeLuaWindowEffectiveConfigField {
     FrontEnd,
     WebGpuPowerPreference,
     WebGpuForceFallbackAdapter,
+    WebGpuPreferredAdapter(NativeLuaWebGpuPreferredAdapterField),
     PreferEgl,
     EnableWayland,
     EnableZwlrOutputManager,
@@ -26610,6 +26633,17 @@ enum NativeLuaWindowEffectiveConfigField {
     SkipCloseConfirmationProcess(usize),
     UseResizeIncrements,
     AlternateBufferWheelScrollSpeed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaWebGpuPreferredAdapterField {
+    Backend,
+    Device,
+    DeviceType,
+    Driver,
+    DriverInfo,
+    Name,
+    Vendor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42967,6 +43001,23 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::WebGpuForceFallbackAdapter => {
                 self.webgpu_force_fallback_adapter.to_string()
             }
+            NativeLuaWindowEffectiveConfigField::WebGpuPreferredAdapter(field) => self
+                .webgpu_preferred_adapter
+                .as_ref()
+                .and_then(|adapter| match field {
+                    NativeLuaWebGpuPreferredAdapterField::Backend => adapter.backend.clone(),
+                    NativeLuaWebGpuPreferredAdapterField::Device => {
+                        adapter.device.map(|device| device.to_string())
+                    }
+                    NativeLuaWebGpuPreferredAdapterField::DeviceType => adapter.device_type.clone(),
+                    NativeLuaWebGpuPreferredAdapterField::Driver => adapter.driver.clone(),
+                    NativeLuaWebGpuPreferredAdapterField::DriverInfo => adapter.driver_info.clone(),
+                    NativeLuaWebGpuPreferredAdapterField::Name => adapter.name.clone(),
+                    NativeLuaWebGpuPreferredAdapterField::Vendor => {
+                        adapter.vendor.map(|vendor| vendor.to_string())
+                    }
+                })
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::PreferEgl => self.prefer_egl.to_string(),
             NativeLuaWindowEffectiveConfigField::EnableWayland => self.enable_wayland.to_string(),
             NativeLuaWindowEffectiveConfigField::EnableZwlrOutputManager => {
@@ -80737,6 +80788,50 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "fallback=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_webgpu_preferred_adapter_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.webgpu_preferred_adapter = {
+              backend = 'Vulkan',
+              device = 29730,
+              device_type = 'DiscreteGpu',
+              driver = 'radv',
+              driver_info = 'Mesa 22.3.4',
+              name = 'AMD Radeon Pro W6400',
+              vendor = 4098,
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(
+                'adapter=' ..
+                tostring(window:effective_config().webgpu_preferred_adapter.backend) .. '/' ..
+                tostring(window:effective_config().webgpu_preferred_adapter.device) .. '/' ..
+                tostring(window:effective_config().webgpu_preferred_adapter.device_type) .. '/' ..
+                tostring(window:effective_config().webgpu_preferred_adapter.driver) .. '/' ..
+                tostring(window:effective_config().webgpu_preferred_adapter.driver_info) .. '/' ..
+                tostring(window:effective_config().webgpu_preferred_adapter.name) .. '/' ..
+                tostring(window:effective_config().webgpu_preferred_adapter.vendor)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config webgpu_preferred_adapter status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(
+            app.right_status,
+            "adapter=Vulkan/29730/DiscreteGpu/radv/Mesa 22.3.4/AMD Radeon Pro W6400/4098"
+        );
     }
 
     #[test]
