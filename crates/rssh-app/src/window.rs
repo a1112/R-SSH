@@ -11678,6 +11678,23 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "resolved_palette" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        if !lua_trim_start_comments(rest.get(nested_field.len()..)?)?.is_empty() {
+            return None;
+        }
+        let palette_field = match nested_field {
+            "foreground" => NativeLuaResolvedPaletteField::Foreground,
+            "background" => NativeLuaResolvedPaletteField::Background,
+            "cursor_bg" => NativeLuaResolvedPaletteField::CursorBg,
+            _ => return None,
+        };
+        return Some(NativeLuaWindowEffectiveConfigField::ResolvedPalette(
+            palette_field,
+        ));
+    }
     if field == "foreground_text_hsb" {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = lua_trim_start_comments(rest)?;
@@ -26557,6 +26574,7 @@ enum NativeLuaWindowEffectiveConfigField {
     TabMaxWidth,
     Dpi,
     DpiByScreen(String),
+    ResolvedPalette(NativeLuaResolvedPaletteField),
     ColorScheme,
     ForegroundColor,
     BackgroundColor,
@@ -26748,6 +26766,13 @@ enum NativeLuaWebGpuPreferredAdapterField {
     DriverInfo,
     Name,
     Vendor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaResolvedPaletteField {
+    Foreground,
+    Background,
+    CursorBg,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43099,6 +43124,20 @@ impl NativeWindowApp {
                 .get(&name)
                 .map(|dpi| dpi.to_string())
                 .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::ResolvedPalette(field) => {
+                let palette = self.native_resolved_palette();
+                match field {
+                    NativeLuaResolvedPaletteField::Foreground => {
+                        native_lua_color_config_text(palette.foreground)
+                    }
+                    NativeLuaResolvedPaletteField::Background => {
+                        native_lua_color_config_text(palette.background)
+                    }
+                    NativeLuaResolvedPaletteField::CursorBg => {
+                        native_lua_color_config_text(palette.cursor_bg)
+                    }
+                }
+            }
             NativeLuaWindowEffectiveConfigField::ColorScheme => {
                 self.color_scheme.clone().unwrap_or_default()
             }
@@ -82856,6 +82895,42 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "fg=#010203 bg=#040506");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_resolved_palette_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.colors = {
+              foreground = '#010203',
+              background = '#040506',
+              cursor_bg = '#070809',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local config = window:effective_config()
+              window:set_right_status(
+                'palette-fg=' .. tostring(config.resolved_palette.foreground) ..
+                ' palette-bg=' .. tostring(config.resolved_palette.background) ..
+                ' cursor=' .. tostring(config.resolved_palette.cursor_bg)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config resolved_palette status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(
+            app.right_status,
+            "palette-fg=#010203 palette-bg=#040506 cursor=#070809"
+        );
     }
 
     #[test]
