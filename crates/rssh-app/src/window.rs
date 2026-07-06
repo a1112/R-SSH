@@ -11205,6 +11205,9 @@ fn lua_window_effective_config_field_from_query(
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
+        "macos_fullscreen_extend_behind_notch" => {
+            Some(NativeLuaWindowEffectiveConfigField::MacosFullscreenExtendBehindNotch)
+        }
         _ => None,
     }
 }
@@ -25751,6 +25754,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableCsiUKeyEncoding,
     WindowCloseConfirmation,
     NativeMacosFullscreenMode,
+    MacosFullscreenExtendBehindNotch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42202,6 +42206,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::MacosFullscreenExtendBehindNotch => {
+                self.macos_fullscreen_extend_behind_notch.to_string()
             }
         }
     }
@@ -80271,6 +80278,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "macos-fullscreen=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_macos_fullscreen_notch_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.macos_fullscreen_extend_behind_notch = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('notch=' .. tostring(window:effective_config().macos_fullscreen_extend_behind_notch))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config macos_fullscreen_extend_behind_notch status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "notch=true");
     }
 
     #[test]

@@ -1740,7 +1740,8 @@ runtime storage for tabs and split panes.
   `window:effective_config().check_for_updates_interval_seconds`,
   `window:effective_config().enable_csi_u_key_encoding`,
   `window:effective_config().window_close_confirmation`,
-  `window:effective_config().native_macos_fullscreen_mode`, and
+  `window:effective_config().native_macos_fullscreen_mode`,
+  `window:effective_config().macos_fullscreen_extend_behind_notch`, and
   `window:effective_config().launch_menu[1].label` field concatenations expose current
   effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
