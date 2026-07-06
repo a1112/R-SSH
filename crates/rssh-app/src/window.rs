@@ -10131,9 +10131,24 @@ fn lua_static_window_and_pane_status_fallback_text_from_query(
     pane_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
+    let part = lua_static_window_and_pane_status_fallback_part_from_query(
+        static_source,
+        window_name,
+        pane_name,
+        value,
+    )?;
+    Some(NativeLuaWindowStatusText::WindowPane { parts: vec![part] })
+}
+
+fn lua_static_window_and_pane_status_fallback_part_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    window_name: &str,
+    pane_name: &str,
+    value: &str,
+) -> Option<NativeLuaWindowPaneStatusPart> {
     let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
     lua_static_string_value_from_expression(None, None, fallback)?;
-    let part = static_source
+    static_source
         .and_then(|static_source| {
             lua_static_window_and_pane_status_part_receiver_alias_from_query(
                 static_source,
@@ -10143,12 +10158,12 @@ fn lua_static_window_and_pane_status_fallback_text_from_query(
         })
         .or_else(|| {
             lua_static_window_and_pane_status_part_from_query(dynamic, window_name, pane_name)
-        })?;
-    Some(NativeLuaWindowStatusText::WindowPane { parts: vec![part] })
+        })
 }
 
 fn lua_dynamic_status_fallback_from_query(value: &str) -> Option<(&str, &str)> {
     let value = lua_trim_start_comments(value)?;
+    let value = lua_parenthesized_lua_expression_from_query(value).unwrap_or(value);
     let mut quote = None;
     let mut escape = false;
     let mut line_comment = false;
@@ -10257,6 +10272,15 @@ fn lua_dynamic_status_fallback_from_query(value: &str) -> Option<(&str, &str)> {
     None
 }
 
+fn lua_parenthesized_lua_expression_from_query(value: &str) -> Option<&str> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix('(')?;
+    let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    lua_trim_start_comments(rest)?
+        .is_empty()
+        .then_some(lua_trim_start_comments(argument)?.trim())
+}
+
 fn lua_static_window_and_pane_status_text_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
@@ -10271,6 +10295,14 @@ fn lua_static_window_and_pane_status_text_from_query(
         let segment = lua_tostring_argument_from_query(segment).unwrap_or(segment);
         if let Some(part) =
             lua_static_window_and_pane_status_part_from_query(segment, window_name, pane_name)
+                .or_else(|| {
+                    lua_static_window_and_pane_status_fallback_part_from_query(
+                        static_source,
+                        window_name,
+                        pane_name,
+                        segment,
+                    )
+                })
                 .or_else(|| {
                     static_source.and_then(|static_source| {
                         lua_static_window_and_pane_status_part_variable_from_query(
@@ -81967,6 +81999,35 @@ mod tests {
         .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "build");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_tab_alias_title_fallback_concat_status_setter()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local tab = window:active_tab()
+              window:set_right_status('tab=' .. (tab:get_title() or ''))
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab alias get_title fallback concat status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: app.app_shell.active_tab_id(),
+            title: "build".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=build");
     }
 
     #[test]
