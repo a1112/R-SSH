@@ -1976,6 +1976,7 @@ keyboard, mouse, paste, resize
   `window:effective_config().win32_system_backdrop`,
   `window:effective_config().window_decorations`,
   `window:effective_config().integrated_title_button_alignment`,
+  `window:effective_config().integrated_title_button_style`,
   `window:effective_config().bidi_enabled`,
   `window:effective_config().bidi_direction`,
   `window:effective_config().skip_close_confirmation_for_processes_named[1]`,

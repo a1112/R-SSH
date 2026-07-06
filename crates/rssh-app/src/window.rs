@@ -2062,6 +2062,14 @@ impl NativeIntegratedTitleButtonStyle {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Windows => "Windows",
+            Self::Gnome => "Gnome",
+            Self::MacOsNative => "MacOsNative",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -11377,6 +11385,9 @@ fn lua_window_effective_config_field_from_query(
         "window_decorations" => Some(NativeLuaWindowEffectiveConfigField::WindowDecorations),
         "integrated_title_button_alignment" => {
             Some(NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonAlignment)
+        }
+        "integrated_title_button_style" => {
+            Some(NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonStyle)
         }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
@@ -25964,6 +25975,7 @@ enum NativeLuaWindowEffectiveConfigField {
     Win32SystemBackdrop,
     WindowDecorations,
     IntegratedTitleButtonAlignment,
+    IntegratedTitleButtonStyle,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42502,6 +42514,10 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonAlignment => self
                 .integrated_title_button_alignment
+                .as_wezterm_config_value()
+                .to_string(),
+            NativeLuaWindowEffectiveConfigField::IntegratedTitleButtonStyle => self
+                .integrated_title_button_style
                 .as_wezterm_config_value()
                 .to_string(),
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
@@ -81405,6 +81421,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "button-align=Left");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_integrated_title_button_style_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.integrated_title_button_style = 'Gnome'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('button-style=' .. tostring(window:effective_config().integrated_title_button_style))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config integrated_title_button_style status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "button-style=Gnome");
     }
 
     #[test]
