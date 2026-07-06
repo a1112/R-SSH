@@ -2094,6 +2094,7 @@ keyboard, mouse, paste, resize
   `window:effective_config().kde_window_background_blur`,
   `window:effective_config().macos_window_background_blur`,
   `window:effective_config().win32_system_backdrop`,
+  `window:effective_config().win32_acrylic_accent_color`,
   `window:effective_config().window_decorations`,
   `window:effective_config().integrated_title_button_alignment`,
   `window:effective_config().integrated_title_button_style`,
