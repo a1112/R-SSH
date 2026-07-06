@@ -916,6 +916,17 @@ impl NativeWindowPaddingDimension {
             Self::CellFractionPerMille,
         )
     }
+
+    fn config_text(self) -> String {
+        match self {
+            Self::Pixels(pixels) => format!("{pixels}px"),
+            Self::Points(points) => format!("{points}pt"),
+            Self::Percent(percent) => format!("{percent}%"),
+            Self::CellFractionPerMille(per_mille) => {
+                format!("{}cell", native_per_mille_decimal_text(per_mille))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11173,6 +11184,16 @@ fn lua_window_effective_config_field_from_query(
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
         if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::SkipCloseConfirmationProcess(index));
+        }
+        return None;
+    }
+    if field == "window_padding" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        let nested_rest = lua_trim_start_comments(rest.get(nested_field.len()..)?)?;
+        if nested_field == "left" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::WindowPaddingLeft);
         }
         return None;
     }
@@ -25850,6 +25871,7 @@ enum NativeLuaWindowEffectiveConfigField {
     MinScrollBarHeight,
     CustomBlockGlyphs,
     AntiAliasCustomBlockGlyphs,
+    WindowPaddingLeft,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42344,6 +42366,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::AntiAliasCustomBlockGlyphs => {
                 self.anti_alias_custom_block_glyphs.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::WindowPaddingLeft => {
+                self.window_padding.left.config_text()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -80954,6 +80979,35 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "aa-blocks=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_padding_left_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_padding = {
+              left = 8,
+              right = 16,
+              top = '1cell',
+              bottom = '2pt',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('padding-left=' .. tostring(window:effective_config().window_padding.left))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_padding.left status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "padding-left=8px");
     }
 
     #[test]
