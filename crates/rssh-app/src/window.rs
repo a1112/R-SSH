@@ -11587,6 +11587,17 @@ fn lua_window_effective_config_field_from_query(
             adapter_field,
         ));
     }
+    if field == "dpi_by_screen" {
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let name = lua_identifier_literal_from_query(rest)?;
+        if lua_trim_start_comments(rest.get(name.len()..)?)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::DpiByScreen(
+                name.to_owned(),
+            ));
+        }
+        return None;
+    }
     if field == "foreground_text_hsb" {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = lua_trim_start_comments(rest)?;
@@ -26459,6 +26470,7 @@ enum NativeLuaWindowEffectiveConfigField {
     StatusUpdateInterval,
     TabMaxWidth,
     Dpi,
+    DpiByScreen(String),
     MaxFps,
     AnimationFps,
     FrontEnd,
@@ -42992,6 +43004,11 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::TabMaxWidth => self.tab_max_width.to_string(),
             NativeLuaWindowEffectiveConfigField::Dpi => self.window_dpi.to_string(),
+            NativeLuaWindowEffectiveConfigField::DpiByScreen(name) => self
+                .dpi_by_screen
+                .get(&name)
+                .map(|dpi| dpi.to_string())
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::MaxFps => self.max_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::AnimationFps => self.animation_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::FrontEnd => {
@@ -80671,6 +80688,32 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "dpi=144");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_dpi_by_screen_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.dpi_by_screen = {
+              HDMI = 120.0,
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('screen-dpi=' .. tostring(window:effective_config().dpi_by_screen.HDMI))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config dpi_by_screen status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "screen-dpi=120");
     }
 
     #[test]

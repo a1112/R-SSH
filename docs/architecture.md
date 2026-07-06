@@ -1930,6 +1930,7 @@ keyboard, mouse, paste, resize
   `window:effective_config().status_update_interval`,
   `window:effective_config().tab_max_width`,
   `window:effective_config().dpi`,
+  `window:effective_config().dpi_by_screen.NAME`,
   `window:effective_config().max_fps`,
   `window:effective_config().animation_fps`,
   `window:effective_config().front_end`,
