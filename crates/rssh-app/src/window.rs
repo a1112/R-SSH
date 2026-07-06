@@ -44317,7 +44317,26 @@ impl NativeWindowApp {
                             })
                             .unwrap_or_default()
                             .to_owned(),
-                        NativeLaunchMenuCommand::Options(_) => String::new(),
+                        NativeLaunchMenuCommand::Options(_) => match arg_index.checked_sub(1) {
+                            Some(offset) => self
+                                .default_prog
+                                .as_ref()
+                                .and_then(|default_prog| default_prog.get(offset))
+                                .cloned()
+                                .unwrap_or_else(|| {
+                                    let launch = self.app_shell.active_pane().launch();
+                                    if offset == 0 {
+                                        launch.program().to_owned()
+                                    } else {
+                                        launch
+                                            .args()
+                                            .get(offset - 1)
+                                            .map(|arg| arg.to_string())
+                                            .unwrap_or_default()
+                                    }
+                                }),
+                            None => String::new(),
+                        },
                     },
                     NativeLuaLaunchMenuField::Cwd => match &item.command {
                         NativeLaunchMenuCommand::Command(command) => {
@@ -84277,6 +84296,50 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "domain=local");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_launch_menu_default_program_status_setter() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'Project Shell',
+                cwd = 'C:/Project Dir',
+                set_environment_variables = {
+                  PROJECT_MODE = 'dev',
+                },
+              },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local item = window:effective_config().launch_menu[1]
+              window:set_right_status(
+                'program=' .. tostring(item.args[1]) ..
+                ' arg=' .. tostring(item.args[2]) ..
+                ' cwd=' .. tostring(item.cwd) ..
+                ' mode=' .. tostring(item.set_environment_variables.PROJECT_MODE)
+              )
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config launch_menu default program status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(
+            app.right_status,
+            "program=powershell arg=-NoProfile cwd=C:/Project Dir mode=dev"
+        );
     }
 
     #[test]

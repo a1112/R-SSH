@@ -2145,7 +2145,8 @@ keyboard, mouse, paste, resize
   `window:effective_config().launch_menu[n].cwd`,
   `window:effective_config().launch_menu[n].domain`, and
   `window:effective_config().launch_menu[n].set_environment_variables.NAME` field concatenations for current
-  effective config values
+  effective config values, with default-program launch-menu items exposing the
+  inherited or configured default command through `launch_menu[n].args[k]`,
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
