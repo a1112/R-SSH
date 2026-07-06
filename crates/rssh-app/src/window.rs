@@ -11129,6 +11129,7 @@ fn lua_window_effective_config_field_from_query(
             Some(NativeLuaWindowEffectiveConfigField::ExperimentalPixelPositioning)
         }
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
+        "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         _ => None,
     }
 }
@@ -25646,6 +25647,7 @@ enum NativeLuaWindowEffectiveConfigField {
     UseBoxModelRender,
     ExperimentalPixelPositioning,
     ShapeCacheSize,
+    LineStateCacheSize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41994,6 +41996,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
                 self.shape_cache_size.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::LineStateCacheSize => {
+                self.line_state_cache_size.to_string()
             }
         }
     }
@@ -79362,6 +79367,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "shape=2048");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_effective_config_line_state_cache_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.line_state_cache_size = 512
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('line-state=' .. tostring(window:effective_config().line_state_cache_size))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config line_state_cache_size status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "line-state=512");
     }
 
     #[test]
