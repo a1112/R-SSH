@@ -11114,7 +11114,21 @@ fn lua_window_effective_config_field_from_query(
     }
     let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let field = lua_identifier_literal_from_query(rest)?;
-    if !lua_trim_start_comments(rest.get(field.len()..)?)?.is_empty() {
+    let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
+    if field == "launch_menu" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+        let rest = lua_trim_start_comments(rest)?;
+        let nested_field = lua_identifier_literal_from_query(rest)?;
+        if nested_field == "label"
+            && lua_config_assignment_field_has_boundaries(rest, 0, nested_field)
+            && lua_trim_start_comments(rest.get(nested_field.len()..)?)?.is_empty()
+        {
+            return Some(NativeLuaWindowEffectiveConfigField::LaunchMenuLabel(index));
+        }
+        return None;
+    }
+    if !rest.is_empty() {
         return None;
     }
     match field {
@@ -25712,6 +25726,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ImePreeditRendering,
     NotificationHandling,
     UseDeadKeys,
+    LaunchMenuLabel(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42133,6 +42148,12 @@ impl NativeWindowApp {
             }
             .to_owned(),
             NativeLuaWindowEffectiveConfigField::UseDeadKeys => self.use_dead_keys.to_string(),
+            NativeLuaWindowEffectiveConfigField::LaunchMenuLabel(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.launch_menu.get(offset))
+                .and_then(|item| item.label.as_deref())
+                .unwrap_or_default()
+                .to_owned(),
         }
     }
 
@@ -80004,6 +80025,35 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "dead-keys=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_launch_menu_label_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'System Monitor',
+                args = { 'top' },
+              },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('launch=' .. tostring(window:effective_config().launch_menu[1].label))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config launch_menu label status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "launch=System Monitor");
     }
 
     #[test]
