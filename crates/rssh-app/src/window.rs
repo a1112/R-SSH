@@ -10270,63 +10270,66 @@ fn lua_static_window_effective_config_status_text_from_query(
 
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
-        if let Some(field) = lua_window_effective_config_field_from_query(segment, window_name)
-            .or_else(|| {
-                variable.as_deref().and_then(|variable| {
-                    lua_static_window_effective_config_field_from_query(
-                        segment,
-                        variable,
-                        window_name,
-                        static_source,
-                    )
-                })
+        if let Some(field) = lua_window_effective_config_field_from_query_with_static_source(
+            segment,
+            window_name,
+            static_source,
+        )
+        .or_else(|| {
+            variable.as_deref().and_then(|variable| {
+                lua_static_window_effective_config_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                    static_source,
+                )
             })
-            .or_else(|| {
-                palette_variable.as_deref().and_then(|variable| {
-                    lua_static_window_effective_config_resolved_palette_field_from_query(
-                        segment,
-                        variable,
-                        window_name,
-                    )
-                })
+        })
+        .or_else(|| {
+            palette_variable.as_deref().and_then(|variable| {
+                lua_static_window_effective_config_resolved_palette_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                )
             })
-            .or_else(|| {
-                visual_bell_variable.as_deref().and_then(|variable| {
-                    lua_static_window_effective_config_visual_bell_field_from_query(
-                        segment,
-                        variable,
-                        window_name,
-                    )
-                })
+        })
+        .or_else(|| {
+            visual_bell_variable.as_deref().and_then(|variable| {
+                lua_static_window_effective_config_visual_bell_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                )
             })
-            .or_else(|| {
-                cell_widths_variable.as_ref().and_then(|variable| {
-                    lua_static_window_effective_config_cell_widths_field_from_query(
-                        segment,
-                        variable,
-                        window_name,
-                    )
-                })
+        })
+        .or_else(|| {
+            cell_widths_variable.as_ref().and_then(|variable| {
+                lua_static_window_effective_config_cell_widths_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                )
             })
-            .or_else(|| {
-                launch_menu_variable.as_ref().and_then(|variable| {
-                    lua_static_window_effective_config_launch_menu_field_from_query(
-                        segment,
-                        variable,
-                        window_name,
-                    )
-                })
+        })
+        .or_else(|| {
+            launch_menu_variable.as_ref().and_then(|variable| {
+                lua_static_window_effective_config_launch_menu_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                )
             })
-            .or_else(|| {
-                launch_menu_env_variable.as_ref().and_then(|variable| {
-                    lua_static_window_effective_config_launch_menu_env_field_from_query(
-                        segment,
-                        variable,
-                        window_name,
-                    )
-                })
+        })
+        .or_else(|| {
+            launch_menu_env_variable.as_ref().and_then(|variable| {
+                lua_static_window_effective_config_launch_menu_env_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                )
             })
-        {
+        }) {
             parts.push(NativeLuaWindowEffectiveConfigStatusPart::Field(field));
             has_dynamic_part = true;
         } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
@@ -12147,6 +12150,14 @@ fn lua_window_effective_config_field_from_query(
     value: &str,
     window_name: &str,
 ) -> Option<NativeLuaWindowEffectiveConfigField> {
+    lua_window_effective_config_field_from_query_with_static_source(value, window_name, None)
+}
+
+fn lua_window_effective_config_field_from_query_with_static_source(
+    value: &str,
+    window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
         && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
@@ -12178,7 +12189,10 @@ fn lua_window_effective_config_field_from_query(
     if !lua_trim_start_comments(arguments)?.trim().is_empty() {
         return None;
     }
-    let (field, rest) = lua_table_map_field_key_from_query(lua_trim_start_comments(rest)?)?;
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_source(
+        static_source,
+        lua_trim_start_comments(rest)?,
+    )?;
     let rest = lua_trim_start_comments(rest)?;
     if field == "launch_menu" {
         let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
@@ -83428,6 +83442,31 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config alias static bracket key status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=nu");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_effective_config_direct_static_bracket_key_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.default_prog = { 'nu', '--login' }
+
+            wezterm.on('update-status', function(window, pane)
+              local field = 'default_prog'
+              window:set_right_status('prog=' .. tostring(window:effective_config()[field][1]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config direct static bracket key status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
