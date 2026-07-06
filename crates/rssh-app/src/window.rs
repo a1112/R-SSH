@@ -861,6 +861,16 @@ impl NativeFreetypeTarget {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Normal => "Normal",
+            Self::Light => "Light",
+            Self::Mono => "Mono",
+            Self::HorizontalLcd => "HorizontalLcd",
+            Self::VerticalLcd => "VerticalLcd",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -924,6 +934,24 @@ impl NativeFreetypeLoadFlags {
         }
 
         saw_flag.then_some(flags)
+    }
+
+    fn config_text(self) -> String {
+        if self == Self::DEFAULT {
+            return "DEFAULT".to_owned();
+        }
+
+        [
+            (Self::NO_HINTING, "NO_HINTING"),
+            (Self::NO_BITMAP, "NO_BITMAP"),
+            (Self::FORCE_AUTOHINT, "FORCE_AUTOHINT"),
+            (Self::MONOCHROME, "MONOCHROME"),
+            (Self::NO_AUTOHINT, "NO_AUTOHINT"),
+        ]
+        .into_iter()
+        .filter_map(|(flag, name)| ((self.0 & flag.0) != 0).then_some(name))
+        .collect::<Vec<_>>()
+        .join("|")
     }
 }
 
@@ -1769,6 +1797,14 @@ impl NativeBoldBrightensAnsiColors {
             "BrightAndBold" => Some(Self::BrightAndBold),
             "BrightOnly" => Some(Self::BrightOnly),
             _ => None,
+        }
+    }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::No => "No",
+            Self::BrightAndBold => "BrightAndBold",
+            Self::BrightOnly => "BrightOnly",
         }
     }
 }
@@ -11558,6 +11594,18 @@ fn lua_window_effective_config_field_from_query(
         "font_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontRasterizer),
         "font_colr_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontColrRasterizer),
         "font_shaper" => Some(NativeLuaWindowEffectiveConfigField::FontShaper),
+        "freetype_load_target" => Some(NativeLuaWindowEffectiveConfigField::FreetypeLoadTarget),
+        "freetype_render_target" => Some(NativeLuaWindowEffectiveConfigField::FreetypeRenderTarget),
+        "freetype_load_flags" => Some(NativeLuaWindowEffectiveConfigField::FreetypeLoadFlags),
+        "freetype_interpreter_version" => {
+            Some(NativeLuaWindowEffectiveConfigField::FreetypeInterpreterVersion)
+        }
+        "freetype_pcf_long_family_names" => {
+            Some(NativeLuaWindowEffectiveConfigField::FreetypePcfLongFamilyNames)
+        }
+        "bold_brightens_ansi_colors" => {
+            Some(NativeLuaWindowEffectiveConfigField::BoldBrightensAnsiColors)
+        }
         "allow_square_glyphs_to_overflow_width" => {
             Some(NativeLuaWindowEffectiveConfigField::AllowSquareGlyphsToOverflowWidth)
         }
@@ -26345,6 +26393,12 @@ enum NativeLuaWindowEffectiveConfigField {
     FontRasterizer,
     FontColrRasterizer,
     FontShaper,
+    FreetypeLoadTarget,
+    FreetypeRenderTarget,
+    FreetypeLoadFlags,
+    FreetypeInterpreterVersion,
+    FreetypePcfLongFamilyNames,
+    BoldBrightensAnsiColors,
     AllowSquareGlyphsToOverflowWidth,
     DisplayPixelGeometry,
     TextBackgroundOpacity,
@@ -42879,6 +42933,28 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::FontShaper => {
                 self.font_shaper.as_wezterm_config_value().to_owned()
             }
+            NativeLuaWindowEffectiveConfigField::FreetypeLoadTarget => self
+                .freetype_load_target
+                .as_wezterm_config_value()
+                .to_owned(),
+            NativeLuaWindowEffectiveConfigField::FreetypeRenderTarget => self
+                .freetype_render_target
+                .as_wezterm_config_value()
+                .to_owned(),
+            NativeLuaWindowEffectiveConfigField::FreetypeLoadFlags => {
+                self.effective_freetype_load_flags().config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::FreetypeInterpreterVersion => self
+                .freetype_interpreter_version
+                .map(|version| version.to_string())
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::FreetypePcfLongFamilyNames => {
+                self.freetype_pcf_long_family_names.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::BoldBrightensAnsiColors => self
+                .bold_brightens_ansi_colors
+                .as_wezterm_config_value()
+                .to_owned(),
             NativeLuaWindowEffectiveConfigField::AllowSquareGlyphsToOverflowWidth => self
                 .allow_square_glyphs_to_overflow_width
                 .as_wezterm_config_value()
@@ -80854,6 +80930,150 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "hinting=VerticalSubpixel");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_freetype_load_target_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.freetype_load_target = 'Light'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ft-load=' .. tostring(window:effective_config().freetype_load_target))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config freetype_load_target status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ft-load=Light");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_freetype_render_target_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.freetype_render_target = 'HorizontalLcd'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ft-render=' .. tostring(window:effective_config().freetype_render_target))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config freetype_render_target status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ft-render=HorizontalLcd");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_freetype_load_flags_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.freetype_load_flags = 'NO_HINTING|MONOCHROME'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ft-flags=' .. tostring(window:effective_config().freetype_load_flags))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config freetype_load_flags status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ft-flags=NO_HINTING|MONOCHROME");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_freetype_interpreter_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.freetype_interpreter_version = 38
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ft-interpreter=' .. tostring(window:effective_config().freetype_interpreter_version))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config freetype_interpreter_version status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "ft-interpreter=38");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_freetype_pcf_long_family_names_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.freetype_pcf_long_family_names = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('pcf-long=' .. tostring(window:effective_config().freetype_pcf_long_family_names))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config freetype_pcf_long_family_names status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "pcf-long=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_bold_brightens_ansi_colors_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.bold_brightens_ansi_colors = 'BrightOnly'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('bold-bright=' .. tostring(window:effective_config().bold_brightens_ansi_colors))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config bold_brightens_ansi_colors status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "bold-bright=BrightOnly");
     }
 
     #[test]
