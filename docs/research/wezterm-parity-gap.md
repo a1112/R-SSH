@@ -2581,7 +2581,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().use_dead_keys`,
   `window:effective_config().automatically_reload_config`,
   `window:effective_config().check_for_updates`,
-  `window:effective_config().show_update_window`, and
+  `window:effective_config().show_update_window`,
+  `window:effective_config().check_for_updates_interval_seconds`, and
   `window:effective_config().launch_menu[1].label` field concatenations for current
   effective config values, and the documented
   `window:active_key_table()` key-table status example with static prefix and

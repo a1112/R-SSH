@@ -11193,6 +11193,9 @@ fn lua_window_effective_config_field_from_query(
         }
         "check_for_updates" => Some(NativeLuaWindowEffectiveConfigField::CheckForUpdates),
         "show_update_window" => Some(NativeLuaWindowEffectiveConfigField::ShowUpdateWindow),
+        "check_for_updates_interval_seconds" => {
+            Some(NativeLuaWindowEffectiveConfigField::CheckForUpdatesIntervalSeconds)
+        }
         _ => None,
     }
 }
@@ -25735,6 +25738,7 @@ enum NativeLuaWindowEffectiveConfigField {
     AutomaticallyReloadConfig,
     CheckForUpdates,
     ShowUpdateWindow,
+    CheckForUpdatesIntervalSeconds,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42170,6 +42174,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::ShowUpdateWindow => {
                 self.show_update_window.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::CheckForUpdatesIntervalSeconds => {
+                self.check_for_updates_interval_seconds.to_string()
             }
         }
     }
@@ -80143,6 +80150,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "update-window=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_check_for_updates_interval_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.check_for_updates_interval_seconds = 43200
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('interval=' .. tostring(window:effective_config().check_for_updates_interval_seconds))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config check_for_updates_interval_seconds status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "interval=43200");
     }
 
     #[test]
