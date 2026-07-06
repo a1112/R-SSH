@@ -10623,6 +10623,10 @@ fn lua_static_window_effective_config_launch_menu_variable_before_offset(
             lua_static_window_effective_config_launch_menu_variable_from_statement(
                 statement,
                 window_name,
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
             )
         {
             selected = Some(variable);
@@ -10635,6 +10639,7 @@ fn lua_static_window_effective_config_launch_menu_variable_before_offset(
 fn lua_static_window_effective_config_launch_menu_variable_from_statement(
     statement: &str,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaLaunchMenuVariableReference> {
     let statement = lua_trim_start_comments(statement)?;
     let rest = if lua_source_keyword_at(statement, 0, "local") {
@@ -10646,7 +10651,11 @@ fn lua_static_window_effective_config_launch_menu_variable_from_statement(
     let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
     let rest = rest.strip_prefix('=')?;
     let value = lua_top_level_statement_value_from_query(rest)?;
-    let index = lua_window_effective_config_launch_menu_entry_from_query(value, window_name)?;
+    let index = lua_window_effective_config_launch_menu_entry_from_query_with_static_source(
+        value,
+        window_name,
+        static_source,
+    )?;
     Some(NativeLuaLaunchMenuVariableReference {
         variable: variable.to_owned(),
         index,
@@ -10666,6 +10675,10 @@ fn lua_static_window_effective_config_launch_menu_env_variable_before_offset(
             lua_static_window_effective_config_launch_menu_env_variable_from_statement(
                 statement,
                 window_name,
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
             )
         {
             selected = Some(variable);
@@ -10678,6 +10691,7 @@ fn lua_static_window_effective_config_launch_menu_env_variable_before_offset(
 fn lua_static_window_effective_config_launch_menu_env_variable_from_statement(
     statement: &str,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaLaunchMenuEnvVariableReference> {
     let statement = lua_trim_start_comments(statement)?;
     let rest = if lua_source_keyword_at(statement, 0, "local") {
@@ -10689,7 +10703,11 @@ fn lua_static_window_effective_config_launch_menu_env_variable_from_statement(
     let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
     let rest = rest.strip_prefix('=')?;
     let value = lua_top_level_statement_value_from_query(rest)?;
-    let index = lua_window_effective_config_launch_menu_env_from_query(value, window_name)?;
+    let index = lua_window_effective_config_launch_menu_env_from_query_with_static_source(
+        value,
+        window_name,
+        static_source,
+    )?;
     Some(NativeLuaLaunchMenuEnvVariableReference {
         variable: variable.to_owned(),
         index,
@@ -10824,9 +10842,10 @@ fn lua_window_effective_config_cell_widths_entry_from_query(
     lua_trim_start_comments(rest)?.is_empty().then_some(index)
 }
 
-fn lua_window_effective_config_launch_menu_entry_from_query(
+fn lua_window_effective_config_launch_menu_entry_from_query_with_static_source(
     value: &str,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<usize> {
     let value = lua_trim_start_comments(value)?.trim();
     let rest = value.strip_prefix(window_name)?;
@@ -10852,13 +10871,15 @@ fn lua_window_effective_config_launch_menu_entry_from_query(
         return None;
     }
     let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
-    let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    let (index, rest) =
+        lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
     lua_trim_start_comments(rest)?.is_empty().then_some(index)
 }
 
-fn lua_window_effective_config_launch_menu_env_from_query(
+fn lua_window_effective_config_launch_menu_env_from_query_with_static_source(
     value: &str,
     window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<usize> {
     let value = lua_trim_start_comments(value)?.trim();
     let rest = value.strip_prefix(window_name)?;
@@ -10884,7 +10905,8 @@ fn lua_window_effective_config_launch_menu_env_from_query(
         return None;
     }
     let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
-    let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    let (index, rest) =
+        lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
     let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
     let rest = lua_trim_start_comments(rest)?;
     let nested_field = lua_identifier_literal_from_query(rest)?;
@@ -84840,6 +84862,41 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "mode=dev flag=on");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_launch_menu_env_alias_static_index_status() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.launch_menu = {
+              {
+                label = 'Monitor',
+                args = { 'top' },
+                set_environment_variables = {
+                  PROJECT_MODE = 'dev',
+                },
+              },
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              local item_index = 1
+              local env_key = 'PROJECT_MODE'
+              local env = window:effective_config().launch_menu[item_index].set_environment_variables
+              window:set_right_status('env=' .. tostring(env[env_key]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config launch_menu env alias static index status");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "env=dev");
     }
 
     #[test]

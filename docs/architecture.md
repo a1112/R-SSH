@@ -2153,6 +2153,8 @@ keyboard, mouse, paste, resize
   `window:effective_config()['default_prog'][1]`,
   `window:effective_config().visual_bell['target']`, or
   `local env_key = 'PROJECT_MODE'; local env = window:effective_config().set_environment_variables; env[env_key]`,
+  plus launch-menu environment aliases such as
+  `local item_index = 1; local env = window:effective_config().launch_menu[item_index].set_environment_variables; env[env_key]`,
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
   `window:leader_is_active()` status shape with static active/inactive strings,
