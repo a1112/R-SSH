@@ -2294,6 +2294,15 @@ impl NativeExitBehaviorMessaging {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::Verbose => "Verbose",
+            Self::Brief => "Brief",
+            Self::Terse => "Terse",
+            Self::None => "None",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -11722,7 +11731,18 @@ fn lua_window_effective_config_field_from_query(
         "selection_word_boundary" => {
             Some(NativeLuaWindowEffectiveConfigField::SelectionWordBoundary)
         }
+        "term" => Some(NativeLuaWindowEffectiveConfigField::Term),
         "enq_answerback" => Some(NativeLuaWindowEffectiveConfigField::EnqAnswerback),
+        "initial_cols" => Some(NativeLuaWindowEffectiveConfigField::InitialCols),
+        "initial_rows" => Some(NativeLuaWindowEffectiveConfigField::InitialRows),
+        "scrollback_lines" => Some(NativeLuaWindowEffectiveConfigField::ScrollbackLines),
+        "switch_to_last_active_tab_when_closing_tab" => {
+            Some(NativeLuaWindowEffectiveConfigField::SwitchToLastActiveTabWhenClosingTab)
+        }
+        "exit_behavior" => Some(NativeLuaWindowEffectiveConfigField::ExitBehavior),
+        "exit_behavior_messaging" => {
+            Some(NativeLuaWindowEffectiveConfigField::ExitBehaviorMessaging)
+        }
         "adjust_window_size_when_changing_font_size" => {
             Some(NativeLuaWindowEffectiveConfigField::AdjustWindowSizeWhenChangingFontSize)
         }
@@ -26395,7 +26415,14 @@ enum NativeLuaWindowEffectiveConfigField {
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
+    Term,
     EnqAnswerback,
+    InitialCols,
+    InitialRows,
+    ScrollbackLines,
+    SwitchToLastActiveTabWhenClosingTab,
+    ExitBehavior,
+    ExitBehaviorMessaging,
     AdjustWindowSizeWhenChangingFontSize,
     TilingDesktopEnvironment(usize),
     SkipCloseConfirmationProcess(usize),
@@ -43178,7 +43205,23 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::SelectionWordBoundary => {
                 self.selection_word_boundary.clone()
             }
+            NativeLuaWindowEffectiveConfigField::Term => self.term.clone(),
             NativeLuaWindowEffectiveConfigField::EnqAnswerback => self.enq_answerback.clone(),
+            NativeLuaWindowEffectiveConfigField::InitialCols => self.initial_cols.to_string(),
+            NativeLuaWindowEffectiveConfigField::InitialRows => self.initial_rows.to_string(),
+            NativeLuaWindowEffectiveConfigField::ScrollbackLines => {
+                self.scrollback_lines.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SwitchToLastActiveTabWhenClosingTab => {
+                self.switch_to_last_active_tab_when_closing_tab.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ExitBehavior => {
+                self.exit_behavior.as_wezterm_config_value().to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::ExitBehaviorMessaging => self
+                .exit_behavior_messaging
+                .as_wezterm_config_value()
+                .to_owned(),
             NativeLuaWindowEffectiveConfigField::AdjustWindowSizeWhenChangingFontSize => {
                 self.adjust_window_size_when_changing_font_size.to_string()
             }
@@ -82348,6 +82391,176 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "enq=rssh");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_term_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.term = 'wezterm-direct'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('term=' .. tostring(window:effective_config().term))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config term status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "term=wezterm-direct");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_initial_cols_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.initial_cols = 100
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cols=' .. tostring(window:effective_config().initial_cols))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config initial_cols status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cols=100");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_initial_rows_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.initial_rows = 30
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('rows=' .. tostring(window:effective_config().initial_rows))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config initial_rows status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "rows=30");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_scrollback_lines_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.scrollback_lines = 12345
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('scrollback=' .. tostring(window:effective_config().scrollback_lines))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config scrollback_lines status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "scrollback=12345");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_switch_to_last_active_tab_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.switch_to_last_active_tab_when_closing_tab = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('last-tab=' .. tostring(window:effective_config().switch_to_last_active_tab_when_closing_tab))
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config switch_to_last_active_tab_when_closing_tab status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "last-tab=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_exit_behavior_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.exit_behavior = 'CloseOnCleanExit'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('exit=' .. tostring(window:effective_config().exit_behavior))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config exit_behavior status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "exit=CloseOnCleanExit");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_exit_behavior_messaging_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.exit_behavior_messaging = 'Brief'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('exit-msg=' .. tostring(window:effective_config().exit_behavior_messaging))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config exit_behavior_messaging status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "exit-msg=Brief");
     }
 
     #[test]
