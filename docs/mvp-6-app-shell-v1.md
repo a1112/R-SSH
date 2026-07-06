@@ -1749,7 +1749,8 @@ runtime storage for tabs and split panes.
   `window:effective_config().use_resize_increments`,
   `window:effective_config().alternate_buffer_wheel_scroll_speed`,
   `window:effective_config().ignore_svg_fonts`,
-  `window:effective_config().bidi_enabled`, and
+  `window:effective_config().bidi_enabled`,
+  `window:effective_config().bidi_direction`, and
   `window:effective_config().launch_menu[1].label` field concatenations expose current
   effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies

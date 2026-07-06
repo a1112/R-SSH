@@ -772,6 +772,15 @@ impl NativeBidiDirection {
             _ => None,
         }
     }
+
+    fn as_wezterm_config_value(self) -> &'static str {
+        match self {
+            Self::LeftToRight => "LeftToRight",
+            Self::RightToLeft => "RightToLeft",
+            Self::AutoLeftToRight => "AutoLeftToRight",
+            Self::AutoRightToLeft => "AutoRightToLeft",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11163,6 +11172,7 @@ fn lua_window_effective_config_field_from_query(
         }
         "ignore_svg_fonts" => Some(NativeLuaWindowEffectiveConfigField::IgnoreSvgFonts),
         "bidi_enabled" => Some(NativeLuaWindowEffectiveConfigField::BidiEnabled),
+        "bidi_direction" => Some(NativeLuaWindowEffectiveConfigField::BidiDirection),
         "shape_cache_size" => Some(NativeLuaWindowEffectiveConfigField::ShapeCacheSize),
         "line_state_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineStateCacheSize),
         "line_quad_cache_size" => Some(NativeLuaWindowEffectiveConfigField::LineQuadCacheSize),
@@ -25746,6 +25756,7 @@ enum NativeLuaWindowEffectiveConfigField {
     ExperimentalPixelPositioning,
     IgnoreSvgFonts,
     BidiEnabled,
+    BidiDirection,
     ShapeCacheSize,
     LineStateCacheSize,
     LineQuadCacheSize,
@@ -42133,6 +42144,9 @@ impl NativeWindowApp {
                 self.ignore_svg_fonts.to_string()
             }
             NativeLuaWindowEffectiveConfigField::BidiEnabled => self.bidi_enabled.to_string(),
+            NativeLuaWindowEffectiveConfigField::BidiDirection => {
+                self.bidi_direction.as_wezterm_config_value().to_owned()
+            }
             NativeLuaWindowEffectiveConfigField::ShapeCacheSize => {
                 self.shape_cache_size.to_string()
             }
@@ -80548,6 +80562,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "bidi=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_bidi_direction_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.bidi_direction = 'AutoRightToLeft'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('bidi-dir=' .. tostring(window:effective_config().bidi_direction))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config bidi_direction status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "bidi-dir=AutoRightToLeft");
     }
 
     #[test]
