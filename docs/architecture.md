@@ -1931,8 +1931,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().line_quad_cache_size`,
   `window:effective_config().line_to_ele_shape_cache_size`,
   `window:effective_config().glyph_cache_image_cache_size`,
-  `window:effective_config().cursor_blink_rate`, and
-  `window:effective_config().cursor_blink_ease_in` field concatenations for current
+  `window:effective_config().cursor_blink_rate`,
+  `window:effective_config().cursor_blink_ease_in`, and
+  `window:effective_config().cursor_blink_ease_out` field concatenations for current
   effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
