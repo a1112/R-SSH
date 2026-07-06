@@ -1884,8 +1884,9 @@ keyboard, mouse, paste, resize
   `update-right-status` static subsets map literal
   `window:set_left_status(...)` and `window:set_right_status(...)` calls plus
   the documented `window:set_right_status(window:active_workspace())` shape,
-  static string concatenations with `window:active_workspace()`, plus
-  static string concatenations with `window:window_id()`,
+  static string concatenations with `window:active_workspace()` or
+  `tostring(window:active_workspace())`, plus static string concatenations
+  with `window:window_id()`,
   `window:active_tab():tab_id()`/`get_title()`,
   `window:active_pane():pane_id()`/`get_title()`/`get_domain_name()`/
   `get_current_working_dir()`/`get_foreground_process_name()`/

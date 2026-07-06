@@ -10123,6 +10123,7 @@ fn lua_static_window_and_pane_status_text_from_query(
 
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
+        let segment = lua_tostring_argument_from_query(segment).unwrap_or(segment);
         if lua_window_zero_arg_method_name_from_query(segment, window_name)
             == Some("active_workspace")
         {
@@ -10196,6 +10197,21 @@ fn lua_static_window_and_pane_status_text_from_query(
     }
 
     has_dynamic_part.then_some(NativeLuaWindowStatusText::WindowPane { parts })
+}
+
+fn lua_tostring_argument_from_query(value: &str) -> Option<&str> {
+    let value = lua_trim_start_comments(value)?.trim();
+    if !value.starts_with("tostring")
+        || !lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    lua_trim_start_comments(rest)?
+        .is_empty()
+        .then_some(lua_trim_start_comments(argument)?.trim())
 }
 
 fn lua_static_window_dimensions_status_text_from_query(
@@ -81349,6 +81365,28 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm active workspace concat status setter");
+        overrides.default_workspace = Some("ops".to_owned());
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.app_shell.active_workspace().name(), "ops");
+        assert_eq!(app.right_status, "ws=ops");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_tostring_active_workspace_concat_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let mut overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('ws=' .. tostring(window:active_workspace()))
+            end)
+            "#,
+        )
+        .expect("expected WezTerm tostring active workspace concat status setter");
         overrides.default_workspace = Some("ops".to_owned());
         app.set_config_overrides(overrides);
 
