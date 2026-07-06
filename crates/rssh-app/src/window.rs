@@ -11318,6 +11318,9 @@ fn lua_window_effective_config_field_from_query(
         "anti_alias_custom_block_glyphs" => {
             Some(NativeLuaWindowEffectiveConfigField::AntiAliasCustomBlockGlyphs)
         }
+        "kde_window_background_blur" => {
+            Some(NativeLuaWindowEffectiveConfigField::KdeWindowBackgroundBlur)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25899,6 +25902,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowPaddingBottom,
     WindowContentAlignmentHorizontal,
     WindowContentAlignmentVertical,
+    KdeWindowBackgroundBlur,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42421,6 +42425,9 @@ impl NativeWindowApp {
                     NativeVerticalContentAlignment::Bottom => "Bottom",
                 }
                 .to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::KdeWindowBackgroundBlur => {
+                self.kde_window_background_blur.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -81201,6 +81208,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "align-v=Bottom");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_kde_window_background_blur_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.kde_window_background_blur = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('kde-blur=' .. tostring(window:effective_config().kde_window_background_blur))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config kde_window_background_blur status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "kde-blur=true");
     }
 
     #[test]
