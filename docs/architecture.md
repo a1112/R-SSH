@@ -1965,6 +1965,7 @@ keyboard, mouse, paste, resize
   `window:effective_config().treat_left_ctrlalt_as_altgr`,
   `window:effective_config().send_composed_key_when_left_alt_is_pressed`,
   `window:effective_config().send_composed_key_when_right_alt_is_pressed`,
+  `window:effective_config().treat_east_asian_ambiguous_width_as_wide`,
   `window:effective_config().window_close_confirmation`,
   `window:effective_config().native_macos_fullscreen_mode`,
   `window:effective_config().macos_fullscreen_extend_behind_notch`,
