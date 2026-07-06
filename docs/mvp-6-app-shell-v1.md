@@ -1752,6 +1752,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().custom_block_glyphs`,
   `window:effective_config().anti_alias_custom_block_glyphs`,
   `window:effective_config().window_padding.left`,
+  `window:effective_config().window_padding.right`,
   `window:effective_config().bidi_enabled`,
   `window:effective_config().bidi_direction`,
   `window:effective_config().skip_close_confirmation_for_processes_named[1]`,

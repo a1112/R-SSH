@@ -11195,6 +11195,9 @@ fn lua_window_effective_config_field_from_query(
         if nested_field == "left" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::WindowPaddingLeft);
         }
+        if nested_field == "right" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::WindowPaddingRight);
+        }
         return None;
     }
     if !rest.is_empty() {
@@ -25872,6 +25875,7 @@ enum NativeLuaWindowEffectiveConfigField {
     CustomBlockGlyphs,
     AntiAliasCustomBlockGlyphs,
     WindowPaddingLeft,
+    WindowPaddingRight,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42369,6 +42373,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::WindowPaddingLeft => {
                 self.window_padding.left.config_text()
+            }
+            NativeLuaWindowEffectiveConfigField::WindowPaddingRight => {
+                self.window_padding.right.config_text()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -81008,6 +81015,35 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "padding-left=8px");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_padding_right_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_padding = {
+              left = 8,
+              right = 16,
+              top = '1cell',
+              bottom = '2pt',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('padding-right=' .. tostring(window:effective_config().window_padding.right))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_padding.right status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "padding-right=16px");
     }
 
     #[test]
