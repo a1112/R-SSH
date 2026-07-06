@@ -11137,6 +11137,7 @@ fn lua_window_effective_config_field_from_query(
         "glyph_cache_image_cache_size" => {
             Some(NativeLuaWindowEffectiveConfigField::GlyphCacheImageCacheSize)
         }
+        "cursor_blink_rate" => Some(NativeLuaWindowEffectiveConfigField::CursorBlinkRate),
         _ => None,
     }
 }
@@ -25658,6 +25659,7 @@ enum NativeLuaWindowEffectiveConfigField {
     LineQuadCacheSize,
     LineToEleShapeCacheSize,
     GlyphCacheImageCacheSize,
+    CursorBlinkRate,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42018,6 +42020,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::GlyphCacheImageCacheSize => {
                 self.glyph_cache_image_cache_size.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::CursorBlinkRate => {
+                self.cursor_blink_rate.as_millis().to_string()
             }
         }
     }
@@ -79482,6 +79487,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "glyph-cache=128");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_cursor_blink_rate_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.cursor_blink_rate = 375
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cursor-rate=' .. tostring(window:effective_config().cursor_blink_rate))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config cursor_blink_rate status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cursor-rate=375");
     }
 
     #[test]
