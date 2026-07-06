@@ -1909,7 +1909,7 @@ keyboard, mouse, paste, resize
   `y`, `shape`, and `visibility`
   plus static `pane:get_user_vars()` or
   `window:active_pane():get_user_vars()` dot-field or static string-key
-  concatenations for stored user-var names
+  concatenations for stored user-var names, including static `or` fallbacks
   plus static `pane:get_progress()` or
   `window:active_pane():get_progress()` conditional status branches for
   `Percentage`, `Error`, and `Indeterminate`
@@ -2296,7 +2296,7 @@ keyboard, mouse, paste, resize
   pane value changes, carrying the window id, pane id, name, and value. Static
   `update-status` callbacks can read active-pane `pane:get_user_vars()` or
   `window:active_pane():get_user_vars()` dot fields and static string keys from
-  the same stored metadata.
+  the same stored metadata, including static `or` fallbacks.
 - Implemented in v1: `rssh-terminal` base64-decodes iTerm2
   `OSC 1337;SetBadgeFormat` metadata into terminal badge format state.
   `rssh-app` syncs that value into per-pane app-shell metadata for active and

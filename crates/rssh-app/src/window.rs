@@ -11550,8 +11550,16 @@ fn lua_static_pane_user_vars_status_text_from_query(
 
     for segment in split_lua_string_concat_segments(value)? {
         let segment = segment.trim();
-        if let Some(name) = lua_static_pane_user_var_name_from_query(segment, &variable) {
-            parts.push(NativeLuaPaneUserVarsStatusPart::UserVar(name));
+        if let Some((name, fallback)) =
+            lua_static_pane_user_var_fallback_from_query(segment, &variable)
+        {
+            parts.push(NativeLuaPaneUserVarsStatusPart::UserVar { name, fallback });
+            has_dynamic_part = true;
+        } else if let Some(name) = lua_static_pane_user_var_name_from_query(segment, &variable) {
+            parts.push(NativeLuaPaneUserVarsStatusPart::UserVar {
+                name,
+                fallback: String::new(),
+            });
             has_dynamic_part = true;
         } else if let Some(text) = lua_static_string_value_from_expression(None, None, segment) {
             parts.push(NativeLuaPaneUserVarsStatusPart::Static(text));
@@ -11606,6 +11614,16 @@ fn lua_static_pane_user_vars_variable_from_statement(
         return None;
     }
     Some(variable.to_owned())
+}
+
+fn lua_static_pane_user_var_fallback_from_query(
+    value: &str,
+    variable: &str,
+) -> Option<(String, String)> {
+    let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
+    let name = lua_static_pane_user_var_name_from_query(dynamic, variable)?;
+    let fallback = lua_static_string_value_from_expression(None, None, fallback)?;
+    Some((name, fallback))
 }
 
 fn lua_static_pane_user_var_name_from_query(value: &str, variable: &str) -> Option<String> {
@@ -28266,7 +28284,7 @@ enum NativeLuaPaneCursorPositionField {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaPaneUserVarsStatusPart {
     Static(String),
-    UserVar(String),
+    UserVar { name: String, fallback: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44510,8 +44528,8 @@ impl NativeWindowApp {
                 .into_iter()
                 .map(|part| match part {
                     NativeLuaPaneUserVarsStatusPart::Static(text) => text,
-                    NativeLuaPaneUserVarsStatusPart::UserVar(name) => {
-                        self.lua_pane_user_var_text(&name)
+                    NativeLuaPaneUserVarsStatusPart::UserVar { name, fallback } => {
+                        self.lua_pane_user_var_text(&name, fallback)
                     }
                 })
                 .collect::<String>(),
@@ -45405,10 +45423,9 @@ impl NativeWindowApp {
         }
     }
 
-    fn lua_pane_user_var_text(&self, name: &str) -> String {
+    fn lua_pane_user_var_text(&self, name: &str, fallback: String) -> String {
         self.pane_user_var(self.app_shell.active_pane_id(), name)
-            .unwrap_or_default()
-            .to_owned()
+            .map_or(fallback, ToOwned::to_owned)
     }
 
     fn lua_pane_progress_text(
@@ -82588,6 +82605,34 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "prog=psh host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_user_vars_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local vars = pane:get_user_vars()
+              window:set_right_status(
+                'prog=' .. (vars['WEZTERM-PROG'] or 'missing')
+                  .. ' host=' .. (vars["WEZTERM-HOST"] or 'none')
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_user_vars fallback status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=missing host=none");
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07")
+            .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=psh host=none");
     }
 
     #[test]
