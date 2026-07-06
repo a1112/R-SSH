@@ -11476,6 +11476,29 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "quick_select_patterns" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::QuickSelectPattern(
+                index,
+            ));
+        }
+        return None;
+    }
+    if field == "color_scheme_dirs" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::ColorSchemeDir(index));
+        }
+        return None;
+    }
+    if field == "clean_exit_codes" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::CleanExitCode(index));
+        }
+        return None;
+    }
     if field == "set_environment_variables" {
         let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
         let rest = lua_trim_start_comments(rest)?;
@@ -26530,6 +26553,9 @@ enum NativeLuaWindowEffectiveConfigField {
     PaneSelectFontSize,
     LauncherAlphabet,
     QuickSelectAlphabet,
+    QuickSelectPattern(usize),
+    ColorSchemeDir(usize),
+    CleanExitCode(usize),
     DisableDefaultQuickSelectPatterns,
     QuickSelectRemoveStyling,
     CanonicalizePastedNewlines,
@@ -43313,6 +43339,21 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::QuickSelectAlphabet => {
                 self.quick_select_alphabet.clone()
             }
+            NativeLuaWindowEffectiveConfigField::QuickSelectPattern(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.quick_select_patterns.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::ColorSchemeDir(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.color_scheme_dirs.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::CleanExitCode(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.clean_exit_codes.get(offset))
+                .map(|code| code.to_string())
+                .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::DisableDefaultQuickSelectPatterns => {
                 self.disable_default_quick_select_patterns.to_string()
             }
@@ -82363,6 +82404,30 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_update_status_color_scheme_dirs_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.color_scheme_dirs = { 'schemes', '/opt/wezterm/colors' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('scheme-dir=' .. tostring(window:effective_config().color_scheme_dirs[2]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config color_scheme_dirs status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "scheme-dir=/opt/wezterm/colors");
+    }
+
+    #[test]
     fn window_app_parses_update_status_use_dead_keys_status_setter() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -83183,6 +83248,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "exit-msg=Brief");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_clean_exit_codes_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.clean_exit_codes = { 130, 143 }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('clean-exit=' .. tostring(window:effective_config().clean_exit_codes[2]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config clean_exit_codes status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "clean-exit=143");
     }
 
     #[test]
@@ -84157,6 +84246,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "quick-alpha=ab");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_quick_select_patterns_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.quick_select_patterns = { 'ticket-[0-9]+', 'bug-[A-Z]+' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('quick-pattern=' .. tostring(window:effective_config().quick_select_patterns[2]))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config quick_select_patterns status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "quick-pattern=bug-[A-Z]+");
     }
 
     #[test]
