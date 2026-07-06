@@ -1731,9 +1731,10 @@ runtime storage for tabs and split panes.
   `window:effective_config().scroll_to_bottom_on_input`,
   `window:effective_config().use_ime`,
   `window:effective_config().xim_im_name`,
-  `window:effective_config().ime_preedit_rendering`, and
-  `window:effective_config().notification_handling` field concatenations
-  expose current effective config values. The documented
+  `window:effective_config().ime_preedit_rendering`,
+  `window:effective_config().notification_handling`, and
+  `window:effective_config().use_dead_keys` field concatenations expose current
+  effective config values. The documented
   key-table status example resolves `window:active_key_table()` at status-update time, applies
   its static `TABLE: ` prefix only while a key table is active, and falls back
   to an empty right status for an empty key-table stack. The documented
