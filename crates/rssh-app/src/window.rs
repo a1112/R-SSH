@@ -11202,6 +11202,9 @@ fn lua_window_effective_config_field_from_query(
         "window_close_confirmation" => {
             Some(NativeLuaWindowEffectiveConfigField::WindowCloseConfirmation)
         }
+        "native_macos_fullscreen_mode" => {
+            Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
+        }
         _ => None,
     }
 }
@@ -25747,6 +25750,7 @@ enum NativeLuaWindowEffectiveConfigField {
     CheckForUpdatesIntervalSeconds,
     EnableCsiUKeyEncoding,
     WindowCloseConfirmation,
+    NativeMacosFullscreenMode,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42195,6 +42199,9 @@ impl NativeWindowApp {
                     NativeWindowCloseConfirmation::NeverPrompt => "NeverPrompt",
                 }
                 .to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
+                self.native_macos_fullscreen_mode.to_string()
             }
         }
     }
@@ -80240,6 +80247,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "close=NeverPrompt");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_native_macos_fullscreen_mode_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.native_macos_fullscreen_mode = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('macos-fullscreen=' .. tostring(window:effective_config().native_macos_fullscreen_mode))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config native_macos_fullscreen_mode status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "macos-fullscreen=true");
     }
 
     #[test]
