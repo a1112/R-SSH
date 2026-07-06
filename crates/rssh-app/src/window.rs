@@ -11231,6 +11231,9 @@ fn lua_window_effective_config_field_from_query(
         "show_close_tab_button_in_tabs" => {
             Some(NativeLuaWindowEffectiveConfigField::ShowCloseTabButtonInTabs)
         }
+        "show_new_tab_button_in_tab_bar" => {
+            Some(NativeLuaWindowEffectiveConfigField::ShowNewTabButtonInTabBar)
+        }
         "native_macos_fullscreen_mode" => {
             Some(NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode)
         }
@@ -25797,6 +25800,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnableCsiUKeyEncoding,
     WindowCloseConfirmation,
     ShowCloseTabButtonInTabs,
+    ShowNewTabButtonInTabBar,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42264,6 +42268,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::ShowCloseTabButtonInTabs => {
                 self.show_close_tab_button_in_tabs.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::ShowNewTabButtonInTabBar => {
+                self.show_new_tab_button_in_tab_bar.to_string()
             }
             NativeLuaWindowEffectiveConfigField::NativeMacosFullscreenMode => {
                 self.native_macos_fullscreen_mode.to_string()
@@ -80656,6 +80663,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "tab-close=false");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_show_new_tab_button_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.show_new_tab_button_in_tab_bar = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('new-tab=' .. tostring(window:effective_config().show_new_tab_button_in_tab_bar))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config show_new_tab_button_in_tab_bar status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "new-tab=false");
     }
 
     #[test]
