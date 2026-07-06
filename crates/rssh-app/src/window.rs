@@ -11188,6 +11188,9 @@ fn lua_window_effective_config_field_from_query(
         "ime_preedit_rendering" => Some(NativeLuaWindowEffectiveConfigField::ImePreeditRendering),
         "notification_handling" => Some(NativeLuaWindowEffectiveConfigField::NotificationHandling),
         "use_dead_keys" => Some(NativeLuaWindowEffectiveConfigField::UseDeadKeys),
+        "automatically_reload_config" => {
+            Some(NativeLuaWindowEffectiveConfigField::AutomaticallyReloadConfig)
+        }
         _ => None,
     }
 }
@@ -25727,6 +25730,7 @@ enum NativeLuaWindowEffectiveConfigField {
     NotificationHandling,
     UseDeadKeys,
     LaunchMenuLabel(usize),
+    AutomaticallyReloadConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42154,6 +42158,9 @@ impl NativeWindowApp {
                 .and_then(|item| item.label.as_deref())
                 .unwrap_or_default()
                 .to_owned(),
+            NativeLuaWindowEffectiveConfigField::AutomaticallyReloadConfig => {
+                self.automatically_reload_config.to_string()
+            }
         }
     }
 
@@ -80054,6 +80061,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "launch=System Monitor");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_automatically_reload_config_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.automatically_reload_config = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('reload=' .. tostring(window:effective_config().automatically_reload_config))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config automatically_reload_config status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "reload=false");
     }
 
     #[test]
