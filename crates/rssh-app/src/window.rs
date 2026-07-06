@@ -11347,6 +11347,9 @@ fn lua_window_effective_config_field_from_query(
         "check_for_updates_interval_seconds" => {
             Some(NativeLuaWindowEffectiveConfigField::CheckForUpdatesIntervalSeconds)
         }
+        "enable_checksum_rectangular_area" => {
+            Some(NativeLuaWindowEffectiveConfigField::EnableChecksumRectangularArea)
+        }
         "enable_title_reporting" => Some(NativeLuaWindowEffectiveConfigField::EnableTitleReporting),
         "enable_csi_u_key_encoding" => {
             Some(NativeLuaWindowEffectiveConfigField::EnableCsiUKeyEncoding)
@@ -25954,6 +25957,7 @@ enum NativeLuaWindowEffectiveConfigField {
     CheckForUpdates,
     ShowUpdateWindow,
     CheckForUpdatesIntervalSeconds,
+    EnableChecksumRectangularArea,
     EnableTitleReporting,
     EnableCsiUKeyEncoding,
     EnableKittyKeyboard,
@@ -42434,6 +42438,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::CheckForUpdatesIntervalSeconds => {
                 self.check_for_updates_interval_seconds.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::EnableChecksumRectangularArea => {
+                self.enable_checksum_rectangular_area.to_string()
             }
             NativeLuaWindowEffectiveConfigField::EnableTitleReporting => {
                 self.enable_title_reporting.to_string()
@@ -80627,6 +80634,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "title-reporting=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_enable_checksum_rectangular_area_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_checksum_rectangular_area = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('checksum-rect=' .. tostring(window:effective_config().enable_checksum_rectangular_area))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config enable_checksum_rectangular_area status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "checksum-rect=true");
     }
 
     #[test]

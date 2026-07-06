@@ -2583,6 +2583,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window:effective_config().check_for_updates`,
   `window:effective_config().show_update_window`,
   `window:effective_config().check_for_updates_interval_seconds`,
+  `window:effective_config().enable_checksum_rectangular_area`,
   `window:effective_config().enable_title_reporting`,
   `window:effective_config().enable_csi_u_key_encoding`,
   `window:effective_config().enable_kitty_keyboard`,
