@@ -11144,6 +11144,13 @@ fn lua_window_effective_config_field_from_query(
         }
         return None;
     }
+    if field == "skip_close_confirmation_for_processes_named" {
+        let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::SkipCloseConfirmationProcess(index));
+        }
+        return None;
+    }
     if !rest.is_empty() {
         return None;
     }
@@ -25792,6 +25799,7 @@ enum NativeLuaWindowEffectiveConfigField {
     EnqAnswerback,
     AdjustWindowSizeWhenChangingFontSize,
     TilingDesktopEnvironment(usize),
+    SkipCloseConfirmationProcess(usize),
     UseResizeIncrements,
     AlternateBufferWheelScrollSpeed,
 }
@@ -42266,6 +42274,11 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::TilingDesktopEnvironment(index) => index
                 .checked_sub(1)
                 .and_then(|offset| self.tiling_desktop_environments.get(offset))
+                .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::SkipCloseConfirmationProcess(index) => index
+                .checked_sub(1)
+                .and_then(|offset| self.skip_close_confirmation_for_processes_named.get(offset))
                 .cloned()
                 .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::UseResizeIncrements => {
@@ -80586,6 +80599,32 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "bidi-dir=AutoRightToLeft");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_skip_close_confirmation_process_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.skip_close_confirmation_for_processes_named = { 'top', 'cmd.exe' }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('skip-close=' .. window:effective_config().skip_close_confirmation_for_processes_named[1])
+            end)
+
+            return config
+            "#,
+        )
+        .expect(
+            "expected WezTerm effective_config skip_close_confirmation_for_processes_named status setter",
+        );
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "skip-close=top");
     }
 
     #[test]
