@@ -1711,6 +1711,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().exit_behavior`,
   `window:effective_config().exit_behavior_messaging`,
   `window:effective_config().set_environment_variables.NAME`,
+  `window:effective_config().set_environment_variables['NAME']`,
   `window:effective_config().default_domain`,
   `window:effective_config().prefer_to_spawn_tabs`,
   `window:effective_config().ssh_backend`,

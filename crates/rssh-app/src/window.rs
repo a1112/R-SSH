@@ -11500,12 +11500,10 @@ fn lua_window_effective_config_field_from_query(
         return None;
     }
     if field == "set_environment_variables" {
-        let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-        let rest = lua_trim_start_comments(rest)?;
-        let name = lua_identifier_literal_from_query(rest)?;
-        if lua_trim_start_comments(rest.get(name.len()..)?)?.is_empty() {
+        let (name, rest) = lua_table_map_field_key_from_query(rest)?;
+        if lua_trim_start_comments(rest)?.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::SetEnvironmentVariable(
-                name.to_owned(),
+                name,
             ));
         }
         return None;
@@ -82478,6 +82476,32 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm effective_config set_environment_variables status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "env=dev");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_environment_variables_bracket_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.set_environment_variables = {
+              PROJECT_MODE = 'dev',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('env=' .. tostring(window:effective_config().set_environment_variables['PROJECT_MODE']))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config set_environment_variables bracket status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
