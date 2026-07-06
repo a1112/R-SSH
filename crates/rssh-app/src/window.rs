@@ -10160,6 +10160,14 @@ fn lua_static_window_and_pane_status_part_variable_from_query(
     window_name: &str,
     pane_name: &str,
 ) -> Option<NativeLuaWindowPaneStatusPart> {
+    if let Some(part) = lua_static_window_and_pane_status_part_receiver_alias_from_query(
+        static_source,
+        value,
+        window_name,
+    ) {
+        return Some(part);
+    }
+
     let variable = lua_identifier_literal_from_query(value)?;
     let rest = value.get(variable.len()..)?;
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
@@ -10172,6 +10180,42 @@ fn lua_static_window_and_pane_status_part_variable_from_query(
     )?;
     let assignment = lua_tostring_argument_from_query(assignment).unwrap_or(assignment);
     lua_static_window_and_pane_status_part_from_query(assignment, window_name, pane_name)
+}
+
+fn lua_static_window_and_pane_status_part_receiver_alias_from_query(
+    static_source: LuaStaticSource<'_>,
+    value: &str,
+    window_name: &str,
+) -> Option<NativeLuaWindowPaneStatusPart> {
+    let receiver = lua_identifier_literal_from_query(value)?;
+    let method = lua_window_zero_arg_method_name_from_query(value, receiver)?;
+    let assignment = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        receiver,
+        static_source.max_start,
+    )?;
+
+    if lua_window_zero_arg_method_name_from_query(assignment, window_name) == Some("active_tab") {
+        return match method {
+            "tab_id" => Some(NativeLuaWindowPaneStatusPart::ActiveTabId),
+            "get_title" => Some(NativeLuaWindowPaneStatusPart::ActiveTabTitle),
+            _ => None,
+        };
+    }
+    if lua_window_zero_arg_method_name_from_query(assignment, window_name) == Some("active_pane") {
+        return match method {
+            "pane_id" => Some(NativeLuaWindowPaneStatusPart::PaneId),
+            "get_title" => Some(NativeLuaWindowPaneStatusPart::PaneTitle),
+            "get_domain_name" => Some(NativeLuaWindowPaneStatusPart::PaneDomainName),
+            "get_current_working_dir" => Some(NativeLuaWindowPaneStatusPart::PaneCurrentWorkingDir),
+            "get_foreground_process_name" => {
+                Some(NativeLuaWindowPaneStatusPart::PaneForegroundProcessName)
+            }
+            "get_tty_name" => Some(NativeLuaWindowPaneStatusPart::PaneTtyName),
+            _ => None,
+        };
+    }
+    None
 }
 
 fn lua_static_window_and_pane_status_part_from_query(
@@ -81663,6 +81707,28 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_update_status_active_pane_alias_title_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local active = window:active_pane()
+              window:set_right_status('title=' .. active:get_title())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active pane alias get_title status setter");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(b"\x1b]2;PowerShell\x07").unwrap();
+
+        app.dispatch_update_status();
+
+        assert_eq!(app.right_status, "title=PowerShell");
+    }
+
+    #[test]
     fn window_app_parses_wezterm_update_status_active_tab_title_status_setter() {
         let mut app = NativeWindowApp::new(None);
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
@@ -81675,6 +81741,34 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm active tab get_title status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: app.app_shell.active_tab_id(),
+            title: "build".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=build");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_active_tab_alias_title_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local tab = window:active_tab()
+              window:set_right_status('tab=' .. tab:get_title())
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab alias get_title status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();

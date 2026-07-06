@@ -1681,7 +1681,10 @@ runtime storage for tabs and split panes.
   static concatenations with `window:active_pane():pane_id()`/
   `get_title()`/`get_domain_name()`/`get_current_working_dir()`/
   `get_foreground_process_name()`/`get_tty_name()` resolve active-pane
-  metadata through the window accessor, static concatenations with callback `pane:pane_id()` resolve the active pane id,
+  metadata through the window accessor, including callback-local object aliases
+  such as `local tab = window:active_tab()` or
+  `local pane = window:active_pane()` feeding those zero-argument methods,
+  static concatenations with callback `pane:pane_id()` resolve the active pane id,
   `pane:get_title()` resolves the active pane title, `pane:get_domain_name()`
   resolves the active pane domain, `pane:get_current_working_dir()` resolves
   the active pane current working directory, `pane:get_foreground_process_name()`

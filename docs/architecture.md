@@ -1893,7 +1893,9 @@ keyboard, mouse, paste, resize
   `window:active_tab():tab_id()`/`get_title()`,
   `window:active_pane():pane_id()`/`get_title()`/`get_domain_name()`/
   `get_current_working_dir()`/`get_foreground_process_name()`/
-  `get_tty_name()`, or callback
+  `get_tty_name()`, callback-local object aliases such as
+  `local tab = window:active_tab()` or
+  `local pane = window:active_pane()` feeding those zero-argument methods, or callback
   `pane:pane_id()`/`pane:get_title()`/`pane:get_domain_name()`/
   `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`/
   `pane:get_tty_name()`
