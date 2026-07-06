@@ -11214,6 +11214,9 @@ fn lua_window_effective_config_field_from_query(
         if nested_field == "horizontal" && nested_rest.is_empty() {
             return Some(NativeLuaWindowEffectiveConfigField::WindowContentAlignmentHorizontal);
         }
+        if nested_field == "vertical" && nested_rest.is_empty() {
+            return Some(NativeLuaWindowEffectiveConfigField::WindowContentAlignmentVertical);
+        }
         return None;
     }
     if !rest.is_empty() {
@@ -25895,6 +25898,7 @@ enum NativeLuaWindowEffectiveConfigField {
     WindowPaddingTop,
     WindowPaddingBottom,
     WindowContentAlignmentHorizontal,
+    WindowContentAlignmentVertical,
     NativeMacosFullscreenMode,
     MacosFullscreenExtendBehindNotch,
     SelectionWordBoundary,
@@ -42407,6 +42411,14 @@ impl NativeWindowApp {
                     NativeHorizontalContentAlignment::Left => "Left",
                     NativeHorizontalContentAlignment::Center => "Center",
                     NativeHorizontalContentAlignment::Right => "Right",
+                }
+                .to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::WindowContentAlignmentVertical => {
+                match self.window_content_alignment.vertical {
+                    NativeVerticalContentAlignment::Top => "Top",
+                    NativeVerticalContentAlignment::Center => "Center",
+                    NativeVerticalContentAlignment::Bottom => "Bottom",
                 }
                 .to_string()
             }
@@ -81162,6 +81174,33 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "align-h=Right");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_window_content_alignment_vertical_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.window_content_alignment = {
+              horizontal = 'Right',
+              vertical = 'Bottom',
+            }
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('align-v=' .. tostring(window:effective_config().window_content_alignment.vertical))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config window_content_alignment.vertical status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "align-v=Bottom");
     }
 
     #[test]
