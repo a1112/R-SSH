@@ -1942,8 +1942,9 @@ keyboard, mouse, paste, resize
   `window:effective_config().text_blink_rapid_ease_out`,
   `window:effective_config().hide_mouse_cursor_when_typing`,
   `window:effective_config().periodic_stat_logging`,
-  `window:effective_config().scroll_to_bottom_on_input`, and
-  `window:effective_config().use_ime` field concatenations for current
+  `window:effective_config().scroll_to_bottom_on_input`,
+  `window:effective_config().use_ime`, and
+  `window:effective_config().xim_im_name` field concatenations for current
   effective config values
   plus the documented `window:active_key_table()` key-table status shape with
   its static prefix and empty-stack fallback, plus the documented
