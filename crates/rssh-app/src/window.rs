@@ -11347,6 +11347,7 @@ fn lua_window_effective_config_field_from_query(
         "check_for_updates_interval_seconds" => {
             Some(NativeLuaWindowEffectiveConfigField::CheckForUpdatesIntervalSeconds)
         }
+        "enable_kitty_graphics" => Some(NativeLuaWindowEffectiveConfigField::EnableKittyGraphics),
         "enable_checksum_rectangular_area" => {
             Some(NativeLuaWindowEffectiveConfigField::EnableChecksumRectangularArea)
         }
@@ -25957,6 +25958,7 @@ enum NativeLuaWindowEffectiveConfigField {
     CheckForUpdates,
     ShowUpdateWindow,
     CheckForUpdatesIntervalSeconds,
+    EnableKittyGraphics,
     EnableChecksumRectangularArea,
     EnableTitleReporting,
     EnableCsiUKeyEncoding,
@@ -42438,6 +42440,9 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::CheckForUpdatesIntervalSeconds => {
                 self.check_for_updates_interval_seconds.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::EnableKittyGraphics => {
+                self.enable_kitty_graphics.to_string()
             }
             NativeLuaWindowEffectiveConfigField::EnableChecksumRectangularArea => {
                 self.enable_checksum_rectangular_area.to_string()
@@ -80658,6 +80663,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "checksum-rect=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_enable_kitty_graphics_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.enable_kitty_graphics = false
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('kitty-graphics=' .. tostring(window:effective_config().enable_kitty_graphics))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config enable_kitty_graphics status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "kitty-graphics=false");
     }
 
     #[test]
