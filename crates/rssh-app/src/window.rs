@@ -11472,6 +11472,9 @@ fn lua_window_effective_config_field_from_query(
         "disable_default_mouse_bindings" => {
             Some(NativeLuaWindowEffectiveConfigField::DisableDefaultMouseBindings)
         }
+        "debug_key_events" => Some(NativeLuaWindowEffectiveConfigField::DebugKeyEvents),
+        "key_map_preference" => Some(NativeLuaWindowEffectiveConfigField::KeyMapPreference),
+        "ui_key_cap_rendering" => Some(NativeLuaWindowEffectiveConfigField::UiKeyCapRendering),
         "enable_scroll_bar" => Some(NativeLuaWindowEffectiveConfigField::EnableScrollBar),
         "min_scroll_bar_height" => Some(NativeLuaWindowEffectiveConfigField::MinScrollBarHeight),
         "custom_block_glyphs" => Some(NativeLuaWindowEffectiveConfigField::CustomBlockGlyphs),
@@ -25486,6 +25489,13 @@ impl NativeKeyMapPreference {
             _ => None,
         }
     }
+
+    fn config_text(self) -> &'static str {
+        match self {
+            Self::Mapped => "Mapped",
+            Self::Physical => "Physical",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25507,6 +25517,16 @@ impl NativeUiKeyCapRendering {
             "WindowsLong" => Some(Self::WindowsLong),
             "WindowsSymbols" => Some(Self::WindowsSymbols),
             _ => None,
+        }
+    }
+
+    fn config_text(self) -> &'static str {
+        match self {
+            Self::UnixLong => "UnixLong",
+            Self::Emacs => "Emacs",
+            Self::AppleSymbols => "AppleSymbols",
+            Self::WindowsLong => "WindowsLong",
+            Self::WindowsSymbols => "WindowsSymbols",
         }
     }
 }
@@ -26096,6 +26116,9 @@ enum NativeLuaWindowEffectiveConfigField {
     QuoteDroppedFiles,
     DisableDefaultKeyBindings,
     DisableDefaultMouseBindings,
+    DebugKeyEvents,
+    KeyMapPreference,
+    UiKeyCapRendering,
     EnableScrollBar,
     MinScrollBarHeight,
     CustomBlockGlyphs,
@@ -42691,6 +42714,15 @@ impl NativeWindowApp {
             }
             NativeLuaWindowEffectiveConfigField::DisableDefaultMouseBindings => {
                 self.disable_default_mouse_bindings.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::DebugKeyEvents => {
+                self.debug_key_events.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::KeyMapPreference => {
+                self.key_map_preference.config_text().to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::UiKeyCapRendering => {
+                self.ui_key_cap_rendering.config_text().to_string()
             }
             NativeLuaWindowEffectiveConfigField::EnableScrollBar => {
                 self.enable_scroll_bar.to_string()
@@ -81920,6 +81952,78 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "disable-mouse=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_debug_key_events_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.debug_key_events = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('debug-keys=' .. tostring(window:effective_config().debug_key_events))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config debug_key_events status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "debug-keys=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_key_map_preference_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.key_map_preference = 'Physical'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('key-map=' .. tostring(window:effective_config().key_map_preference))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config key_map_preference status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "key-map=Physical");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_ui_key_cap_rendering_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.ui_key_cap_rendering = 'Emacs'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('key-caps=' .. tostring(window:effective_config().ui_key_cap_rendering))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config ui_key_cap_rendering status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "key-caps=Emacs");
     }
 
     #[test]
