@@ -11594,6 +11594,15 @@ fn lua_window_effective_config_field_from_query(
         "font_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontRasterizer),
         "font_colr_rasterizer" => Some(NativeLuaWindowEffectiveConfigField::FontColrRasterizer),
         "font_shaper" => Some(NativeLuaWindowEffectiveConfigField::FontShaper),
+        "use_cap_height_to_scale_fallback_fonts" => {
+            Some(NativeLuaWindowEffectiveConfigField::UseCapHeightToScaleFallbackFonts)
+        }
+        "sort_fallback_fonts_by_coverage" => {
+            Some(NativeLuaWindowEffectiveConfigField::SortFallbackFontsByCoverage)
+        }
+        "search_font_dirs_for_fallback" => {
+            Some(NativeLuaWindowEffectiveConfigField::SearchFontDirsForFallback)
+        }
         "freetype_load_target" => Some(NativeLuaWindowEffectiveConfigField::FreetypeLoadTarget),
         "freetype_render_target" => Some(NativeLuaWindowEffectiveConfigField::FreetypeRenderTarget),
         "freetype_load_flags" => Some(NativeLuaWindowEffectiveConfigField::FreetypeLoadFlags),
@@ -26396,6 +26405,9 @@ enum NativeLuaWindowEffectiveConfigField {
     FontRasterizer,
     FontColrRasterizer,
     FontShaper,
+    UseCapHeightToScaleFallbackFonts,
+    SortFallbackFontsByCoverage,
+    SearchFontDirsForFallback,
     FreetypeLoadTarget,
     FreetypeRenderTarget,
     FreetypeLoadFlags,
@@ -42936,6 +42948,15 @@ impl NativeWindowApp {
                 .to_owned(),
             NativeLuaWindowEffectiveConfigField::FontShaper => {
                 self.font_shaper.as_wezterm_config_value().to_owned()
+            }
+            NativeLuaWindowEffectiveConfigField::UseCapHeightToScaleFallbackFonts => {
+                self.use_cap_height_to_scale_fallback_fonts.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SortFallbackFontsByCoverage => {
+                self.sort_fallback_fonts_by_coverage.to_string()
+            }
+            NativeLuaWindowEffectiveConfigField::SearchFontDirsForFallback => {
+                self.search_font_dirs_for_fallback.to_string()
             }
             NativeLuaWindowEffectiveConfigField::FreetypeLoadTarget => self
                 .freetype_load_target
@@ -80937,6 +80958,78 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "hinting=VerticalSubpixel");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_use_cap_height_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.use_cap_height_to_scale_fallback_fonts = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('cap-height=' .. tostring(window:effective_config().use_cap_height_to_scale_fallback_fonts))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config use_cap_height_to_scale_fallback_fonts status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "cap-height=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_sort_fallback_fonts_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.sort_fallback_fonts_by_coverage = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('sort-fallback=' .. tostring(window:effective_config().sort_fallback_fonts_by_coverage))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config sort_fallback_fonts_by_coverage status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "sort-fallback=true");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_search_font_dirs_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.search_font_dirs_for_fallback = true
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('search-font-dirs=' .. tostring(window:effective_config().search_font_dirs_for_fallback))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config search_font_dirs_for_fallback status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "search-font-dirs=true");
     }
 
     #[test]
