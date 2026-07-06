@@ -11627,12 +11627,19 @@ fn lua_static_pane_user_var_name_from_query(value: &str, variable: &str) -> Opti
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-    let name = lua_identifier_literal_from_query(rest)?;
-    if !lua_trim_start_comments(rest.get(name.len()..)?)?.is_empty() {
-        return None;
+    let rest = lua_trim_start_comments(rest)?;
+    if let Some(rest) = rest.strip_prefix('.') {
+        let name = lua_identifier_literal_from_query(rest)?;
+        if !lua_trim_start_comments(rest.get(name.len()..)?)?.is_empty() {
+            return None;
+        }
+        return Some(name.to_owned());
     }
-    Some(name.to_owned())
+    let rest = rest.strip_prefix('[')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (name, len) = lua_inline_string_literal_value_and_len(rest)?;
+    let rest = lua_trim_start_comments(rest.get(len..)?)?.strip_prefix(']')?;
+    lua_trim_start_comments(rest)?.is_empty().then_some(name)
 }
 
 fn lua_static_pane_cursor_position_variable_before_offset(
@@ -82549,6 +82556,33 @@ mod tests {
         app.set_config_overrides(overrides);
         app.handle_pty_output(
             b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07\x1b]1337;SetUserVar=WEZTERM_HOST=cHJvZA==\x07",
+        )
+        .unwrap();
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=psh host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_pane_user_vars_bracket_key_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local vars = pane:get_user_vars()
+              window:set_right_status(
+                'prog=' .. vars['WEZTERM-PROG']
+                  .. ' host=' .. tostring(vars["WEZTERM-HOST"])
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm pane get_user_vars bracket-key status setter");
+        app.set_config_overrides(overrides);
+        app.handle_pty_output(
+            b"\x1b]1337;SetUserVar=WEZTERM-PROG=cHNo\x07\x1b]1337;SetUserVar=WEZTERM-HOST=cHJvZA==\x07",
         )
         .unwrap();
 
