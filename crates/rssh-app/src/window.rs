@@ -11631,6 +11631,7 @@ fn lua_window_effective_config_field_from_query(
         "ssh_backend" => Some(NativeLuaWindowEffectiveConfigField::SshBackend),
         "status_update_interval" => Some(NativeLuaWindowEffectiveConfigField::StatusUpdateInterval),
         "tab_max_width" => Some(NativeLuaWindowEffectiveConfigField::TabMaxWidth),
+        "dpi" => Some(NativeLuaWindowEffectiveConfigField::Dpi),
         "max_fps" => Some(NativeLuaWindowEffectiveConfigField::MaxFps),
         "animation_fps" => Some(NativeLuaWindowEffectiveConfigField::AnimationFps),
         "front_end" => Some(NativeLuaWindowEffectiveConfigField::FrontEnd),
@@ -26457,6 +26458,7 @@ enum NativeLuaWindowEffectiveConfigField {
     SshBackend,
     StatusUpdateInterval,
     TabMaxWidth,
+    Dpi,
     MaxFps,
     AnimationFps,
     FrontEnd,
@@ -42989,6 +42991,7 @@ impl NativeWindowApp {
                 self.status_update_interval.as_millis().to_string()
             }
             NativeLuaWindowEffectiveConfigField::TabMaxWidth => self.tab_max_width.to_string(),
+            NativeLuaWindowEffectiveConfigField::Dpi => self.window_dpi.to_string(),
             NativeLuaWindowEffectiveConfigField::MaxFps => self.max_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::AnimationFps => self.animation_fps.to_string(),
             NativeLuaWindowEffectiveConfigField::FrontEnd => {
@@ -80644,6 +80647,30 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "interval=250");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_dpi_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.dpi = 144.0
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status('dpi=' .. tostring(window:effective_config().dpi))
+            end)
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm effective_config dpi status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "dpi=144");
     }
 
     #[test]

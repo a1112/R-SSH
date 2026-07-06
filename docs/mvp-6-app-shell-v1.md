@@ -1716,6 +1716,7 @@ runtime storage for tabs and split panes.
   `window:effective_config().ssh_backend`,
   `window:effective_config().status_update_interval`,
   `window:effective_config().tab_max_width`,
+  `window:effective_config().dpi`,
   `window:effective_config().max_fps`,
   `window:effective_config().animation_fps`,
   `window:effective_config().front_end`,
