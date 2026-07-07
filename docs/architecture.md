@@ -2301,8 +2301,8 @@ keyboard, mouse, paste, resize
   static string keys, and callback-local/top-level static string-key variables
   from the same stored metadata, including static `or` fallbacks with optional
   `tostring(...)` wrapping. Static `user-var-changed` callbacks can update
-  left or right status text from static strings plus the event `name` and
-  `value` parameters.
+  left or right status text from static strings plus `window:window_id()`,
+  `pane:pane_id()`, and the event `name` and `value` parameters.
 - Implemented in v1: `rssh-terminal` base64-decodes iTerm2
   `OSC 1337;SetBadgeFormat` metadata into terminal badge format state.
   `rssh-app` syncs that value into per-pane app-shell metadata for active and
