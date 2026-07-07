@@ -10721,6 +10721,10 @@ fn lua_static_window_config_overrides_from_query(
         enable_zwlr_output_manager: overrides.enable_zwlr_output_manager,
         use_box_model_render: overrides.use_box_model_render,
         experimental_pixel_positioning: overrides.experimental_pixel_positioning,
+        default_prog: overrides.default_prog,
+        default_domain: overrides.default_domain,
+        prefer_to_spawn_tabs: overrides.prefer_to_spawn_tabs,
+        set_environment_variables: overrides.set_environment_variables,
         default_gui_startup_args: overrides.default_gui_startup_args,
         default_workspace: overrides.default_workspace,
         native_macos_fullscreen_mode: overrides.native_macos_fullscreen_mode,
@@ -29551,6 +29555,10 @@ struct NativeLuaWindowConfigOverrides {
     enable_zwlr_output_manager: Option<bool>,
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
+    default_prog: Option<Vec<String>>,
+    default_domain: Option<String>,
+    prefer_to_spawn_tabs: Option<bool>,
+    set_environment_variables: Option<BTreeMap<String, String>>,
     default_gui_startup_args: Option<Vec<String>>,
     default_workspace: Option<String>,
     native_macos_fullscreen_mode: Option<bool>,
@@ -29635,6 +29643,10 @@ impl NativeLuaWindowConfigOverrides {
             && self.enable_zwlr_output_manager.is_none()
             && self.use_box_model_render.is_none()
             && self.experimental_pixel_positioning.is_none()
+            && self.default_prog.is_none()
+            && self.default_domain.is_none()
+            && self.prefer_to_spawn_tabs.is_none()
+            && self.set_environment_variables.is_none()
             && self.default_gui_startup_args.is_none()
             && self.default_workspace.is_none()
             && self.native_macos_fullscreen_mode.is_none()
@@ -29743,6 +29755,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.experimental_pixel_positioning.is_some() {
             self.experimental_pixel_positioning = update.experimental_pixel_positioning;
+        }
+        if update.default_prog.is_some() {
+            self.default_prog = update.default_prog;
+        }
+        if update.default_domain.is_some() {
+            self.default_domain = update.default_domain;
+        }
+        if update.prefer_to_spawn_tabs.is_some() {
+            self.prefer_to_spawn_tabs = update.prefer_to_spawn_tabs;
+        }
+        if update.set_environment_variables.is_some() {
+            self.set_environment_variables = update.set_environment_variables;
         }
         if update.default_gui_startup_args.is_some() {
             self.default_gui_startup_args = update.default_gui_startup_args;
@@ -29991,6 +30015,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(experimental_pixel_positioning) = self.experimental_pixel_positioning {
             overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
+        }
+        if let Some(default_prog) = self.default_prog {
+            overrides.default_prog = Some(default_prog);
+        }
+        if let Some(default_domain) = self.default_domain {
+            overrides.default_domain = Some(default_domain);
+        }
+        if let Some(prefer_to_spawn_tabs) = self.prefer_to_spawn_tabs {
+            overrides.prefer_to_spawn_tabs = Some(prefer_to_spawn_tabs);
+        }
+        if let Some(set_environment_variables) = self.set_environment_variables {
+            overrides.set_environment_variables = Some(set_environment_variables);
         }
         if let Some(default_gui_startup_args) = self.default_gui_startup_args {
             overrides.default_gui_startup_args = Some(default_gui_startup_args);
@@ -87189,6 +87225,86 @@ mod tests {
         assert_eq!(
             app.right_status,
             "startup=prod cwd=/tmp/default ssh-auth=/tmp/wezterm-agent.sock mux-domain=mux-main mux-agent=false ssh=Ssh2 prefetch=12 buffer=4096 coalesce=7 stats=15 nofile=4096 nproc=8192 tiling=Wayland Sway detect=false macos=true notch=true resize=true"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_launch_defaults_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                default_prog = { 'nu', '--login' },
+                default_domain = 'local',
+                prefer_to_spawn_tabs = true,
+                set_environment_variables = {
+                  PROJECT_MODE = 'dev',
+                  FEATURE_FLAG = 'on',
+                },
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'prog=' .. tostring(window:effective_config().default_prog[2])
+                  .. ' domain=' .. tostring(window:effective_config().default_domain)
+                  .. ' prefer=' .. tostring(window:effective_config().prefer_to_spawn_tabs)
+                  .. ' env=' .. tostring(window:effective_config().set_environment_variables.PROJECT_MODE)
+                  .. ' flag=' .. tostring(window:effective_config().set_environment_variables.FEATURE_FLAG)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides launch defaults callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.default_prog,
+            Some(vec!["nu".to_owned(), "--login".to_owned()])
+        );
+        assert_eq!(effective.default_domain, "local");
+        assert!(effective.prefer_to_spawn_tabs);
+        assert_eq!(
+            effective
+                .set_environment_variables
+                .get("PROJECT_MODE")
+                .map(String::as_str),
+            Some("dev")
+        );
+        assert_eq!(
+            effective
+                .set_environment_variables
+                .get("FEATURE_FLAG")
+                .map(String::as_str),
+            Some("on")
+        );
+        assert_eq!(
+            app.right_status,
+            "prog=--login domain=local prefer=true env=dev flag=on"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
