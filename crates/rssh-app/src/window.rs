@@ -19884,7 +19884,7 @@ fn lua_static_wezterm_action_callback_alias_query_from_query(
         return None;
     }
 
-    let rest = query.get(alias.len()..)?.trim_start();
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
     if !rest.starts_with('(') {
         return None;
     }
@@ -117289,6 +117289,49 @@ mod tests {
                     }),
                 },
             ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_action_callback_alias_comment_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local cb = wezterm.action_callback
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  pattern = 'ticket-[0-9]+',
+                  action = cb -- selected ticket
+                    (function(window, pane)
+                      window:perform_action(act.CopyTo 'Clipboard', pane)
+                    end),
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm action_callback alias comment-call config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::CopyTo(
+                        WindowCopyDestination::Clipboard
+                    )),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
         );
     }
 
