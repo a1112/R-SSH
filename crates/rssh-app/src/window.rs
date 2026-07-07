@@ -6820,6 +6820,20 @@ fn lua_static_table_field_path_assignment_value_before_offset_from_query<'a>(
     keys: &[String],
     max_start: usize,
 ) -> Option<&'a str> {
+    lua_static_table_field_path_assignment_value_before_offset_with_depth(
+        source, variable, keys, max_start, 0,
+    )
+}
+
+const LUA_STATIC_TABLE_FIELD_ALIAS_RESOLUTION_LIMIT: usize = 8;
+
+fn lua_static_table_field_path_assignment_value_before_offset_with_depth<'a>(
+    source: &'a str,
+    variable: &str,
+    keys: &[String],
+    max_start: usize,
+    alias_depth: usize,
+) -> Option<&'a str> {
     let mut selected = None;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
@@ -6829,13 +6843,14 @@ fn lua_static_table_field_path_assignment_value_before_offset_from_query<'a>(
             source.get(start..)?
         };
         if let Some(table) = lua_static_table_variable_assignment_table_from_query(rest, variable) {
-            selected = lua_table_field_path_value_from_query_with_static_source(
-                Some(LuaStaticSource {
+            selected = lua_static_table_field_path_value_from_query(
+                LuaStaticSource {
                     source,
                     max_start: start,
-                }),
+                },
                 table,
                 keys,
+                alias_depth,
             )?;
             continue;
         }
@@ -6848,13 +6863,14 @@ fn lua_static_table_field_path_assignment_value_before_offset_from_query<'a>(
         if assignment.keys == keys {
             selected = Some(assignment.value);
         } else if keys.starts_with(&assignment.keys) {
-            selected = lua_table_field_path_value_from_query_with_static_source(
-                Some(LuaStaticSource {
+            selected = lua_static_table_field_path_value_from_query(
+                LuaStaticSource {
                     source,
                     max_start: start,
-                }),
+                },
                 assignment.value,
                 &keys[assignment.keys.len()..],
+                alias_depth,
             )?;
         }
     }
@@ -6909,18 +6925,39 @@ fn lua_table_map_field_path_from_query_with_static_source<'a>(
     (!keys.is_empty()).then_some((keys, rest))
 }
 
-fn lua_table_field_path_value_from_query_with_static_source<'a>(
-    static_source: Option<LuaStaticSource<'_>>,
+fn lua_static_table_field_path_value_from_query<'a>(
+    static_source: LuaStaticSource<'a>,
     mut value: &'a str,
     keys: &[String],
+    alias_depth: usize,
 ) -> Option<Option<&'a str>> {
-    for key in keys {
-        let Some(next_value) =
-            lua_table_field_value_from_query_with_static_source(static_source, value, key)?
-        else {
-            return Some(None);
+    for (index, key) in keys.iter().enumerate() {
+        match lua_table_field_value_from_query_with_static_source(Some(static_source), value, key) {
+            Some(Some(next_value)) => {
+                value = next_value;
+            }
+            Some(None) => return Some(None),
+            None => {
+                let Some(variable) = lua_identifier_literal_from_query(value) else {
+                    return Some(None);
+                };
+                let rest = value.get(variable.len()..)?;
+                if !lua_static_identifier_value_rest_is_statement_end(rest)
+                    || alias_depth >= LUA_STATIC_TABLE_FIELD_ALIAS_RESOLUTION_LIMIT
+                {
+                    return Some(None);
+                }
+                return Some(
+                    lua_static_table_field_path_assignment_value_before_offset_with_depth(
+                        static_source.source,
+                        variable,
+                        &keys[index..],
+                        static_source.max_start,
+                        alias_depth + 1,
+                    ),
+                );
+            }
         };
-        value = next_value;
     }
     Some(Some(value))
 }
@@ -97435,6 +97472,32 @@ mod tests {
         assert_eq!(
             app.effective_window_title(),
             "TABLE FIELD CALLBACK ALIAS TITLE"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_nested_table_variable_callback_alias() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local callbacks = {}
+            local window_callbacks = {}
+            window_callbacks.title = function(tab, pane, tabs, panes, config)
+              return 'NESTED TABLE VARIABLE CALLBACK ALIAS TITLE'
+            end
+            callbacks.window = window_callbacks
+
+            wezterm.on('format-window-title', callbacks.window.title)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title nested table-variable callback alias");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "NESTED TABLE VARIABLE CALLBACK ALIAS TITLE"
         );
     }
 
