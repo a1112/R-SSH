@@ -2544,11 +2544,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.on('format-window-title', function(...) return 'title' end)`
   callbacks with literal or top-level static string-variable/concatenated event names,
   Lua comments inside the anonymous callback parameter list, top-level named
-  function callbacks registered by name, literal string returns,
-  callback-local/top-level static string-variable returns and concatenation,
-  plus top-level static `local <alias> = wezterm.on` event aliases with Lua
-  comments allowed inside the dotted helper path, map onto the native title
-  override path. The documented default
+  function callbacks registered by name, top-level static function-valued
+  callback variables, literal string returns, callback-local/top-level static
+  string-variable returns and concatenation, plus top-level static
+  `local <alias> = wezterm.on` event aliases with Lua comments allowed inside
+  the dotted helper path, map onto the native title override path. The documented default
   processing example's static subset also parses callback-local conditional
   assignments for `tab.active_pane.is_zoomed` and `#tabs > 1`,
   `string.format('[%d/%d] ', tab.tab_index + 1, #tabs)`, and final string

@@ -6675,9 +6675,15 @@ fn lua_static_callback_query_from_value<'a>(
         return None;
     }
 
-    let statement = lua_static_named_function_statement_before_offset(source, name, start)?;
-    let (params, body) = lua_named_function_params_and_body_from_statement(statement, name)?;
-    Some(Cow::Owned(format!("function({params}){body} end")))
+    if let Some(statement) = lua_static_named_function_statement_before_offset(source, name, start)
+    {
+        let (params, body) = lua_named_function_params_and_body_from_statement(statement, name)?;
+        return Some(Cow::Owned(format!("function({params}){body} end")));
+    }
+
+    let value =
+        lua_static_expression_variable_assignment_before_offset_from_query(source, name, start)?;
+    lua_source_keyword_at(value, 0, "function").then_some(Cow::Borrowed(value))
 }
 
 fn lua_static_named_function_statement_before_offset<'a>(
@@ -96991,6 +96997,29 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "NAMED CALLBACK TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_function_value_callback() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local title_callback = function(tab, pane, tabs, panes, config)
+              return 'FUNCTION VALUE CALLBACK TITLE'
+            end
+
+            wezterm.on('format-window-title', title_callback)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title function value callback");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "FUNCTION VALUE CALLBACK TITLE"
+        );
     }
 
     #[test]
