@@ -9753,8 +9753,13 @@ fn lua_static_tab_title_conditional_return_from_function_body(
             let fallback_return =
                 lua_static_tab_title_fallback_return_statement_after_if(body, rest_after_if);
             for (condition, if_body) in if_branches {
-                let condition =
-                    lua_tab_title_condition_from_expression(condition, tab_param, hover_param)?;
+                let condition = lua_tab_title_condition_from_expression(
+                    condition,
+                    tab_param,
+                    tabs_param,
+                    panes_param,
+                    hover_param,
+                )?;
                 let title = lua_static_tab_title_first_return_from_nested_body(
                     body,
                     if_body,
@@ -9925,6 +9930,8 @@ fn lua_static_tab_title_first_return_from_nested_body(
 fn lua_tab_title_condition_from_expression(
     condition: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     hover_param: Option<&str>,
 ) -> Option<NativeLuaTabTitleCondition> {
     let condition = lua_trim_start_comments(condition.trim())?;
@@ -9945,6 +9952,13 @@ fn lua_tab_title_condition_from_expression(
         {
             return Some(parsed);
         }
+    }
+
+    if let Some(count) = lua_window_title_count_greater_than_condition(condition, tabs_param) {
+        return Some(NativeLuaTabTitleCondition::TabCountGreaterThan(count));
+    }
+    if let Some(count) = lua_window_title_count_greater_than_condition(condition, panes_param) {
+        return Some(NativeLuaTabTitleCondition::PaneCountGreaterThan(count));
     }
 
     None
@@ -30467,6 +30481,8 @@ enum NativeLuaTabTitleCondition {
     IsActive,
     IsLastActive,
     IsHover,
+    TabCountGreaterThan(usize),
+    PaneCountGreaterThan(usize),
 }
 
 impl NativeLuaTabTitleCondition {
@@ -30475,6 +30491,8 @@ impl NativeLuaTabTitleCondition {
             Self::IsActive => event.is_active,
             Self::IsLastActive => event.is_last_active,
             Self::IsHover => event.hover,
+            Self::TabCountGreaterThan(count) => event.tab_count > count,
+            Self::PaneCountGreaterThan(count) => event.pane_count > count,
         }
     }
 }
@@ -102359,6 +102377,100 @@ mod tests {
         assert!(tab_bar.contains("counts:2/1"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("First"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("Second"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn lua_parses_static_wezterm_format_tab_title_tab_count_condition() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if #tabs > 1 then
+                return 'many:' .. #tabs
+              end
+              return 'one:' .. tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title tab count condition");
+
+        let parsed = format!("{:?}", overrides.lua_tab_title);
+        assert!(
+            parsed.contains("TabCountGreaterThan(1)"),
+            "parsed lua tab title was {parsed}"
+        );
+        assert!(
+            parsed.contains("TabCount"),
+            "parsed lua tab title was {parsed}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_tab_count_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "First".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(2),
+            title: "Second".to_owned(),
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if #tabs > 1 then
+                return 'many:' .. #tabs
+              end
+              return 'one:' .. tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title tab count condition");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("many:2"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("one:First"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("one:Second"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_pane_count_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: app.active_pane_id(),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              if #panes > 1 then
+                return 'lua-panes:' .. #panes
+              end
+              return 'lua-single:' .. tab.tab_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title pane count condition");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("lua-panes:2"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("lua-single:"), "tab bar was {tab_bar:?}");
     }
 
     #[test]
