@@ -10818,6 +10818,7 @@ fn lua_static_window_config_overrides_from_query(
         default_cwd: overrides.default_cwd,
         default_ssh_auth_sock: overrides.default_ssh_auth_sock,
         default_mux_server_domain: overrides.default_mux_server_domain,
+        daemon_options: overrides.daemon_options,
         exec_domains: overrides.exec_domains,
         wsl_domains: overrides.wsl_domains,
         unix_domains: overrides.unix_domains,
@@ -14491,6 +14492,24 @@ fn lua_window_effective_config_field_from_query_with_static_source(
             return Some(NativeLuaWindowEffectiveConfigField::MuxEnvRemove(index));
         }
         return None;
+    }
+    if field == "daemon_options" {
+        let (nested_field, nested_rest) = lua_table_map_field_key_from_query_with_static_source(
+            static_source,
+            lua_trim_start_comments(rest)?,
+        )?;
+        if !lua_trim_start_comments(nested_rest)?.is_empty() {
+            return None;
+        }
+        let daemon_field = match nested_field.as_str() {
+            "pid_file" => NativeLuaDaemonOptionsField::PidFile,
+            "stdout" => NativeLuaDaemonOptionsField::Stdout,
+            "stderr" => NativeLuaDaemonOptionsField::Stderr,
+            _ => return None,
+        };
+        return Some(NativeLuaWindowEffectiveConfigField::DaemonOption(
+            daemon_field,
+        ));
     }
     if field == "harfbuzz_features" {
         let (index, rest) =
@@ -29812,6 +29831,7 @@ struct NativeLuaWindowConfigOverrides {
     default_cwd: Option<String>,
     default_ssh_auth_sock: Option<String>,
     default_mux_server_domain: Option<String>,
+    daemon_options: Option<NativeDaemonOptions>,
     exec_domains: Option<Vec<NativeExecDomain>>,
     wsl_domains: Option<Vec<NativeWslDomain>>,
     unix_domains: Option<Vec<NativeUnixDomain>>,
@@ -30049,6 +30069,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.default_cwd.is_none()
             && self.default_ssh_auth_sock.is_none()
             && self.default_mux_server_domain.is_none()
+            && self.daemon_options.is_none()
             && self.exec_domains.is_none()
             && self.wsl_domains.is_none()
             && self.unix_domains.is_none()
@@ -30506,6 +30527,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.default_mux_server_domain.is_some() {
             self.default_mux_server_domain = update.default_mux_server_domain;
+        }
+        if update.daemon_options.is_some() {
+            self.daemon_options = update.daemon_options;
         }
         if update.exec_domains.is_some() {
             self.exec_domains = update.exec_domains;
@@ -31231,6 +31255,9 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(default_mux_server_domain) = self.default_mux_server_domain {
             overrides.default_mux_server_domain = Some(default_mux_server_domain);
         }
+        if let Some(daemon_options) = self.daemon_options {
+            overrides.daemon_options = Some(daemon_options);
+        }
         if let Some(exec_domains) = self.exec_domains {
             overrides.exec_domains = Some(exec_domains);
         }
@@ -31846,6 +31873,7 @@ enum NativeLuaWindowEffectiveConfigField {
     StrikethroughPosition,
     HideMouseCursorWhenTyping,
     DefaultMuxServerDomain,
+    DaemonOption(NativeLuaDaemonOptionsField),
     RatelimitMuxLinePrefetchesPerSecond,
     MuxOutputParserBufferSize,
     MuxOutputParserCoalesceDelayMs,
@@ -31989,6 +32017,13 @@ enum NativeLuaVisualBellField {
     FadeInFunction,
     FadeOutFunction,
     Target,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaDaemonOptionsField {
+    PidFile,
+    Stdout,
+    Stderr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48719,6 +48754,12 @@ impl NativeWindowApp {
             NativeLuaWindowEffectiveConfigField::DefaultMuxServerDomain => {
                 self.default_mux_server_domain.clone().unwrap_or_default()
             }
+            NativeLuaWindowEffectiveConfigField::DaemonOption(field) => match field {
+                NativeLuaDaemonOptionsField::PidFile => self.daemon_options.pid_file.clone(),
+                NativeLuaDaemonOptionsField::Stdout => self.daemon_options.stdout.clone(),
+                NativeLuaDaemonOptionsField::Stderr => self.daemon_options.stderr.clone(),
+            }
+            .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::RatelimitMuxLinePrefetchesPerSecond => {
                 self.ratelimit_mux_line_prefetches_per_second.to_string()
             }
@@ -89384,6 +89425,11 @@ mod tests {
                 default_cwd = '/tmp/default',
                 default_ssh_auth_sock = '/tmp/wezterm-agent.sock',
                 default_mux_server_domain = 'mux-main',
+                daemon_options = {
+                  pid_file = 'run/runtime.pid',
+                  stdout = 'logs/runtime.out',
+                  stderr = 'logs/runtime.err',
+                },
                 exec_domains = {
                   wezterm.exec_domain('runtime-exec', function(cmd)
                     return cmd
@@ -89428,6 +89474,7 @@ mod tests {
                   .. ' cwd=' .. tostring(window:effective_config().default_cwd)
                   .. ' ssh-auth=' .. tostring(window:effective_config().default_ssh_auth_sock)
                   .. ' mux-domain=' .. tostring(window:effective_config().default_mux_server_domain)
+                  .. ' daemon=' .. tostring(window:effective_config().daemon_options.pid_file)
                   .. ' mux-agent=' .. tostring(window:effective_config().mux_enable_ssh_agent)
                   .. ' ssh=' .. tostring(window:effective_config().ssh_backend)
                   .. ' prefetch=' .. tostring(window:effective_config().ratelimit_mux_line_prefetches_per_second)
@@ -89464,6 +89511,14 @@ mod tests {
         assert_eq!(
             effective.default_mux_server_domain.as_deref(),
             Some("mux-main")
+        );
+        assert_eq!(
+            effective.daemon_options,
+            NativeDaemonOptions {
+                pid_file: Some("run/runtime.pid".to_owned()),
+                stdout: Some("logs/runtime.out".to_owned()),
+                stderr: Some("logs/runtime.err".to_owned()),
+            }
         );
         assert_eq!(
             effective.exec_domains,
@@ -89579,7 +89634,7 @@ mod tests {
         assert!(effective.use_resize_increments);
         assert_eq!(
             app.right_status,
-            "startup=prod cwd=/tmp/default ssh-auth=/tmp/wezterm-agent.sock mux-domain=mux-main mux-agent=false ssh=Ssh2 prefetch=12 buffer=4096 coalesce=7 mux-env=REMOVE_TOO stats=15 nofile=4096 nproc=8192 tiling=Wayland Sway detect=false macos=true notch=true resize=true"
+            "startup=prod cwd=/tmp/default ssh-auth=/tmp/wezterm-agent.sock mux-domain=mux-main daemon=run/runtime.pid mux-agent=false ssh=Ssh2 prefetch=12 buffer=4096 coalesce=7 mux-env=REMOVE_TOO stats=15 nofile=4096 nproc=8192 tiling=Wayland Sway detect=false macos=true notch=true resize=true"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
