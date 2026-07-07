@@ -19871,15 +19871,21 @@ fn lua_static_wezterm_action_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_top_level_statement_value_from_query(value)
-            .is_some_and(lua_static_wezterm_action_alias_value_from_query);
+        selected = lua_static_wezterm_action_alias_value_from_query(value);
     }
 
     Some(selected)
 }
 
 fn lua_static_wezterm_action_alias_value_from_query(value: &str) -> bool {
-    matches!(value.trim(), "wezterm.action" | "act")
+    if lua_top_level_statement_value_from_query(value).is_some_and(|value| value.trim() == "act") {
+        return true;
+    }
+    let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.action")
+    else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_static_wezterm_action_callback_alias_query_from_query(
@@ -114219,6 +114225,48 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm static action alias key config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![
+                NativeUserKeyAssignment {
+                    keys: "CTRL|SHIFT+C".to_owned(),
+                    command: WindowCommand::CopyTo(WindowCopyDestination::Clipboard),
+                },
+                NativeUserKeyAssignment {
+                    keys: "CTRL|SHIFT+V".to_owned(),
+                    command: WindowCommand::PasteFrom(WindowPasteSource::PrimarySelection),
+                },
+            ])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_static_action_alias_dotted_comment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local action = wezterm -- action namespace
+              .action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = action.CopyTo('Clipboard'),
+              },
+              {
+                key = 'V',
+                mods = 'CTRL|SHIFT',
+                action = action["PasteFrom"]('PrimarySelection'),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static action alias dotted-comment key config");
 
         assert_eq!(
             overrides.key_assignments,

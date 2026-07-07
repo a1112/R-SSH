@@ -1942,8 +1942,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables for `skip_action_on_paste` and `scope_lines`, and top-level static
   action variables for `QuickSelectArgs.action` when parsed from static
   WezTerm-style `config.keys`, including `local <alias> = wezterm.action`
-  aliases with Lua comments before table-call, dot-call, or indexed action
-  constructors, static `local <callback> = wezterm.action_callback` aliases
+  aliases with Lua comments inside the dotted helper path or before table-call,
+  dot-call, or indexed action constructors, static `local <callback> = wezterm.action_callback` aliases
   with Lua comments inside the dotted helper path or before the callback call, plus
   parenthesized calls that pass a top-level static options table variable.
   These exact WezTerm table/config forms now produce native
@@ -2994,7 +2994,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   top-level `config.keys` assignment `action` fields inline or through
   top-level static action variables, top-level static
   `local <alias> = wezterm.action` aliases for dot and string-index action
-  constructors, and static action variables inside `act.Multiple { ... }`
+  constructors with Lua comments allowed inside the dotted helper path, and
+  static action variables inside `act.Multiple { ... }`
   tables, nested `act.QuickSelectArgs { action = ... }` action fields, and
   nested `act.Confirmation { action = ..., cancel = ... }` action fields,
   `config.key_tables = { [name] = ... }` key-table names and nested insert
