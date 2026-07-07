@@ -1203,7 +1203,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   while static callback bodies that call `pane:send_text(line)` map submitted
   text to the native `SendString` path, and `pane:send_paste(line)` maps
   submitted text to the native `SendPaste` path with paste newline and
-  bracketed-paste encoding. Styled prompt-line rendering and arbitrary Lua
+  bracketed-paste encoding. Static `PromptInputLine.action` fields can also
+  carry implemented nested KeyAssignments such as `act.Nop` or a top-level
+  static variable that resolves to that action, preserving and executing them
+  through the native `WindowCommand` path on submit. Styled prompt-line
+  rendering and arbitrary Lua
   `wezterm.action_callback` execution remain open.
 - Native `InputSelector` action payloads now carry `title`, `choices`, optional
   `alphabet`, optional `description`, optional `fuzzy_description`, and `fuzzy`,

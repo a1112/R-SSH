@@ -35875,6 +35875,7 @@ impl NativeWindowApp {
             }
             WindowPromptInputLineAction::SendLineText => WindowCommand::SendString(line),
             WindowPromptInputLineAction::SendLinePaste => WindowCommand::SendPaste(line),
+            WindowPromptInputLineAction::Command(command) => *command,
         };
         if let Err(error) = self.command_palette_apply_command(command) {
             eprintln!("prompt input line action failed: {error:?}");
@@ -50480,11 +50481,10 @@ fn prompt_input_line_lua_table_from_query_with_static_source(
                 if parsed_action {
                     return None;
                 }
-                options.action =
-                    prompt_input_line_action_from_lua_action_callback_with_static_source(
-                        static_source,
-                        value.trim(),
-                    );
+                options.action = prompt_input_line_action_from_lua_action_with_static_source(
+                    static_source,
+                    value.trim(),
+                );
                 if options.action.is_none()
                     && !lua_action_callback_from_query_with_static_source(
                         static_source,
@@ -50554,6 +50554,27 @@ fn prompt_input_line_action_from_lua_action_callback_with_static_source_and_dept
         );
     }
     None
+}
+
+fn prompt_input_line_action_from_lua_action_with_static_source(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<WindowPromptInputLineAction> {
+    prompt_input_line_action_from_lua_action_callback_with_static_source(static_source, value)
+        .or_else(|| {
+            command_palette_structured_query_command(value)
+                .map(Box::new)
+                .map(WindowPromptInputLineAction::Command)
+        })
+        .or_else(|| {
+            let static_source = static_source?;
+            let value = lua_static_expression_assignment_value_before_offset_from_query(
+                static_source.source,
+                value,
+                static_source.max_start,
+            )?;
+            prompt_input_line_action_from_lua_action_with_static_source(Some(static_source), value)
+        })
 }
 
 fn prompt_input_line_action_from_lua_action_callback_query(
@@ -63204,6 +63225,7 @@ enum WindowPromptInputLineAction {
     SwitchToWorkspaceName,
     SendLineText,
     SendLinePaste,
+    Command(Box<WindowCommand>),
 }
 
 impl WindowPromptInputLine {
@@ -116175,6 +116197,47 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_prompt_input_line_nested_static_action() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local prompt_action = act.Nop
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine {
+                  description = 'Confirm',
+                  action = prompt_action,
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine nested static action config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Confirm".to_owned(),
+                    prompt: None,
+                    initial_value: None,
+                    action: Some(WindowPromptInputLineAction::Command(Box::new(
+                        WindowCommand::Nop,
+                    ))),
+                }),
+            }])
+        );
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_prompt_input_line_static_format_alias_fields() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -128910,6 +128973,39 @@ act.Confirmation {
             app.effective_window_title(),
             "R-SSH [workspace:1 tab:1 pane:1] - Rename tab: name: old name"
         );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_prompt_input_line_wezterm_nested_action_query() {
+        let mut app = NativeWindowApp::new(None);
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.PromptInputLine { description = \"Confirm\", action = act.Hide }"
+                .to_owned(),
+        );
+
+        let command = WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+            description: "Confirm".to_owned(),
+            prompt: None,
+            initial_value: None,
+            action: Some(WindowPromptInputLineAction::Command(Box::new(
+                WindowCommand::Hide,
+            ))),
+        });
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![command.clone()]
+        );
+        assert!(app.command_palette_execute(command));
+        assert!(!app.window_hide_requested_for_test());
+
+        assert!(
+            app.handle_prompt_input_line_key(&Key::Named(NamedKey::Enter), ModifiersState::empty())
+        );
+
+        assert!(app.window_hide_requested_for_test());
+        assert!(app.prompt_input_line.is_none());
     }
 
     #[test]
