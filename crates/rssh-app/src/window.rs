@@ -49184,9 +49184,20 @@ fn strip_wezterm_action_index_prefix(query: &str) -> Option<String> {
         }
         let rest = query[prefix.len()..].trim_start();
         let index = rest.strip_prefix('[')?;
-        let end = index.find(']')?;
-        let name = parse_maybe_quoted_query_text(index[..end].trim())?;
-        let tail = index[end + 1..].trim_start();
+        let indexed = lua_trim_start_comments(index)?;
+        let (name, tail) = if let Some(literal) = lua_quoted_string_literal_from_query(indexed)
+            .or_else(|| lua_long_bracket_literal_from_query(indexed))
+        {
+            let close = lua_trim_start_comments(indexed.get(literal.len()..)?)?;
+            let tail = close.strip_prefix(']')?.trim_start();
+            (parse_maybe_quoted_query_text(literal)?, tail)
+        } else {
+            let end = index.find(']')?;
+            (
+                parse_maybe_quoted_query_text(index[..end].trim())?,
+                index[end + 1..].trim_start(),
+            )
+        };
         if name.is_empty() {
             return None;
         }
@@ -137851,6 +137862,31 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action[\"SpawnCommandInNewTab\"] { args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        app.command_palette_execute(WindowCommand::NewTab);
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+    }
+
+    #[test]
+    fn window_app_dispatches_long_bracket_indexed_wezterm_action_table_constructor_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action[ [[SpawnCommandInNewTab]] ] { args = { \"top\", \"-d\", \"1\" } }"
                 .to_owned(),
         );
 
