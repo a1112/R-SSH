@@ -345,8 +345,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   top-level static table variables and `table.insert(config.font_dirs, ...)`
   appends for `config.font_dirs`. `config.font` accepts static `wezterm.font`
   and `wezterm.font_with_fallback` calls, including top-level static helper
-  aliases with Lua comments before the call payload and static font value
-  variables, retaining the primary family, fallback families, and supported
+  aliases with Lua comments inside the dotted helper path or before the call
+  payload and static font value variables, retaining the primary family, fallback families, and supported
   font attributes in effective config.
   Direct or `table.insert`-appended `config.font_rules[*]` entries use the same
   static variable expansion for static field-name keys, font values, and
@@ -354,8 +354,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `window_frame.font` also accepts top-level
   static `wezterm.font` helper aliases, static `wezterm.font(...)` value
   variables, and `wezterm.font { family = ... }` static family variables for
-  retained native titlebar font settings, with Lua comments allowed before
-  static alias call payloads. Custom block
+  retained native titlebar font settings, with Lua comments allowed inside
+  static alias helper paths or before static alias call payloads. Custom block
   glyph, square-glyph overflow, COLR font rasterizer, SVG-font ignore,
   fallback-font coverage sorting and font-directory fallback-search, FreeType
   interpreter-version, PCF long-family-name, display pixel-geometry,
@@ -3453,8 +3453,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   default-mode shortcut labels. `window_frame.font` accepts top-level static
   `wezterm.font` helper aliases, static `wezterm.font(...)` value variables,
   and `wezterm.font { family = ... }` static family variables for retained
-  native titlebar font settings, with Lua comments allowed before static alias
-  call payloads.
+  native titlebar font settings, with Lua comments allowed inside static alias
+  helper paths or before static alias call payloads.
   Applying retained native/fancy titlebar colors, `window_frame` border
   widths/colors, font fields, and other non-terminal color fields to rendering
   remain later parity work.

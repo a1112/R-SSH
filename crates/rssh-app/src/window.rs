@@ -16463,8 +16463,7 @@ fn lua_static_wezterm_font_alias_kind_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_top_level_statement_value_from_query(value)
-            .and_then(lua_static_wezterm_font_alias_kind_from_value_query);
+        selected = lua_static_wezterm_font_alias_kind_from_value_query(value);
     }
 
     Some(selected)
@@ -16473,11 +16472,16 @@ fn lua_static_wezterm_font_alias_kind_before_offset(
 fn lua_static_wezterm_font_alias_kind_from_value_query(
     value: &str,
 ) -> Option<LuaStaticWeztermFontAliasKind> {
-    match value.trim() {
-        "wezterm.font" => Some(LuaStaticWeztermFontAliasKind::Font),
-        "wezterm.font_with_fallback" => Some(LuaStaticWeztermFontAliasKind::FontWithFallback),
-        _ => None,
+    let font = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.font")
+        .is_some_and(lua_static_identifier_value_rest_is_statement_end);
+    if font {
+        return Some(LuaStaticWeztermFontAliasKind::Font);
     }
+
+    let font_with_fallback =
+        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.font_with_fallback")
+            .is_some_and(lua_static_identifier_value_rest_is_statement_end);
+    font_with_fallback.then_some(LuaStaticWeztermFontAliasKind::FontWithFallback)
 }
 
 #[allow(dead_code)]
@@ -124953,6 +124957,44 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm font alias comment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("Bold".to_owned()),
+                stretch: None,
+                style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
+            }
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_static_alias_dotted_comment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+            local font = wezterm -- font helper
+              .font
+
+            config.font = font('JetBrains Mono', {
+              weight = 'Bold',
+              style = 'Italic',
+            })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font alias dotted-comment config");
         app.set_config_overrides(overrides);
 
         let effective = app.native_effective_config();
