@@ -10718,6 +10718,19 @@ fn lua_static_window_config_overrides_from_query(
         font_colr_rasterizer: overrides.font_colr_rasterizer,
         font_shaper: overrides.font_shaper,
         harfbuzz_features: overrides.harfbuzz_features,
+        use_cap_height_to_scale_fallback_fonts: overrides.use_cap_height_to_scale_fallback_fonts,
+        ignore_svg_fonts: overrides.ignore_svg_fonts,
+        sort_fallback_fonts_by_coverage: overrides.sort_fallback_fonts_by_coverage,
+        search_font_dirs_for_fallback: overrides.search_font_dirs_for_fallback,
+        custom_block_glyphs: overrides.custom_block_glyphs,
+        anti_alias_custom_block_glyphs: overrides.anti_alias_custom_block_glyphs,
+        allow_square_glyphs_to_overflow_width: overrides.allow_square_glyphs_to_overflow_width,
+        freetype_load_target: overrides.freetype_load_target,
+        freetype_render_target: overrides.freetype_render_target,
+        freetype_load_flags: overrides.freetype_load_flags,
+        freetype_interpreter_version: overrides.freetype_interpreter_version,
+        freetype_pcf_long_family_names: overrides.freetype_pcf_long_family_names,
+        display_pixel_geometry: overrides.display_pixel_geometry,
         tab_max_width: overrides.tab_max_width,
         status_update_interval_ms: overrides.status_update_interval_ms,
         max_fps: overrides.max_fps,
@@ -29614,6 +29627,19 @@ struct NativeLuaWindowConfigOverrides {
     font_colr_rasterizer: Option<NativeFontRasterizer>,
     font_shaper: Option<NativeFontShaper>,
     harfbuzz_features: Option<Vec<String>>,
+    use_cap_height_to_scale_fallback_fonts: Option<bool>,
+    ignore_svg_fonts: Option<bool>,
+    sort_fallback_fonts_by_coverage: Option<bool>,
+    search_font_dirs_for_fallback: Option<bool>,
+    custom_block_glyphs: Option<bool>,
+    anti_alias_custom_block_glyphs: Option<bool>,
+    allow_square_glyphs_to_overflow_width: Option<NativeSquareGlyphOverflow>,
+    freetype_load_target: Option<NativeFreetypeTarget>,
+    freetype_render_target: Option<NativeFreetypeTarget>,
+    freetype_load_flags: Option<NativeFreetypeLoadFlags>,
+    freetype_interpreter_version: Option<u32>,
+    freetype_pcf_long_family_names: Option<bool>,
+    display_pixel_geometry: Option<NativeDisplayPixelGeometry>,
     tab_max_width: Option<usize>,
     status_update_interval_ms: Option<u64>,
     max_fps: Option<usize>,
@@ -29762,6 +29788,19 @@ impl NativeLuaWindowConfigOverrides {
             && self.font_colr_rasterizer.is_none()
             && self.font_shaper.is_none()
             && self.harfbuzz_features.is_none()
+            && self.use_cap_height_to_scale_fallback_fonts.is_none()
+            && self.ignore_svg_fonts.is_none()
+            && self.sort_fallback_fonts_by_coverage.is_none()
+            && self.search_font_dirs_for_fallback.is_none()
+            && self.custom_block_glyphs.is_none()
+            && self.anti_alias_custom_block_glyphs.is_none()
+            && self.allow_square_glyphs_to_overflow_width.is_none()
+            && self.freetype_load_target.is_none()
+            && self.freetype_render_target.is_none()
+            && self.freetype_load_flags.is_none()
+            && self.freetype_interpreter_version.is_none()
+            && self.freetype_pcf_long_family_names.is_none()
+            && self.display_pixel_geometry.is_none()
             && self.tab_max_width.is_none()
             && self.status_update_interval_ms.is_none()
             && self.max_fps.is_none()
@@ -29928,6 +29967,47 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.harfbuzz_features.is_some() {
             self.harfbuzz_features = update.harfbuzz_features;
+        }
+        if update.use_cap_height_to_scale_fallback_fonts.is_some() {
+            self.use_cap_height_to_scale_fallback_fonts =
+                update.use_cap_height_to_scale_fallback_fonts;
+        }
+        if update.ignore_svg_fonts.is_some() {
+            self.ignore_svg_fonts = update.ignore_svg_fonts;
+        }
+        if update.sort_fallback_fonts_by_coverage.is_some() {
+            self.sort_fallback_fonts_by_coverage = update.sort_fallback_fonts_by_coverage;
+        }
+        if update.search_font_dirs_for_fallback.is_some() {
+            self.search_font_dirs_for_fallback = update.search_font_dirs_for_fallback;
+        }
+        if update.custom_block_glyphs.is_some() {
+            self.custom_block_glyphs = update.custom_block_glyphs;
+        }
+        if update.anti_alias_custom_block_glyphs.is_some() {
+            self.anti_alias_custom_block_glyphs = update.anti_alias_custom_block_glyphs;
+        }
+        if update.allow_square_glyphs_to_overflow_width.is_some() {
+            self.allow_square_glyphs_to_overflow_width =
+                update.allow_square_glyphs_to_overflow_width;
+        }
+        if update.freetype_load_target.is_some() {
+            self.freetype_load_target = update.freetype_load_target;
+        }
+        if update.freetype_render_target.is_some() {
+            self.freetype_render_target = update.freetype_render_target;
+        }
+        if update.freetype_load_flags.is_some() {
+            self.freetype_load_flags = update.freetype_load_flags;
+        }
+        if update.freetype_interpreter_version.is_some() {
+            self.freetype_interpreter_version = update.freetype_interpreter_version;
+        }
+        if update.freetype_pcf_long_family_names.is_some() {
+            self.freetype_pcf_long_family_names = update.freetype_pcf_long_family_names;
+        }
+        if update.display_pixel_geometry.is_some() {
+            self.display_pixel_geometry = update.display_pixel_geometry;
         }
         if update.tab_max_width.is_some() {
             self.tab_max_width = update.tab_max_width;
@@ -30371,6 +30451,51 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(harfbuzz_features) = self.harfbuzz_features {
             overrides.harfbuzz_features = Some(harfbuzz_features);
+        }
+        if let Some(use_cap_height_to_scale_fallback_fonts) =
+            self.use_cap_height_to_scale_fallback_fonts
+        {
+            overrides.use_cap_height_to_scale_fallback_fonts =
+                Some(use_cap_height_to_scale_fallback_fonts);
+        }
+        if let Some(ignore_svg_fonts) = self.ignore_svg_fonts {
+            overrides.ignore_svg_fonts = Some(ignore_svg_fonts);
+        }
+        if let Some(sort_fallback_fonts_by_coverage) = self.sort_fallback_fonts_by_coverage {
+            overrides.sort_fallback_fonts_by_coverage = Some(sort_fallback_fonts_by_coverage);
+        }
+        if let Some(search_font_dirs_for_fallback) = self.search_font_dirs_for_fallback {
+            overrides.search_font_dirs_for_fallback = Some(search_font_dirs_for_fallback);
+        }
+        if let Some(custom_block_glyphs) = self.custom_block_glyphs {
+            overrides.custom_block_glyphs = Some(custom_block_glyphs);
+        }
+        if let Some(anti_alias_custom_block_glyphs) = self.anti_alias_custom_block_glyphs {
+            overrides.anti_alias_custom_block_glyphs = Some(anti_alias_custom_block_glyphs);
+        }
+        if let Some(allow_square_glyphs_to_overflow_width) =
+            self.allow_square_glyphs_to_overflow_width
+        {
+            overrides.allow_square_glyphs_to_overflow_width =
+                Some(allow_square_glyphs_to_overflow_width);
+        }
+        if let Some(freetype_load_target) = self.freetype_load_target {
+            overrides.freetype_load_target = Some(freetype_load_target);
+        }
+        if let Some(freetype_render_target) = self.freetype_render_target {
+            overrides.freetype_render_target = Some(freetype_render_target);
+        }
+        if let Some(freetype_load_flags) = self.freetype_load_flags {
+            overrides.freetype_load_flags = Some(freetype_load_flags);
+        }
+        if let Some(freetype_interpreter_version) = self.freetype_interpreter_version {
+            overrides.freetype_interpreter_version = Some(freetype_interpreter_version);
+        }
+        if let Some(freetype_pcf_long_family_names) = self.freetype_pcf_long_family_names {
+            overrides.freetype_pcf_long_family_names = Some(freetype_pcf_long_family_names);
+        }
+        if let Some(display_pixel_geometry) = self.display_pixel_geometry {
+            overrides.display_pixel_geometry = Some(display_pixel_geometry);
         }
         if let Some(tab_max_width) = self.tab_max_width {
             overrides.tab_max_width = Some(tab_max_width);
@@ -87226,6 +87351,110 @@ mod tests {
         assert_eq!(
             app.right_status,
             "cell=1.25 line=1.5 aa=Subpixel hint=VerticalSubpixel raster=Harfbuzz colr=FreeType shaper=Harfbuzz hb=calt=0 width=57344/63743/2"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_font_render_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                font_size = 13.5,
+                use_cap_height_to_scale_fallback_fonts = true,
+                ignore_svg_fonts = true,
+                sort_fallback_fonts_by_coverage = true,
+                search_font_dirs_for_fallback = true,
+                custom_block_glyphs = false,
+                anti_alias_custom_block_glyphs = false,
+                allow_square_glyphs_to_overflow_width = 'Always',
+                freetype_load_target = 'Light',
+                freetype_render_target = 'HorizontalLcd',
+                freetype_load_flags = 'NO_HINTING|MONOCHROME',
+                freetype_interpreter_version = 38,
+                freetype_pcf_long_family_names = true,
+                display_pixel_geometry = 'BGR',
+              })
+              local config = window:effective_config()
+              window:set_right_status(
+                'cap=' .. tostring(config.use_cap_height_to_scale_fallback_fonts)
+                  .. ' ignore=' .. tostring(config.ignore_svg_fonts)
+                  .. ' sort=' .. tostring(config.sort_fallback_fonts_by_coverage)
+                  .. ' search=' .. tostring(config.search_font_dirs_for_fallback)
+                  .. ' blocks=' .. tostring(config.custom_block_glyphs)
+                  .. '/' .. tostring(config.anti_alias_custom_block_glyphs)
+                  .. ' overflow=' .. tostring(config.allow_square_glyphs_to_overflow_width)
+                  .. ' ft=' .. tostring(config.freetype_load_target)
+                  .. '/' .. tostring(config.freetype_render_target)
+                  .. '/' .. tostring(config.freetype_load_flags)
+                  .. '/' .. tostring(config.freetype_interpreter_version)
+                  .. '/' .. tostring(config.freetype_pcf_long_family_names)
+                  .. ' geometry=' .. tostring(config.display_pixel_geometry)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides font render callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_size,
+            NativeFontSize::from_millipoints(13_500)
+        );
+        assert!(effective.use_cap_height_to_scale_fallback_fonts);
+        assert!(effective.ignore_svg_fonts);
+        assert!(effective.sort_fallback_fonts_by_coverage);
+        assert!(effective.search_font_dirs_for_fallback);
+        assert!(!effective.custom_block_glyphs);
+        assert!(!effective.anti_alias_custom_block_glyphs);
+        assert_eq!(
+            effective.allow_square_glyphs_to_overflow_width,
+            NativeSquareGlyphOverflow::Always
+        );
+        assert_eq!(effective.freetype_load_target, NativeFreetypeTarget::Light);
+        assert_eq!(
+            effective.freetype_render_target,
+            NativeFreetypeTarget::HorizontalLcd
+        );
+        assert_eq!(
+            effective.freetype_load_flags,
+            NativeFreetypeLoadFlags::NO_HINTING.union(NativeFreetypeLoadFlags::MONOCHROME)
+        );
+        assert_eq!(effective.freetype_interpreter_version, Some(38));
+        assert!(effective.freetype_pcf_long_family_names);
+        assert_eq!(
+            effective.display_pixel_geometry,
+            NativeDisplayPixelGeometry::Bgr
+        );
+        assert_eq!(
+            app.right_status,
+            "cap=true ignore=true sort=true search=true blocks=false/false overflow=Always ft=Light/HorizontalLcd/NO_HINTING|MONOCHROME/38/true geometry=BGR"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
