@@ -7416,6 +7416,11 @@ fn lua_static_wezterm_on_event_args_from_statement<'a>(
     {
         return Some(rest);
     }
+    if let Some(rest) =
+        lua_static_wezterm_on_event_args_from_require_query(source, start, statement)
+    {
+        return Some(rest);
+    }
 
     let alias = lua_identifier_literal_from_query(statement)?;
     let rest = statement.get(alias.len()..)?;
@@ -7549,6 +7554,29 @@ fn lua_static_wezterm_on_event_args_from_wezterm_query<'a>(
 ) -> Option<&'a str> {
     let rest = value.strip_prefix("wezterm")?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    lua_static_wezterm_on_event_args_from_receiver_rest(source, start, rest)
+}
+
+fn lua_static_wezterm_on_event_args_from_require_query<'a>(
+    source: &str,
+    start: usize,
+    value: &'a str,
+) -> Option<&'a str> {
+    let rest = value.strip_prefix("require")?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let arguments = split_lua_top_level_arguments(arguments)?;
+    let [literal] = arguments.as_slice() else {
+        return None;
+    };
+    let literal = lua_quoted_string_literal_from_query(literal)
+        .or_else(|| lua_long_bracket_literal_from_query(literal))?;
+    if parse_maybe_quoted_query_text(literal).as_deref() != Some("wezterm") {
         return None;
     }
     lua_static_wezterm_on_event_args_from_receiver_rest(source, start, rest)
@@ -104052,6 +104080,22 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "MODULE ALIAS LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_require_call_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            require('wezterm').on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'REQUIRE CALL LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm require-call format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "REQUIRE CALL LUA TITLE");
     }
 
     #[test]

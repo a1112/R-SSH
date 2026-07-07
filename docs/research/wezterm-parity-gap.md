@@ -2641,6 +2641,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   Lua comments inside the anonymous callback parameter list, top-level named
   function callbacks registered by name, top-level static function-valued
   callback variables, top-level `local wt = require 'wezterm'` module aliases,
+  direct `require('wezterm').on(...)` receivers,
   comments between the `wezterm` or module-alias receiver and `.on`,
   `wezterm.on`/`wezterm['on']` aliases, and aliases to static callback expressions,
   top-level static table-field function callbacks from
