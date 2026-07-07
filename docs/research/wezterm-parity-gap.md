@@ -996,7 +996,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   plus before or after parenthesized wrapper table payloads inside `(...)`,
   including static wrapper-table variables, and treat comment-only wrapper
   payload tables as empty. Dot-style no-arg function-call actions also accept
-  comment-only empty table payloads. Indexed
+  comment-only empty argument lists and table payloads. Indexed
   `wezterm.action["..."]` and long-bracket `wezterm.action[ [[...]] ]` names
   followed by Lua table constructors now preserve the table payload separator,
   including when Lua comments appear between `wezterm.action` and `[`, or
