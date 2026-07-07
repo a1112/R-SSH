@@ -1943,7 +1943,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   WezTerm-style `config.keys`, including `local <alias> = wezterm.action`
   aliases with Lua comments before table-call, dot-call, or indexed action
   constructors, static `local <callback> = wezterm.action_callback` aliases
-  with Lua comments before the callback call, plus
+  with Lua comments inside the dotted helper path or before the callback call, plus
   parenthesized calls that pass a top-level static options table variable.
   These exact WezTerm table/config forms now produce native
   `QuickSelectArgs { ... }` payloads while legacy

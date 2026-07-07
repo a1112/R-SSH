@@ -19920,15 +19920,24 @@ fn lua_static_wezterm_action_callback_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_top_level_statement_value_from_query(value)
-            .is_some_and(lua_static_wezterm_action_callback_alias_value_from_query);
+        selected = lua_static_wezterm_action_callback_alias_value_from_query(value);
     }
 
     Some(selected)
 }
 
 fn lua_static_wezterm_action_callback_alias_value_from_query(value: &str) -> bool {
-    matches!(value.trim(), "wezterm.action_callback" | "action_callback")
+    if lua_top_level_statement_value_from_query(value)
+        .is_some_and(|value| value.trim() == "action_callback")
+    {
+        return true;
+    }
+    let Some(rest) =
+        lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.action_callback")
+    else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_static_wezterm_format_alias_query_from_query(
@@ -117811,6 +117820,49 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm action_callback alias comment-call config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::CopyTo(
+                        WindowCopyDestination::Clipboard
+                    )),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_action_callback_alias_dotted_comment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local cb = wezterm -- callback helper
+              .action_callback
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  pattern = 'ticket-[0-9]+',
+                  action = cb(function(window, pane)
+                    window:perform_action(act.CopyTo 'Clipboard', pane)
+                  end),
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm action_callback dotted-comment alias config");
 
         assert_eq!(
             overrides.key_assignments,
