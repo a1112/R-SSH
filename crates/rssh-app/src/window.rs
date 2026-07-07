@@ -10738,8 +10738,11 @@ fn lua_static_window_config_overrides_from_query(
         foreground_text_hsb: overrides.foreground_text_hsb,
         text_background_opacity: overrides.text_background_opacity,
         window_background_opacity: overrides.window_background_opacity,
+        background: overrides.background,
+        window_background_image: overrides.window_background_image,
         window_background_image_hsb: overrides.window_background_image_hsb,
         window_background_gradient: overrides.window_background_gradient,
+        window_background_images: overrides.window_background_images,
         kde_window_background_blur: overrides.kde_window_background_blur,
         macos_window_background_blur: overrides.macos_window_background_blur,
         win32_system_backdrop: overrides.win32_system_backdrop,
@@ -29926,8 +29929,11 @@ struct NativeLuaWindowConfigOverrides {
     foreground_text_hsb: Option<NativeInactivePaneHsb>,
     text_background_opacity: Option<NativeTextBackgroundOpacity>,
     window_background_opacity: Option<NativeTextBackgroundOpacity>,
+    background: Option<Vec<NativeWindowBackgroundVisualLayer>>,
+    window_background_image: Option<String>,
     window_background_image_hsb: Option<NativeInactivePaneHsb>,
     window_background_gradient: Option<NativeWindowBackgroundGradient>,
+    window_background_images: Option<Vec<NativeWindowBackgroundImage>>,
     kde_window_background_blur: Option<bool>,
     macos_window_background_blur: Option<u32>,
     win32_system_backdrop: Option<NativeWin32SystemBackdrop>,
@@ -30171,8 +30177,11 @@ impl NativeLuaWindowConfigOverrides {
             && self.foreground_text_hsb.is_none()
             && self.text_background_opacity.is_none()
             && self.window_background_opacity.is_none()
+            && self.background.is_none()
+            && self.window_background_image.is_none()
             && self.window_background_image_hsb.is_none()
             && self.window_background_gradient.is_none()
+            && self.window_background_images.is_none()
             && self.kde_window_background_blur.is_none()
             && self.macos_window_background_blur.is_none()
             && self.win32_system_backdrop.is_none()
@@ -30477,11 +30486,20 @@ impl NativeLuaWindowConfigOverrides {
         if update.window_background_opacity.is_some() {
             self.window_background_opacity = update.window_background_opacity;
         }
+        if update.background.is_some() {
+            self.background = update.background;
+        }
+        if update.window_background_image.is_some() {
+            self.window_background_image = update.window_background_image;
+        }
         if update.window_background_image_hsb.is_some() {
             self.window_background_image_hsb = update.window_background_image_hsb;
         }
         if update.window_background_gradient.is_some() {
             self.window_background_gradient = update.window_background_gradient;
+        }
+        if update.window_background_images.is_some() {
+            self.window_background_images = update.window_background_images;
         }
         if update.kde_window_background_blur.is_some() {
             self.kde_window_background_blur = update.kde_window_background_blur;
@@ -31218,11 +31236,20 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(window_background_opacity) = self.window_background_opacity {
             overrides.window_background_opacity = Some(window_background_opacity);
         }
+        if let Some(background) = self.background {
+            overrides.background = Some(background);
+        }
+        if let Some(window_background_image) = self.window_background_image {
+            overrides.window_background_image = Some(window_background_image);
+        }
         if let Some(window_background_image_hsb) = self.window_background_image_hsb {
             overrides.window_background_image_hsb = Some(window_background_image_hsb);
         }
         if let Some(window_background_gradient) = self.window_background_gradient {
             overrides.window_background_gradient = Some(window_background_gradient);
+        }
+        if let Some(window_background_images) = self.window_background_images {
+            overrides.window_background_images = Some(window_background_images);
         }
         if let Some(kde_window_background_blur) = self.kde_window_background_blur {
             overrides.kde_window_background_blur = Some(kde_window_background_blur);
@@ -88734,6 +88761,64 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_window_background_image() {
+        let image_path = write_test_png_file("wezterm-runtime-window-background-image.png");
+        let lua_path = lua_string_path(&image_path);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({{
+                window_background_image = '{lua_path}',
+              }})
+            end)
+            "##
+        ))
+        .expect("expected WezTerm set_config_overrides window_background_image callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.window_background_image,
+            Some(image_path.to_string_lossy().to_string())
+        );
+        assert_eq!(effective.window_background_images.len(), 1);
+        assert_eq!(effective.background.len(), 1);
+        assert_eq!(
+            effective.background,
+            vec![super::NativeWindowBackgroundVisualLayer::Image(
+                effective.window_background_images[0].clone(),
+            )]
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+
+        let _ = std::fs::remove_file(image_path);
     }
 
     #[test]
