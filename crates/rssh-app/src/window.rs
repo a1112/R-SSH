@@ -22073,7 +22073,7 @@ fn lua_static_wezterm_color_load_scheme_alias_query_from_query(
         return None;
     }
 
-    let rest = query.get(alias.len()..)?.trim_start();
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
     if !matches!(rest.chars().next()?, '(' | '\'' | '"' | '[') {
         return None;
     }
@@ -77169,6 +77169,56 @@ mod tests {
         assert_eq!(effective.foreground_color, Color::Rgb(49, 50, 51));
         assert_eq!(effective.background_color, Color::Rgb(52, 53, 54));
         assert_eq!(effective.cursor_bg_color, Color::Rgb(55, 56, 57));
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_alias_comment_call() {
+        static NEXT_LOAD_SCHEME_ALIAS_COMMENT_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-alias-comment-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_ALIAS_COMMENT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Alias Comment Loaded Scheme"
+
+            [colors]
+            foreground = "#616263"
+            background = "#646566"
+            cursor_bg = "#676869"
+            "##,
+        )
+        .expect("expected temp load_scheme alias comment TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local load_scheme = wezterm.color.load_scheme
+
+            config.colors = load_scheme -- palette
+              ('{}')
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme alias comment colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(97, 98, 99));
+        assert_eq!(effective.background_color, Color::Rgb(100, 101, 102));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(103, 104, 105));
         let _ = std::fs::remove_file(scheme_file);
     }
 
