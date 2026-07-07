@@ -10709,6 +10709,10 @@ fn lua_static_window_config_overrides_from_query(
     let overrides = native_config_overrides_from_wezterm_lua_config(&config)?;
     Some(NativeLuaWindowConfigOverrides {
         font_size: overrides.font_size,
+        tab_max_width: overrides.tab_max_width,
+        status_update_interval_ms: overrides.status_update_interval_ms,
+        default_workspace: overrides.default_workspace,
+        enable_tab_bar: overrides.enable_tab_bar,
     })
     .filter(|overrides| !overrides.is_empty())
 }
@@ -29452,25 +29456,57 @@ struct NativeLuaWindowStatusUpdate {
     right_status: Option<NativeLuaWindowStatusText>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct NativeLuaWindowConfigOverrides {
     font_size: Option<NativeFontSize>,
+    tab_max_width: Option<usize>,
+    status_update_interval_ms: Option<u64>,
+    default_workspace: Option<String>,
+    enable_tab_bar: Option<bool>,
 }
 
 impl NativeLuaWindowConfigOverrides {
-    fn is_empty(self) -> bool {
+    fn is_empty(&self) -> bool {
         self.font_size.is_none()
+            && self.tab_max_width.is_none()
+            && self.status_update_interval_ms.is_none()
+            && self.default_workspace.is_none()
+            && self.enable_tab_bar.is_none()
     }
 
     fn merge(&mut self, update: Self) {
         if update.font_size.is_some() {
             self.font_size = update.font_size;
         }
+        if update.tab_max_width.is_some() {
+            self.tab_max_width = update.tab_max_width;
+        }
+        if update.status_update_interval_ms.is_some() {
+            self.status_update_interval_ms = update.status_update_interval_ms;
+        }
+        if update.default_workspace.is_some() {
+            self.default_workspace = update.default_workspace;
+        }
+        if update.enable_tab_bar.is_some() {
+            self.enable_tab_bar = update.enable_tab_bar;
+        }
     }
 
     fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigOverrides) {
         if let Some(font_size) = self.font_size {
             overrides.font_size = Some(font_size);
+        }
+        if let Some(tab_max_width) = self.tab_max_width {
+            overrides.tab_max_width = Some(tab_max_width);
+        }
+        if let Some(status_update_interval_ms) = self.status_update_interval_ms {
+            overrides.status_update_interval_ms = Some(status_update_interval_ms);
+        }
+        if let Some(default_workspace) = self.default_workspace {
+            overrides.default_workspace = Some(default_workspace);
+        }
+        if let Some(enable_tab_bar) = self.enable_tab_bar {
+            overrides.enable_tab_bar = Some(enable_tab_bar);
         }
     }
 }
@@ -42025,7 +42061,8 @@ impl NativeWindowApp {
         self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
-        self.lua_update_status_config_overrides = overrides.lua_update_status_config_overrides;
+        self.lua_update_status_config_overrides =
+            overrides.lua_update_status_config_overrides.clone();
         self.lua_bell = overrides.lua_bell.clone();
         self.lua_focus_changed = overrides.lua_focus_changed.clone();
         self.lua_resized = overrides.lua_resized.clone();
@@ -46027,7 +46064,7 @@ impl NativeWindowApp {
         if let Some(right_status) = update.right_status {
             self.right_status = right_status;
         }
-        if let Some(config_overrides) = self.lua_update_status_config_overrides {
+        if let Some(config_overrides) = self.lua_update_status_config_overrides.clone() {
             self.apply_lua_window_config_overrides(config_overrides);
         }
         if let Some(update) = self.lua_update_status.clone() {
@@ -85787,6 +85824,72 @@ mod tests {
             NativeFontSize::from_millipoints(15_000)
         );
         assert_eq!(app.right_status, "font=15");
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_core_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                font_size = 16.25,
+                tab_max_width = 28,
+                status_update_interval = 333,
+                default_workspace = 'runtime',
+                enable_tab_bar = false,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'font=' .. window:effective_config().font_size
+                  .. ' tab=' .. window:effective_config().tab_max_width
+                  .. ' interval=' .. window:effective_config().status_update_interval
+                  .. ' workspace=' .. window:effective_config().default_workspace
+                  .. ' tabbar=' .. tostring(window:effective_config().enable_tab_bar)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides core-field callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_size,
+            NativeFontSize::from_millipoints(16_250)
+        );
+        assert_eq!(effective.tab_max_width, 28);
+        assert_eq!(effective.status_update_interval, 333);
+        assert_eq!(effective.default_workspace, "runtime");
+        assert!(!effective.enable_tab_bar);
+        assert_eq!(
+            app.right_status,
+            "font=16.25 tab=28 interval=333 workspace=runtime tabbar=false"
+        );
         assert_eq!(
             events.lock().unwrap().as_slice(),
             [
