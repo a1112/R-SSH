@@ -10510,17 +10510,20 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     }
 
     if let Some(static_source) = static_source
+        && let Some(lookup_static_source) =
+            lua_static_source_before_current_statement(static_source, expression)
+                .or(Some(static_source))
         && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
-            static_source.source,
+            lookup_static_source.source,
             expression,
-            static_source.max_start,
+            lookup_static_source.max_start,
         )
         && let Some(parts) = lua_tab_title_text_parts_from_expression_with_depth(
             value,
             tab_param,
             tabs_param,
             panes_param,
-            Some(static_source),
+            Some(lookup_static_source),
             outer_static_source,
             depth + 1,
         )
@@ -102649,6 +102652,38 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("one:Solo"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("many:"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_self_referential_condition() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              local title = tab.tab_title
+
+              if #tabs > 0 then
+                title = '[' .. #tabs .. '] ' .. title
+              end
+
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title self-referential condition");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: rssh_core::TabId::new(1),
+            title: "Solo".to_owned(),
+        })
+        .unwrap();
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("[1] Solo"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("] ["), "tab bar was {tab_bar:?}");
     }
 
     #[test]
