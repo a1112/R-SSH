@@ -49168,11 +49168,14 @@ fn command_palette_structured_query_command(query: &str) -> Option<WindowCommand
 
 fn strip_wezterm_action_prefix(query: &str) -> Option<&str> {
     let query = query.trim_start();
-    ["wezterm.action.", "act."].into_iter().find_map(|prefix| {
+    ["wezterm.action", "act"].into_iter().find_map(|prefix| {
         let candidate = query.get(..prefix.len())?;
-        candidate
-            .eq_ignore_ascii_case(prefix)
-            .then(|| query[prefix.len()..].trim_start())
+        if !candidate.eq_ignore_ascii_case(prefix) {
+            return None;
+        }
+        let rest = lua_trim_start_comments(query.get(prefix.len()..)?)?;
+        let rest = rest.strip_prefix('.')?;
+        Some(lua_trim_start_comments(rest)?)
     })
 }
 
@@ -104825,6 +104828,32 @@ mod tests {
             launch.environment().get("GREETING"),
             Some(&"hello world".to_owned())
         );
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_wezterm_action_comment_before_dot_spawn_command_table_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action -- action namespace\n .SpawnCommandInNewTab { args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
         assert!(app.command_palette.is_none());
     }
 

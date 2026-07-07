@@ -985,11 +985,12 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `SplitHorizontal`/`SplitVertical` also accepting top-level SpawnCommand
   fields such as `args`, `cwd`, and `set_environment_variables`, including
   bracketed string table keys with long-bracket values for the implemented
-  split, size, and spawn-command fields. Indexed `wezterm.action["..."]`
-  and long-bracket `wezterm.action[ [[...]] ]` names followed by Lua table
-  constructors now preserve the table payload separator, including when Lua
-  comments appear between `wezterm.action` and `[`, or between the closing `]`
-  and payload, so forms such as
+  split, size, and spawn-command fields. Dot-style `wezterm.action.<Name>`
+  queries now allow Lua comments between `wezterm.action` and `.`, and indexed
+  `wezterm.action["..."]` and long-bracket `wezterm.action[ [[...]] ]` names
+  followed by Lua table constructors now preserve the table payload separator,
+  including when Lua comments appear between `wezterm.action` and `[`, or
+  between the closing `]` and payload, so forms such as
   `wezterm.action["SpawnCommandInNewTab"] { ... }` dispatch through the same
   typed action parsers. Static WezTerm-style `config.keys`
   actions resolve top-level static variables for `direction`, `domain`,
