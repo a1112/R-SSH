@@ -10079,6 +10079,15 @@ fn lua_static_user_var_changed_status_text_from_query(
             parts.push(NativeLuaUserVarChangedStatusPart::Name);
         } else if lua_static_identifier_expression_matches(segment, value_param) {
             parts.push(NativeLuaUserVarChangedStatusPart::Value);
+        } else if let Some(part) = static_source.and_then(|static_source| {
+            lua_static_user_var_changed_local_event_param_from_query(
+                static_source,
+                segment,
+                name_param,
+                value_param,
+            )
+        }) {
+            parts.push(part);
         } else if lua_window_zero_arg_method_name_from_query(segment, window_name)
             == Some("window_id")
         {
@@ -10138,6 +10147,27 @@ fn lua_static_user_var_changed_status_text_from_query(
         }
     }
     (!parts.is_empty()).then_some(NativeLuaUserVarChangedStatusText { parts })
+}
+
+fn lua_static_user_var_changed_local_event_param_from_query(
+    static_source: LuaStaticSource<'_>,
+    value: &str,
+    name_param: &str,
+    value_param: &str,
+) -> Option<NativeLuaUserVarChangedStatusPart> {
+    let value = lua_tostring_argument_from_query(value).unwrap_or(value);
+    let local_value = lua_static_expression_assignment_value_before_offset_from_query(
+        static_source.source,
+        value,
+        static_source.max_start,
+    )?;
+    if lua_static_identifier_expression_matches(local_value, name_param) {
+        Some(NativeLuaUserVarChangedStatusPart::Name)
+    } else if lua_static_identifier_expression_matches(local_value, value_param) {
+        Some(NativeLuaUserVarChangedStatusPart::Value)
+    } else {
+        None
+    }
 }
 
 fn lua_static_user_var_changed_local_pane_user_var_from_query(
@@ -150330,6 +150360,29 @@ act.Confirmation {
             "#,
         )
         .expect("expected static WezTerm user-var-changed local status setter");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.right_status, "var=WEZTERM_PROG:psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_user_var_changed_local_event_param_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('user-var-changed', function(window, pane, name, value)
+              local changed_name = name
+              local changed_value = value
+              window:set_right_status('var=' .. changed_name .. ':' .. tostring(changed_value))
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm user-var-changed local event param status setter");
         app.set_config_overrides(overrides);
 
         app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
