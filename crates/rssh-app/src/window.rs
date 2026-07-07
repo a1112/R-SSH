@@ -49371,7 +49371,9 @@ fn is_empty_lua_table_query(value: &str) -> bool {
         .trim()
         .strip_prefix('{')
         .and_then(|value| value.strip_suffix('}'))
-        .is_some_and(|value| value.trim().is_empty())
+        .and_then(lua_trim_start_comments)
+        .and_then(lua_trim_end_comments)
+        .is_some_and(str::is_empty)
 }
 
 fn strip_wezterm_action_table_wrapper_from_query(query: &str) -> Option<&str> {
@@ -131241,6 +131243,38 @@ act.Confirmation {
         let active_pane = app.app_shell.active_pane_id();
         app.enter_command_palette_mode();
         app.command_palette_set_query("wezterm.action { ReloadConfiguration = {} }".to_owned());
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::ReloadConfiguration]
+        );
+        assert!(app.command_palette_execute(WindowCommand::ReloadConfiguration));
+
+        assert!(app.command_palette.is_none());
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [NativeWindowConfigReloaded {
+                window_id: rssh_core::WindowId::new(1),
+                pane: active_pane,
+            }]
+        );
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_reload_configuration_wezterm_action_table_wrapper_comment_empty_payload_query()
+     {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action { ReloadConfiguration = { -- reload options\n } }".to_owned(),
+        );
 
         assert_eq!(
             app.command_palette_filtered_commands(),

@@ -994,7 +994,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   between the action name and `=`, and `wezterm.action { Name = ... }`
   table-wrapper queries accept Lua comments before or after the wrapper table,
   plus before or after parenthesized wrapper table payloads inside `(...)`,
-  including static wrapper-table variables. Indexed
+  including static wrapper-table variables, and treat comment-only wrapper
+  payload tables as empty. Indexed
   `wezterm.action["..."]` and long-bracket `wezterm.action[ [[...]] ]` names
   followed by Lua table constructors now preserve the table payload separator,
   including when Lua comments appear between `wezterm.action` and `[`, or
