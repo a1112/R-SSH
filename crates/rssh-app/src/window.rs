@@ -10461,6 +10461,7 @@ fn lua_static_window_status_text_from_query(
     }
     if let Some(status) = lua_static_window_and_pane_status_fallback_text_from_query(
         static_source,
+        outer_static_source,
         window_name,
         pane_name,
         argument,
@@ -10504,12 +10505,14 @@ fn lua_static_window_id_status_text_from_query(
 
 fn lua_static_window_and_pane_status_fallback_text_from_query(
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     pane_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowStatusText> {
     let part = lua_static_window_and_pane_status_fallback_part_from_query(
         static_source,
+        outer_static_source,
         window_name,
         pane_name,
         value,
@@ -10519,12 +10522,13 @@ fn lua_static_window_and_pane_status_fallback_text_from_query(
 
 fn lua_static_window_and_pane_status_fallback_part_from_query(
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     pane_name: &str,
     value: &str,
 ) -> Option<NativeLuaWindowPaneStatusPart> {
     let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
-    lua_static_string_value_from_expression(None, None, fallback)?;
+    lua_static_string_value_from_expression(static_source, outer_static_source, fallback)?;
     static_source
         .and_then(|static_source| {
             lua_static_window_and_pane_status_part_receiver_alias_from_query(
@@ -10685,6 +10689,7 @@ fn lua_static_window_and_pane_status_text_from_query(
                 .or_else(|| {
                     lua_static_window_and_pane_status_fallback_part_from_query(
                         static_source,
+                        None,
                         window_name,
                         pane_name,
                         segment,
@@ -82875,6 +82880,36 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm active tab alias title variable fallback status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: app.app_shell.active_tab_id(),
+            title: "build".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "build");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_title_variable_named_fallback_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local tab = window:active_tab()
+              local title = tab:get_title()
+              local fallback = ''
+              window:set_right_status(title or fallback)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab alias title variable named fallback status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
