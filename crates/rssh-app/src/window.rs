@@ -22033,12 +22033,7 @@ fn lua_color_variable_mutation_value_literal_from_query(query: &str) -> Option<&
 }
 
 fn lua_wezterm_color_load_scheme_path_literal_from_query(query: &str) -> Option<&str> {
-    let query = query.trim_start();
-    let rest = query.strip_prefix("wezterm.color.load_scheme")?;
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
-        return None;
-    }
-    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_function_name_rest_from_query(query.trim_start(), "wezterm.color.load_scheme")?;
     let rest = if let Some(rest) = rest.strip_prefix('(') {
         lua_trim_start_comments(rest)?
     } else {
@@ -77288,6 +77283,56 @@ mod tests {
             effective.ansi_palette.expect("expected ANSI palette")[9],
             Color::Rgb(0, 0, 10)
         );
+        let _ = std::fs::remove_file(scheme_file);
+    }
+
+    #[test]
+    fn window_app_loads_wezterm_lua_colors_from_load_scheme_dotted_comment_call() {
+        static NEXT_LOAD_SCHEME_DOTTED_COMMENT_ID: AtomicUsize = AtomicUsize::new(0);
+
+        let mut scheme_file = std::env::temp_dir();
+        scheme_file.push(format!(
+            "rssh-load-scheme-dotted-comment-{}-{}.toml",
+            std::process::id(),
+            NEXT_LOAD_SCHEME_DOTTED_COMMENT_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&scheme_file);
+        std::fs::write(
+            &scheme_file,
+            r##"
+            [metadata]
+            name = "Dotted Comment Loaded Scheme"
+
+            [colors]
+            foreground = "#414243"
+            background = "#444546"
+            cursor_bg = "#474849"
+            "##,
+        )
+        .expect("expected temp load_scheme dotted comment TOML color scheme");
+        let scheme_file_query = scheme_file.to_string_lossy().replace('\\', "/");
+
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(&format!(
+            r##"
+            local wezterm = require 'wezterm'
+            local config = {{}}
+            local colors, metadata = wezterm.color -- loader namespace
+              .load_scheme('{}')
+
+            config.colors = colors
+
+            return config
+            "##,
+            scheme_file_query
+        ))
+        .expect("expected WezTerm load_scheme dotted comment colors config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.foreground_color, Color::Rgb(65, 66, 67));
+        assert_eq!(effective.background_color, Color::Rgb(68, 69, 70));
+        assert_eq!(effective.cursor_bg_color, Color::Rgb(71, 72, 73));
         let _ = std::fs::remove_file(scheme_file);
     }
 

@@ -3295,8 +3295,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   whose `[metadata].name` or file stem matches `config.color_scheme` reuses the
   same implemented color fields as `config.colors`, so explicit `config.colors`
   values override the selected scheme. Static
-  `wezterm.color.load_scheme('path')` calls with a constant TOML path, plus
-  top-level static aliases such as
+  `wezterm.color.load_scheme('path')` calls with a constant TOML path,
+  including Lua comments between dotted helper path segments, plus top-level
+  static aliases such as
   `local load_scheme = wezterm.color.load_scheme` invoked with a constant TOML
   path including Lua comments before the call payload, can also feed selected
   `config.color_schemes['Name']` entries directly or through static variables
