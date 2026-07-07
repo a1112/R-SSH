@@ -10064,7 +10064,7 @@ fn lua_static_user_var_changed_status_text_from_query(
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaUserVarChangedStatusText> {
     let user_vars_variable = static_source.and_then(|static_source| {
-        lua_static_pane_user_vars_variable_before_offset(
+        lua_static_pane_user_vars_variable_source_before_offset(
             static_source.source,
             window_name,
             pane_name,
@@ -10086,26 +10086,31 @@ fn lua_static_user_var_changed_status_text_from_query(
         } else if lua_window_zero_arg_method_name_from_query(segment, pane_name) == Some("pane_id")
         {
             parts.push(NativeLuaUserVarChangedStatusPart::PaneId);
-        } else if let Some((name, fallback)) = static_source.and_then(|static_source| {
-            lua_static_pane_user_var_fallback_from_query(
+        } else if let Some((source, name, fallback)) = static_source.and_then(|static_source| {
+            lua_static_pane_user_var_source_fallback_from_query(
                 static_source,
                 outer_static_source,
                 segment,
-                user_vars_variable.as_deref(),
+                user_vars_variable.as_ref(),
                 window_name,
                 pane_name,
             )
         }) {
-            parts.push(NativeLuaUserVarChangedStatusPart::PaneUserVar { name, fallback });
-        } else if let Some(name) = lua_static_pane_user_var_name_from_query(
+            parts.push(NativeLuaUserVarChangedStatusPart::PaneUserVar {
+                source,
+                name,
+                fallback,
+            });
+        } else if let Some((source, name)) = lua_static_pane_user_var_source_name_from_query(
             static_source,
             outer_static_source,
             segment,
-            user_vars_variable.as_deref(),
+            user_vars_variable.as_ref(),
             window_name,
             pane_name,
         ) {
             parts.push(NativeLuaUserVarChangedStatusPart::PaneUserVar {
+                source,
                 name,
                 fallback: String::new(),
             });
@@ -11812,13 +11817,30 @@ fn lua_static_pane_user_vars_variable_before_offset(
     pane_name: &str,
     max_start: usize,
 ) -> Option<String> {
+    lua_static_pane_user_vars_variable_source_before_offset(
+        source,
+        window_name,
+        pane_name,
+        max_start,
+    )
+    .map(|(variable, _source)| variable)
+}
+
+fn lua_static_pane_user_vars_variable_source_before_offset(
+    source: &str,
+    window_name: &str,
+    pane_name: &str,
+    max_start: usize,
+) -> Option<(String, NativeLuaUserVarChangedPaneUserVarSource)> {
     let mut selected = None;
 
     for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
         let statement = lua_trim_start_comments(source.get(start..)?)?;
-        if let Some(variable) =
-            lua_static_pane_user_vars_variable_from_statement(statement, window_name, pane_name)
-        {
+        if let Some(variable) = lua_static_pane_user_vars_variable_source_from_statement(
+            statement,
+            window_name,
+            pane_name,
+        ) {
             selected = Some(variable);
         }
     }
@@ -11826,11 +11848,11 @@ fn lua_static_pane_user_vars_variable_before_offset(
     selected
 }
 
-fn lua_static_pane_user_vars_variable_from_statement(
+fn lua_static_pane_user_vars_variable_source_from_statement(
     statement: &str,
     window_name: &str,
     pane_name: &str,
-) -> Option<String> {
+) -> Option<(String, NativeLuaUserVarChangedPaneUserVarSource)> {
     let statement = lua_trim_start_comments(statement)?;
     let rest = if lua_source_keyword_at(statement, 0, "local") {
         lua_trim_start_comments(statement.get("local".len()..)?)?
@@ -11843,12 +11865,18 @@ fn lua_static_pane_user_vars_variable_from_statement(
     let value = lua_top_level_statement_value_from_query(rest)?;
     let is_callback_pane =
         lua_window_zero_arg_method_name_from_query(value, pane_name) == Some("get_user_vars");
+    if is_callback_pane {
+        return Some((
+            variable.to_owned(),
+            NativeLuaUserVarChangedPaneUserVarSource::EventPane,
+        ));
+    }
     let is_active_pane = lua_window_active_pane_zero_arg_method_name_from_query(value, window_name)
         == Some("get_user_vars");
-    if !is_callback_pane && !is_active_pane {
-        return None;
-    }
-    Some(variable.to_owned())
+    is_active_pane.then_some((
+        variable.to_owned(),
+        NativeLuaUserVarChangedPaneUserVarSource::ActivePane,
+    ))
 }
 
 fn lua_static_pane_user_var_fallback_from_query(
@@ -11871,6 +11899,85 @@ fn lua_static_pane_user_var_fallback_from_query(
     )?;
     let fallback = lua_static_string_value_from_expression(None, None, fallback)?;
     Some((name, fallback))
+}
+
+fn lua_static_pane_user_var_source_fallback_from_query(
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    variable: Option<&(String, NativeLuaUserVarChangedPaneUserVarSource)>,
+    window_name: &str,
+    pane_name: &str,
+) -> Option<(NativeLuaUserVarChangedPaneUserVarSource, String, String)> {
+    let value = lua_tostring_argument_from_query(value).unwrap_or(value);
+    let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
+    let (source, name) = lua_static_pane_user_var_source_name_from_query(
+        Some(static_source),
+        outer_static_source,
+        dynamic,
+        variable,
+        window_name,
+        pane_name,
+    )?;
+    let fallback = lua_static_string_value_from_expression(None, None, fallback)?;
+    Some((source, name, fallback))
+}
+
+fn lua_static_pane_user_var_source_name_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    variable: Option<&(String, NativeLuaUserVarChangedPaneUserVarSource)>,
+    window_name: &str,
+    pane_name: &str,
+) -> Option<(NativeLuaUserVarChangedPaneUserVarSource, String)> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    if let Some((variable, source)) = variable
+        && let Some(rest) = value.strip_prefix(variable)
+    {
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            return None;
+        }
+        let name =
+            lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)?;
+        return Some((*source, name));
+    }
+    lua_static_direct_pane_user_var_source_name_from_query(
+        static_source,
+        outer_static_source,
+        value,
+        window_name,
+        pane_name,
+    )
+}
+
+fn lua_static_direct_pane_user_var_source_name_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    window_name: &str,
+    pane_name: &str,
+) -> Option<(NativeLuaUserVarChangedPaneUserVarSource, String)> {
+    if let Some(rest) = lua_pane_get_user_vars_rest_from_query(value, pane_name) {
+        return lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+            .map(|name| (NativeLuaUserVarChangedPaneUserVarSource::EventPane, name));
+    }
+    let rest = lua_window_active_pane_get_user_vars_rest_from_query(value, window_name)?;
+    lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+        .map(|name| (NativeLuaUserVarChangedPaneUserVarSource::ActivePane, name))
 }
 
 fn lua_static_pane_user_var_name_from_query(
@@ -28264,12 +28371,22 @@ struct NativeLuaUserVarChangedStatusText {
     parts: Vec<NativeLuaUserVarChangedStatusPart>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaUserVarChangedPaneUserVarSource {
+    EventPane,
+    ActivePane,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum NativeLuaUserVarChangedStatusPart {
     Static(String),
     WindowId,
     PaneId,
-    PaneUserVar { name: String, fallback: String },
+    PaneUserVar {
+        source: NativeLuaUserVarChangedPaneUserVarSource,
+        name: String,
+        fallback: String,
+    },
     Name,
     Value,
 }
@@ -46013,9 +46130,20 @@ impl NativeWindowApp {
                 NativeLuaUserVarChangedStatusPart::Static(text) => text,
                 NativeLuaUserVarChangedStatusPart::WindowId => change.window_id.get().to_string(),
                 NativeLuaUserVarChangedStatusPart::PaneId => change.pane.get().to_string(),
-                NativeLuaUserVarChangedStatusPart::PaneUserVar { name, fallback } => self
-                    .pane_user_var(change.pane, &name)
-                    .map_or(fallback, str::to_owned),
+                NativeLuaUserVarChangedStatusPart::PaneUserVar {
+                    source,
+                    name,
+                    fallback,
+                } => {
+                    let pane = match source {
+                        NativeLuaUserVarChangedPaneUserVarSource::EventPane => change.pane,
+                        NativeLuaUserVarChangedPaneUserVarSource::ActivePane => {
+                            self.app_shell.active_pane_id()
+                        }
+                    };
+                    self.pane_user_var(pane, &name)
+                        .map_or(fallback, str::to_owned)
+                }
                 NativeLuaUserVarChangedStatusPart::Name => change.name.clone(),
                 NativeLuaUserVarChangedStatusPart::Value => change.value.clone(),
             })
@@ -150145,6 +150273,38 @@ act.Confirmation {
         )
         .unwrap();
         assert_eq!(app.right_status, "host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_user_var_changed_active_pane_user_vars_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('user-var-changed', function(window, pane, name, value)
+              local vars = window:active_pane():get_user_vars()
+              window:set_right_status('active=' .. (vars.WEZTERM_HOST or 'none') .. ' event=' .. pane:pane_id())
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm user-var-changed active pane user vars status setter");
+        app.set_config_overrides(overrides);
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        let active_pane = app.app_shell.active_pane_id();
+        let inactive_pane = rssh_core::PaneId::new(1);
+        assert_ne!(active_pane, inactive_pane);
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_HOST=cHJvZA==\x07")
+            .unwrap();
+        app.handle_pane_pty_output(
+            inactive_pane,
+            b"\x1b]1337;SetUserVar=WEZTERM_HOST=c3RhZ2U=\x07",
+        )
+        .unwrap();
+
+        assert_eq!(app.right_status, "active=prod event=1");
     }
 
     #[test]
