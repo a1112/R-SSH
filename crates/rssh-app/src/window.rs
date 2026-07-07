@@ -49190,7 +49190,11 @@ fn strip_wezterm_action_index_prefix(query: &str) -> Option<String> {
         if name.is_empty() {
             return None;
         }
-        if tail.starts_with('"') || tail.starts_with('\'') || tail.starts_with('[') {
+        if tail.starts_with('"')
+            || tail.starts_with('\'')
+            || tail.starts_with('[')
+            || tail.starts_with('{')
+        {
             Some(format!("{name} {tail}"))
         } else {
             Some(format!("{name}{tail}"))
@@ -56578,7 +56582,15 @@ fn spawn_command_in_new_tab_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
 ) -> Option<WindowSpawnCommandQuery> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
     spawn_command_table_query_from_lua_function_with_static_source(
         static_source,
         query,
@@ -56637,7 +56649,15 @@ fn spawn_command_options_in_new_tab_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
 ) -> Option<WindowSpawnCommandQueryOptions> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
     spawn_command_table_options_from_lua_function_with_static_source(
         static_source,
         query,
@@ -56808,7 +56828,15 @@ fn spawn_command_in_new_window_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
 ) -> Option<WindowSpawnCommandQuery> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
     spawn_command_table_query_from_lua_function_with_static_source(
         static_source,
         query,
@@ -56857,7 +56885,15 @@ fn spawn_command_options_in_new_window_from_query_with_static_source(
     static_source: Option<LuaStaticSource<'_>>,
     query: &str,
 ) -> Option<WindowSpawnCommandQueryOptions> {
-    let query = strip_wezterm_action_prefix(query).unwrap_or(query);
+    let indexed_query;
+    let query = if let Some(query) = strip_wezterm_action_prefix(query) {
+        query
+    } else if let Some(query) = strip_wezterm_action_index_prefix(query) {
+        indexed_query = query;
+        indexed_query.as_str()
+    } else {
+        query
+    };
     spawn_command_table_options_from_lua_function_with_static_source(
         static_source,
         query,
@@ -137803,6 +137839,31 @@ act.Confirmation {
         assert_eq!(launch.program(), "top");
         assert_eq!(launch.args(), ["-d", "1"]);
         assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_indexed_wezterm_action_table_constructor_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action[\"SpawnCommandInNewTab\"] { args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        app.command_palette_execute(WindowCommand::NewTab);
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
     }
 
     #[test]
