@@ -49382,7 +49382,7 @@ fn strip_wezterm_action_table_wrapper_from_query(query: &str) -> Option<&str> {
             return None;
         }
 
-        let rest = query.get(prefix.len()..)?.trim_start();
+        let rest = lua_trim_start_comments(query.get(prefix.len()..)?)?;
         if let Some(table) = rest
             .strip_prefix('{')
             .and_then(|rest| rest.strip_suffix('}'))
@@ -49407,12 +49407,8 @@ fn strip_wezterm_action_table_wrapper_argument_from_query(query: &str) -> Option
             return None;
         }
 
-        query
-            .get(prefix.len()..)?
-            .trim_start()
-            .strip_prefix('(')?
-            .strip_suffix(')')
-            .map(str::trim)
+        let rest = lua_trim_start_comments(query.get(prefix.len()..)?)?;
+        rest.strip_prefix('(')?.strip_suffix(')').map(str::trim)
     })
 }
 
@@ -149524,6 +149520,40 @@ act.Confirmation {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action { AdjustPaneSize = { 'Left', 4 } }".to_owned(),
+        );
+
+        let expected = WindowCommand::AdjustPaneSize {
+            direction: rssh_core::app_shell::ResizeDirection::Left,
+            amount: 4,
+        };
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![expected.clone()]
+        );
+
+        app.command_palette_execute(expected);
+
+        let split = app.app_shell.active_tab().panes()[1]
+            .split()
+            .expect("split should be present");
+        assert_eq!(split.source_size_delta, -4);
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_adjust_pane_size_wezterm_action_comment_before_table_wrapper_query()
+     {
+        let mut app = NativeWindowApp::new(None);
+        app.dispatch_app_action(AppAction::SplitPane {
+            pane: rssh_core::PaneId::new(1),
+            direction: rssh_core::app_shell::SplitDirection::Right,
+            launch: None,
+        })
+        .unwrap();
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action -- resize options\n { AdjustPaneSize = { 'Left', 4 } }".to_owned(),
         );
 
         let expected = WindowCommand::AdjustPaneSize {
