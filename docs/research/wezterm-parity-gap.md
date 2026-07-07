@@ -932,6 +932,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   implemented local-domain subset, including bracketed string table keys with
   long-bracket values. Static `config.keys` `SpawnTab` action calls resolve
   top-level string variables for string arguments and `DomainName` table
+  fields, top-level static integer variables for official `DomainId` table
   fields, static string field-name variables for `DomainName`, plus
   parenthesized top-level static domain table variables.
   Remote/mux named domain spawning remains open.
@@ -941,9 +942,10 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `DetachDomain { DomainName = 'devhost' }`, including bracketed string table
   keys with long-bracket values for the domain-name table form. Static
   `config.keys` action calls also resolve top-level string variables for
-  attach-domain strings and detach-domain `DomainName` fields, static string
-  field-name variables for detach-domain `DomainName`, plus `DetachDomain`
-  parenthesized static domain table variables. Because the
+  attach-domain strings and detach-domain `DomainName` fields, top-level static
+  integer variables for detach-domain official `DomainId` table fields, static
+  string field-name variables for detach-domain `DomainName`, plus
+  `DetachDomain` parenthesized static domain table variables. Because the
   current domain model is local-only, executing those actions returns the
   existing unsupported-action result instead of pretending to attach or detach a
   mux domain; actual remote domain import/removal behavior remains open.

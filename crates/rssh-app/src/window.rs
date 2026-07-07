@@ -19702,6 +19702,25 @@ fn lua_static_bool_assignment_value_from_query<'a>(
     lua_static_bool_variable_assignment_before_offset_from_query(source, variable, max_start)
 }
 
+fn parse_maybe_static_usize_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+) -> Option<usize> {
+    if let Some(static_source) = static_source {
+        if let Some(value) = lua_static_number_assignment_value_before_offset_from_query(
+            static_source.source,
+            value,
+            static_source.max_start,
+            lua_unsigned_integer_literal_from_query,
+        ) {
+            return value.parse::<usize>().ok();
+        }
+        parse_maybe_quoted_query_text(value)?.parse::<usize>().ok()
+    } else {
+        parse_maybe_quoted_query_text(value)?.parse::<usize>().ok()
+    }
+}
+
 fn lua_static_bool_assignment_value_before_offset_from_query<'a>(
     source: &'a str,
     query: &'a str,
@@ -56661,11 +56680,18 @@ fn spawn_tab_domain_lua_table_from_query_with_static_source(
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
-        if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
+        if domain.is_some() {
             return None;
         }
-        let value = parse_maybe_static_query_text(static_source, value)?;
-        domain = Some(WindowSpawnTabDomain::DomainName(value));
+        if key.eq_ignore_ascii_case("domainname") {
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            domain = Some(WindowSpawnTabDomain::DomainName(value));
+        } else if key.eq_ignore_ascii_case("domainid") {
+            let value = parse_maybe_static_usize_query(static_source, value)?;
+            domain = Some(WindowSpawnTabDomain::DomainId(value));
+        } else {
+            return None;
+        }
     }
     domain
 }
@@ -56692,7 +56718,6 @@ fn spawn_tab_domain_value_from_query(domain: &str) -> Option<WindowSpawnTabDomai
     {
         return Some(WindowSpawnTabDomain::DomainName(name));
     }
-
     let normalized = domain
         .chars()
         .filter(|character| !character.is_whitespace() && *character != '-' && *character != '_')
@@ -62249,6 +62274,7 @@ fn native_spawn_domain_config_text(domain: &WindowSpawnTabDomain) -> String {
         WindowSpawnTabDomain::CurrentPaneDomain => "CurrentPaneDomain".to_owned(),
         WindowSpawnTabDomain::DefaultDomain => "DefaultDomain".to_owned(),
         WindowSpawnTabDomain::DomainName(name) => name.clone(),
+        WindowSpawnTabDomain::DomainId(id) => format!("DomainId:{id}"),
     }
 }
 
@@ -62405,14 +62431,22 @@ fn window_domain_selector_lua_table_from_query_with_static_source(
         }
         let (key, value) = split_lua_table_assignment_from_field(field)?;
         let key = split_lua_table_key_from_query_with_static_source(static_source, key.trim())?;
-        if !key.eq_ignore_ascii_case("domainname") || domain.is_some() {
+        if domain.is_some() {
             return None;
         }
-        let value = parse_maybe_static_query_text(static_source, value)?;
-        if value.is_empty() {
+        if key.eq_ignore_ascii_case("domainname") {
+            let value = parse_maybe_static_query_text(static_source, value)?;
+            if value.is_empty() {
+                return None;
+            }
+            domain = Some(WindowDomainSelector::DomainName(value));
+        } else if key.eq_ignore_ascii_case("domainid") {
+            domain = Some(WindowDomainSelector::DomainId(
+                parse_maybe_static_usize_query(static_source, value)?,
+            ));
+        } else {
             return None;
         }
-        domain = Some(WindowDomainSelector::DomainName(value));
     }
     domain
 }
@@ -63534,6 +63568,7 @@ struct WindowSwitchToWorkspaceOptions {
 enum WindowSpawnTabDomain {
     CurrentPaneDomain,
     DefaultDomain,
+    DomainId(usize),
     DomainName(String),
 }
 
@@ -63542,6 +63577,7 @@ impl WindowSpawnTabDomain {
         match self {
             Self::CurrentPaneDomain => true,
             Self::DefaultDomain => is_local_domain_name(default_domain),
+            Self::DomainId(_) => false,
             Self::DomainName(name) => is_local_domain_name(name),
         }
     }
@@ -63609,6 +63645,7 @@ impl WindowSendKey {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum WindowDomainSelector {
     CurrentPaneDomain,
+    DomainId(usize),
     DomainName(String),
 }
 
@@ -113898,6 +113935,36 @@ mod tests {
     }
 
     #[test]
+    fn window_app_parses_wezterm_lua_config_spawn_tab_domain_id_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain_id = 7
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act.SpawnTab { DomainId = domain_id },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm SpawnTab DomainId static field variable config");
+
+        let keys = overrides
+            .key_assignments
+            .expect("expected parsed key assignments");
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].keys, "CTRL|ALT+D");
+        assert_eq!(format!("{:?}", keys[0].command), "SpawnTab(DomainId(7))");
+    }
+
+    #[test]
     fn window_app_parses_wezterm_lua_config_spawn_tab_static_field_name_variable() {
         let overrides = super::native_config_overrides_from_wezterm_lua_config(
             r#"
@@ -114028,6 +114095,39 @@ mod tests {
                     "devhost".to_owned(),
                 )),
             }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_detach_domain_id_static_field_variable() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local domain_id = 7
+
+            config.keys = {
+              {
+                key = 'D',
+                mods = 'CTRL|ALT',
+                action = act.DetachDomain { DomainId = domain_id },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm DetachDomain DomainId static field variable config");
+
+        let keys = overrides
+            .key_assignments
+            .expect("expected parsed key assignments");
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].keys, "CTRL|ALT+D");
+        assert_eq!(
+            format!("{:?}", keys[0].command),
+            "DetachDomain(DomainId(7))"
         );
     }
 
