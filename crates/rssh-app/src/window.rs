@@ -6662,13 +6662,13 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
         return None;
     }
     let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
-    let (body, tab_param, hover_param) =
-        lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query(
-            callback.as_ref(),
-        )?;
+    let (body, tab_param, tabs_param, panes_param, hover_param) =
+        lua_anonymous_function_body_and_format_tab_title_params_from_query(callback.as_ref())?;
     lua_static_tab_title_return_from_function_body(
         body,
         tab_param,
+        tabs_param,
+        panes_param,
         hover_param,
         Some(LuaStaticSource {
             source,
@@ -7698,15 +7698,23 @@ fn lua_static_wezterm_on_alias_value_from_query(
     lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
-fn lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query<'a>(
+fn lua_anonymous_function_body_and_format_tab_title_params_from_query<'a>(
     value: &'a str,
-) -> Option<(&'a str, &'a str, Option<&'a str>)> {
+) -> Option<(&'a str, &'a str, &'a str, &'a str, Option<&'a str>)> {
     let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
-    let first_param = lua_function_param_identifier(params.first()?)?;
-    let fifth_param = params
+    let tab_param = lua_function_param_identifier(params.first()?)?;
+    let tabs_param = params
+        .get(1)
+        .and_then(|param| lua_function_param_identifier(param))
+        .unwrap_or("tabs");
+    let panes_param = params
+        .get(2)
+        .and_then(|param| lua_function_param_identifier(param))
+        .unwrap_or("panes");
+    let hover_param = params
         .get(4)
         .and_then(|param| lua_function_param_identifier(param));
-    Some((body, first_param, fifth_param))
+    Some((body, tab_param, tabs_param, panes_param, hover_param))
 }
 
 fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query<'a>(
@@ -8858,12 +8866,16 @@ fn lua_trim_end_statement_separator(value: &str) -> Option<&str> {
 fn lua_static_tab_title_return_from_function_body(
     body: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     hover_param: Option<&str>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     if let Some(value) = lua_static_tab_title_conditional_return_from_function_body(
         body,
         tab_param,
+        tabs_param,
+        panes_param,
         hover_param,
         outer_static_source,
     ) {
@@ -8877,6 +8889,8 @@ fn lua_static_tab_title_return_from_function_body(
             start,
             statement,
             tab_param,
+            tabs_param,
+            panes_param,
             outer_static_source,
         ) {
             return Some(value);
@@ -9661,13 +9675,20 @@ fn lua_static_tab_title_return_from_statement_as_lua_title(
     start: usize,
     statement: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let static_source = LuaStaticSource {
         source,
         max_start: start,
     };
-    if let Some(value) = lua_tab_title_event_field_return_from_statement(statement, tab_param) {
+    if let Some(value) = lua_tab_title_event_field_return_from_statement(
+        statement,
+        tab_param,
+        tabs_param,
+        panes_param,
+    ) {
         return Some(value);
     }
     if let Some(value) = lua_dynamic_tab_title_concat_return_from_statement(
@@ -9675,6 +9696,8 @@ fn lua_static_tab_title_return_from_statement_as_lua_title(
         start,
         statement,
         tab_param,
+        tabs_param,
+        panes_param,
         outer_static_source,
     ) {
         return Some(value);
@@ -9684,6 +9707,8 @@ fn lua_static_tab_title_return_from_statement_as_lua_title(
         start,
         statement,
         tab_param,
+        tabs_param,
+        panes_param,
         outer_static_source,
     ) {
         return Some(value);
@@ -9693,6 +9718,8 @@ fn lua_static_tab_title_return_from_statement_as_lua_title(
         start,
         statement,
         tab_param,
+        tabs_param,
+        panes_param,
         outer_static_source,
     ) {
         return Some(value);
@@ -9709,6 +9736,8 @@ fn lua_static_tab_title_return_from_statement_as_lua_title(
 fn lua_static_tab_title_conditional_return_from_function_body(
     body: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     hover_param: Option<&str>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
@@ -9730,6 +9759,8 @@ fn lua_static_tab_title_conditional_return_from_function_body(
                     body,
                     if_body,
                     tab_param,
+                    tabs_param,
+                    panes_param,
                     outer_static_source,
                 )
                 .or_else(|| {
@@ -9741,6 +9772,8 @@ fn lua_static_tab_title_conditional_return_from_function_body(
                         shared_prefix,
                         return_statement,
                         tab_param,
+                        tabs_param,
+                        panes_param,
                         outer_static_source,
                     )
                 })?;
@@ -9751,6 +9784,8 @@ fn lua_static_tab_title_conditional_return_from_function_body(
                     body,
                     rest_after_if,
                     tab_param,
+                    tabs_param,
+                    panes_param,
                     outer_static_source,
                 )
             {
@@ -9769,6 +9804,8 @@ fn lua_static_tab_title_conditional_return_from_function_body(
             start,
             statement,
             tab_param,
+            tabs_param,
+            panes_param,
             outer_static_source,
         ) {
             fallback = Some(Box::new(title));
@@ -9786,6 +9823,8 @@ fn lua_static_tab_title_fallback_return_after_if(
     outer_body: &str,
     rest_after_if: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let (start, _, statement) =
@@ -9795,6 +9834,8 @@ fn lua_static_tab_title_fallback_return_after_if(
         start,
         statement,
         tab_param,
+        tabs_param,
+        panes_param,
         outer_static_source,
     )
 }
@@ -9827,6 +9868,8 @@ fn lua_static_tab_title_return_with_branch_assignments(
     shared_prefix: &str,
     return_statement: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let mut branch_source = String::new();
@@ -9843,6 +9886,8 @@ fn lua_static_tab_title_return_with_branch_assignments(
         return_start,
         return_statement,
         tab_param,
+        tabs_param,
+        panes_param,
         outer_static_source,
     )
 }
@@ -9851,6 +9896,8 @@ fn lua_static_tab_title_first_return_from_nested_body(
     outer_body: &str,
     nested_body: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let nested_body_start = lua_source_slice_start_offset(outer_body, nested_body)?;
@@ -9864,6 +9911,8 @@ fn lua_static_tab_title_first_return_from_nested_body(
             outer_start,
             statement,
             tab_param,
+            tabs_param,
+            panes_param,
             outer_static_source,
         ) {
             return Some(title);
@@ -9904,6 +9953,8 @@ fn lua_tab_title_condition_from_expression(
 fn lua_tab_title_event_field_return_from_statement(
     statement: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
 ) -> Option<NativeLuaTabTitle> {
     let rest = statement.strip_prefix("return")?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
@@ -9924,6 +9975,22 @@ fn lua_tab_title_event_field_return_from_statement(
         return Some(NativeLuaTabTitle::TabIndex {
             offset: tab_index_offset,
         });
+    }
+
+    let tab_count = format!("#{tabs_param}");
+    if let Some(after_tab_count) = rest.strip_prefix(&tab_count) {
+        if !lua_static_identifier_value_rest_is_statement_end(after_tab_count) {
+            return None;
+        }
+        return Some(NativeLuaTabTitle::TabCount);
+    }
+
+    let pane_count = format!("#{panes_param}");
+    if let Some(after_pane_count) = rest.strip_prefix(&pane_count) {
+        if !lua_static_identifier_value_rest_is_statement_end(after_pane_count) {
+            return None;
+        }
+        return Some(NativeLuaTabTitle::PaneCount);
     }
 
     let tab_title = format!("{tab_param}.tab_title");
@@ -9996,6 +10063,8 @@ fn lua_dynamic_tab_title_concat_return_from_statement(
     start: usize,
     statement: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let rest = statement.strip_prefix("return")?;
@@ -10020,6 +10089,8 @@ fn lua_dynamic_tab_title_concat_return_from_statement(
         if let Some(part) = lua_tab_title_text_part_from_expression(
             segment,
             tab_param,
+            tabs_param,
+            panes_param,
             Some(static_source),
             outer_static_source,
         ) {
@@ -10041,6 +10112,8 @@ fn lua_dynamic_tab_title_concat_return_from_statement(
 fn lua_tab_title_text_part_from_expression(
     expression: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitleTextPart> {
@@ -10058,6 +10131,20 @@ fn lua_tab_title_text_part_from_expression(
         return Some(NativeLuaTabTitleTextPart::TabIndex {
             offset: tab_index_offset,
         });
+    }
+
+    let tab_count = format!("#{tabs_param}");
+    if let Some(rest) = expression.strip_prefix(&tab_count)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaTabTitleTextPart::TabCount);
+    }
+
+    let pane_count = format!("#{panes_param}");
+    if let Some(rest) = expression.strip_prefix(&pane_count)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaTabTitleTextPart::PaneCount);
     }
 
     for (field, part) in [
@@ -10142,6 +10229,8 @@ fn lua_dynamic_tab_title_format_return_from_statement(
     start: usize,
     statement: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let rest = statement.strip_prefix("return")?;
@@ -10159,6 +10248,8 @@ fn lua_dynamic_tab_title_format_return_from_statement(
         outer_static_source,
         rest,
         tab_param,
+        tabs_param,
+        panes_param,
     )?;
     has_dynamic_item.then_some(NativeLuaTabTitle::Format(items))
 }
@@ -10168,6 +10259,8 @@ fn native_lua_format_items_from_lua_format_items_table_query(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
 ) -> Option<(Vec<NativeLuaFormatItem>, bool)> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut items = Vec::new();
@@ -10183,6 +10276,8 @@ fn native_lua_format_items_from_lua_format_items_table_query(
             outer_static_source,
             field,
             tab_param,
+            tabs_param,
+            panes_param,
         ) {
             has_dynamic_item = true;
             items.push(item);
@@ -10225,6 +10320,8 @@ fn lua_dynamic_tab_title_text_return_from_statement(
     start: usize,
     statement: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaTabTitle> {
     let rest = statement.strip_prefix("return")?;
@@ -10240,6 +10337,8 @@ fn lua_dynamic_tab_title_text_return_from_statement(
     let parts = lua_tab_title_text_parts_from_expression(
         rest,
         tab_param,
+        tabs_param,
+        panes_param,
         Some(static_source),
         outer_static_source,
     )?;
@@ -10251,6 +10350,8 @@ fn native_lua_format_item_from_lua_table_query(
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
 ) -> Option<NativeLuaFormatItem> {
     let table = value.trim().strip_prefix('{')?.strip_suffix('}')?.trim();
     let mut item = None;
@@ -10273,6 +10374,8 @@ fn native_lua_format_item_from_lua_table_query(
             lua_tab_title_text_parts_from_expression(
                 value.trim(),
                 tab_param,
+                tabs_param,
+                panes_param,
                 static_source,
                 outer_static_source,
             )?,
@@ -10285,12 +10388,16 @@ fn native_lua_format_item_from_lua_table_query(
 fn lua_tab_title_text_parts_from_expression(
     expression: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
     lua_tab_title_text_parts_from_expression_with_depth(
         expression,
         tab_param,
+        tabs_param,
+        panes_param,
         static_source,
         outer_static_source,
         0,
@@ -10302,6 +10409,8 @@ const LUA_TAB_TITLE_PARSE_MAX_DEPTH: usize = 16;
 fn lua_tab_title_text_parts_from_expression_with_depth(
     expression: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
@@ -10313,6 +10422,8 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     if let Some(part) = lua_tab_title_text_part_from_expression(
         expression,
         tab_param,
+        tabs_param,
+        panes_param,
         static_source,
         outer_static_source,
     ) {
@@ -10322,6 +10433,8 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     if let Some(parts) = lua_tab_title_truncate_parts_from_expression(
         expression,
         tab_param,
+        tabs_param,
+        panes_param,
         static_source,
         outer_static_source,
         depth + 1,
@@ -10338,6 +10451,8 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
         && let Some(parts) = lua_tab_title_text_parts_from_expression_with_depth(
             value,
             tab_param,
+            tabs_param,
+            panes_param,
             Some(static_source),
             outer_static_source,
             depth + 1,
@@ -10349,6 +10464,8 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
     if let Some(parts) = lua_tab_title_helper_call_parts_from_expression(
         expression,
         tab_param,
+        tabs_param,
+        panes_param,
         outer_static_source,
         depth + 1,
     ) {
@@ -10367,6 +10484,8 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
         if let Some(part) = lua_tab_title_text_part_from_expression(
             segment,
             tab_param,
+            tabs_param,
+            panes_param,
             static_source,
             outer_static_source,
         ) {
@@ -10377,6 +10496,8 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
         if let Some(segment_parts) = lua_tab_title_text_parts_from_expression_with_depth(
             segment,
             tab_param,
+            tabs_param,
+            panes_param,
             static_source,
             outer_static_source,
             depth + 1,
@@ -10396,6 +10517,8 @@ fn lua_tab_title_text_parts_from_expression_with_depth(
 fn lua_tab_title_truncate_parts_from_expression(
     expression: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
@@ -10438,6 +10561,8 @@ fn lua_tab_title_truncate_parts_from_expression(
     let parts = lua_tab_title_text_parts_from_expression_with_depth(
         title_expression.trim(),
         tab_param,
+        tabs_param,
+        panes_param,
         lookup_static_source,
         outer_static_source,
         depth + 1,
@@ -10494,6 +10619,8 @@ fn lua_tab_title_truncate_right_max_width_offset(expression: &str) -> Option<usi
 fn lua_tab_title_helper_call_parts_from_expression(
     expression: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
@@ -10528,6 +10655,8 @@ fn lua_tab_title_helper_call_parts_from_expression(
         function_name,
         outer_static_source.max_start,
         outer_static_source,
+        tabs_param,
+        panes_param,
         depth + 1,
     )
 }
@@ -10537,6 +10666,8 @@ fn lua_static_tab_title_helper_function_parts_before_offset(
     function_name: &str,
     max_start: usize,
     outer_static_source: LuaStaticSource<'_>,
+    tabs_param: &str,
+    panes_param: &str,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
     if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
@@ -10644,6 +10775,8 @@ fn lua_static_tab_title_helper_function_parts_before_offset(
                 statement,
                 function_name,
                 outer_static_source,
+                tabs_param,
+                panes_param,
                 depth + 1,
             )
         {
@@ -10689,6 +10822,8 @@ fn lua_tab_title_helper_function_parts_from_statement(
     statement: &str,
     function_name: &str,
     outer_static_source: LuaStaticSource<'_>,
+    tabs_param: &str,
+    panes_param: &str,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
     if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH || !lua_source_keyword_at(statement, 0, "function") {
@@ -10711,6 +10846,8 @@ fn lua_tab_title_helper_function_parts_from_statement(
     lua_tab_title_return_text_parts_from_function_body(
         body,
         first_param,
+        tabs_param,
+        panes_param,
         Some(outer_static_source),
         depth + 1,
     )
@@ -10719,6 +10856,8 @@ fn lua_tab_title_helper_function_parts_from_statement(
 fn lua_tab_title_return_text_parts_from_function_body(
     body: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
@@ -10729,6 +10868,8 @@ fn lua_tab_title_return_text_parts_from_function_body(
     if let Some(parts) = lua_tab_title_explicit_title_fallback_parts_from_function_body(
         body,
         tab_param,
+        tabs_param,
+        panes_param,
         outer_static_source,
         depth + 1,
     ) {
@@ -10743,6 +10884,8 @@ fn lua_tab_title_return_text_parts_from_function_body(
         if let Some(parts) = lua_tab_title_text_parts_from_expression_with_depth(
             expression,
             tab_param,
+            tabs_param,
+            panes_param,
             Some(LuaStaticSource {
                 source: body,
                 max_start: start,
@@ -10760,6 +10903,8 @@ fn lua_tab_title_return_text_parts_from_function_body(
 fn lua_tab_title_explicit_title_fallback_parts_from_function_body(
     body: &str,
     tab_param: &str,
+    tabs_param: &str,
+    panes_param: &str,
     outer_static_source: Option<LuaStaticSource<'_>>,
     depth: usize,
 ) -> Option<Vec<NativeLuaTabTitleTextPart>> {
@@ -10804,6 +10949,8 @@ fn lua_tab_title_explicit_title_fallback_parts_from_function_body(
             lua_tab_title_text_part_from_expression(
                 assigned_value,
                 tab_param,
+                tabs_param,
+                panes_param,
                 Some(if_static_source),
                 outer_static_source,
             ),
@@ -10826,6 +10973,8 @@ fn lua_tab_title_explicit_title_fallback_parts_from_function_body(
             let Some(fallback_parts) = lua_tab_title_text_parts_from_expression_with_depth(
                 fallback_expression,
                 tab_param,
+                tabs_param,
+                panes_param,
                 Some(fallback_static_source),
                 outer_static_source,
                 depth + 1,
@@ -30231,6 +30380,8 @@ enum NativeLuaTabTitle {
     TabIndex {
         offset: usize,
     },
+    TabCount,
+    PaneCount,
     ActiveTabTitle,
     WindowTitle,
     Conditional {
@@ -30254,6 +30405,8 @@ impl NativeLuaTabTitle {
             Self::TabIndex { offset } => Some(NativeTabTitle::Text(
                 event.tab_index.saturating_add(*offset).to_string(),
             )),
+            Self::TabCount => Some(NativeTabTitle::Text(event.tab_count.to_string())),
+            Self::PaneCount => Some(NativeTabTitle::Text(event.pane_count.to_string())),
             Self::ActiveTabTitle => event.tab_title.clone().map(NativeTabTitle::Text),
             Self::WindowTitle => Some(NativeTabTitle::Text(event.window_title.clone())),
             Self::Conditional { branches, fallback } => {
@@ -30354,6 +30507,8 @@ enum NativeLuaTabTitleTextPart {
     TabIndex {
         offset: usize,
     },
+    TabCount,
+    PaneCount,
     ActiveTabTitle,
     ActiveTabTitleOrActivePaneTitle,
     TruncateLeft {
@@ -30379,6 +30534,8 @@ impl NativeLuaTabTitleTextPart {
             Self::Static(value) => Some(value.clone()),
             Self::TabId => Some(event.tab.get().to_string()),
             Self::TabIndex { offset } => Some(event.tab_index.saturating_add(*offset).to_string()),
+            Self::TabCount => Some(event.tab_count.to_string()),
+            Self::PaneCount => Some(event.pane_count.to_string()),
             Self::ActiveTabTitle => event.tab_title.clone(),
             Self::ActiveTabTitleOrActivePaneTitle => event
                 .tab_title
@@ -100460,9 +100617,10 @@ mod tests {
               return tab_info.active_pane.title
             "#;
 
-        let parts =
-            super::lua_tab_title_return_text_parts_from_function_body(body, "tab_info", None, 0)
-                .expect("expected helper fallback title parts");
+        let parts = super::lua_tab_title_return_text_parts_from_function_body(
+            body, "tab_info", "tabs", "panes", None, 0,
+        )
+        .expect("expected helper fallback title parts");
 
         assert_eq!(
             parts,
@@ -100938,6 +101096,8 @@ mod tests {
             statement,
             branches[0].1,
             "tab",
+            "tabs",
+            "panes",
             None,
         )
         .expect("expected active branch title");
@@ -100945,6 +101105,8 @@ mod tests {
             statement,
             branches[1].1,
             "tab",
+            "tabs",
+            "panes",
             None,
         )
         .expect("expected hover branch title");
@@ -100952,6 +101114,8 @@ mod tests {
             statement,
             rest_after_if,
             "tab",
+            "tabs",
+            "panes",
             None,
         )
         .expect("expected fallback title");
@@ -100961,6 +101125,8 @@ mod tests {
         let parsed = super::lua_static_tab_title_conditional_return_from_function_body(
             statement,
             "tab",
+            "tabs",
+            "panes",
             Some("hover"),
             None,
         )
@@ -100989,13 +101155,13 @@ mod tests {
             end
             "#;
 
-        let (body, tab_param, hover_param) =
-            super::lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query(
-                callback,
-            )
-            .expect("expected function body");
+        let (body, tab_param, tabs_param, panes_param, hover_param) =
+            super::lua_anonymous_function_body_and_format_tab_title_params_from_query(callback)
+                .expect("expected function body");
 
         assert_eq!(tab_param, "tab");
+        assert_eq!(tabs_param, "tabs");
+        assert_eq!(panes_param, "panes");
         assert_eq!(hover_param, Some("hover"));
         assert!(body.contains("elseif hover"));
         assert!(body.contains("plain:"));
@@ -101197,6 +101363,8 @@ mod tests {
         let title_parts = super::lua_tab_title_text_parts_from_expression(
             "title",
             "tab",
+            "tabs",
+            "panes",
             Some(static_source),
             Some(outer_static_source),
         )
@@ -101209,6 +101377,8 @@ mod tests {
         let parts = super::lua_tab_title_text_parts_from_expression(
             "'<' .. title .. '>'",
             "tab",
+            "tabs",
+            "panes",
             Some(static_source),
             Some(outer_static_source),
         )
@@ -101255,6 +101425,8 @@ mod tests {
         let parts = super::lua_tab_title_text_parts_from_expression(
             assignment_value,
             "tab",
+            "tabs",
+            "panes",
             Some(super::LuaStaticSource {
                 source: body,
                 max_start: body.find("return").unwrap(),
@@ -101297,6 +101469,8 @@ mod tests {
         let parsed = super::lua_static_tab_title_return_from_function_body(
             body,
             "tab",
+            "tabs",
+            "panes",
             None,
             Some(super::LuaStaticSource {
                 source: outer_source,
@@ -101995,6 +102169,22 @@ mod tests {
     }
 
     #[test]
+    fn lua_parses_static_wezterm_format_tab_title_tab_count_return() {
+        let title = super::lua_static_wezterm_tab_title_return_event_from_query(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return #tabs
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title tab count return");
+
+        assert_eq!(format!("{title:?}"), "TabCount");
+    }
+
+    #[test]
     fn window_app_parses_static_wezterm_format_tab_title_window_title_return() {
         let mut app = NativeWindowApp::new(None);
         app.handle_pty_output(b"\x1b]2;PaneShell\x07").unwrap();
@@ -102141,6 +102331,32 @@ mod tests {
         let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
         assert!(tab_bar.contains("tab:1/0"), "tab bar was {tab_bar:?}");
         assert!(tab_bar.contains("tab:2/1"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("First"), "tab bar was {tab_bar:?}");
+        assert!(!tab_bar.contains("Second"), "tab bar was {tab_bar:?}");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_tab_pane_count_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;First\x07").unwrap();
+        app.dispatch_app_action(AppAction::NewTab { launch: None })
+            .unwrap();
+        app.handle_pty_output(b"\x1b]2;Second\x07").unwrap();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return 'counts:' .. #tabs .. '/' .. #panes
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title tab/pane count return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        assert!(tab_bar.contains("counts:2/1"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("First"), "tab bar was {tab_bar:?}");
         assert!(!tab_bar.contains("Second"), "tab bar was {tab_bar:?}");
     }
