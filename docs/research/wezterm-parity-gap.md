@@ -988,7 +988,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   split, size, and spawn-command fields. Dot-style `wezterm.action.<Name>`
   queries now allow Lua comments between `wezterm.action` and `.`, plus between
   the action name and Lua table-constructor or parenthesized-call payload, and
-  at the start or end of parenthesized call arguments, and indexed
+  at the start or end of parenthesized call arguments or after the call, and indexed
   `wezterm.action["..."]` and long-bracket `wezterm.action[ [[...]] ]` names
   followed by Lua table constructors now preserve the table payload separator,
   including when Lua comments appear between `wezterm.action` and `[`, or

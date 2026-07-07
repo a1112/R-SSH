@@ -53331,11 +53331,15 @@ fn strip_lua_function_call_from_query<'a>(query: &'a str, name: &str) -> Option<
     let query = query.trim();
     let candidate = query.get(..name.len())?;
     let rest = lua_trim_start_comments(query.get(name.len()..)?)?;
-    candidate
-        .eq_ignore_ascii_case(name)
-        .then_some(rest)?
-        .strip_prefix('(')?
-        .strip_suffix(')')
+    if !candidate.eq_ignore_ascii_case(name) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
+    let (arguments, tail) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    lua_trim_start_comments(tail)
+        .or_else(|| tail.trim_start().starts_with("--").then_some(""))?
+        .is_empty()
+        .then_some(arguments)
         .and_then(lua_trim_start_comments)
         .and_then(lua_trim_end_comments)
 }
@@ -105348,6 +105352,33 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "wezterm.action.SpawnCommandInNewTab({ cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } } -- spawn options\n)"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_wezterm_action_spawn_command_trailing_call_comment_query() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "wezterm.action.SpawnCommandInNewTab({ cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } }) -- spawn options"
                 .to_owned(),
         );
 
