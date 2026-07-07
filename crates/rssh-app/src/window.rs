@@ -7422,11 +7422,133 @@ fn lua_static_wezterm_on_event_args_from_statement<'a>(
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
+    if lua_static_wezterm_module_alias_before_offset(source, alias, start)? {
+        let (field, rest) = lua_table_map_field_key_from_query_with_static_source(
+            Some(LuaStaticSource {
+                source,
+                max_start: start,
+            }),
+            rest,
+        )?;
+        if field == "on" {
+            return lua_trim_start_comments(rest)?.strip_prefix('(');
+        }
+    }
     if !lua_static_wezterm_on_alias_before_offset(source, alias, start)? {
         return None;
     }
 
     lua_trim_start_comments(rest)?.strip_prefix('(')
+}
+
+fn lua_static_wezterm_module_alias_before_offset(
+    source: &str,
+    alias: &str,
+    max_start: usize,
+) -> Option<bool> {
+    let mut selected = false;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let rest = if lua_source_keyword_at(source, start, "local") {
+            lua_trim_start_comments(source.get(start + "local".len()..)?)?
+        } else {
+            source.get(start..)?
+        };
+        let Some(rest) = rest.strip_prefix(alias) else {
+            continue;
+        };
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            continue;
+        }
+        let rest = lua_trim_start_comments(rest)?;
+        let Some(value) = rest.strip_prefix('=') else {
+            continue;
+        };
+        selected = lua_static_wezterm_module_alias_value_from_query(value);
+    }
+
+    Some(selected)
+}
+
+fn lua_static_wezterm_module_alias_value_from_query(value: &str) -> bool {
+    let Some(value) = lua_trim_start_comments(value) else {
+        return false;
+    };
+    if let Some(rest) = value.strip_prefix("wezterm") {
+        return !rest.chars().next().is_some_and(is_lua_identifier_character)
+            && lua_static_wezterm_module_alias_receiver_rest_is_statement_end(rest);
+    }
+    let Some(value) = lua_top_level_statement_value_from_query(value) else {
+        return false;
+    };
+    let Some(rest) = value.strip_prefix("require") else {
+        return false;
+    };
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return false;
+    }
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    let literal = if let Some(rest) = rest.strip_prefix('(') {
+        let Some((arguments, rest)) = lua_parenthesized_argument_list_prefix_from_query(rest)
+        else {
+            return false;
+        };
+        if !lua_static_identifier_value_rest_is_statement_end(rest) {
+            return false;
+        }
+        let Some(arguments) = split_lua_top_level_arguments(arguments) else {
+            return false;
+        };
+        let [literal] = arguments.as_slice() else {
+            return false;
+        };
+        *literal
+    } else {
+        rest
+    };
+    let Some(literal) = lua_quoted_string_literal_from_query(literal)
+        .or_else(|| lua_long_bracket_literal_from_query(literal))
+    else {
+        return false;
+    };
+    parse_maybe_quoted_query_text(literal).as_deref() == Some("wezterm")
+}
+
+fn lua_static_wezterm_module_alias_receiver_rest_is_statement_end(rest: &str) -> bool {
+    let rest = rest.trim_start_matches([' ', '\t', '\r']);
+    if rest.is_empty() || rest.starts_with(';') {
+        return true;
+    }
+    if let Some(rest) = rest.strip_prefix('\n') {
+        return !lua_static_wezterm_module_alias_receiver_rest_is_accessor_continuation(rest);
+    }
+    let Some(rest) = rest.strip_prefix("--") else {
+        return false;
+    };
+    if let Some((content_start, closing)) = parse_lua_long_bracket_delimiters(rest) {
+        let content_and_rest = &rest[content_start..];
+        let Some(close_index) = content_and_rest.find(&closing) else {
+            return false;
+        };
+        return lua_static_wezterm_module_alias_receiver_rest_is_statement_end(
+            &content_and_rest[close_index + closing.len()..],
+        );
+    }
+    let Some(newline) = rest.find('\n') else {
+        return true;
+    };
+    !lua_static_wezterm_module_alias_receiver_rest_is_accessor_continuation(
+        &rest[newline + '\n'.len_utf8()..],
+    )
+}
+
+fn lua_static_wezterm_module_alias_receiver_rest_is_accessor_continuation(rest: &str) -> bool {
+    let Some(rest) = lua_trim_start_comments(rest) else {
+        return false;
+    };
+    rest.starts_with('.') || rest.starts_with('[')
 }
 
 fn lua_static_wezterm_on_event_args_from_wezterm_query<'a>(
@@ -103912,6 +104034,24 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_module_alias_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+
+            wt.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'MODULE ALIAS LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm module alias format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "MODULE ALIAS LUA TITLE");
     }
 
     #[test]
