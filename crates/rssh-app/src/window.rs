@@ -8144,6 +8144,14 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActivePaneDomainName);
     }
 
+    let tab_active_pane_foreground_process_name =
+        format!("{tab_param}.active_pane.foreground_process_name");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_foreground_process_name)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneForegroundProcessName);
+    }
+
     if let Some(receiver) = lua_identifier_literal_from_query(expression) {
         let rest = expression.get(receiver.len()..)?;
         if lua_window_title_active_pane_alias_before_offset(
@@ -30092,6 +30100,7 @@ enum NativeLuaWindowTitlePart {
     ActiveTabTitle,
     ActivePaneTitle,
     ActivePaneDomainName,
+    ActivePaneForegroundProcessName,
     Conditional {
         condition: NativeLuaWindowTitleCondition,
         parts: Vec<NativeLuaWindowTitlePart>,
@@ -30109,6 +30118,9 @@ impl NativeLuaWindowTitlePart {
             Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
+            Self::ActivePaneForegroundProcessName => {
+                Some(event.active_pane_info.foreground_process_name.clone())
+            }
             Self::Conditional { condition, parts } => {
                 if !condition.matches(event) {
                     return Some(String::new());
@@ -104638,6 +104650,30 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "local");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_foreground_process_return()
+    {
+        let mut app =
+            NativeWindowApp::new_with_command(None, rssh_pty::PtyCommand::new("foreground-proc"));
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tab.active_pane.foreground_process_name
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-window-title active pane foreground process return",
+        );
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "foreground-proc");
     }
 
     #[test]
