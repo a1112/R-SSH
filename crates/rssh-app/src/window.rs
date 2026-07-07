@@ -50021,6 +50021,8 @@ fn copy_mode_assignment_name_from_query_with_static_source(
         "movetoendoflinecontent" => Some(WindowCopyModeAssignment::MoveToEndOfLineContent),
         "movetoscrollbackbottom" => Some(WindowCopyModeAssignment::MoveToScrollbackBottom),
         "movetoscrollbacktop" => Some(WindowCopyModeAssignment::MoveToScrollbackTop),
+        "scrolltobottom" => Some(WindowCopyModeAssignment::MoveToScrollbackBottom),
+        "scrolltotop" => Some(WindowCopyModeAssignment::MoveToScrollbackTop),
         "movetoselectionotherend" => Some(WindowCopyModeAssignment::MoveToSelectionOtherEnd),
         "movetoselectionotherendhoriz" => {
             Some(WindowCopyModeAssignment::MoveToSelectionOtherEndHoriz)
@@ -99109,6 +99111,30 @@ mod tests {
             app.copy_mode.as_ref().map(|copy_mode| copy_mode.cursor),
             Some(SelectionCell { row: 1, column: 2 })
         );
+    }
+
+    #[test]
+    fn window_copy_mode_dispatches_wezterm_scroll_to_bottom_assignment_query() {
+        let mut app = NativeWindowApp::new(None);
+        app.runtime.resize(rssh_core::TerminalSize::new(4, 2));
+        app.handle_pty_output(b"aa\r\nbb\r\ncc\r\ndd\r\nee\r\nff")
+            .unwrap();
+
+        app.enter_copy_mode();
+        assert!(app.handle_copy_mode_key(&Key::Named(NamedKey::PageUp), ModifiersState::empty()));
+        assert_eq!(app.scrollback_offset, 1);
+
+        let command = super::command_palette_structured_query_command(
+            "wezterm.action.CopyMode 'ScrollToBottom'",
+        )
+        .expect("expected CopyMode ScrollToBottom assignment query");
+        app.command_palette_apply_command(command)
+            .expect("CopyMode ScrollToBottom should dispatch");
+
+        assert_eq!(app.scrollback_offset, 0);
+        assert!(app.copy_mode.is_some());
+        assert_eq!(snapshot_row_text(&app.snapshot, 0, 4), "ee  ");
+        assert_eq!(snapshot_row_text(&app.snapshot, 1, 4), "ff  ");
     }
 
     #[test]

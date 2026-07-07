@@ -2916,6 +2916,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `MoveByPage = +/-0.5` assignment values dispatch the same copy-mode page
   movement path as the default copy-mode keys. `JumpAgain` and `JumpReverse`
   assignment values reuse the same repeat/reverse jump path as `;` and `,`.
+  WezTerm's documented `CopyMode = 'ScrollToBottom'` single-name assignment
+  now aliases the native scrollback-bottom copy-mode movement path, with
+  `ScrollToTop` accepted symmetrically.
   `JumpForward = { prev_char = ... }` and
   `JumpBackward = { prev_char = ... }` assignment tables start the same
   target-character jump flow as `f`/`t`/`F`/`T`, including bracketed string
