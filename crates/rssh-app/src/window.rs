@@ -10728,6 +10728,23 @@ fn lua_static_window_config_overrides_from_query(
         check_for_updates: overrides.check_for_updates,
         check_for_updates_interval_seconds: overrides.check_for_updates_interval_seconds,
         show_update_window: overrides.show_update_window,
+        enable_kitty_graphics: overrides.enable_kitty_graphics,
+        enable_checksum_rectangular_area: overrides.enable_checksum_rectangular_area,
+        enable_title_reporting: overrides.enable_title_reporting,
+        enable_csi_u_key_encoding: overrides.enable_csi_u_key_encoding,
+        enable_kitty_keyboard: overrides.enable_kitty_keyboard,
+        allow_download_protocols: overrides.allow_download_protocols,
+        allow_win32_input_mode: overrides.allow_win32_input_mode,
+        treat_left_ctrlalt_as_altgr: overrides.treat_left_ctrlalt_as_altgr,
+        send_composed_key_when_left_alt_is_pressed: overrides
+            .send_composed_key_when_left_alt_is_pressed,
+        send_composed_key_when_right_alt_is_pressed: overrides
+            .send_composed_key_when_right_alt_is_pressed,
+        treat_east_asian_ambiguous_width_as_wide: overrides
+            .treat_east_asian_ambiguous_width_as_wide,
+        normalize_output_to_unicode_nfc: overrides.normalize_output_to_unicode_nfc,
+        use_ime: overrides.use_ime,
+        use_dead_keys: overrides.use_dead_keys,
         scroll_to_bottom_on_input: overrides.scroll_to_bottom_on_input,
         disable_default_key_bindings: overrides.disable_default_key_bindings,
         disable_default_mouse_bindings: overrides.disable_default_mouse_bindings,
@@ -29515,6 +29532,20 @@ struct NativeLuaWindowConfigOverrides {
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
     show_update_window: Option<bool>,
+    enable_kitty_graphics: Option<bool>,
+    enable_checksum_rectangular_area: Option<bool>,
+    enable_title_reporting: Option<bool>,
+    enable_csi_u_key_encoding: Option<bool>,
+    enable_kitty_keyboard: Option<bool>,
+    allow_download_protocols: Option<bool>,
+    allow_win32_input_mode: Option<bool>,
+    treat_left_ctrlalt_as_altgr: Option<bool>,
+    send_composed_key_when_left_alt_is_pressed: Option<bool>,
+    send_composed_key_when_right_alt_is_pressed: Option<bool>,
+    treat_east_asian_ambiguous_width_as_wide: Option<bool>,
+    normalize_output_to_unicode_nfc: Option<bool>,
+    use_ime: Option<bool>,
+    use_dead_keys: Option<bool>,
     scroll_to_bottom_on_input: Option<bool>,
     disable_default_key_bindings: Option<bool>,
     disable_default_mouse_bindings: Option<bool>,
@@ -29560,6 +29591,20 @@ impl NativeLuaWindowConfigOverrides {
             && self.check_for_updates.is_none()
             && self.check_for_updates_interval_seconds.is_none()
             && self.show_update_window.is_none()
+            && self.enable_kitty_graphics.is_none()
+            && self.enable_checksum_rectangular_area.is_none()
+            && self.enable_title_reporting.is_none()
+            && self.enable_csi_u_key_encoding.is_none()
+            && self.enable_kitty_keyboard.is_none()
+            && self.allow_download_protocols.is_none()
+            && self.allow_win32_input_mode.is_none()
+            && self.treat_left_ctrlalt_as_altgr.is_none()
+            && self.send_composed_key_when_left_alt_is_pressed.is_none()
+            && self.send_composed_key_when_right_alt_is_pressed.is_none()
+            && self.treat_east_asian_ambiguous_width_as_wide.is_none()
+            && self.normalize_output_to_unicode_nfc.is_none()
+            && self.use_ime.is_none()
+            && self.use_dead_keys.is_none()
             && self.scroll_to_bottom_on_input.is_none()
             && self.disable_default_key_bindings.is_none()
             && self.disable_default_mouse_bindings.is_none()
@@ -29643,6 +29688,51 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.show_update_window.is_some() {
             self.show_update_window = update.show_update_window;
+        }
+        if update.enable_kitty_graphics.is_some() {
+            self.enable_kitty_graphics = update.enable_kitty_graphics;
+        }
+        if update.enable_checksum_rectangular_area.is_some() {
+            self.enable_checksum_rectangular_area = update.enable_checksum_rectangular_area;
+        }
+        if update.enable_title_reporting.is_some() {
+            self.enable_title_reporting = update.enable_title_reporting;
+        }
+        if update.enable_csi_u_key_encoding.is_some() {
+            self.enable_csi_u_key_encoding = update.enable_csi_u_key_encoding;
+        }
+        if update.enable_kitty_keyboard.is_some() {
+            self.enable_kitty_keyboard = update.enable_kitty_keyboard;
+        }
+        if update.allow_download_protocols.is_some() {
+            self.allow_download_protocols = update.allow_download_protocols;
+        }
+        if update.allow_win32_input_mode.is_some() {
+            self.allow_win32_input_mode = update.allow_win32_input_mode;
+        }
+        if update.treat_left_ctrlalt_as_altgr.is_some() {
+            self.treat_left_ctrlalt_as_altgr = update.treat_left_ctrlalt_as_altgr;
+        }
+        if update.send_composed_key_when_left_alt_is_pressed.is_some() {
+            self.send_composed_key_when_left_alt_is_pressed =
+                update.send_composed_key_when_left_alt_is_pressed;
+        }
+        if update.send_composed_key_when_right_alt_is_pressed.is_some() {
+            self.send_composed_key_when_right_alt_is_pressed =
+                update.send_composed_key_when_right_alt_is_pressed;
+        }
+        if update.treat_east_asian_ambiguous_width_as_wide.is_some() {
+            self.treat_east_asian_ambiguous_width_as_wide =
+                update.treat_east_asian_ambiguous_width_as_wide;
+        }
+        if update.normalize_output_to_unicode_nfc.is_some() {
+            self.normalize_output_to_unicode_nfc = update.normalize_output_to_unicode_nfc;
+        }
+        if update.use_ime.is_some() {
+            self.use_ime = update.use_ime;
+        }
+        if update.use_dead_keys.is_some() {
+            self.use_dead_keys = update.use_dead_keys;
         }
         if update.scroll_to_bottom_on_input.is_some() {
             self.scroll_to_bottom_on_input = update.scroll_to_bottom_on_input;
@@ -29770,6 +29860,57 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(show_update_window) = self.show_update_window {
             overrides.show_update_window = Some(show_update_window);
+        }
+        if let Some(enable_kitty_graphics) = self.enable_kitty_graphics {
+            overrides.enable_kitty_graphics = Some(enable_kitty_graphics);
+        }
+        if let Some(enable_checksum_rectangular_area) = self.enable_checksum_rectangular_area {
+            overrides.enable_checksum_rectangular_area = Some(enable_checksum_rectangular_area);
+        }
+        if let Some(enable_title_reporting) = self.enable_title_reporting {
+            overrides.enable_title_reporting = Some(enable_title_reporting);
+        }
+        if let Some(enable_csi_u_key_encoding) = self.enable_csi_u_key_encoding {
+            overrides.enable_csi_u_key_encoding = Some(enable_csi_u_key_encoding);
+        }
+        if let Some(enable_kitty_keyboard) = self.enable_kitty_keyboard {
+            overrides.enable_kitty_keyboard = Some(enable_kitty_keyboard);
+        }
+        if let Some(allow_download_protocols) = self.allow_download_protocols {
+            overrides.allow_download_protocols = Some(allow_download_protocols);
+        }
+        if let Some(allow_win32_input_mode) = self.allow_win32_input_mode {
+            overrides.allow_win32_input_mode = Some(allow_win32_input_mode);
+        }
+        if let Some(treat_left_ctrlalt_as_altgr) = self.treat_left_ctrlalt_as_altgr {
+            overrides.treat_left_ctrlalt_as_altgr = Some(treat_left_ctrlalt_as_altgr);
+        }
+        if let Some(send_composed_key_when_left_alt_is_pressed) =
+            self.send_composed_key_when_left_alt_is_pressed
+        {
+            overrides.send_composed_key_when_left_alt_is_pressed =
+                Some(send_composed_key_when_left_alt_is_pressed);
+        }
+        if let Some(send_composed_key_when_right_alt_is_pressed) =
+            self.send_composed_key_when_right_alt_is_pressed
+        {
+            overrides.send_composed_key_when_right_alt_is_pressed =
+                Some(send_composed_key_when_right_alt_is_pressed);
+        }
+        if let Some(treat_east_asian_ambiguous_width_as_wide) =
+            self.treat_east_asian_ambiguous_width_as_wide
+        {
+            overrides.treat_east_asian_ambiguous_width_as_wide =
+                Some(treat_east_asian_ambiguous_width_as_wide);
+        }
+        if let Some(normalize_output_to_unicode_nfc) = self.normalize_output_to_unicode_nfc {
+            overrides.normalize_output_to_unicode_nfc = Some(normalize_output_to_unicode_nfc);
+        }
+        if let Some(use_ime) = self.use_ime {
+            overrides.use_ime = Some(use_ime);
+        }
+        if let Some(use_dead_keys) = self.use_dead_keys {
+            overrides.use_dead_keys = Some(use_dead_keys);
         }
         if let Some(scroll_to_bottom_on_input) = self.scroll_to_bottom_on_input {
             overrides.scroll_to_bottom_on_input = Some(scroll_to_bottom_on_input);
@@ -86526,6 +86667,96 @@ mod tests {
         assert_eq!(
             app.right_status,
             "scroll=false keys=true mouse=true hide=false focus=true swallow-pane=true swallow-window=true"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_protocol_keyboard_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                enable_kitty_graphics = false,
+                enable_checksum_rectangular_area = true,
+                enable_title_reporting = false,
+                enable_csi_u_key_encoding = true,
+                enable_kitty_keyboard = true,
+                allow_download_protocols = true,
+                allow_win32_input_mode = false,
+                treat_left_ctrlalt_as_altgr = true,
+                send_composed_key_when_left_alt_is_pressed = true,
+                send_composed_key_when_right_alt_is_pressed = false,
+                treat_east_asian_ambiguous_width_as_wide = true,
+                normalize_output_to_unicode_nfc = false,
+                use_ime = false,
+                use_dead_keys = false,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'kitty=' .. tostring(window:effective_config().enable_kitty_graphics)
+                  .. ' checksum=' .. tostring(window:effective_config().enable_checksum_rectangular_area)
+                  .. ' title=' .. tostring(window:effective_config().enable_title_reporting)
+                  .. ' csiu=' .. tostring(window:effective_config().enable_csi_u_key_encoding)
+                  .. ' keyboard=' .. tostring(window:effective_config().enable_kitty_keyboard)
+                  .. ' dl=' .. tostring(window:effective_config().allow_download_protocols)
+                  .. ' win32=' .. tostring(window:effective_config().allow_win32_input_mode)
+                  .. ' altgr=' .. tostring(window:effective_config().treat_left_ctrlalt_as_altgr)
+                  .. ' lalt=' .. tostring(window:effective_config().send_composed_key_when_left_alt_is_pressed)
+                  .. ' ralt=' .. tostring(window:effective_config().send_composed_key_when_right_alt_is_pressed)
+                  .. ' wide=' .. tostring(window:effective_config().treat_east_asian_ambiguous_width_as_wide)
+                  .. ' nfc=' .. tostring(window:effective_config().normalize_output_to_unicode_nfc)
+                  .. ' ime=' .. tostring(window:effective_config().use_ime)
+                  .. ' dead=' .. tostring(window:effective_config().use_dead_keys)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides protocol keyboard callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert!(!effective.enable_kitty_graphics);
+        assert!(effective.enable_checksum_rectangular_area);
+        assert!(!effective.enable_title_reporting);
+        assert!(effective.enable_csi_u_key_encoding);
+        assert!(effective.enable_kitty_keyboard);
+        assert!(effective.allow_download_protocols);
+        assert!(!effective.allow_win32_input_mode);
+        assert!(effective.treat_left_ctrlalt_as_altgr);
+        assert!(effective.send_composed_key_when_left_alt_is_pressed);
+        assert!(!effective.send_composed_key_when_right_alt_is_pressed);
+        assert!(effective.treat_east_asian_ambiguous_width_as_wide);
+        assert!(!effective.normalize_output_to_unicode_nfc);
+        assert!(!effective.use_ime);
+        assert!(!effective.use_dead_keys);
+        assert_eq!(
+            app.right_status,
+            "kitty=false checksum=true title=false csiu=true keyboard=true dl=true win32=false altgr=true lalt=true ralt=false wide=true nfc=false ime=false dead=false"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
