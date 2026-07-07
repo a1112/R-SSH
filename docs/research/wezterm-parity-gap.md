@@ -987,7 +987,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   bracketed string table keys with long-bracket values for the implemented
   split, size, and spawn-command fields. Indexed `wezterm.action["..."]`
   and long-bracket `wezterm.action[ [[...]] ]` names followed by Lua table
-  constructors now preserve the table payload separator, so forms such as
+  constructors now preserve the table payload separator, including when Lua
+  comments appear between the closing `]` and payload, so forms such as
   `wezterm.action["SpawnCommandInNewTab"] { ... }` dispatch through the same
   typed action parsers. Static WezTerm-style `config.keys`
   actions resolve top-level static variables for `direction`, `domain`,
