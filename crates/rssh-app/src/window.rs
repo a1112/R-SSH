@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet},
     error::Error,
@@ -6314,10 +6315,11 @@ fn lua_static_wezterm_status_update_event_from_statement(
     if !matches!(event_name.as_str(), "update-status" | "update-right-status") {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
     let (body, window_name, pane_name, _) =
-        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
     lua_static_status_update_from_function_body(
         body,
         window_name,
@@ -6354,10 +6356,9 @@ fn lua_static_wezterm_user_var_changed_event_from_statement(
     if event_name != "user-var-changed" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
     let (body, window_name, pane_name, name_param, value_param) =
-        lua_anonymous_function_body_and_first_four_params_from_query(rest)?;
+        lua_anonymous_function_body_and_first_four_params_from_query(callback.as_ref())?;
     lua_static_user_var_changed_from_function_body(
         body,
         window_name,
@@ -6396,10 +6397,11 @@ fn lua_static_wezterm_window_title_return_event_from_statement(
     if event_name != "format-window-title" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
     let (body, tab_param, pane_param, tabs_param) =
-        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
     let tabs_param = tabs_param.unwrap_or("tabs");
     lua_static_window_title_return_from_function_body(
         body,
@@ -6435,10 +6437,11 @@ fn lua_static_wezterm_tab_title_return_event_from_statement(
     if event_name != "format-tab-title" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
     let (body, tab_param, hover_param) =
-        lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query(rest)?;
+        lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query(
+            callback.as_ref(),
+        )?;
     lua_static_tab_title_return_from_function_body(
         body,
         tab_param,
@@ -6471,10 +6474,11 @@ fn lua_static_wezterm_open_uri_event_from_statement(
     if event_name != "open-uri" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
     let (body, window_param, pane_param, uri_param) =
-        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
     let uri_param = uri_param.unwrap_or("uri");
     lua_static_open_uri_return_from_function_body(
         body,
@@ -6513,10 +6517,9 @@ fn lua_static_wezterm_new_tab_button_click_event_from_statement(
     if event_name != "new-tab-button-click" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
     let (body, window_param, pane_param, _, default_action_param) =
-        lua_anonymous_function_body_and_first_four_params_from_query(rest)?;
+        lua_anonymous_function_body_and_first_four_params_from_query(callback.as_ref())?;
     lua_static_new_tab_button_click_return_from_function_body(
         body,
         window_param,
@@ -6554,9 +6557,8 @@ fn lua_static_wezterm_augment_command_palette_event_from_statement(
     if event_name != "augment-command-palette" {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
-    let body = lua_anonymous_function_body_from_query(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
+    let body = lua_anonymous_function_body_from_query(callback.as_ref())?;
     lua_static_command_palette_entries_return_from_function_body(
         body,
         Some(LuaStaticSource {
@@ -6595,10 +6597,11 @@ fn lua_static_wezterm_emit_event_handler_from_statement(
     let rest = lua_trim_start_comments(rest)?;
     let (event_name, rest) =
         lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
-    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
-    let rest = lua_trim_start_comments(rest)?;
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
     let (body, window_param, pane_param, _) =
-        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(rest)?;
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
     let outer_static_source = LuaStaticSource {
         source,
         max_start: start,
@@ -6644,6 +6647,75 @@ fn lua_static_wezterm_on_event_name_and_rest_from_args<'a>(
         event_arg,
     )?;
     Some((event_name, rest))
+}
+
+fn lua_static_wezterm_on_callback_query_from_rest<'a>(
+    source: &'a str,
+    start: usize,
+    rest: &'a str,
+) -> Option<Cow<'a, str>> {
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(',')?;
+    let rest = lua_trim_start_comments(rest)?;
+    lua_static_callback_query_from_value(source, start, rest)
+}
+
+fn lua_static_callback_query_from_value<'a>(
+    source: &'a str,
+    start: usize,
+    value: &'a str,
+) -> Option<Cow<'a, str>> {
+    let value = lua_trim_start_comments(value)?;
+    if lua_source_keyword_at(value, 0, "function") {
+        return Some(Cow::Borrowed(value));
+    }
+
+    let name = lua_identifier_literal_from_query(value)?;
+    let rest = lua_trim_start_comments(value.get(name.len()..)?)?;
+    if !rest.starts_with(')') {
+        return None;
+    }
+
+    let statement = lua_static_named_function_statement_before_offset(source, name, start)?;
+    let (params, body) = lua_named_function_params_and_body_from_statement(statement, name)?;
+    Some(Cow::Owned(format!("function({params}){body} end")))
+}
+
+fn lua_static_named_function_statement_before_offset<'a>(
+    source: &'a str,
+    function_name: &str,
+    max_start: usize,
+) -> Option<&'a str> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let Some(statement) = lua_top_level_function_statement_from_index(source, start) else {
+            continue;
+        };
+        if lua_named_function_params_and_body_from_statement(statement, function_name).is_some() {
+            selected = Some(statement);
+        }
+    }
+
+    selected
+}
+
+fn lua_named_function_params_and_body_from_statement<'a>(
+    statement: &'a str,
+    function_name: &str,
+) -> Option<(&'a str, &'a str)> {
+    if !lua_source_keyword_at(statement, 0, "function") {
+        return None;
+    }
+
+    let rest = lua_trim_start_comments(statement.get("function".len()..)?)?;
+    let name = lua_identifier_literal_from_query(rest)?;
+    if name != function_name {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(name.len()..)?)?.strip_prefix('(')?;
+    let (params, body_start) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let body = lua_static_function_body_until_end(body_start)?;
+    Some((params, body))
 }
 
 fn lua_static_string_value_from_expression(
@@ -96899,6 +96971,26 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "PARAM COMMENT TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_named_callback() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local function title_callback(tab, pane, tabs, panes, config)
+              return 'NAMED CALLBACK TITLE'
+            end
+
+            wezterm.on('format-window-title', title_callback)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title named callback");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "NAMED CALLBACK TITLE");
     }
 
     #[test]
