@@ -10728,8 +10728,14 @@ fn lua_static_window_config_overrides_from_query(
             .adjust_window_size_when_changing_font_size,
         command_palette_rows: overrides.command_palette_rows,
         command_palette_font_size: overrides.command_palette_font_size,
+        command_palette_bg_color: overrides.command_palette_bg_color,
+        command_palette_fg_color: overrides.command_palette_fg_color,
         char_select_font_size: overrides.char_select_font_size,
+        char_select_bg_color: overrides.char_select_bg_color,
+        char_select_fg_color: overrides.char_select_fg_color,
         pane_select_font_size: overrides.pane_select_font_size,
+        pane_select_bg_color: overrides.pane_select_bg_color,
+        pane_select_fg_color: overrides.pane_select_fg_color,
         launcher_alphabet: overrides.launcher_alphabet,
         quick_select_alphabet: overrides.quick_select_alphabet,
         quick_select_patterns: overrides.quick_select_patterns,
@@ -29583,8 +29589,14 @@ struct NativeLuaWindowConfigOverrides {
     adjust_window_size_when_changing_font_size: Option<bool>,
     command_palette_rows: Option<usize>,
     command_palette_font_size: Option<NativeFontSize>,
+    command_palette_bg_color: Option<Color>,
+    command_palette_fg_color: Option<Color>,
     char_select_font_size: Option<NativeFontSize>,
+    char_select_bg_color: Option<Color>,
+    char_select_fg_color: Option<Color>,
     pane_select_font_size: Option<NativeFontSize>,
+    pane_select_bg_color: Option<Color>,
+    pane_select_fg_color: Option<Color>,
     launcher_alphabet: Option<String>,
     quick_select_alphabet: Option<String>,
     quick_select_patterns: Option<Vec<String>>,
@@ -29691,8 +29703,14 @@ impl NativeLuaWindowConfigOverrides {
             && self.adjust_window_size_when_changing_font_size.is_none()
             && self.command_palette_rows.is_none()
             && self.command_palette_font_size.is_none()
+            && self.command_palette_bg_color.is_none()
+            && self.command_palette_fg_color.is_none()
             && self.char_select_font_size.is_none()
+            && self.char_select_bg_color.is_none()
+            && self.char_select_fg_color.is_none()
             && self.pane_select_font_size.is_none()
+            && self.pane_select_bg_color.is_none()
+            && self.pane_select_fg_color.is_none()
             && self.launcher_alphabet.is_none()
             && self.quick_select_alphabet.is_none()
             && self.quick_select_patterns.is_none()
@@ -29837,11 +29855,29 @@ impl NativeLuaWindowConfigOverrides {
         if update.command_palette_font_size.is_some() {
             self.command_palette_font_size = update.command_palette_font_size;
         }
+        if update.command_palette_bg_color.is_some() {
+            self.command_palette_bg_color = update.command_palette_bg_color;
+        }
+        if update.command_palette_fg_color.is_some() {
+            self.command_palette_fg_color = update.command_palette_fg_color;
+        }
         if update.char_select_font_size.is_some() {
             self.char_select_font_size = update.char_select_font_size;
         }
+        if update.char_select_bg_color.is_some() {
+            self.char_select_bg_color = update.char_select_bg_color;
+        }
+        if update.char_select_fg_color.is_some() {
+            self.char_select_fg_color = update.char_select_fg_color;
+        }
         if update.pane_select_font_size.is_some() {
             self.pane_select_font_size = update.pane_select_font_size;
+        }
+        if update.pane_select_bg_color.is_some() {
+            self.pane_select_bg_color = update.pane_select_bg_color;
+        }
+        if update.pane_select_fg_color.is_some() {
+            self.pane_select_fg_color = update.pane_select_fg_color;
         }
         if update.launcher_alphabet.is_some() {
             self.launcher_alphabet = update.launcher_alphabet;
@@ -30162,11 +30198,29 @@ impl NativeLuaWindowConfigOverrides {
         if let Some(command_palette_font_size) = self.command_palette_font_size {
             overrides.command_palette_font_size = Some(command_palette_font_size);
         }
+        if let Some(command_palette_bg_color) = self.command_palette_bg_color {
+            overrides.command_palette_bg_color = Some(command_palette_bg_color);
+        }
+        if let Some(command_palette_fg_color) = self.command_palette_fg_color {
+            overrides.command_palette_fg_color = Some(command_palette_fg_color);
+        }
         if let Some(char_select_font_size) = self.char_select_font_size {
             overrides.char_select_font_size = Some(char_select_font_size);
         }
+        if let Some(char_select_bg_color) = self.char_select_bg_color {
+            overrides.char_select_bg_color = Some(char_select_bg_color);
+        }
+        if let Some(char_select_fg_color) = self.char_select_fg_color {
+            overrides.char_select_fg_color = Some(char_select_fg_color);
+        }
         if let Some(pane_select_font_size) = self.pane_select_font_size {
             overrides.pane_select_font_size = Some(pane_select_font_size);
+        }
+        if let Some(pane_select_bg_color) = self.pane_select_bg_color {
+            overrides.pane_select_bg_color = Some(pane_select_bg_color);
+        }
+        if let Some(pane_select_fg_color) = self.pane_select_fg_color {
+            overrides.pane_select_fg_color = Some(pane_select_fg_color);
         }
         if let Some(launcher_alphabet) = self.launcher_alphabet {
             overrides.launcher_alphabet = Some(launcher_alphabet);
@@ -87738,6 +87792,78 @@ mod tests {
         assert_eq!(
             app.right_status,
             "rows=12 command-font=15.5 char-font=16.25 pane-font=36.5 launcher=12 quick=xy pattern=BUG-[0-9]+ disable=true styling=true"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_overlay_color_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                command_palette_bg_color = '#010203',
+                command_palette_fg_color = '#040506',
+                char_select_bg_color = '#070809',
+                char_select_fg_color = '#0a0b0c',
+                pane_select_bg_color = '#0d0e0f',
+                pane_select_fg_color = '#101112',
+              })
+              local config = window:effective_config()
+              window:set_right_status(
+                'palette=' .. tostring(config.command_palette_bg_color)
+                  .. '/' .. tostring(config.command_palette_fg_color)
+                  .. ' char=' .. tostring(config.char_select_bg_color)
+                  .. '/' .. tostring(config.char_select_fg_color)
+                  .. ' pane=' .. tostring(config.pane_select_bg_color)
+                  .. '/' .. tostring(config.pane_select_fg_color)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides overlay color callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.command_palette_bg_color,
+            Some(Color::Rgb(1, 2, 3))
+        );
+        assert_eq!(
+            effective.command_palette_fg_color,
+            Some(Color::Rgb(4, 5, 6))
+        );
+        assert_eq!(effective.char_select_bg_color, Some(Color::Rgb(7, 8, 9)));
+        assert_eq!(effective.char_select_fg_color, Some(Color::Rgb(10, 11, 12)));
+        assert_eq!(effective.pane_select_bg_color, Some(Color::Rgb(13, 14, 15)));
+        assert_eq!(effective.pane_select_fg_color, Some(Color::Rgb(16, 17, 18)));
+        assert_eq!(
+            app.right_status,
+            "palette=#010203/#040506 char=#070809/#0a0b0c pane=#0d0e0f/#101112"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
