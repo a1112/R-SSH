@@ -8309,28 +8309,31 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
         return None;
     }
 
-    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+    'statements: for start in
+        lua_top_level_statement_start_indices_before_offset(source, max_start)?
+    {
         let statement = lua_trim_start_comments(source.get(start..)?)?;
         let Some((branches, else_body, _)) =
             lua_static_if_condition_and_body_branches_and_else_from_statement(statement)
         else {
             continue;
         };
-        for (condition, body) in branches {
+        let mut parsed_branches = Vec::new();
+        for (condition, body) in &branches {
             let Some(condition) = lua_window_title_condition_from_expression(
                 condition,
                 tab_param,
                 tabs_param,
                 panes_param,
             ) else {
-                continue;
+                continue 'statements;
             };
             let Some(value) = lua_static_expression_variable_assignment_before_offset_from_query(
                 body,
                 variable,
                 body.len(),
             ) else {
-                continue;
+                continue 'statements;
             };
             let branch_static_source = LuaStaticSource {
                 source: body,
@@ -8349,7 +8352,10 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
                 branch_static_source,
                 outer_static_source,
             ) {
-                return Some(parts);
+                if branches.len() == 1 && else_body.is_none() {
+                    return Some(parts);
+                }
+                continue 'statements;
             }
             let parts = lua_window_title_text_parts_from_expression(
                 value,
@@ -8360,20 +8366,27 @@ fn lua_window_title_conditional_assignment_parts_before_offset(
                 Some(branch_static_source),
                 outer_static_source,
             )?;
-            let else_parts = lua_window_title_else_assignment_parts(
-                else_body,
-                variable,
-                tab_param,
-                pane_param,
-                tabs_param,
-                panes_param,
-                outer_static_source,
-            );
-            return Some(vec![NativeLuaWindowTitlePart::Conditional {
+            parsed_branches.push((condition, parts));
+        }
+
+        let mut else_parts = lua_window_title_else_assignment_parts(
+            else_body,
+            variable,
+            tab_param,
+            pane_param,
+            tabs_param,
+            panes_param,
+            outer_static_source,
+        );
+        for (condition, parts) in parsed_branches.into_iter().rev() {
+            else_parts = Some(vec![NativeLuaWindowTitlePart::Conditional {
                 condition,
                 parts,
                 else_parts,
             }]);
+        }
+        if let Some(parts) = else_parts {
+            return Some(parts);
         }
     }
 
@@ -105283,6 +105296,35 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "[one] Window Fallback");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_elseif_condition() {
+        let mut app = NativeWindowApp::new(None);
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local prefix = ''
+
+              if #panes > 1 then
+                prefix = '[many] '
+              elseif #tabs > 0 then
+                prefix = '[tabs] '
+              else
+                prefix = '[none] '
+              end
+
+              return prefix .. tab.window_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title elseif condition");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "[tabs] Window Fallback");
     }
 
     #[test]
