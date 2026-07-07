@@ -2635,8 +2635,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   pane, all tabs in the window, and panes in the active tab. Returning a string
   overrides the native title; returning `None` keeps the default. The typed
   event carries the same effective config snapshot. Static
-  `wezterm.on('format-window-title', function(...) return 'title' end)`
-  callbacks with literal or top-level static string-variable/concatenated event names,
+  `wezterm.on('format-window-title', function(...) return 'title' end)` and
+  `wezterm['on'](...)` callbacks with literal or top-level static
+  string-variable/concatenated event names,
   Lua comments inside the anonymous callback parameter list, top-level named
   function callbacks registered by name, top-level static function-valued
   callback variables, top-level aliases to static callback expressions,

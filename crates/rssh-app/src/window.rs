@@ -7411,7 +7411,9 @@ fn lua_static_wezterm_on_event_args_from_statement<'a>(
     start: usize,
 ) -> Option<&'a str> {
     let statement = lua_trim_start_comments(source.get(start..)?)?;
-    if let Some(rest) = lua_static_wezterm_on_event_args_from_wezterm_query(statement) {
+    if let Some(rest) =
+        lua_static_wezterm_on_event_args_from_wezterm_query(source, start, statement)
+    {
         return Some(rest);
     }
 
@@ -7427,17 +7429,26 @@ fn lua_static_wezterm_on_event_args_from_statement<'a>(
     lua_trim_start_comments(rest)?.strip_prefix('(')
 }
 
-fn lua_static_wezterm_on_event_args_from_wezterm_query(value: &str) -> Option<&str> {
+fn lua_static_wezterm_on_event_args_from_wezterm_query<'a>(
+    source: &str,
+    start: usize,
+    value: &'a str,
+) -> Option<&'a str> {
     let rest = value.strip_prefix("wezterm")?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
-    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
-    let rest = lua_trim_start_comments(rest)?;
-    if !rest.starts_with("on") || !lua_config_assignment_field_has_boundaries(rest, 0, "on") {
+    let (field, rest) = lua_table_map_field_key_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        rest,
+    )?;
+    if field != "on" {
         return None;
     }
-    lua_trim_start_comments(rest.get("on".len()..)?)?.strip_prefix('(')
+    lua_trim_start_comments(rest)?.strip_prefix('(')
 }
 
 fn lua_static_wezterm_on_alias_before_offset(
@@ -103880,6 +103891,24 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_bracket_on_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm['on']('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'BRACKET ON LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm bracket on format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "BRACKET ON LUA TITLE");
     }
 
     #[test]
