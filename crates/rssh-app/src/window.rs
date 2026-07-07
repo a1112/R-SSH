@@ -10837,6 +10837,7 @@ fn lua_static_window_config_overrides_from_query(
         ulimit_nofile: overrides.ulimit_nofile,
         ulimit_nproc: overrides.ulimit_nproc,
         tiling_desktop_environments: overrides.tiling_desktop_environments,
+        launch_menu: overrides.launch_menu,
         term: overrides.term,
         enq_answerback: overrides.enq_answerback,
         audible_bell: overrides.audible_bell,
@@ -29849,6 +29850,7 @@ struct NativeLuaWindowConfigOverrides {
     ulimit_nofile: Option<u64>,
     ulimit_nproc: Option<u64>,
     tiling_desktop_environments: Option<Vec<String>>,
+    launch_menu: Option<Vec<NativeLaunchMenuItem>>,
     term: Option<String>,
     enq_answerback: Option<String>,
     audible_bell: Option<NativeAudibleBell>,
@@ -30087,6 +30089,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.ulimit_nofile.is_none()
             && self.ulimit_nproc.is_none()
             && self.tiling_desktop_environments.is_none()
+            && self.launch_menu.is_none()
             && self.term.is_none()
             && self.enq_answerback.is_none()
             && self.audible_bell.is_none()
@@ -30582,6 +30585,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.tiling_desktop_environments.is_some() {
             self.tiling_desktop_environments = update.tiling_desktop_environments;
+        }
+        if update.launch_menu.is_some() {
+            self.launch_menu = update.launch_menu;
         }
         if update.term.is_some() {
             self.term = update.term;
@@ -31313,6 +31319,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(tiling_desktop_environments) = self.tiling_desktop_environments {
             overrides.tiling_desktop_environments = Some(tiling_desktop_environments);
+        }
+        if let Some(launch_menu) = self.launch_menu {
+            overrides.launch_menu = Some(launch_menu);
         }
         if let Some(term) = self.term {
             overrides.term = Some(term);
@@ -89715,6 +89724,88 @@ mod tests {
         assert_eq!(
             app.right_status,
             "prog=--login domain=local prefer=true env=dev flag=on"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_launch_menu_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                launch_menu = {
+                  {
+                    label = 'Runtime Monitor',
+                    args = { 'top', '-H' },
+                    cwd = '/tmp/runtime',
+                    set_environment_variables = {
+                      PROJECT_MODE = 'runtime',
+                    },
+                  },
+                },
+              })
+              local item = window:effective_config().launch_menu[1]
+              local env = window:effective_config().launch_menu[1].set_environment_variables
+              window:set_right_status(
+                'launch=' .. tostring(item.label)
+                  .. ' program=' .. tostring(item.args[1])
+                  .. ' arg=' .. tostring(item.args[2])
+                  .. ' cwd=' .. tostring(item.cwd)
+                  .. ' env=' .. tostring(env.PROJECT_MODE)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides launch_menu callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.launch_menu,
+            vec![NativeLaunchMenuItem {
+                label: Some("Runtime Monitor".to_owned()),
+                command: NativeLaunchMenuCommand::Command(WindowSpawnCommandQuery {
+                    label: Some("Runtime Monitor".to_owned()),
+                    program: "top".to_owned(),
+                    args: vec!["-H".to_owned()],
+                    cwd: Some("/tmp/runtime".to_owned()),
+                    environment: BTreeMap::from([(
+                        "PROJECT_MODE".to_owned(),
+                        "runtime".to_owned(),
+                    )]),
+                    domain: None,
+                    window_position: None,
+                }),
+            }]
+        );
+        assert_eq!(
+            app.right_status,
+            "launch=Runtime Monitor program=top arg=-H cwd=/tmp/runtime env=runtime"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
