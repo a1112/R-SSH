@@ -60277,6 +60277,8 @@ fn lua_expression_continuation_after_comment(rest: &str) -> bool {
         || rest.starts_with('"')
         || rest.starts_with('{')
         || rest.starts_with('(')
+        || rest.starts_with('.')
+        || rest.starts_with('[')
         || lua_long_bracket_literal_from_query(rest).is_some()
 }
 
@@ -118589,6 +118591,47 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm quick select static action alias comment table-call config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::CopyTo(
+                        WindowCopyDestination::PrimarySelection
+                    )),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_action_alias_comment_dot_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local action = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  pattern = 'ticket-[0-9]+',
+                  action = action -- nested action
+                    .CopyTo('PrimarySelection'),
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm quick select static action alias comment dot-call config");
 
         assert_eq!(
             overrides.key_assignments,
