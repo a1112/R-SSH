@@ -7995,6 +7995,30 @@ fn lua_window_title_text_parts_from_expression(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    lua_window_title_text_parts_from_expression_with_depth(
+        expression,
+        tab_param,
+        pane_param,
+        tabs_param,
+        static_source,
+        outer_static_source,
+        0,
+    )
+}
+
+fn lua_window_title_text_parts_from_expression_with_depth(
+    expression: &str,
+    tab_param: &str,
+    pane_param: &str,
+    tabs_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    depth: usize,
+) -> Option<Vec<NativeLuaWindowTitlePart>> {
+    if depth > LUA_TAB_TITLE_PARSE_MAX_DEPTH {
+        return None;
+    }
+
     let expression = lua_trim_start_comments(expression.trim())?;
     let expression = lua_tostring_argument_from_query(expression).unwrap_or(expression);
     if let Some(part) =
@@ -8017,6 +8041,41 @@ fn lua_window_title_text_parts_from_expression(
         return Some(parts);
     }
 
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            expression,
+            static_source.max_start,
+        )
+    {
+        return lua_window_title_text_parts_from_expression_with_depth(
+            value,
+            tab_param,
+            pane_param,
+            tabs_param,
+            Some(static_source),
+            outer_static_source,
+            depth + 1,
+        );
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            expression,
+            outer_static_source.max_start,
+        )
+    {
+        return lua_window_title_text_parts_from_expression_with_depth(
+            value,
+            tab_param,
+            pane_param,
+            tabs_param,
+            static_source,
+            Some(outer_static_source),
+            depth + 1,
+        );
+    }
+
     if let Some(value) =
         lua_static_string_value_from_expression(static_source, outer_static_source, expression)
     {
@@ -8031,13 +8090,14 @@ fn lua_window_title_text_parts_from_expression(
     for segment in split_lua_string_concat_segments(expression)? {
         let segment = lua_trim_start_comments(segment.trim())?;
         let segment = lua_trim_end_statement_separator(segment)?;
-        parts.extend(lua_window_title_text_parts_from_expression(
+        parts.extend(lua_window_title_text_parts_from_expression_with_depth(
             segment,
             tab_param,
             pane_param,
             tabs_param,
             static_source,
             outer_static_source,
+            depth + 1,
         )?);
     }
 
@@ -104443,6 +104503,27 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title tostring pane title return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_local_pane_title_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local title = pane.title
+              return title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title local pane title return");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
