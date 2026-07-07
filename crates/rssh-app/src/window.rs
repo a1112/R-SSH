@@ -8139,8 +8139,13 @@ fn lua_window_title_text_part_from_expression(
 
     if let Some(receiver) = lua_identifier_literal_from_query(expression) {
         let rest = expression.get(receiver.len()..)?;
-        if lua_window_title_active_pane_alias_before_offset(static_source, receiver, tab_param)
-            .unwrap_or(false)
+        if lua_window_title_active_pane_alias_before_offset(
+            static_source,
+            receiver,
+            tab_param,
+            pane_param,
+        )
+        .unwrap_or(false)
         {
             let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
             if let Some(rest) = rest.strip_prefix("title")
@@ -8158,6 +8163,7 @@ fn lua_window_title_active_pane_alias_before_offset(
     static_source: Option<LuaStaticSource<'_>>,
     alias: &str,
     tab_param: &str,
+    pane_param: &str,
 ) -> Option<bool> {
     let static_source = static_source?;
     let value = lua_static_expression_variable_assignment_before_offset_from_query(
@@ -8165,7 +8171,8 @@ fn lua_window_title_active_pane_alias_before_offset(
         alias,
         static_source.max_start,
     )?;
-    Some(value.trim() == format!("{tab_param}.active_pane"))
+    let value = value.trim();
+    Some(value == format!("{tab_param}.active_pane") || value == pane_param)
 }
 
 fn lua_window_title_conditional_assignment_parts_before_offset(
@@ -104578,6 +104585,27 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title active pane alias return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_pane_param_alias_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local active = pane
+              return active.title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title pane param alias return");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
