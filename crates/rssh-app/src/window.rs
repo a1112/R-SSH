@@ -10805,6 +10805,7 @@ fn lua_static_window_config_overrides_from_query(
         quick_select_patterns: overrides.quick_select_patterns,
         disable_default_quick_select_patterns: overrides.disable_default_quick_select_patterns,
         quick_select_remove_styling: overrides.quick_select_remove_styling,
+        hyperlink_rules: overrides.hyperlink_rules,
         selection_word_boundary: overrides.selection_word_boundary,
         default_prog: overrides.default_prog,
         default_domain: overrides.default_domain,
@@ -11952,6 +11953,13 @@ fn lua_static_window_effective_config_status_text_from_query(
             static_source.max_start,
         )
     });
+    let hyperlink_rule_variable = static_source.and_then(|static_source| {
+        lua_static_window_effective_config_hyperlink_rule_variable_before_offset(
+            static_source.source,
+            window_name,
+            static_source.max_start,
+        )
+    });
     let launch_menu_variable = static_source.and_then(|static_source| {
         lua_static_window_effective_config_launch_menu_variable_before_offset(
             static_source.source,
@@ -12024,6 +12032,17 @@ fn lua_static_window_effective_config_status_text_from_query(
         .or_else(|| {
             cell_widths_variable.as_ref().and_then(|variable| {
                 lua_static_window_effective_config_cell_widths_field_from_query(
+                    segment,
+                    variable,
+                    window_name,
+                    static_source,
+                    outer_static_source,
+                )
+            })
+        })
+        .or_else(|| {
+            hyperlink_rule_variable.as_ref().and_then(|variable| {
+                lua_static_window_effective_config_hyperlink_rule_field_from_query(
                     segment,
                     variable,
                     window_name,
@@ -12238,6 +12257,12 @@ struct NativeLuaCellWidthsVariableReference {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLuaHyperlinkRuleVariableReference {
+    variable: String,
+    index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeLuaLaunchMenuVariableReference {
     variable: String,
     index: usize,
@@ -12287,6 +12312,58 @@ fn lua_static_window_effective_config_cell_widths_variable_from_statement(
     let value = lua_top_level_statement_value_from_query(rest)?;
     let index = lua_window_effective_config_cell_widths_entry_from_query(value, window_name)?;
     Some(NativeLuaCellWidthsVariableReference {
+        variable: variable.to_owned(),
+        index,
+    })
+}
+
+fn lua_static_window_effective_config_hyperlink_rule_variable_before_offset(
+    source: &str,
+    window_name: &str,
+    max_start: usize,
+) -> Option<NativeLuaHyperlinkRuleVariableReference> {
+    let mut selected = None;
+
+    for start in lua_top_level_statement_start_indices_before_offset(source, max_start)? {
+        let statement = lua_trim_start_comments(source.get(start..)?)?;
+        if let Some(variable) =
+            lua_static_window_effective_config_hyperlink_rule_variable_from_statement(
+                statement,
+                window_name,
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+            )
+        {
+            selected = Some(variable);
+        }
+    }
+
+    selected
+}
+
+fn lua_static_window_effective_config_hyperlink_rule_variable_from_statement(
+    statement: &str,
+    window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaHyperlinkRuleVariableReference> {
+    let statement = lua_trim_start_comments(statement)?;
+    let rest = if lua_source_keyword_at(statement, 0, "local") {
+        lua_trim_start_comments(statement.get("local".len()..)?)?
+    } else {
+        statement
+    };
+    let variable = lua_identifier_literal_from_query(rest)?;
+    let rest = lua_trim_start_comments(rest.get(variable.len()..)?)?;
+    let rest = rest.strip_prefix('=')?;
+    let value = lua_top_level_statement_value_from_query(rest)?;
+    let index = lua_window_effective_config_hyperlink_rule_entry_from_query_with_static_source(
+        value,
+        window_name,
+        static_source,
+    )?;
+    Some(NativeLuaHyperlinkRuleVariableReference {
         variable: variable.to_owned(),
         index,
     })
@@ -12521,6 +12598,40 @@ fn lua_window_effective_config_cell_widths_entry_from_query(
     }
     let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
     let (index, rest) = lua_table_array_index_access_rest_from_query(rest)?;
+    lua_trim_start_comments(rest)?.is_empty().then_some(index)
+}
+
+fn lua_window_effective_config_hyperlink_rule_entry_from_query_with_static_source(
+    value: &str,
+    window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+) -> Option<usize> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "effective_config" || !lua_config_assignment_field_has_boundaries(rest, 0, method)
+    {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let rest = rest.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+    let field = lua_identifier_literal_from_query(rest)?;
+    if field != "hyperlink_rules" {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(field.len()..)?)?;
+    let (index, rest) =
+        lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
     lua_trim_start_comments(rest)?.is_empty().then_some(index)
 }
 
@@ -12782,6 +12893,43 @@ fn lua_static_window_effective_config_cell_widths_field_from_query(
     }
     let synthetic = format!(
         "{window_name}:effective_config().cell_widths[{}]{rest}",
+        variable.index
+    );
+    lua_window_effective_config_field_from_query_with_static_sources(
+        &synthetic,
+        window_name,
+        static_source,
+        outer_static_source,
+    )
+}
+
+fn lua_static_window_effective_config_hyperlink_rule_field_from_query(
+    value: &str,
+    variable: &NativeLuaHyperlinkRuleVariableReference,
+    window_name: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowEffectiveConfigField> {
+    let value = lua_trim_start_comments(value)?.trim();
+    let value = if value.starts_with("tostring")
+        && lua_config_assignment_field_has_boundaries(value, 0, "tostring")
+    {
+        let rest = lua_trim_start_comments(value.get("tostring".len()..)?)?;
+        let rest = rest.strip_prefix('(')?;
+        let (argument, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        if !lua_trim_start_comments(rest)?.is_empty() {
+            return None;
+        }
+        lua_trim_start_comments(argument)?.trim()
+    } else {
+        value
+    };
+    let rest = value.strip_prefix(&variable.variable)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let synthetic = format!(
+        "{window_name}:effective_config().hyperlink_rules[{}]{rest}",
         variable.index
     );
     lua_window_effective_config_field_from_query_with_static_sources(
@@ -14559,6 +14707,26 @@ fn lua_window_effective_config_field_from_query_with_static_source(
             ));
         }
         return None;
+    }
+    if field == "hyperlink_rules" {
+        let (index, rest) =
+            lua_table_array_index_access_rest_from_query_with_static_source(static_source, rest)?;
+        let (nested_field, nested_rest) = lua_table_map_field_key_from_query_with_static_source(
+            static_source,
+            lua_trim_start_comments(rest)?,
+        )?;
+        if !lua_trim_start_comments(nested_rest)?.is_empty() {
+            return None;
+        }
+        let field = match nested_field.as_str() {
+            "regex" => NativeLuaHyperlinkRuleField::Regex,
+            "format" => NativeLuaHyperlinkRuleField::Format,
+            "highlight" => NativeLuaHyperlinkRuleField::Highlight,
+            _ => return None,
+        };
+        return Some(NativeLuaWindowEffectiveConfigField::HyperlinkRule(
+            index, field,
+        ));
     }
     if field == "color_scheme_dirs" {
         let (index, rest) =
@@ -29819,6 +29987,7 @@ struct NativeLuaWindowConfigOverrides {
     quick_select_patterns: Option<Vec<String>>,
     disable_default_quick_select_patterns: Option<bool>,
     quick_select_remove_styling: Option<bool>,
+    hyperlink_rules: Option<Vec<NativeHyperlinkRule>>,
     selection_word_boundary: Option<String>,
     default_prog: Option<Vec<String>>,
     default_domain: Option<String>,
@@ -30058,6 +30227,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.quick_select_patterns.is_none()
             && self.disable_default_quick_select_patterns.is_none()
             && self.quick_select_remove_styling.is_none()
+            && self.hyperlink_rules.is_none()
             && self.selection_word_boundary.is_none()
             && self.default_prog.is_none()
             && self.default_domain.is_none()
@@ -30491,6 +30661,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.quick_select_remove_styling.is_some() {
             self.quick_select_remove_styling = update.quick_select_remove_styling;
+        }
+        if update.hyperlink_rules.is_some() {
+            self.hyperlink_rules = update.hyperlink_rules;
         }
         if update.selection_word_boundary.is_some() {
             self.selection_word_boundary = update.selection_word_boundary;
@@ -31218,6 +31391,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(quick_select_remove_styling) = self.quick_select_remove_styling {
             overrides.quick_select_remove_styling = Some(quick_select_remove_styling);
+        }
+        if let Some(hyperlink_rules) = self.hyperlink_rules {
+            overrides.hyperlink_rules = Some(hyperlink_rules);
         }
         if let Some(selection_word_boundary) = self.selection_word_boundary {
             overrides.selection_word_boundary = Some(selection_word_boundary);
@@ -31955,6 +32131,7 @@ enum NativeLuaWindowEffectiveConfigField {
     LauncherAlphabet,
     QuickSelectAlphabet,
     QuickSelectPattern(usize),
+    HyperlinkRule(usize, NativeLuaHyperlinkRuleField),
     ColorSchemeDir(usize),
     CleanExitCode(usize),
     DisableDefaultQuickSelectPatterns,
@@ -32040,6 +32217,13 @@ enum NativeLuaCellWidthOverrideField {
     First,
     Last,
     Width,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NativeLuaHyperlinkRuleField {
+    Regex,
+    Format,
+    Highlight,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49067,6 +49251,15 @@ impl NativeWindowApp {
                 .checked_sub(1)
                 .and_then(|offset| self.quick_select_patterns.get(offset))
                 .cloned()
+                .unwrap_or_default(),
+            NativeLuaWindowEffectiveConfigField::HyperlinkRule(index, field) => index
+                .checked_sub(1)
+                .and_then(|offset| self.hyperlink_rules.get(offset))
+                .map(|rule| match field {
+                    NativeLuaHyperlinkRuleField::Regex => rule.regex.clone(),
+                    NativeLuaHyperlinkRuleField::Format => rule.format.clone(),
+                    NativeLuaHyperlinkRuleField::Highlight => rule.highlight.to_string(),
+                })
                 .unwrap_or_default(),
             NativeLuaWindowEffectiveConfigField::ColorSchemeDir(index) => index
                 .checked_sub(1)
@@ -90252,6 +90445,72 @@ mod tests {
         assert_eq!(
             app.right_status,
             "rows=12 command-font=15.5 char-font=16.25 pane-font=36.5 launcher=12 quick=xy pattern=BUG-[0-9]+ disable=true styling=true"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_hyperlink_rules() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                hyperlink_rules = {
+                  {
+                    regex = [[\bTICKET-(\d+)\b]],
+                    format = 'https://tickets.example/$1',
+                    highlight = 1,
+                  },
+                },
+              })
+              local rule = window:effective_config().hyperlink_rules[1]
+              window:set_right_status(
+                'regex=' .. tostring(rule.regex)
+                  .. ' format=' .. tostring(rule.format)
+                  .. ' highlight=' .. tostring(rule.highlight)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides hyperlink_rules callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.hyperlink_rules,
+            vec![NativeHyperlinkRule {
+                regex: r"\bTICKET-(\d+)\b".to_owned(),
+                format: "https://tickets.example/$1".to_owned(),
+                highlight: 1,
+            }]
+        );
+        assert_eq!(
+            app.right_status,
+            r"regex=\bTICKET-(\d+)\b format=https://tickets.example/$1 highlight=1"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
