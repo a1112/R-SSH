@@ -16274,17 +16274,7 @@ fn lua_wezterm_font_call_assignment_value_from_query_with_static_source<'a>(
 
 fn lua_wezterm_font_family_call_assignment_value_from_query(query: &str) -> Option<&str> {
     let query = lua_trim_start_comments(query)?;
-    let call = query.find(".font")?;
-    if query.get(call..)?.starts_with(".font_with_fallback")
-        || query
-            .get(call + ".font".len()..)?
-            .chars()
-            .next()
-            .is_some_and(is_lua_identifier_character)
-    {
-        return None;
-    }
-    let mut rest = query.get(call + ".font".len()..)?.trim_start();
+    let mut rest = lua_function_name_rest_from_query(query, "wezterm.font")?;
     let mut rest_start = query.len() - rest.len();
     let parenthesized = rest.starts_with('(');
     if parenthesized {
@@ -26700,8 +26690,7 @@ fn parse_wezterm_font_value(
         .or_else(|| parse_wezterm_font_table_family_value(static_source, source, value))
         .or_else(|| {
             let value = value.trim();
-            let call = value.find(".font")?;
-            let mut rest = value.get(call + ".font".len()..)?.trim_start();
+            let mut rest = lua_function_name_rest_from_query(value, "wezterm.font")?;
             if let Some(stripped) = rest.strip_prefix('(') {
                 rest = stripped.trim_start();
             }
@@ -26776,11 +26765,7 @@ fn parse_wezterm_font_attributes_value(source: &str, value: &str) -> Option<Nati
     if let Some(table) = wezterm_font_table_literal_from_query(value) {
         return native_font_attributes_lua_table_from_query(source, table);
     }
-    let call = value.find(".font")?;
-    if value.get(call..)?.starts_with(".font_with_fallback") {
-        return None;
-    }
-    let rest = value.get(call + ".font".len()..)?.trim_start();
+    let rest = lua_function_name_rest_from_query(value, "wezterm.font")?;
     let rest = rest.strip_prefix('(')?.trim_start();
     let literal = lua_quoted_string_literal_from_query(rest)?;
     let rest = lua_trim_start_comments(rest.get(literal.len()..)?)?;
@@ -26837,17 +26822,7 @@ fn parse_wezterm_font_with_fallback_primary_attributes_value(
 
 fn wezterm_font_table_literal_from_query(value: &str) -> Option<&str> {
     let value = value.trim();
-    let call = value.find(".font")?;
-    if value.get(call..)?.starts_with(".font_with_fallback")
-        || value
-            .get(call + ".font".len()..)?
-            .chars()
-            .next()
-            .is_some_and(is_lua_identifier_character)
-    {
-        return None;
-    }
-    let mut rest = value.get(call + ".font".len()..)?.trim_start();
+    let mut rest = lua_function_name_rest_from_query(value, "wezterm.font")?;
     if let Some(stripped) = rest.strip_prefix('(') {
         rest = stripped.trim_start();
     }
@@ -124934,6 +124909,43 @@ mod tests {
         assert!(
             effective.contains("font: Some(\"JetBrains Mono\")"),
             "effective config should expose WezTerm's configured font family: {effective:?}"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_font_dotted_comment_call() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local config = {}
+
+            config.font = wezterm. -- primary font helper
+              font('JetBrains Mono', {
+                weight = 'Bold',
+                style = 'Italic',
+              })
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm font dotted comment config");
+        app.set_config_overrides(overrides);
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("Bold".to_owned()),
+                stretch: None,
+                style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
+            }
         );
     }
 
