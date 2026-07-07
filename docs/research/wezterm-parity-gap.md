@@ -2543,8 +2543,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   event carries the same effective config snapshot. Static
   `wezterm.on('format-window-title', function(...) return 'title' end)`
   callbacks with literal or top-level static string-variable/concatenated event names,
-  literal string returns, callback-local/top-level static string-variable
-  returns and concatenation, plus top-level static `local <alias> = wezterm.on` event
+  Lua comments inside the anonymous callback parameter list, literal string
+  returns, callback-local/top-level static string-variable returns and
+  concatenation, plus top-level static `local <alias> = wezterm.on` event
   aliases with Lua comments allowed inside the dotted helper path, map onto the
   native title override path. The documented default
   processing example's static subset also parses callback-local conditional

@@ -6821,73 +6821,60 @@ fn lua_static_wezterm_on_alias_value_from_query(value: &str) -> bool {
 fn lua_anonymous_function_body_and_first_and_optional_fifth_params_from_query<'a>(
     value: &'a str,
 ) -> Option<(&'a str, &'a str, Option<&'a str>)> {
-    let value = lua_trim_start_comments(value)?;
-    if !lua_source_keyword_at(value, 0, "function") {
-        return None;
-    }
-    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
-    let params_end = rest.find(')')?;
-    let params = rest.get(..params_end)?;
-    let params = params.split(',').collect::<Vec<_>>();
+    let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
     let first_param = lua_function_param_identifier(params.first()?)?;
     let fifth_param = params
         .get(4)
         .and_then(|param| lua_function_param_identifier(param));
-    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
     Some((body, first_param, fifth_param))
 }
 
 fn lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query<'a>(
     value: &'a str,
 ) -> Option<(&'a str, &'a str, &'a str, Option<&'a str>)> {
-    if !lua_source_keyword_at(value, 0, "function") {
-        return None;
-    }
-    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
-    let params_end = rest.find(')')?;
-    let params = rest.get(..params_end)?;
-    let mut params = params.split(',');
-    let first_param = lua_function_param_identifier(params.next()?)?;
-    let second_param = lua_function_param_identifier(params.next()?)?;
-    let third_param = params.next().and_then(lua_function_param_identifier);
-    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
+    let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
+    let first_param = lua_function_param_identifier(params.first()?)?;
+    let second_param = lua_function_param_identifier(params.get(1)?)?;
+    let third_param = params
+        .get(2)
+        .and_then(|param| lua_function_param_identifier(param));
     Some((body, first_param, second_param, third_param))
 }
 
 fn lua_anonymous_function_body_and_first_four_params_from_query<'a>(
     value: &'a str,
 ) -> Option<(&'a str, &'a str, &'a str, &'a str, &'a str)> {
-    if !lua_source_keyword_at(value, 0, "function") {
-        return None;
-    }
-    let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
-    let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
-    let params_end = rest.find(')')?;
-    let params = rest.get(..params_end)?;
-    let mut params = params.split(',');
-    let first_param = lua_function_param_identifier(params.next()?)?;
-    let second_param = lua_function_param_identifier(params.next()?)?;
-    let third_param = lua_function_param_identifier(params.next()?)?;
-    let fourth_param = lua_function_param_identifier(params.next()?)?;
-    let body = lua_static_function_body_until_end(rest.get(params_end + 1..)?)?;
+    let (params, body) = lua_anonymous_function_params_and_body_from_query(value)?;
+    let first_param = lua_function_param_identifier(params.first()?)?;
+    let second_param = lua_function_param_identifier(params.get(1)?)?;
+    let third_param = lua_function_param_identifier(params.get(2)?)?;
+    let fourth_param = lua_function_param_identifier(params.get(3)?)?;
     Some((body, first_param, second_param, third_param, fourth_param))
 }
 
 fn lua_anonymous_function_body_from_query(value: &str) -> Option<&str> {
+    let (_, body) = lua_anonymous_function_params_and_body_from_query(value)?;
+    Some(body)
+}
+
+fn lua_anonymous_function_params_and_body_from_query<'a>(
+    value: &'a str,
+) -> Option<(Vec<&'a str>, &'a str)> {
     let value = lua_trim_start_comments(value)?;
     if !lua_source_keyword_at(value, 0, "function") {
         return None;
     }
     let rest = lua_trim_start_comments(value.get("function".len()..)?)?;
     let rest = lua_trim_start_comments(rest.strip_prefix('(')?)?;
-    let params_end = rest.find(')')?;
-    lua_static_function_body_until_end(rest.get(params_end + 1..)?)
+    let (params, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    let params = split_lua_top_level_arguments(params)?;
+    let body = lua_static_function_body_until_end(rest)?;
+    Some((params, body))
 }
 
 fn lua_function_param_identifier(value: &str) -> Option<&str> {
-    let value = value.trim();
+    let value = lua_trim_start_comments(value.trim())?;
+    let value = lua_trim_end_comments(value)?;
     let name = lua_identifier_literal_from_query(value)?;
     (name.len() == value.len()).then_some(name)
 }
@@ -96893,6 +96880,25 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "STATIC LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_function_param_comment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, -- active tab
+              pane, tabs, panes, config)
+              return 'PARAM COMMENT TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title param comment");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "PARAM COMMENT TITLE");
     }
 
     #[test]
