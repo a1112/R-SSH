@@ -7423,16 +7423,7 @@ fn lua_static_wezterm_on_event_args_from_statement<'a>(
         return None;
     }
     if lua_static_wezterm_module_alias_before_offset(source, alias, start)? {
-        let (field, rest) = lua_table_map_field_key_from_query_with_static_source(
-            Some(LuaStaticSource {
-                source,
-                max_start: start,
-            }),
-            rest,
-        )?;
-        if field == "on" {
-            return lua_trim_start_comments(rest)?.strip_prefix('(');
-        }
+        return lua_static_wezterm_on_event_args_from_receiver_rest(source, start, rest);
     }
     if !lua_static_wezterm_on_alias_before_offset(source, alias, start)? {
         return None;
@@ -7560,6 +7551,15 @@ fn lua_static_wezterm_on_event_args_from_wezterm_query<'a>(
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
+    lua_static_wezterm_on_event_args_from_receiver_rest(source, start, rest)
+}
+
+fn lua_static_wezterm_on_event_args_from_receiver_rest<'a>(
+    source: &str,
+    start: usize,
+    rest: &'a str,
+) -> Option<&'a str> {
+    let rest = lua_trim_start_comments(rest)?;
     let (field, rest) = lua_table_map_field_key_from_query_with_static_source(
         Some(LuaStaticSource {
             source,
@@ -104052,6 +104052,47 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "MODULE ALIAS LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_dotted_comment_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm -- event helper
+              .on('format-window-title', function(tab, pane, tabs, panes, config)
+                return 'DOTTED COMMENT LUA TITLE'
+              end)
+            "#,
+        )
+        .expect("expected static WezTerm dotted-comment format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "DOTTED COMMENT LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_module_alias_dotted_comment_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wt = require 'wezterm'
+
+            wt -- event helper
+              .on('format-window-title', function(tab, pane, tabs, panes, config)
+                return 'MODULE ALIAS DOTTED COMMENT LUA TITLE'
+              end)
+            "#,
+        )
+        .expect("expected static WezTerm module alias dotted-comment format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "MODULE ALIAS DOTTED COMMENT LUA TITLE"
+        );
     }
 
     #[test]
