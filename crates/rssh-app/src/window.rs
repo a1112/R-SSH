@@ -10721,6 +10721,15 @@ fn lua_static_window_config_overrides_from_query(
         enable_zwlr_output_manager: overrides.enable_zwlr_output_manager,
         use_box_model_render: overrides.use_box_model_render,
         experimental_pixel_positioning: overrides.experimental_pixel_positioning,
+        bold_brightens_ansi_colors: overrides.bold_brightens_ansi_colors,
+        default_cursor_style: overrides.default_cursor_style,
+        cursor_thickness: overrides.cursor_thickness,
+        underline_thickness: overrides.underline_thickness,
+        underline_position: overrides.underline_position,
+        strikethrough_position: overrides.strikethrough_position,
+        force_reverse_video_cursor: overrides.force_reverse_video_cursor,
+        reverse_video_cursor_min_contrast: overrides.reverse_video_cursor_min_contrast,
+        text_min_contrast_ratio: overrides.text_min_contrast_ratio,
         window_decorations: overrides.window_decorations,
         window_padding: overrides.window_padding,
         window_content_alignment: overrides.window_content_alignment,
@@ -29585,6 +29594,15 @@ struct NativeLuaWindowConfigOverrides {
     enable_zwlr_output_manager: Option<bool>,
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
+    bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
+    default_cursor_style: Option<NativeCursorStyle>,
+    cursor_thickness: Option<NativeCursorThickness>,
+    underline_thickness: Option<NativeUnderlineThickness>,
+    underline_position: Option<NativeUnderlinePosition>,
+    strikethrough_position: Option<NativeStrikethroughPosition>,
+    force_reverse_video_cursor: Option<bool>,
+    reverse_video_cursor_min_contrast: Option<NativeContrastRatio>,
+    text_min_contrast_ratio: Option<NativeTextMinContrastRatio>,
     window_decorations: Option<NativeWindowDecorations>,
     window_padding: Option<NativeWindowPadding>,
     window_content_alignment: Option<NativeWindowContentAlignment>,
@@ -29701,6 +29719,15 @@ impl NativeLuaWindowConfigOverrides {
             && self.enable_zwlr_output_manager.is_none()
             && self.use_box_model_render.is_none()
             && self.experimental_pixel_positioning.is_none()
+            && self.bold_brightens_ansi_colors.is_none()
+            && self.default_cursor_style.is_none()
+            && self.cursor_thickness.is_none()
+            && self.underline_thickness.is_none()
+            && self.underline_position.is_none()
+            && self.strikethrough_position.is_none()
+            && self.force_reverse_video_cursor.is_none()
+            && self.reverse_video_cursor_min_contrast.is_none()
+            && self.text_min_contrast_ratio.is_none()
             && self.window_decorations.is_none()
             && self.window_padding.is_none()
             && self.window_content_alignment.is_none()
@@ -29841,6 +29868,33 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.experimental_pixel_positioning.is_some() {
             self.experimental_pixel_positioning = update.experimental_pixel_positioning;
+        }
+        if update.bold_brightens_ansi_colors.is_some() {
+            self.bold_brightens_ansi_colors = update.bold_brightens_ansi_colors;
+        }
+        if update.default_cursor_style.is_some() {
+            self.default_cursor_style = update.default_cursor_style;
+        }
+        if update.cursor_thickness.is_some() {
+            self.cursor_thickness = update.cursor_thickness;
+        }
+        if update.underline_thickness.is_some() {
+            self.underline_thickness = update.underline_thickness;
+        }
+        if update.underline_position.is_some() {
+            self.underline_position = update.underline_position;
+        }
+        if update.strikethrough_position.is_some() {
+            self.strikethrough_position = update.strikethrough_position;
+        }
+        if update.force_reverse_video_cursor.is_some() {
+            self.force_reverse_video_cursor = update.force_reverse_video_cursor;
+        }
+        if update.reverse_video_cursor_min_contrast.is_some() {
+            self.reverse_video_cursor_min_contrast = update.reverse_video_cursor_min_contrast;
+        }
+        if update.text_min_contrast_ratio.is_some() {
+            self.text_min_contrast_ratio = update.text_min_contrast_ratio;
         }
         if update.window_decorations.is_some() {
             self.window_decorations = update.window_decorations;
@@ -30188,6 +30242,33 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(experimental_pixel_positioning) = self.experimental_pixel_positioning {
             overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
+        }
+        if let Some(bold_brightens_ansi_colors) = self.bold_brightens_ansi_colors {
+            overrides.bold_brightens_ansi_colors = Some(bold_brightens_ansi_colors);
+        }
+        if let Some(default_cursor_style) = self.default_cursor_style {
+            overrides.default_cursor_style = Some(default_cursor_style);
+        }
+        if let Some(cursor_thickness) = self.cursor_thickness {
+            overrides.cursor_thickness = Some(cursor_thickness);
+        }
+        if let Some(underline_thickness) = self.underline_thickness {
+            overrides.underline_thickness = Some(underline_thickness);
+        }
+        if let Some(underline_position) = self.underline_position {
+            overrides.underline_position = Some(underline_position);
+        }
+        if let Some(strikethrough_position) = self.strikethrough_position {
+            overrides.strikethrough_position = Some(strikethrough_position);
+        }
+        if let Some(force_reverse_video_cursor) = self.force_reverse_video_cursor {
+            overrides.force_reverse_video_cursor = Some(force_reverse_video_cursor);
+        }
+        if let Some(reverse_video_cursor_min_contrast) = self.reverse_video_cursor_min_contrast {
+            overrides.reverse_video_cursor_min_contrast = Some(reverse_video_cursor_min_contrast);
+        }
+        if let Some(text_min_contrast_ratio) = self.text_min_contrast_ratio {
+            overrides.text_min_contrast_ratio = Some(text_min_contrast_ratio);
         }
         if let Some(window_decorations) = self.window_decorations {
             overrides.window_decorations = Some(window_decorations);
@@ -87803,6 +87884,105 @@ mod tests {
         assert_eq!(
             app.right_status,
             "padding=8px/16px/1cell/2pt align=Center/Bottom"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_cursor_decoration_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                bold_brightens_ansi_colors = 'BrightOnly',
+                default_cursor_style = 'BlinkingBar',
+                cursor_thickness = '25%',
+                underline_thickness = '2px',
+                underline_position = '-2px',
+                strikethrough_position = '0.5cell',
+                force_reverse_video_cursor = true,
+                reverse_video_cursor_min_contrast = 3.25,
+                text_min_contrast_ratio = 4.5,
+              })
+              local config = window:effective_config()
+              window:set_right_status(
+                'bold=' .. tostring(config.bold_brightens_ansi_colors)
+                  .. ' cursor=' .. tostring(config.default_cursor_style)
+                  .. ' thickness=' .. tostring(config.cursor_thickness)
+                  .. ' underline=' .. tostring(config.underline_thickness)
+                  .. '/' .. tostring(config.underline_position)
+                  .. ' strike=' .. tostring(config.strikethrough_position)
+                  .. ' reverse=' .. tostring(config.force_reverse_video_cursor)
+                  .. ' contrast=' .. tostring(config.reverse_video_cursor_min_contrast)
+                  .. ' text=' .. tostring(config.text_min_contrast_ratio)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides cursor decoration callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.bold_brightens_ansi_colors,
+            NativeBoldBrightensAnsiColors::BrightOnly
+        );
+        assert_eq!(
+            effective.default_cursor_style,
+            NativeCursorStyle::BlinkingBar
+        );
+        assert_eq!(
+            effective.cursor_thickness,
+            Some(NativeCursorThickness::Percent(25))
+        );
+        assert_eq!(
+            effective.underline_thickness,
+            Some(NativeUnderlineThickness::Pixels(2))
+        );
+        assert_eq!(
+            effective.underline_position,
+            Some(NativeUnderlinePosition::Pixels(-2))
+        );
+        assert_eq!(
+            effective.strikethrough_position,
+            Some(NativeStrikethroughPosition::CellFractionPerMille(500))
+        );
+        assert!(effective.force_reverse_video_cursor);
+        assert_eq!(
+            effective.reverse_video_cursor_min_contrast,
+            NativeContrastRatio::from_centi(325)
+        );
+        assert_eq!(
+            effective.text_min_contrast_ratio,
+            Some(NativeTextMinContrastRatio::from_centi(450))
+        );
+        assert_eq!(
+            app.right_status,
+            "bold=BrightOnly cursor=BlinkingBar thickness=25% underline=2px/-2px strike=0.5cell reverse=true contrast=3.25 text=4.5"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
