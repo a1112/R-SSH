@@ -2515,7 +2515,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `wezterm.nerdfonts.pl_left_hard_divider` /
   `wezterm.nerdfonts.pl_right_hard_divider` text variables, and local
   `pane = tab.active_pane` aliases, and direct or static-result-variable
-  `wezterm.format` returns through static aliases map onto the same tab-title override path. Simple dynamic callbacks that
+  `wezterm.format` returns through static aliases, including aliases whose
+  dotted `wezterm.format` helper path contains Lua comments, map onto the same tab-title override path. Simple dynamic callbacks that
   return `tab.tab_title`, `tab.window_title`, `tab.active_pane.title`,
   `tab.active_pane.domain_name`, `tab.active_pane.foreground_process_name`,
   `tab.active_pane.current_working_dir`, or `tab.active_pane.tty_name` resolve

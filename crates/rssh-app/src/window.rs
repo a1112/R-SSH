@@ -19973,15 +19973,21 @@ fn lua_static_wezterm_format_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_top_level_statement_value_from_query(value)
-            .is_some_and(lua_static_wezterm_format_alias_value_from_query);
+        selected = lua_static_wezterm_format_alias_value_from_query(value);
     }
 
     Some(selected)
 }
 
 fn lua_static_wezterm_format_alias_value_from_query(value: &str) -> bool {
-    matches!(value.trim(), "wezterm.format" | "format")
+    if value.trim() == "format" {
+        return true;
+    }
+    let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.format")
+    else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 fn lua_top_level_statement_value_from_query(value: &str) -> Option<&str> {
@@ -94338,6 +94344,39 @@ mod tests {
         assert_eq!(title_cell.ch, 'S');
         assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(1, 2, 3));
         assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(4, 5, 6));
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_tab_title_event_format_alias_dotted_comment() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local fmt = wezterm -- formatter helper
+              .format
+
+            wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)
+              return fmt({
+                { Foreground = { Color = '#070809' } },
+                { Background = { Color = '#0a0b0c' } },
+                { Text = 'STATIC LUA DOTTED ALIAS FORMAT' },
+              })
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-tab-title dotted-comment format alias return");
+        app.set_config_overrides(overrides);
+
+        let snapshot = app.render_snapshot();
+        let tab_bar = snapshot_row_text(&snapshot, 0, TERMINAL_COLUMNS);
+        let title_column = tab_bar
+            .find("STATIC LUA DOTTED ALIAS FORMAT")
+            .expect("formatted Lua dotted-comment alias title should render in the tab bar");
+        let title_cell = snapshot_cell(&snapshot, 0, u16::try_from(title_column).unwrap()).unwrap();
+
+        assert_eq!(title_cell.ch, 'S');
+        assert_eq!(title_cell.foreground, rssh_terminal::Color::Rgb(7, 8, 9));
+        assert_eq!(title_cell.background, rssh_terminal::Color::Rgb(10, 11, 12));
     }
 
     #[test]
