@@ -4139,6 +4139,7 @@ struct NativeConfigOverrides {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
+    lua_update_status_config_overrides: Option<NativeLuaWindowConfigOverrides>,
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_resized: Option<NativeLuaWindowStatusUpdate>,
@@ -4192,6 +4193,12 @@ fn native_config_overrides_from_wezterm_lua_config(config: &str) -> Option<Nativ
 
     if let Some(update_status) = lua_static_wezterm_status_update_event_from_query(config) {
         overrides.lua_update_status = Some(update_status);
+        parsed = true;
+    }
+    if let Some(config_overrides) =
+        lua_static_wezterm_status_update_config_overrides_from_query(config)
+    {
+        overrides.lua_update_status_config_overrides = Some(config_overrides);
         parsed = true;
     }
     if let Some(bell) = lua_static_wezterm_bell_event_from_query(config) {
@@ -6344,6 +6351,46 @@ fn lua_static_wezterm_status_update_event_from_statement(
         body,
         window_name,
         pane_name,
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+    )
+}
+
+fn lua_static_wezterm_status_update_config_overrides_from_query(
+    source: &str,
+) -> Option<NativeLuaWindowConfigOverrides> {
+    let mut selected = None;
+    for start in lua_top_level_statement_start_indices_before_offset(source, source.len())? {
+        if let Some(overrides) =
+            lua_static_wezterm_status_update_config_overrides_from_statement(source, start)
+        {
+            selected = Some(overrides);
+        }
+    }
+    selected
+}
+
+fn lua_static_wezterm_status_update_config_overrides_from_statement(
+    source: &str,
+    start: usize,
+) -> Option<NativeLuaWindowConfigOverrides> {
+    let rest = lua_static_wezterm_on_event_args_from_statement(source, start)?;
+    let rest = lua_trim_start_comments(rest)?;
+    let (event_name, rest) =
+        lua_static_wezterm_on_event_name_and_rest_from_args(source, start, rest)?;
+    if !matches!(event_name.as_str(), "update-status" | "update-right-status") {
+        return None;
+    }
+    let callback = lua_static_wezterm_on_callback_query_from_rest(source, start, rest)?;
+    let (body, window_name, _, _) =
+        lua_anonymous_function_body_and_first_two_and_optional_third_params_from_query(
+            callback.as_ref(),
+        )?;
+    lua_static_window_config_overrides_from_function_body(
+        body,
+        window_name,
         Some(LuaStaticSource {
             source,
             max_start: start,
@@ -10560,6 +10607,110 @@ fn lua_static_status_update_from_function_body(
     }
 
     (update.left_status.is_some() || update.right_status.is_some()).then_some(update)
+}
+
+fn lua_static_window_config_overrides_from_function_body(
+    body: &str,
+    window_name: &str,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowConfigOverrides> {
+    let mut overrides = NativeLuaWindowConfigOverrides::default();
+
+    for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
+        let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let static_source = LuaStaticSource {
+            source: body,
+            max_start: start,
+        };
+        if let Some(update) = lua_static_window_config_overrides_from_statement(
+            statement,
+            static_source,
+            outer_static_source,
+            window_name,
+        ) {
+            overrides.merge(update);
+        }
+    }
+
+    (!overrides.is_empty()).then_some(overrides)
+}
+
+fn lua_static_window_config_overrides_from_statement(
+    statement: &str,
+    static_source: LuaStaticSource<'_>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    window_name: &str,
+) -> Option<NativeLuaWindowConfigOverrides> {
+    let rest = statement.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = "set_config_overrides";
+    if !rest.starts_with(method) || !lua_config_assignment_field_has_boundaries(rest, 0, method) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?;
+    let argument = if let Some(rest) = rest.strip_prefix('(') {
+        let (arguments, _) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+        let arguments = split_lua_top_level_arguments(arguments)?;
+        let [argument] = arguments.as_slice() else {
+            return None;
+        };
+        *argument
+    } else {
+        lua_top_level_statement_value_from_query(rest)?
+    };
+    lua_static_window_config_overrides_from_query(
+        argument,
+        Some(static_source),
+        outer_static_source,
+    )
+}
+
+fn lua_static_window_config_overrides_from_query(
+    argument: &str,
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+) -> Option<NativeLuaWindowConfigOverrides> {
+    let argument = lua_trim_start_comments(argument)?;
+    if let Some(static_source) = static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            static_source.source,
+            argument,
+            static_source.max_start,
+        )
+    {
+        return lua_static_window_config_overrides_from_query(
+            value,
+            Some(static_source),
+            outer_static_source,
+        );
+    }
+    if let Some(outer_static_source) = outer_static_source
+        && let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+            outer_static_source.source,
+            argument,
+            outer_static_source.max_start,
+        )
+    {
+        return lua_static_window_config_overrides_from_query(
+            value,
+            static_source,
+            Some(outer_static_source),
+        );
+    }
+    let table = argument.trim();
+    if !table.starts_with('{') {
+        return None;
+    }
+    let config = format!("return {table}");
+    let overrides = native_config_overrides_from_wezterm_lua_config(&config)?;
+    Some(NativeLuaWindowConfigOverrides {
+        font_size: overrides.font_size,
+    })
+    .filter(|overrides| !overrides.is_empty())
 }
 
 fn lua_static_user_var_changed_from_function_body(
@@ -29301,6 +29452,29 @@ struct NativeLuaWindowStatusUpdate {
     right_status: Option<NativeLuaWindowStatusText>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct NativeLuaWindowConfigOverrides {
+    font_size: Option<NativeFontSize>,
+}
+
+impl NativeLuaWindowConfigOverrides {
+    fn is_empty(self) -> bool {
+        self.font_size.is_none()
+    }
+
+    fn merge(&mut self, update: Self) {
+        if update.font_size.is_some() {
+            self.font_size = update.font_size;
+        }
+    }
+
+    fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigOverrides) {
+        if let Some(font_size) = self.font_size {
+            overrides.font_size = Some(font_size);
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NativeLuaUserVarChanged {
     left_status: Option<NativeLuaUserVarChangedStatusText>,
@@ -30200,6 +30374,7 @@ struct NativeWindowApp {
     lua_tab_title: Option<NativeLuaTabTitle>,
     lua_window_title: Option<NativeLuaWindowTitle>,
     lua_update_status: Option<NativeLuaWindowStatusUpdate>,
+    lua_update_status_config_overrides: Option<NativeLuaWindowConfigOverrides>,
     lua_bell: Option<NativeLuaWindowStatusUpdate>,
     lua_focus_changed: Option<NativeLuaWindowStatusUpdate>,
     lua_resized: Option<NativeLuaWindowStatusUpdate>,
@@ -31757,6 +31932,7 @@ impl NativeWindowApp {
             lua_tab_title: None,
             lua_window_title: None,
             lua_update_status: None,
+            lua_update_status_config_overrides: None,
             lua_bell: None,
             lua_focus_changed: None,
             lua_resized: None,
@@ -33025,6 +33201,8 @@ impl NativeWindowApp {
         self.lua_tab_title.clone_from(&source.lua_tab_title);
         self.lua_window_title.clone_from(&source.lua_window_title);
         self.lua_update_status.clone_from(&source.lua_update_status);
+        self.lua_update_status_config_overrides
+            .clone_from(&source.lua_update_status_config_overrides);
         self.lua_bell.clone_from(&source.lua_bell);
         self.lua_focus_changed.clone_from(&source.lua_focus_changed);
         self.lua_resized.clone_from(&source.lua_resized);
@@ -41847,6 +42025,7 @@ impl NativeWindowApp {
         self.lua_tab_title = overrides.lua_tab_title.clone();
         self.lua_window_title = overrides.lua_window_title.clone();
         self.lua_update_status = overrides.lua_update_status.clone();
+        self.lua_update_status_config_overrides = overrides.lua_update_status_config_overrides;
         self.lua_bell = overrides.lua_bell.clone();
         self.lua_focus_changed = overrides.lua_focus_changed.clone();
         self.lua_resized = overrides.lua_resized.clone();
@@ -45848,6 +46027,9 @@ impl NativeWindowApp {
         if let Some(right_status) = update.right_status {
             self.right_status = right_status;
         }
+        if let Some(config_overrides) = self.lua_update_status_config_overrides {
+            self.apply_lua_window_config_overrides(config_overrides);
+        }
         if let Some(update) = self.lua_update_status.clone() {
             if let Some(left_status) = update.left_status {
                 self.left_status = self.lua_window_status_text(left_status);
@@ -45859,6 +46041,15 @@ impl NativeWindowApp {
         if let Some(right_status) = (self.update_right_status_handler)(&event) {
             self.right_status = right_status;
         }
+    }
+
+    fn apply_lua_window_config_overrides(
+        &mut self,
+        config_overrides: NativeLuaWindowConfigOverrides,
+    ) {
+        let mut overrides = self.config_overrides.clone();
+        config_overrides.apply_to_native_config_overrides(&mut overrides);
+        self.set_config_overrides(overrides);
     }
 
     fn lua_window_status_text(&self, status: NativeLuaWindowStatusText) -> String {
@@ -85564,6 +85755,51 @@ mod tests {
 
         app.dispatch_update_status();
         assert_eq!(app.right_status, "font=13.5");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_font_size() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides { font_size = 15.0 }
+              window:set_right_status('font=' .. window:effective_config().font_size)
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides update-status callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(
+            app.native_effective_config().font_size,
+            NativeFontSize::from_millipoints(15_000)
+        );
+        assert_eq!(app.right_status, "font=15");
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
     }
 
     #[test]
@@ -136768,6 +137004,7 @@ act.Confirmation {
                 left_status: Some(NativeLuaWindowStatusText::Static("LEFT".to_owned())),
                 right_status: Some(NativeLuaWindowStatusText::Static("RIGHT".to_owned())),
             }),
+            lua_update_status_config_overrides: None,
             lua_bell: None,
             lua_focus_changed: None,
             lua_resized: None,
