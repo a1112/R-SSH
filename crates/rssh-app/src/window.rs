@@ -19778,6 +19778,9 @@ fn lua_static_expression_assignment_value_before_offset_from_query<'a>(
 ) -> Option<&'a str> {
     let variable = lua_identifier_literal_from_query(query)?;
     let rest = query.get(variable.len()..)?;
+    if lua_identifier_rest_has_expression_continuation_after_comment(rest) {
+        return None;
+    }
     if !lua_static_identifier_value_rest_is_statement_end(rest) {
         return None;
     }
@@ -19826,7 +19829,7 @@ fn lua_static_wezterm_action_alias_query_from_query(
         return None;
     }
 
-    let rest = query.get(alias.len()..)?.trim_start();
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
     let separator = match rest.chars().next()? {
         '.' | '[' => "",
         '{' | '(' => " ",
@@ -60275,6 +60278,11 @@ fn lua_expression_continuation_after_comment(rest: &str) -> bool {
         || rest.starts_with('{')
         || rest.starts_with('(')
         || lua_long_bracket_literal_from_query(rest).is_some()
+}
+
+fn lua_identifier_rest_has_expression_continuation_after_comment(rest: &str) -> bool {
+    rest.trim_start().starts_with("--")
+        && lua_trim_start_comments(rest).is_some_and(lua_expression_continuation_after_comment)
 }
 
 fn split_pane_table_size_from_query_with_static_source(
@@ -118540,6 +118548,47 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm quick select static action alias config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+Q".to_owned(),
+                command: WindowCommand::QuickSelectArgs(WindowQuickSelectOptions {
+                    patterns: Some(vec!["ticket-[0-9]+".to_owned()]),
+                    action: Some(WindowQuickSelectAction::CopyTo(
+                        WindowCopyDestination::PrimarySelection
+                    )),
+                    ..WindowQuickSelectOptions::default()
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_quick_select_static_action_alias_comment_table_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local action = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'Q',
+                mods = 'CTRL|SHIFT',
+                action = act.QuickSelectArgs {
+                  pattern = 'ticket-[0-9]+',
+                  action = action -- nested action
+                    { CopyTo = 'PrimarySelection' },
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm quick select static action alias comment table-call config");
 
         assert_eq!(
             overrides.key_assignments,

@@ -1937,9 +1937,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   can resolve through static string variables, top-level static bool/number
   variables for `skip_action_on_paste` and `scope_lines`, and top-level static
   action variables for `QuickSelectArgs.action` when parsed from static
-  WezTerm-style `config.keys`, plus parenthesized calls that pass a top-level
-  static options table variable. These exact WezTerm table/config forms now
-  produce native `QuickSelectArgs { ... }` payloads while legacy
+  WezTerm-style `config.keys`, including `local <alias> = wezterm.action`
+  table-call aliases with Lua comments before the table payload, plus
+  parenthesized calls that pass a top-level static options table variable.
+  These exact WezTerm table/config forms now produce native
+  `QuickSelectArgs { ... }` payloads while legacy
   command-palette aliases continue through the internal quick-select entry.
 - WezTerm-style pane-selection table actions now accept parenthesized Lua table
   calls such as
