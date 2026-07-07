@@ -6678,13 +6678,16 @@ fn lua_static_callback_query_from_value<'a>(
         }
     }
 
-    lua_static_callback_query_from_expression_with_call_tail(source, start, value)
+    lua_static_callback_query_from_expression_with_call_tail(source, start, value, 0)
 }
+
+const LUA_STATIC_CALLBACK_ALIAS_RESOLUTION_LIMIT: usize = 8;
 
 fn lua_static_callback_query_from_expression_with_call_tail<'a>(
     source: &'a str,
     start: usize,
     value: &'a str,
+    alias_depth: usize,
 ) -> Option<Cow<'a, str>> {
     let name = lua_identifier_literal_from_query(value)?;
     let rest = lua_trim_start_comments(value.get(name.len()..)?)?;
@@ -6697,10 +6700,21 @@ fn lua_static_callback_query_from_expression_with_call_tail<'a>(
             return Some(Cow::Owned(format!("function({params}){body} end")));
         }
 
-        let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        let assigned_value = lua_static_expression_variable_assignment_before_offset_from_query(
             source, name, start,
         )?;
-        return lua_source_keyword_at(value, 0, "function").then_some(Cow::Borrowed(value));
+        if lua_source_keyword_at(assigned_value, 0, "function") {
+            return Some(Cow::Borrowed(assigned_value));
+        }
+        if alias_depth < LUA_STATIC_CALLBACK_ALIAS_RESOLUTION_LIMIT {
+            return lua_static_callback_query_from_expression_with_depth(
+                source,
+                start,
+                assigned_value,
+                alias_depth + 1,
+            );
+        }
+        return None;
     }
 
     let (keys, rest) = lua_table_map_field_path_from_query_with_static_source(
@@ -6726,13 +6740,27 @@ fn lua_static_callback_query_from_expression<'a>(
     start: usize,
     value: &'a str,
 ) -> Option<Cow<'a, str>> {
+    lua_static_callback_query_from_expression_with_depth(source, start, value, 0)
+}
+
+fn lua_static_callback_query_from_expression_with_depth<'a>(
+    source: &'a str,
+    start: usize,
+    value: &'a str,
+    alias_depth: usize,
+) -> Option<Cow<'a, str>> {
     let value = lua_trim_start_comments(value)?;
     if let Some(rest) = value.strip_prefix('(') {
         let rest = lua_trim_start_comments(rest)?;
         let (inner, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
         let rest = lua_trim_start_comments(rest)?;
         if lua_static_identifier_value_rest_is_statement_end(rest) {
-            return lua_static_callback_query_from_expression(source, start, inner);
+            return lua_static_callback_query_from_expression_with_depth(
+                source,
+                start,
+                inner,
+                alias_depth,
+            );
         }
     }
 
@@ -6751,10 +6779,21 @@ fn lua_static_callback_query_from_expression<'a>(
             return Some(Cow::Owned(format!("function({params}){body} end")));
         }
 
-        let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        let assigned_value = lua_static_expression_variable_assignment_before_offset_from_query(
             source, name, start,
         )?;
-        return lua_source_keyword_at(value, 0, "function").then_some(Cow::Borrowed(value));
+        if lua_source_keyword_at(assigned_value, 0, "function") {
+            return Some(Cow::Borrowed(assigned_value));
+        }
+        if alias_depth < LUA_STATIC_CALLBACK_ALIAS_RESOLUTION_LIMIT {
+            return lua_static_callback_query_from_expression_with_depth(
+                source,
+                start,
+                assigned_value,
+                alias_depth + 1,
+            );
+        }
+        return None;
     }
 
     let (keys, rest) = lua_table_map_field_path_from_query_with_static_source(
@@ -97368,6 +97407,34 @@ mod tests {
         assert_eq!(
             app.effective_window_title(),
             "NESTED TABLE FIELD ASSIGNMENT CALLBACK TITLE"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_table_field_callback_alias() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local callbacks = {
+              window = {
+                title = function(tab, pane, tabs, panes, config)
+                  return 'TABLE FIELD CALLBACK ALIAS TITLE'
+                end,
+              },
+            }
+            local title_callback = callbacks.window.title
+
+            wezterm.on('format-window-title', title_callback)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title table-field callback alias");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "TABLE FIELD CALLBACK ALIAS TITLE"
         );
     }
 
