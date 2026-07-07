@@ -10192,6 +10192,13 @@ fn lua_static_user_var_changed_local_event_param_from_query(
         value,
         static_source.max_start,
     )?;
+    let local_value =
+        if let Some((dynamic, fallback)) = lua_dynamic_status_fallback_from_query(local_value) {
+            lua_static_string_value_from_expression(None, None, fallback)?;
+            dynamic
+        } else {
+            local_value
+        };
     if lua_static_identifier_expression_matches(local_value, name_param) {
         Some(NativeLuaUserVarChangedStatusPart::Name)
     } else if lua_static_identifier_expression_matches(local_value, value_param) {
@@ -150446,6 +150453,32 @@ act.Confirmation {
             "#,
         )
         .expect("expected static WezTerm user-var-changed local event param status setter");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.right_status, "var=WEZTERM_PROG:psh");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_user_var_changed_local_event_param_fallback_status_setter()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('user-var-changed', function(window, pane, name, value)
+              local changed_name = name or 'unknown'
+              local changed_value = value or ''
+              window:set_right_status('var=' .. changed_name .. ':' .. tostring(changed_value))
+            end)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm user-var-changed local event param fallback status setter",
+        );
         app.set_config_overrides(overrides);
 
         app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
