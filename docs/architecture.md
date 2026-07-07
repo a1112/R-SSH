@@ -2307,7 +2307,7 @@ keyboard, mouse, paste, resize
   `window:window_id()`, `pane:pane_id()`, and the event `name` and `value`
   parameters including direct use or callback-local aliases with static `or`
   fallbacks from literal, callback-local, or top-level static string values for those
-  dynamic values, plus callback-local `pane:get_user_vars()` reads with
+  dynamic values with optional `tostring(...)` wrapping, plus callback-local `pane:get_user_vars()` reads with
   static `or` fallbacks for the triggering pane and
   `window:active_pane():get_user_vars()` reads for the active pane, including
   callback-local variables assigned from those user-var reads.
