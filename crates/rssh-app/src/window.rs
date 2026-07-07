@@ -10722,6 +10722,8 @@ fn lua_static_window_config_overrides_from_query(
         use_box_model_render: overrides.use_box_model_render,
         experimental_pixel_positioning: overrides.experimental_pixel_positioning,
         window_decorations: overrides.window_decorations,
+        window_padding: overrides.window_padding,
+        window_content_alignment: overrides.window_content_alignment,
         initial_cols: overrides.initial_cols,
         initial_rows: overrides.initial_rows,
         adjust_window_size_when_changing_font_size: overrides
@@ -29584,6 +29586,8 @@ struct NativeLuaWindowConfigOverrides {
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
     window_decorations: Option<NativeWindowDecorations>,
+    window_padding: Option<NativeWindowPadding>,
+    window_content_alignment: Option<NativeWindowContentAlignment>,
     initial_cols: Option<u16>,
     initial_rows: Option<u16>,
     adjust_window_size_when_changing_font_size: Option<bool>,
@@ -29698,6 +29702,8 @@ impl NativeLuaWindowConfigOverrides {
             && self.use_box_model_render.is_none()
             && self.experimental_pixel_positioning.is_none()
             && self.window_decorations.is_none()
+            && self.window_padding.is_none()
+            && self.window_content_alignment.is_none()
             && self.initial_cols.is_none()
             && self.initial_rows.is_none()
             && self.adjust_window_size_when_changing_font_size.is_none()
@@ -29838,6 +29844,12 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.window_decorations.is_some() {
             self.window_decorations = update.window_decorations;
+        }
+        if update.window_padding.is_some() {
+            self.window_padding = update.window_padding;
+        }
+        if update.window_content_alignment.is_some() {
+            self.window_content_alignment = update.window_content_alignment;
         }
         if update.initial_cols.is_some() {
             self.initial_cols = update.initial_cols;
@@ -30179,6 +30191,12 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(window_decorations) = self.window_decorations {
             overrides.window_decorations = Some(window_decorations);
+        }
+        if let Some(window_padding) = self.window_padding {
+            overrides.window_padding = Some(window_padding);
+        }
+        if let Some(window_content_alignment) = self.window_content_alignment {
+            overrides.window_content_alignment = Some(window_content_alignment);
         }
         if let Some(initial_cols) = self.initial_cols {
             overrides.initial_cols = Some(initial_cols);
@@ -87705,6 +87723,86 @@ mod tests {
         assert_eq!(
             app.right_status,
             "decor=RESIZE|INTEGRATED_BUTTONS cols=100 rows=30 adjust=false boundary= :"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_window_layout_table_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                window_padding = {
+                  left = 8,
+                  right = 16,
+                  top = '1cell',
+                  bottom = '2pt',
+                },
+                window_content_alignment = {
+                  horizontal = 'Center',
+                  vertical = 'Bottom',
+                },
+              })
+              local config = window:effective_config()
+              window:set_right_status(
+                'padding=' .. tostring(config.window_padding.left)
+                  .. '/' .. tostring(config.window_padding.right)
+                  .. '/' .. tostring(config.window_padding.top)
+                  .. '/' .. tostring(config.window_padding.bottom)
+                  .. ' align=' .. tostring(config.window_content_alignment.horizontal)
+                  .. '/' .. tostring(config.window_content_alignment.vertical)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides window layout table callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.window_padding,
+            NativeWindowPadding {
+                left: NativeWindowPaddingDimension::Pixels(8),
+                right: NativeWindowPaddingDimension::Pixels(16),
+                top: NativeWindowPaddingDimension::CellFractionPerMille(1_000),
+                bottom: NativeWindowPaddingDimension::Points(2),
+            }
+        );
+        assert_eq!(
+            effective.window_content_alignment,
+            NativeWindowContentAlignment {
+                horizontal: NativeHorizontalContentAlignment::Center,
+                vertical: NativeVerticalContentAlignment::Bottom,
+            }
+        );
+        assert_eq!(
+            app.right_status,
+            "padding=8px/16px/1cell/2pt align=Center/Bottom"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
