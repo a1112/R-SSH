@@ -10721,6 +10721,12 @@ fn lua_static_window_config_overrides_from_query(
         enable_zwlr_output_manager: overrides.enable_zwlr_output_manager,
         use_box_model_render: overrides.use_box_model_render,
         experimental_pixel_positioning: overrides.experimental_pixel_positioning,
+        window_decorations: overrides.window_decorations,
+        initial_cols: overrides.initial_cols,
+        initial_rows: overrides.initial_rows,
+        adjust_window_size_when_changing_font_size: overrides
+            .adjust_window_size_when_changing_font_size,
+        selection_word_boundary: overrides.selection_word_boundary,
         default_prog: overrides.default_prog,
         default_domain: overrides.default_domain,
         prefer_to_spawn_tabs: overrides.prefer_to_spawn_tabs,
@@ -29562,6 +29568,11 @@ struct NativeLuaWindowConfigOverrides {
     enable_zwlr_output_manager: Option<bool>,
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
+    window_decorations: Option<NativeWindowDecorations>,
+    initial_cols: Option<u16>,
+    initial_rows: Option<u16>,
+    adjust_window_size_when_changing_font_size: Option<bool>,
+    selection_word_boundary: Option<String>,
     default_prog: Option<Vec<String>>,
     default_domain: Option<String>,
     prefer_to_spawn_tabs: Option<bool>,
@@ -29656,6 +29667,11 @@ impl NativeLuaWindowConfigOverrides {
             && self.enable_zwlr_output_manager.is_none()
             && self.use_box_model_render.is_none()
             && self.experimental_pixel_positioning.is_none()
+            && self.window_decorations.is_none()
+            && self.initial_cols.is_none()
+            && self.initial_rows.is_none()
+            && self.adjust_window_size_when_changing_font_size.is_none()
+            && self.selection_word_boundary.is_none()
             && self.default_prog.is_none()
             && self.default_domain.is_none()
             && self.prefer_to_spawn_tabs.is_none()
@@ -29774,6 +29790,22 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.experimental_pixel_positioning.is_some() {
             self.experimental_pixel_positioning = update.experimental_pixel_positioning;
+        }
+        if update.window_decorations.is_some() {
+            self.window_decorations = update.window_decorations;
+        }
+        if update.initial_cols.is_some() {
+            self.initial_cols = update.initial_cols;
+        }
+        if update.initial_rows.is_some() {
+            self.initial_rows = update.initial_rows;
+        }
+        if update.adjust_window_size_when_changing_font_size.is_some() {
+            self.adjust_window_size_when_changing_font_size =
+                update.adjust_window_size_when_changing_font_size;
+        }
+        if update.selection_word_boundary.is_some() {
+            self.selection_word_boundary = update.selection_word_boundary;
         }
         if update.default_prog.is_some() {
             self.default_prog = update.default_prog;
@@ -30053,6 +30085,24 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(experimental_pixel_positioning) = self.experimental_pixel_positioning {
             overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
+        }
+        if let Some(window_decorations) = self.window_decorations {
+            overrides.window_decorations = Some(window_decorations);
+        }
+        if let Some(initial_cols) = self.initial_cols {
+            overrides.initial_cols = Some(initial_cols);
+        }
+        if let Some(initial_rows) = self.initial_rows {
+            overrides.initial_rows = Some(initial_rows);
+        }
+        if let Some(adjust_window_size_when_changing_font_size) =
+            self.adjust_window_size_when_changing_font_size
+        {
+            overrides.adjust_window_size_when_changing_font_size =
+                Some(adjust_window_size_when_changing_font_size);
+        }
+        if let Some(selection_word_boundary) = self.selection_word_boundary {
+            overrides.selection_word_boundary = Some(selection_word_boundary);
         }
         if let Some(default_prog) = self.default_prog {
             overrides.default_prog = Some(default_prog);
@@ -87442,6 +87492,80 @@ mod tests {
         assert_eq!(
             app.right_status,
             "quit=false close=NeverPrompt exit=CloseOnCleanExit clean=143 msg=Terse skip=htop"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_window_layout_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                window_decorations = 'INTEGRATED_BUTTONS|RESIZE',
+                initial_cols = 100,
+                initial_rows = 30,
+                adjust_window_size_when_changing_font_size = false,
+                selection_word_boundary = ' :',
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'decor=' .. tostring(window:effective_config().window_decorations)
+                  .. ' cols=' .. tostring(window:effective_config().initial_cols)
+                  .. ' rows=' .. tostring(window:effective_config().initial_rows)
+                  .. ' adjust=' .. tostring(window:effective_config().adjust_window_size_when_changing_font_size)
+                  .. ' boundary=' .. tostring(window:effective_config().selection_word_boundary)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides window layout callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.window_decorations,
+            NativeWindowDecorations {
+                title: false,
+                resize: true,
+                integrated_buttons: true,
+                macos_force_disable_shadow: false,
+                macos_force_enable_shadow: false,
+                macos_force_square_corners: false,
+                macos_use_background_color_as_titlebar_color: false,
+            }
+        );
+        assert_eq!(effective.initial_cols, 100);
+        assert_eq!(effective.initial_rows, 30);
+        assert!(!effective.adjust_window_size_when_changing_font_size);
+        assert_eq!(effective.selection_word_boundary, " :");
+        assert_eq!(
+            app.right_status,
+            "decor=RESIZE|INTEGRATED_BUTTONS cols=100 rows=30 adjust=false boundary= :"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
