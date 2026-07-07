@@ -10726,6 +10726,17 @@ fn lua_static_window_config_overrides_from_query(
         log_unknown_escape_sequences: overrides.log_unknown_escape_sequences,
         warn_about_missing_glyphs: overrides.warn_about_missing_glyphs,
         enable_tab_bar: overrides.enable_tab_bar,
+        hide_tab_bar_if_only_one_tab: overrides.hide_tab_bar_if_only_one_tab,
+        use_fancy_tab_bar: overrides.use_fancy_tab_bar,
+        tab_bar_at_bottom: overrides.tab_bar_at_bottom,
+        tab_and_split_indices_are_zero_based: overrides.tab_and_split_indices_are_zero_based,
+        mouse_wheel_scrolls_tabs: overrides.mouse_wheel_scrolls_tabs,
+        switch_to_last_active_tab_when_closing_tab: overrides
+            .switch_to_last_active_tab_when_closing_tab,
+        show_close_tab_button_in_tabs: overrides.show_close_tab_button_in_tabs,
+        show_new_tab_button_in_tab_bar: overrides.show_new_tab_button_in_tab_bar,
+        show_tab_index_in_tab_bar: overrides.show_tab_index_in_tab_bar,
+        show_tabs_in_tab_bar: overrides.show_tabs_in_tab_bar,
     })
     .filter(|overrides| !overrides.is_empty())
 }
@@ -29489,6 +29500,16 @@ struct NativeLuaWindowConfigOverrides {
     log_unknown_escape_sequences: Option<bool>,
     warn_about_missing_glyphs: Option<bool>,
     enable_tab_bar: Option<bool>,
+    hide_tab_bar_if_only_one_tab: Option<bool>,
+    use_fancy_tab_bar: Option<bool>,
+    tab_bar_at_bottom: Option<bool>,
+    tab_and_split_indices_are_zero_based: Option<bool>,
+    mouse_wheel_scrolls_tabs: Option<bool>,
+    switch_to_last_active_tab_when_closing_tab: Option<bool>,
+    show_close_tab_button_in_tabs: Option<bool>,
+    show_new_tab_button_in_tab_bar: Option<bool>,
+    show_tab_index_in_tab_bar: Option<bool>,
+    show_tabs_in_tab_bar: Option<bool>,
 }
 
 impl NativeLuaWindowConfigOverrides {
@@ -29511,6 +29532,16 @@ impl NativeLuaWindowConfigOverrides {
             && self.log_unknown_escape_sequences.is_none()
             && self.warn_about_missing_glyphs.is_none()
             && self.enable_tab_bar.is_none()
+            && self.hide_tab_bar_if_only_one_tab.is_none()
+            && self.use_fancy_tab_bar.is_none()
+            && self.tab_bar_at_bottom.is_none()
+            && self.tab_and_split_indices_are_zero_based.is_none()
+            && self.mouse_wheel_scrolls_tabs.is_none()
+            && self.switch_to_last_active_tab_when_closing_tab.is_none()
+            && self.show_close_tab_button_in_tabs.is_none()
+            && self.show_new_tab_button_in_tab_bar.is_none()
+            && self.show_tab_index_in_tab_bar.is_none()
+            && self.show_tabs_in_tab_bar.is_none()
     }
 
     fn merge(&mut self, update: Self) {
@@ -29568,6 +29599,37 @@ impl NativeLuaWindowConfigOverrides {
         if update.enable_tab_bar.is_some() {
             self.enable_tab_bar = update.enable_tab_bar;
         }
+        if update.hide_tab_bar_if_only_one_tab.is_some() {
+            self.hide_tab_bar_if_only_one_tab = update.hide_tab_bar_if_only_one_tab;
+        }
+        if update.use_fancy_tab_bar.is_some() {
+            self.use_fancy_tab_bar = update.use_fancy_tab_bar;
+        }
+        if update.tab_bar_at_bottom.is_some() {
+            self.tab_bar_at_bottom = update.tab_bar_at_bottom;
+        }
+        if update.tab_and_split_indices_are_zero_based.is_some() {
+            self.tab_and_split_indices_are_zero_based = update.tab_and_split_indices_are_zero_based;
+        }
+        if update.mouse_wheel_scrolls_tabs.is_some() {
+            self.mouse_wheel_scrolls_tabs = update.mouse_wheel_scrolls_tabs;
+        }
+        if update.switch_to_last_active_tab_when_closing_tab.is_some() {
+            self.switch_to_last_active_tab_when_closing_tab =
+                update.switch_to_last_active_tab_when_closing_tab;
+        }
+        if update.show_close_tab_button_in_tabs.is_some() {
+            self.show_close_tab_button_in_tabs = update.show_close_tab_button_in_tabs;
+        }
+        if update.show_new_tab_button_in_tab_bar.is_some() {
+            self.show_new_tab_button_in_tab_bar = update.show_new_tab_button_in_tab_bar;
+        }
+        if update.show_tab_index_in_tab_bar.is_some() {
+            self.show_tab_index_in_tab_bar = update.show_tab_index_in_tab_bar;
+        }
+        if update.show_tabs_in_tab_bar.is_some() {
+            self.show_tabs_in_tab_bar = update.show_tabs_in_tab_bar;
+        }
     }
 
     fn apply_to_native_config_overrides(self, overrides: &mut NativeConfigOverrides) {
@@ -29624,6 +29686,42 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(enable_tab_bar) = self.enable_tab_bar {
             overrides.enable_tab_bar = Some(enable_tab_bar);
+        }
+        if let Some(hide_tab_bar_if_only_one_tab) = self.hide_tab_bar_if_only_one_tab {
+            overrides.hide_tab_bar_if_only_one_tab = Some(hide_tab_bar_if_only_one_tab);
+        }
+        if let Some(use_fancy_tab_bar) = self.use_fancy_tab_bar {
+            overrides.use_fancy_tab_bar = Some(use_fancy_tab_bar);
+        }
+        if let Some(tab_bar_at_bottom) = self.tab_bar_at_bottom {
+            overrides.tab_bar_at_bottom = Some(tab_bar_at_bottom);
+        }
+        if let Some(tab_and_split_indices_are_zero_based) =
+            self.tab_and_split_indices_are_zero_based
+        {
+            overrides.tab_and_split_indices_are_zero_based =
+                Some(tab_and_split_indices_are_zero_based);
+        }
+        if let Some(mouse_wheel_scrolls_tabs) = self.mouse_wheel_scrolls_tabs {
+            overrides.mouse_wheel_scrolls_tabs = Some(mouse_wheel_scrolls_tabs);
+        }
+        if let Some(switch_to_last_active_tab_when_closing_tab) =
+            self.switch_to_last_active_tab_when_closing_tab
+        {
+            overrides.switch_to_last_active_tab_when_closing_tab =
+                Some(switch_to_last_active_tab_when_closing_tab);
+        }
+        if let Some(show_close_tab_button_in_tabs) = self.show_close_tab_button_in_tabs {
+            overrides.show_close_tab_button_in_tabs = Some(show_close_tab_button_in_tabs);
+        }
+        if let Some(show_new_tab_button_in_tab_bar) = self.show_new_tab_button_in_tab_bar {
+            overrides.show_new_tab_button_in_tab_bar = Some(show_new_tab_button_in_tab_bar);
+        }
+        if let Some(show_tab_index_in_tab_bar) = self.show_tab_index_in_tab_bar {
+            overrides.show_tab_index_in_tab_bar = Some(show_tab_index_in_tab_bar);
+        }
+        if let Some(show_tabs_in_tab_bar) = self.show_tabs_in_tab_bar {
+            overrides.show_tabs_in_tab_bar = Some(show_tabs_in_tab_bar);
         }
     }
 }
@@ -86096,6 +86194,84 @@ mod tests {
         assert_eq!(
             app.right_status,
             "max=144 anim=24 front=WebGpu power=HighPerformance fallback=true egl=false wayland=false zwlr=true box=true pixel=true debug=true esc=true glyph=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_tab_bar_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local overrides = {
+                hide_tab_bar_if_only_one_tab = true,
+                use_fancy_tab_bar = false,
+                tab_bar_at_bottom = true,
+                tab_and_split_indices_are_zero_based = true,
+                mouse_wheel_scrolls_tabs = false,
+                switch_to_last_active_tab_when_closing_tab = true,
+                show_close_tab_button_in_tabs = false,
+                show_new_tab_button_in_tab_bar = false,
+                show_tab_index_in_tab_bar = false,
+                show_tabs_in_tab_bar = false,
+              }
+              window:set_config_overrides(overrides)
+              window:set_right_status(
+                'hide=' .. tostring(window:effective_config().hide_tab_bar_if_only_one_tab)
+                  .. ' fancy=' .. tostring(window:effective_config().use_fancy_tab_bar)
+                  .. ' bottom=' .. tostring(window:effective_config().tab_bar_at_bottom)
+                  .. ' zero=' .. tostring(window:effective_config().tab_and_split_indices_are_zero_based)
+                  .. ' wheel=' .. tostring(window:effective_config().mouse_wheel_scrolls_tabs)
+                  .. ' last=' .. tostring(window:effective_config().switch_to_last_active_tab_when_closing_tab)
+                  .. ' close=' .. tostring(window:effective_config().show_close_tab_button_in_tabs)
+                  .. ' new=' .. tostring(window:effective_config().show_new_tab_button_in_tab_bar)
+                  .. ' index=' .. tostring(window:effective_config().show_tab_index_in_tab_bar)
+                  .. ' tabs=' .. tostring(window:effective_config().show_tabs_in_tab_bar)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides tab-bar callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert!(effective.hide_tab_bar_if_only_one_tab);
+        assert!(!effective.use_fancy_tab_bar);
+        assert!(effective.tab_bar_at_bottom);
+        assert!(effective.tab_and_split_indices_are_zero_based);
+        assert!(!effective.mouse_wheel_scrolls_tabs);
+        assert!(effective.switch_to_last_active_tab_when_closing_tab);
+        assert!(!effective.show_close_tab_button_in_tabs);
+        assert!(!effective.show_new_tab_button_in_tab_bar);
+        assert!(!effective.show_tab_index_in_tab_bar);
+        assert!(!effective.show_tabs_in_tab_bar);
+        assert_eq!(
+            app.right_status,
+            "hide=true fancy=false bottom=true zero=true wheel=false last=true close=false new=false index=false tabs=false"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
