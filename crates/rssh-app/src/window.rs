@@ -10721,6 +10721,20 @@ fn lua_static_window_config_overrides_from_query(
         enable_zwlr_output_manager: overrides.enable_zwlr_output_manager,
         use_box_model_render: overrides.use_box_model_render,
         experimental_pixel_positioning: overrides.experimental_pixel_positioning,
+        shape_cache_size: overrides.shape_cache_size,
+        line_state_cache_size: overrides.line_state_cache_size,
+        line_quad_cache_size: overrides.line_quad_cache_size,
+        line_to_ele_shape_cache_size: overrides.line_to_ele_shape_cache_size,
+        glyph_cache_image_cache_size: overrides.glyph_cache_image_cache_size,
+        cursor_blink_rate_ms: overrides.cursor_blink_rate_ms,
+        cursor_blink_ease_in: overrides.cursor_blink_ease_in,
+        cursor_blink_ease_out: overrides.cursor_blink_ease_out,
+        text_blink_rate_ms: overrides.text_blink_rate_ms,
+        text_blink_rate_rapid_ms: overrides.text_blink_rate_rapid_ms,
+        text_blink_ease_in: overrides.text_blink_ease_in,
+        text_blink_ease_out: overrides.text_blink_ease_out,
+        text_blink_rapid_ease_in: overrides.text_blink_rapid_ease_in,
+        text_blink_rapid_ease_out: overrides.text_blink_rapid_ease_out,
         bold_brightens_ansi_colors: overrides.bold_brightens_ansi_colors,
         default_cursor_style: overrides.default_cursor_style,
         cursor_thickness: overrides.cursor_thickness,
@@ -29594,6 +29608,20 @@ struct NativeLuaWindowConfigOverrides {
     enable_zwlr_output_manager: Option<bool>,
     use_box_model_render: Option<bool>,
     experimental_pixel_positioning: Option<bool>,
+    shape_cache_size: Option<usize>,
+    line_state_cache_size: Option<usize>,
+    line_quad_cache_size: Option<usize>,
+    line_to_ele_shape_cache_size: Option<usize>,
+    glyph_cache_image_cache_size: Option<usize>,
+    cursor_blink_rate_ms: Option<u64>,
+    cursor_blink_ease_in: Option<NativeEasingFunction>,
+    cursor_blink_ease_out: Option<NativeEasingFunction>,
+    text_blink_rate_ms: Option<u64>,
+    text_blink_rate_rapid_ms: Option<u64>,
+    text_blink_ease_in: Option<NativeEasingFunction>,
+    text_blink_ease_out: Option<NativeEasingFunction>,
+    text_blink_rapid_ease_in: Option<NativeEasingFunction>,
+    text_blink_rapid_ease_out: Option<NativeEasingFunction>,
     bold_brightens_ansi_colors: Option<NativeBoldBrightensAnsiColors>,
     default_cursor_style: Option<NativeCursorStyle>,
     cursor_thickness: Option<NativeCursorThickness>,
@@ -29719,6 +29747,20 @@ impl NativeLuaWindowConfigOverrides {
             && self.enable_zwlr_output_manager.is_none()
             && self.use_box_model_render.is_none()
             && self.experimental_pixel_positioning.is_none()
+            && self.shape_cache_size.is_none()
+            && self.line_state_cache_size.is_none()
+            && self.line_quad_cache_size.is_none()
+            && self.line_to_ele_shape_cache_size.is_none()
+            && self.glyph_cache_image_cache_size.is_none()
+            && self.cursor_blink_rate_ms.is_none()
+            && self.cursor_blink_ease_in.is_none()
+            && self.cursor_blink_ease_out.is_none()
+            && self.text_blink_rate_ms.is_none()
+            && self.text_blink_rate_rapid_ms.is_none()
+            && self.text_blink_ease_in.is_none()
+            && self.text_blink_ease_out.is_none()
+            && self.text_blink_rapid_ease_in.is_none()
+            && self.text_blink_rapid_ease_out.is_none()
             && self.bold_brightens_ansi_colors.is_none()
             && self.default_cursor_style.is_none()
             && self.cursor_thickness.is_none()
@@ -29868,6 +29910,48 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.experimental_pixel_positioning.is_some() {
             self.experimental_pixel_positioning = update.experimental_pixel_positioning;
+        }
+        if update.shape_cache_size.is_some() {
+            self.shape_cache_size = update.shape_cache_size;
+        }
+        if update.line_state_cache_size.is_some() {
+            self.line_state_cache_size = update.line_state_cache_size;
+        }
+        if update.line_quad_cache_size.is_some() {
+            self.line_quad_cache_size = update.line_quad_cache_size;
+        }
+        if update.line_to_ele_shape_cache_size.is_some() {
+            self.line_to_ele_shape_cache_size = update.line_to_ele_shape_cache_size;
+        }
+        if update.glyph_cache_image_cache_size.is_some() {
+            self.glyph_cache_image_cache_size = update.glyph_cache_image_cache_size;
+        }
+        if update.cursor_blink_rate_ms.is_some() {
+            self.cursor_blink_rate_ms = update.cursor_blink_rate_ms;
+        }
+        if update.cursor_blink_ease_in.is_some() {
+            self.cursor_blink_ease_in = update.cursor_blink_ease_in;
+        }
+        if update.cursor_blink_ease_out.is_some() {
+            self.cursor_blink_ease_out = update.cursor_blink_ease_out;
+        }
+        if update.text_blink_rate_ms.is_some() {
+            self.text_blink_rate_ms = update.text_blink_rate_ms;
+        }
+        if update.text_blink_rate_rapid_ms.is_some() {
+            self.text_blink_rate_rapid_ms = update.text_blink_rate_rapid_ms;
+        }
+        if update.text_blink_ease_in.is_some() {
+            self.text_blink_ease_in = update.text_blink_ease_in;
+        }
+        if update.text_blink_ease_out.is_some() {
+            self.text_blink_ease_out = update.text_blink_ease_out;
+        }
+        if update.text_blink_rapid_ease_in.is_some() {
+            self.text_blink_rapid_ease_in = update.text_blink_rapid_ease_in;
+        }
+        if update.text_blink_rapid_ease_out.is_some() {
+            self.text_blink_rapid_ease_out = update.text_blink_rapid_ease_out;
         }
         if update.bold_brightens_ansi_colors.is_some() {
             self.bold_brightens_ansi_colors = update.bold_brightens_ansi_colors;
@@ -30242,6 +30326,48 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(experimental_pixel_positioning) = self.experimental_pixel_positioning {
             overrides.experimental_pixel_positioning = Some(experimental_pixel_positioning);
+        }
+        if let Some(shape_cache_size) = self.shape_cache_size {
+            overrides.shape_cache_size = Some(shape_cache_size);
+        }
+        if let Some(line_state_cache_size) = self.line_state_cache_size {
+            overrides.line_state_cache_size = Some(line_state_cache_size);
+        }
+        if let Some(line_quad_cache_size) = self.line_quad_cache_size {
+            overrides.line_quad_cache_size = Some(line_quad_cache_size);
+        }
+        if let Some(line_to_ele_shape_cache_size) = self.line_to_ele_shape_cache_size {
+            overrides.line_to_ele_shape_cache_size = Some(line_to_ele_shape_cache_size);
+        }
+        if let Some(glyph_cache_image_cache_size) = self.glyph_cache_image_cache_size {
+            overrides.glyph_cache_image_cache_size = Some(glyph_cache_image_cache_size);
+        }
+        if let Some(cursor_blink_rate_ms) = self.cursor_blink_rate_ms {
+            overrides.cursor_blink_rate_ms = Some(cursor_blink_rate_ms);
+        }
+        if let Some(cursor_blink_ease_in) = self.cursor_blink_ease_in {
+            overrides.cursor_blink_ease_in = Some(cursor_blink_ease_in);
+        }
+        if let Some(cursor_blink_ease_out) = self.cursor_blink_ease_out {
+            overrides.cursor_blink_ease_out = Some(cursor_blink_ease_out);
+        }
+        if let Some(text_blink_rate_ms) = self.text_blink_rate_ms {
+            overrides.text_blink_rate_ms = Some(text_blink_rate_ms);
+        }
+        if let Some(text_blink_rate_rapid_ms) = self.text_blink_rate_rapid_ms {
+            overrides.text_blink_rate_rapid_ms = Some(text_blink_rate_rapid_ms);
+        }
+        if let Some(text_blink_ease_in) = self.text_blink_ease_in {
+            overrides.text_blink_ease_in = Some(text_blink_ease_in);
+        }
+        if let Some(text_blink_ease_out) = self.text_blink_ease_out {
+            overrides.text_blink_ease_out = Some(text_blink_ease_out);
+        }
+        if let Some(text_blink_rapid_ease_in) = self.text_blink_rapid_ease_in {
+            overrides.text_blink_rapid_ease_in = Some(text_blink_rapid_ease_in);
+        }
+        if let Some(text_blink_rapid_ease_out) = self.text_blink_rapid_ease_out {
+            overrides.text_blink_rapid_ease_out = Some(text_blink_rapid_ease_out);
         }
         if let Some(bold_brightens_ansi_colors) = self.bold_brightens_ansi_colors {
             overrides.bold_brightens_ansi_colors = Some(bold_brightens_ansi_colors);
@@ -87074,6 +87200,108 @@ mod tests {
         assert_eq!(
             app.right_status,
             "max=144 anim=24 front=WebGpu power=HighPerformance fallback=true egl=false wayland=false zwlr=true box=true pixel=true debug=true esc=true glyph=false"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_cache_blink_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                shape_cache_size = 2048,
+                line_state_cache_size = 512,
+                line_quad_cache_size = 768,
+                line_to_ele_shape_cache_size = 1536,
+                glyph_cache_image_cache_size = 128,
+                cursor_blink_rate = 375,
+                cursor_blink_ease_in = 'EaseIn',
+                cursor_blink_ease_out = 'EaseOut',
+                text_blink_rate = 600,
+                text_blink_rate_rapid = 150,
+                text_blink_ease_in = 'EaseIn',
+                text_blink_ease_out = 'EaseOut',
+                text_blink_rapid_ease_in = 'EaseInOut',
+                text_blink_rapid_ease_out = 'Constant',
+              })
+              local config = window:effective_config()
+              window:set_right_status(
+                'shape=' .. tostring(config.shape_cache_size)
+                  .. ' line=' .. tostring(config.line_state_cache_size)
+                  .. '/' .. tostring(config.line_quad_cache_size)
+                  .. '/' .. tostring(config.line_to_ele_shape_cache_size)
+                  .. ' glyph=' .. tostring(config.glyph_cache_image_cache_size)
+                  .. ' cursor=' .. tostring(config.cursor_blink_rate)
+                  .. '/' .. tostring(config.cursor_blink_ease_in)
+                  .. '/' .. tostring(config.cursor_blink_ease_out)
+                  .. ' text=' .. tostring(config.text_blink_rate)
+                  .. '/' .. tostring(config.text_blink_rate_rapid)
+                  .. '/' .. tostring(config.text_blink_ease_in)
+                  .. '/' .. tostring(config.text_blink_ease_out)
+                  .. '/' .. tostring(config.text_blink_rapid_ease_in)
+                  .. '/' .. tostring(config.text_blink_rapid_ease_out)
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides cache blink callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.shape_cache_size, 2_048);
+        assert_eq!(effective.line_state_cache_size, 512);
+        assert_eq!(effective.line_quad_cache_size, 768);
+        assert_eq!(effective.line_to_ele_shape_cache_size, 1_536);
+        assert_eq!(effective.glyph_cache_image_cache_size, 128);
+        assert_eq!(effective.cursor_blink_rate, 375);
+        assert_eq!(effective.cursor_blink_rate_ms, 375);
+        assert_eq!(effective.cursor_blink_ease_in, NativeEasingFunction::EaseIn);
+        assert_eq!(
+            effective.cursor_blink_ease_out,
+            NativeEasingFunction::EaseOut
+        );
+        assert_eq!(effective.text_blink_rate, 600);
+        assert_eq!(effective.text_blink_rate_ms, 600);
+        assert_eq!(effective.text_blink_rate_rapid, 150);
+        assert_eq!(effective.text_blink_rate_rapid_ms, 150);
+        assert_eq!(effective.text_blink_ease_in, NativeEasingFunction::EaseIn);
+        assert_eq!(effective.text_blink_ease_out, NativeEasingFunction::EaseOut);
+        assert_eq!(
+            effective.text_blink_rapid_ease_in,
+            NativeEasingFunction::EaseInOut
+        );
+        assert_eq!(
+            effective.text_blink_rapid_ease_out,
+            NativeEasingFunction::Constant
+        );
+        assert_eq!(
+            app.right_status,
+            "shape=2048 line=512/768/1536 glyph=128 cursor=375/EaseIn/EaseOut text=600/150/EaseIn/EaseOut/EaseInOut/Constant"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
