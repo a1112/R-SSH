@@ -10820,6 +10820,7 @@ fn lua_static_window_config_overrides_from_query(
             .ratelimit_mux_line_prefetches_per_second,
         mux_output_parser_buffer_size: overrides.mux_output_parser_buffer_size,
         mux_output_parser_coalesce_delay_ms: overrides.mux_output_parser_coalesce_delay_ms,
+        mux_env_remove: overrides.mux_env_remove,
         periodic_stat_logging: overrides.periodic_stat_logging,
         ulimit_nofile: overrides.ulimit_nofile,
         ulimit_nproc: overrides.ulimit_nproc,
@@ -29801,6 +29802,7 @@ struct NativeLuaWindowConfigOverrides {
     ratelimit_mux_line_prefetches_per_second: Option<u32>,
     mux_output_parser_buffer_size: Option<usize>,
     mux_output_parser_coalesce_delay_ms: Option<u64>,
+    mux_env_remove: Option<Vec<String>>,
     periodic_stat_logging: Option<u64>,
     ulimit_nofile: Option<u64>,
     ulimit_nproc: Option<u64>,
@@ -30026,6 +30028,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.ratelimit_mux_line_prefetches_per_second.is_none()
             && self.mux_output_parser_buffer_size.is_none()
             && self.mux_output_parser_coalesce_delay_ms.is_none()
+            && self.mux_env_remove.is_none()
             && self.periodic_stat_logging.is_none()
             && self.ulimit_nofile.is_none()
             && self.ulimit_nproc.is_none()
@@ -30474,6 +30477,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.mux_output_parser_coalesce_delay_ms.is_some() {
             self.mux_output_parser_coalesce_delay_ms = update.mux_output_parser_coalesce_delay_ms;
+        }
+        if update.mux_env_remove.is_some() {
+            self.mux_env_remove = update.mux_env_remove;
         }
         if update.periodic_stat_logging.is_some() {
             self.periodic_stat_logging = update.periodic_stat_logging;
@@ -31166,6 +31172,9 @@ impl NativeLuaWindowConfigOverrides {
         {
             overrides.mux_output_parser_coalesce_delay_ms =
                 Some(mux_output_parser_coalesce_delay_ms);
+        }
+        if let Some(mux_env_remove) = self.mux_env_remove {
+            overrides.mux_env_remove = Some(mux_env_remove);
         }
         if let Some(periodic_stat_logging) = self.periodic_stat_logging {
             overrides.periodic_stat_logging = Some(periodic_stat_logging);
@@ -89281,6 +89290,7 @@ mod tests {
                 ratelimit_mux_line_prefetches_per_second = 12,
                 mux_output_parser_buffer_size = 4096,
                 mux_output_parser_coalesce_delay_ms = 7,
+                mux_env_remove = { 'REMOVE_ME', 'REMOVE_TOO' },
                 periodic_stat_logging = 15,
                 ulimit_nofile = 4096,
                 ulimit_nproc = 8192,
@@ -89301,6 +89311,7 @@ mod tests {
                   .. ' prefetch=' .. tostring(window:effective_config().ratelimit_mux_line_prefetches_per_second)
                   .. ' buffer=' .. tostring(window:effective_config().mux_output_parser_buffer_size)
                   .. ' coalesce=' .. tostring(window:effective_config().mux_output_parser_coalesce_delay_ms)
+                  .. ' mux-env=' .. tostring(window:effective_config().mux_env_remove[2])
                   .. ' stats=' .. tostring(window:effective_config().periodic_stat_logging)
                   .. ' nofile=' .. tostring(window:effective_config().ulimit_nofile)
                   .. ' nproc=' .. tostring(window:effective_config().ulimit_nproc)
@@ -89337,6 +89348,10 @@ mod tests {
         assert_eq!(effective.ratelimit_mux_line_prefetches_per_second, 12);
         assert_eq!(effective.mux_output_parser_buffer_size, 4096);
         assert_eq!(effective.mux_output_parser_coalesce_delay_ms, 7);
+        assert_eq!(
+            effective.mux_env_remove,
+            vec!["REMOVE_ME".to_owned(), "REMOVE_TOO".to_owned()]
+        );
         assert_eq!(effective.periodic_stat_logging, 15);
         assert_eq!(effective.ulimit_nofile, 4096);
         assert_eq!(effective.ulimit_nproc, 8192);
@@ -89350,7 +89365,7 @@ mod tests {
         assert!(effective.use_resize_increments);
         assert_eq!(
             app.right_status,
-            "startup=prod cwd=/tmp/default ssh-auth=/tmp/wezterm-agent.sock mux-domain=mux-main mux-agent=false ssh=Ssh2 prefetch=12 buffer=4096 coalesce=7 stats=15 nofile=4096 nproc=8192 tiling=Wayland Sway detect=false macos=true notch=true resize=true"
+            "startup=prod cwd=/tmp/default ssh-auth=/tmp/wezterm-agent.sock mux-domain=mux-main mux-agent=false ssh=Ssh2 prefetch=12 buffer=4096 coalesce=7 mux-env=REMOVE_TOO stats=15 nofile=4096 nproc=8192 tiling=Wayland Sway detect=false macos=true notch=true resize=true"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
