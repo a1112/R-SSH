@@ -19937,7 +19937,7 @@ fn lua_static_wezterm_format_alias_query_from_query(
         return None;
     }
 
-    let rest = query.get(alias.len()..)?.trim_start();
+    let rest = lua_trim_start_comments(query.get(alias.len()..)?)?;
     if !matches!(rest.chars().next()?, '(' | '{') {
         return None;
     }
@@ -116886,6 +116886,48 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm PromptInputLine static format alias field config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+P".to_owned(),
+                command: WindowCommand::PromptInputLine(WindowPromptInputLineOptions {
+                    description: "Rename tab".to_owned(),
+                    prompt: Some("name: ".to_owned()),
+                    initial_value: Some("old name".to_owned()),
+                    action: None,
+                }),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_prompt_input_line_format_alias_with_comment_before_call() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local fmt = wezterm.format
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'P',
+                mods = 'CTRL|SHIFT',
+                action = act.PromptInputLine {
+                  description = fmt -- title
+                    { { Text = 'Rename' }, { Text = ' tab' } },
+                  prompt = fmt -- prompt
+                    ({ { Text = 'name: ' } }),
+                  initial_value = 'old name',
+                },
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm PromptInputLine static format alias comment table-call config");
 
         assert_eq!(
             overrides.key_assignments,

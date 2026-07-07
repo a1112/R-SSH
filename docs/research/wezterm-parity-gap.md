@@ -1208,7 +1208,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   variables for `description`/`prompt`/`initial_value` fields, plus top-level
   static `wezterm.format` text variables for
   `description`/`prompt` and inline or static string Text values built from
-  top-level static `wezterm.format` aliases.
+  top-level static `wezterm.format` aliases, including Lua comments before the
+  alias table-call or parenthesized call payload.
   Static Lua `wezterm.format { { Text = ... } }` values for `description` and
   `prompt`, including static string Text variables, are reduced to their visible
   text for the native overlay, and static
