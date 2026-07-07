@@ -2541,7 +2541,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   callbacks with literal or top-level static string-variable/concatenated event names,
   literal string returns, callback-local/top-level static string-variable
   returns and concatenation, plus top-level static `local <alias> = wezterm.on` event
-  aliases, map onto the native title override path. The documented default
+  aliases with Lua comments allowed inside the dotted helper path, map onto the
+  native title override path. The documented default
   processing example's static subset also parses callback-local conditional
   assignments for `tab.active_pane.is_zoomed` and `#tabs > 1`,
   `string.format('[%d/%d] ', tab.tab_index + 1, #tabs)`, and final string
