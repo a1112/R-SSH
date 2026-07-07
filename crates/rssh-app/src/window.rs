@@ -52775,15 +52775,18 @@ fn lua_static_wezterm_emit_alias_before_offset(
         let Some(value) = rest.strip_prefix('=') else {
             continue;
         };
-        selected = lua_top_level_statement_value_from_query(value)
-            .is_some_and(lua_static_wezterm_emit_alias_value_from_query);
+        selected = lua_static_wezterm_emit_alias_value_from_query(value);
     }
 
     Some(selected)
 }
 
 fn lua_static_wezterm_emit_alias_value_from_query(value: &str) -> bool {
-    value.trim() == "wezterm.emit"
+    let Some(rest) = lua_dotted_identifier_rest_from_query_preserving_tail(value, "wezterm.emit")
+    else {
+        return false;
+    };
+    lua_static_identifier_value_rest_is_statement_end(rest)
 }
 
 #[derive(Clone, Default)]
@@ -109744,6 +109747,42 @@ mod tests {
             "#,
         )
         .expect("expected static EmitEvent handler config");
+        app.set_config_overrides(overrides);
+
+        assert!(
+            app.command_palette_execute(WindowCommand::EmitEvent(WindowEmitEvent {
+                name: "send-greeting".to_owned(),
+            },))
+        );
+
+        assert_eq!(written.lock().unwrap().as_slice(), b"hello");
+    }
+
+    #[test]
+    fn window_app_emit_event_static_wezterm_on_handler_emits_static_event_alias_dotted_comment() {
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let mut app = NativeWindowApp::new(None);
+        app.writer = Some(Box::new(SharedWriter(Arc::clone(&written))));
+
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local emit = wezterm -- event emitter
+              .emit
+
+            wezterm.on('send-greeting', function(window, pane)
+              emit('write-greeting', window, pane)
+            end)
+
+            wezterm.on('write-greeting', function(window, pane)
+              window:perform_action(act.SendString 'hello', pane)
+            end)
+
+            return {}
+            "#,
+        )
+        .expect("expected static EmitEvent handler dotted-comment alias config");
         app.set_config_overrides(overrides);
 
         assert!(
