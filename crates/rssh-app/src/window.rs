@@ -7564,6 +7564,11 @@ fn lua_static_wezterm_on_event_args_from_require_query<'a>(
     start: usize,
     value: &'a str,
 ) -> Option<&'a str> {
+    let rest = lua_static_wezterm_require_receiver_rest_from_query(value)?;
+    lua_static_wezterm_on_event_args_from_receiver_rest(source, start, rest)
+}
+
+fn lua_static_wezterm_require_receiver_rest_from_query(value: &str) -> Option<&str> {
     let rest = value.strip_prefix("require")?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
@@ -7586,7 +7591,7 @@ fn lua_static_wezterm_on_event_args_from_require_query<'a>(
     if parse_maybe_quoted_query_text(literal).as_deref() != Some("wezterm") {
         return None;
     }
-    lua_static_wezterm_on_event_args_from_receiver_rest(source, start, rest)
+    Some(rest)
 }
 
 fn lua_static_wezterm_on_event_args_from_receiver_rest<'a>(
@@ -7645,10 +7650,14 @@ fn lua_static_wezterm_on_alias_value_from_query(
     let Some(value) = lua_trim_start_comments(value) else {
         return false;
     };
-    let Some(rest) = value.strip_prefix("wezterm") else {
+    let Some(rest) = value
+        .strip_prefix("wezterm")
+        .or_else(|| lua_static_wezterm_require_receiver_rest_from_query(value))
+    else {
         return false;
     };
-    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+    if value.starts_with("wezterm") && rest.chars().next().is_some_and(is_lua_identifier_character)
+    {
         return false;
     }
     let Some(rest) = lua_trim_start_comments(rest) else {
@@ -104278,6 +104287,24 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "ALIAS LUA TITLE");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_require_on_alias_format_window_title_event() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local on = require('wezterm').on
+
+            on('format-window-title', function(tab, pane, tabs, panes, config)
+              return 'REQUIRE ALIAS LUA TITLE'
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm require on-alias format-window-title event");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "REQUIRE ALIAS LUA TITLE");
     }
 
     #[test]

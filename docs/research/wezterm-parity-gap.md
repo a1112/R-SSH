@@ -2643,7 +2643,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   callback variables, top-level `local wt = require 'wezterm'` module aliases,
   direct `require('wezterm').on(...)` and `require 'wezterm'.on(...)` receivers,
   comments between the `wezterm` or module-alias receiver and `.on`,
-  `wezterm.on`/`wezterm['on']` aliases, and aliases to static callback expressions,
+  `wezterm.on`/`wezterm['on']` aliases, `require('wezterm').on` aliases, and
+  aliases to static callback expressions,
   top-level static table-field function callbacks from
   field assignments, table initializers, or table-field named function
   declarations, nested static table-field callback
