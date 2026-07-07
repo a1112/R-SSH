@@ -10453,6 +10453,7 @@ fn lua_static_window_status_text_from_query(
     }
     if let Some(status) = lua_static_window_and_pane_status_text_from_query(
         static_source,
+        outer_static_source,
         window_name,
         pane_name,
         argument,
@@ -10674,6 +10675,7 @@ fn lua_parenthesized_lua_expression_from_query(value: &str) -> Option<&str> {
 
 fn lua_static_window_and_pane_status_text_from_query(
     static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
     window_name: &str,
     pane_name: &str,
     value: &str,
@@ -10689,7 +10691,7 @@ fn lua_static_window_and_pane_status_text_from_query(
                 .or_else(|| {
                     lua_static_window_and_pane_status_fallback_part_from_query(
                         static_source,
-                        None,
+                        outer_static_source,
                         window_name,
                         pane_name,
                         segment,
@@ -82940,6 +82942,37 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm active tab alias title variable fallback concat status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=");
+
+        app.dispatch_app_action(AppAction::SetTabTitle {
+            tab: app.app_shell.active_tab_id(),
+            title: "build".to_owned(),
+        })
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "tab=build");
+    }
+
+    #[test]
+    fn window_app_parses_update_status_title_variable_top_level_named_fallback_concat_status_setter()
+     {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local fallback = ''
+
+            wezterm.on('update-status', function(window, pane)
+              local tab = window:active_tab()
+              local title = tab:get_title()
+              window:set_right_status('tab=' .. (title or fallback))
+            end)
+            "#,
+        )
+        .expect("expected WezTerm active tab title variable top-level named fallback concat status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
