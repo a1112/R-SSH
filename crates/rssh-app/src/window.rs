@@ -60178,7 +60178,8 @@ fn split_lua_table_assignment_from_field(field: &str) -> Option<(&str, &str)> {
             }
             continue;
         }
-        if depth == 0 && bracket_depth == 0 && field[index..].starts_with("--") {
+        if depth == 0 && paren_depth == 0 && bracket_depth == 0 && field[index..].starts_with("--")
+        {
             if let Some((key_end, value_start)) = assignment {
                 if field[value_start..index].trim().is_empty() {
                     if let Some((content_start, closing)) =
@@ -114176,6 +114177,37 @@ mod tests {
             Some(vec![NativeUserKeyAssignment {
                 keys: "CTRL|SHIFT+A".to_owned(),
                 command: WindowCommand::SendString("from-action-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_key_action_function_argument_comment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+
+            config.keys = {
+              {
+                key = 'C',
+                mods = 'CTRL|SHIFT',
+                action = act.SendString('from-commented-call' -- payload
+                ),
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm key action function argument comment config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|SHIFT+C".to_owned(),
+                command: WindowCommand::SendString("from-commented-call".to_owned()),
             }])
         );
     }
