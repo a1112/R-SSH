@@ -1710,8 +1710,9 @@ runtime storage for tabs and split panes.
   `window:active_pane():get_user_vars()` dot-field, static string-key, or
   callback-local/top-level static string-key-variable concatenations expose
   stored active-pane user vars, including static `or` fallbacks with optional
-  `tostring(...)` wrapping and callback-local variables assigned from those
-  user-var reads, static
+  `tostring(...)` wrapping for direct reads and callback-local variables
+  assigned from those user-var reads, including `tostring(...)` wrapping when
+  concatenated, static
   `pane:get_progress()` or `window:active_pane():get_progress()` conditional
   branches expose active-pane `Percentage`, `Error`, and `Indeterminate`
   progress states, static `pane:get_dimensions()` or

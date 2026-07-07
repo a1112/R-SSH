@@ -2551,8 +2551,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `pane:get_user_vars()` or `window:active_pane():get_user_vars()` dot-field,
   static string-key, or callback-local/top-level static string-key-variable
   concatenations for stored user-var names, including static `or` fallbacks with
-  optional `tostring(...)` wrapping and callback-local variables assigned from
-  those user-var reads,
+  optional `tostring(...)` wrapping for direct reads and callback-local
+  variables assigned from those user-var reads, including `tostring(...)`
+  wrapping when concatenated,
   static `pane:get_progress()` or `window:active_pane():get_progress()`
   conditional status branches for `Percentage`, `Error`, and `Indeterminate`,
   static `pane:get_dimensions()` or

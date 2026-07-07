@@ -11878,6 +11878,7 @@ fn lua_static_pane_user_vars_local_value_from_query(
     window_name: &str,
     pane_name: &str,
 ) -> Option<(String, String)> {
+    let value = lua_tostring_argument_from_query(value).unwrap_or(value);
     let local_value = lua_static_expression_assignment_value_before_offset_from_query(
         static_source.source,
         value,
@@ -83376,6 +83377,32 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm local pane user var status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "host=none");
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_HOST=cHJvZA==\x07")
+            .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "host=prod");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_tostring_local_pane_user_var_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              local vars = pane:get_user_vars()
+              local host = vars.WEZTERM_HOST or 'none'
+              window:set_right_status('host=' .. tostring(host))
+            end)
+            "#,
+        )
+        .expect("expected WezTerm tostring local pane user var status setter");
         app.set_config_overrides(overrides);
 
         app.dispatch_update_status();
