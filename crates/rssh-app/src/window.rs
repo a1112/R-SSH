@@ -10821,6 +10821,10 @@ fn lua_static_window_config_overrides_from_query(
         tiling_desktop_environments: overrides.tiling_desktop_environments,
         term: overrides.term,
         enq_answerback: overrides.enq_answerback,
+        audible_bell: overrides.audible_bell,
+        visual_bell: overrides.visual_bell,
+        visual_bell_color: overrides.visual_bell_color,
+        notification_handling: overrides.notification_handling,
         automatically_reload_config: overrides.automatically_reload_config,
         check_for_updates: overrides.check_for_updates,
         check_for_updates_interval_seconds: overrides.check_for_updates_interval_seconds,
@@ -29736,6 +29740,10 @@ struct NativeLuaWindowConfigOverrides {
     tiling_desktop_environments: Option<Vec<String>>,
     term: Option<String>,
     enq_answerback: Option<String>,
+    audible_bell: Option<NativeAudibleBell>,
+    visual_bell: Option<NativeVisualBell>,
+    visual_bell_color: Option<Color>,
+    notification_handling: Option<NativeNotificationHandling>,
     automatically_reload_config: Option<bool>,
     check_for_updates: Option<bool>,
     check_for_updates_interval_seconds: Option<u64>,
@@ -29905,6 +29913,10 @@ impl NativeLuaWindowConfigOverrides {
             && self.tiling_desktop_environments.is_none()
             && self.term.is_none()
             && self.enq_answerback.is_none()
+            && self.audible_bell.is_none()
+            && self.visual_bell.is_none()
+            && self.visual_bell_color.is_none()
+            && self.notification_handling.is_none()
             && self.automatically_reload_config.is_none()
             && self.check_for_updates.is_none()
             && self.check_for_updates_interval_seconds.is_none()
@@ -30299,6 +30311,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.enq_answerback.is_some() {
             self.enq_answerback = update.enq_answerback;
+        }
+        if update.audible_bell.is_some() {
+            self.audible_bell = update.audible_bell;
+        }
+        if update.visual_bell.is_some() {
+            self.visual_bell = update.visual_bell;
+        }
+        if update.visual_bell_color.is_some() {
+            self.visual_bell_color = update.visual_bell_color;
+        }
+        if update.notification_handling.is_some() {
+            self.notification_handling = update.notification_handling;
         }
         if update.automatically_reload_config.is_some() {
             self.automatically_reload_config = update.automatically_reload_config;
@@ -30822,6 +30846,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(enq_answerback) = self.enq_answerback {
             overrides.enq_answerback = Some(enq_answerback);
+        }
+        if let Some(audible_bell) = self.audible_bell {
+            overrides.audible_bell = Some(audible_bell);
+        }
+        if let Some(visual_bell) = self.visual_bell {
+            overrides.visual_bell = Some(visual_bell);
+        }
+        if let Some(visual_bell_color) = self.visual_bell_color {
+            overrides.visual_bell_color = Some(visual_bell_color);
+        }
+        if let Some(notification_handling) = self.notification_handling {
+            overrides.notification_handling = Some(notification_handling);
         }
         if let Some(automatically_reload_config) = self.automatically_reload_config {
             overrides.automatically_reload_config = Some(automatically_reload_config);
@@ -87637,6 +87673,89 @@ mod tests {
         assert_eq!(
             app.right_status,
             "fg=0.5/0.75/1.25 inactive=1.5/0.25/0.5 opacity=0.4/0.6 blur=true/20 backdrop=Mica accent=#112233"
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_bell_notification_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r##"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                font_size = 13.5,
+                audible_bell = 'Disabled',
+                visual_bell = {
+                  fade_in_duration_ms = 25,
+                  fade_out_duration_ms = 175,
+                  fade_in_function = 'EaseIn',
+                  fade_out_function = 'EaseOut',
+                  target = 'CursorColor',
+                },
+                colors = {
+                  visual_bell = '#010203',
+                },
+                notification_handling = 'SuppressFromFocusedWindow',
+              })
+              window:set_right_status(
+                'audible=' .. tostring(window:effective_config().audible_bell)
+                  .. ' target=' .. tostring(window:effective_config().visual_bell.target)
+                  .. ' notify=' .. tostring(window:effective_config().notification_handling)
+              )
+            end)
+            "##,
+        )
+        .expect("expected WezTerm set_config_overrides bell notification callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(
+            effective.font_size,
+            NativeFontSize::from_millipoints(13_500)
+        );
+        assert_eq!(effective.audible_bell, NativeAudibleBell::Disabled);
+        assert_eq!(
+            effective.visual_bell,
+            NativeVisualBell {
+                fade_in_duration_ms: 25,
+                fade_out_duration_ms: 175,
+                fade_in_function: NativeEasingFunction::EaseIn,
+                fade_out_function: NativeEasingFunction::EaseOut,
+                target: NativeVisualBellTarget::CursorColor,
+            }
+        );
+        assert_eq!(effective.visual_bell_color, Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(
+            effective.notification_handling,
+            NativeNotificationHandling::SuppressFromFocusedWindow
+        );
+        assert_eq!(
+            app.right_status,
+            "audible=Disabled target=CursorColor notify=SuppressFromFocusedWindow"
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
