@@ -2830,7 +2830,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   scope plus callback-local `table.insert` or `items[#items + 1] = ...`
   appends whose table or string items can resolve from callback-local or
   top-level static variables, including `table.insert(elements, accent)` or
-  `table.insert(elements, reset)`. Arbitrary Lua
+  `table.insert(elements, reset)`, plus callback-local aliases to those
+  top-level static item tables. Arbitrary Lua
   status callback execution, dynamic `wezterm.format` construction, remaining
   window status API wiring, and real keyboard LED tracking remain open.
 - Native window now dispatches a typed `new-tab-button-click` hook for
