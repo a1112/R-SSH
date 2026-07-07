@@ -8158,6 +8158,13 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActiveTabTitle);
     }
 
+    let tab_window_title = format!("{tab_param}.window_title");
+    if let Some(rest) = expression.strip_prefix(&tab_window_title)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::WindowTitle);
+    }
+
     for (field, part) in lua_window_title_active_pane_text_parts() {
         let tab_active_pane_field = format!("{tab_param}.active_pane.{field}");
         if let Some(rest) = expression.strip_prefix(&tab_active_pane_field)
@@ -30135,6 +30142,7 @@ impl NativeLuaWindowTitle {
 enum NativeLuaWindowTitlePart {
     Static(String),
     ActiveTabTitle,
+    WindowTitle,
     ActivePaneId,
     ActivePaneTitle,
     ActivePaneDomainName,
@@ -30156,6 +30164,7 @@ impl NativeLuaWindowTitlePart {
         match self {
             Self::Static(value) => Some(value.clone()),
             Self::ActiveTabTitle => event.active_tab_info.tab_title.clone(),
+            Self::WindowTitle => Some(event.active_tab_info.window_title.clone()),
             Self::ActivePaneId => Some(event.active_pane_info.pane_id.get().to_string()),
             Self::ActivePaneTitle => event.active_pane_info.title.clone(),
             Self::ActivePaneDomainName => Some(event.active_pane_info.domain_name.clone()),
@@ -104880,6 +104889,26 @@ mod tests {
         .unwrap();
 
         assert_eq!(app.effective_window_title(), "Explicit Tab");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_tab_window_title_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tab.window_title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title tab window title return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "Window Fallback");
     }
 
     #[test]
