@@ -57085,15 +57085,17 @@ fn strip_query_table_assignment_from_prefix<'a>(query: &'a str, prefix: &str) ->
     let query = query.trim();
     if let Some(name) = prefix.strip_suffix('=') {
         let candidate = query.get(..name.len())?;
-        let rest = query.get(name.len()..)?.trim_start();
-        if let Some(table_rest) = lua_trim_start_comments(rest).and_then(lua_trim_end_comments)
+        if !candidate.eq_ignore_ascii_case(name) {
+            return None;
+        }
+        let rest = lua_trim_start_comments(query.get(name.len()..)?)?;
+        if let Some(table_rest) = lua_trim_end_comments(rest)
             && table_rest.starts_with('{')
         {
-            return candidate.eq_ignore_ascii_case(name).then_some(table_rest);
+            return Some(table_rest);
         }
-        return candidate
-            .eq_ignore_ascii_case(name)
-            .then(|| rest.strip_prefix('=').map(str::trim_start))?;
+        let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+        return lua_trim_end_comments(rest);
     }
     strip_query_prefix_from_any(query, &[prefix])
 }
@@ -105570,6 +105572,34 @@ mod tests {
         app.enter_command_palette_mode();
         app.command_palette_set_query(
             "SpawnCommandInNewTab = { cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } }"
+                .to_owned(),
+        );
+
+        assert_eq!(
+            app.command_palette_filtered_commands(),
+            vec![WindowCommand::NewTab]
+        );
+        assert!(app.command_palette_execute(WindowCommand::NewTab));
+
+        let launch = app.app_shell.active_pane().launch();
+        assert_eq!(app.active_tab_id(), rssh_core::TabId::new(2));
+        assert_eq!(launch.program(), "top");
+        assert_eq!(launch.args(), ["-d", "1"]);
+        assert_eq!(launch.cwd(), Some("C:/Project Dir"));
+        assert!(app.command_palette.is_none());
+    }
+
+    #[test]
+    fn window_app_dispatches_palette_spawn_command_in_new_tab_comment_before_table_assignment_query()
+     {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("powershell").with_args(["-NoProfile"]),
+        );
+
+        app.enter_command_palette_mode();
+        app.command_palette_set_query(
+            "SpawnCommandInNewTab -- spawn options\n = { cwd = \"C:/Project Dir\", args = { \"top\", \"-d\", \"1\" } }"
                 .to_owned(),
         );
 

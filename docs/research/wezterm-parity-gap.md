@@ -989,7 +989,9 @@ what remains before WezTerm-style parity in key UX/composition areas.
   queries now allow Lua comments between `wezterm.action` and `.`, plus between
   the action name and Lua table-constructor or parenthesized-call payload, and
   after table-constructor calls, at the start or end of parenthesized call
-  arguments, or after parenthesized calls, and indexed
+  arguments, or after parenthesized calls. Assignment-form command-palette
+  queries such as `SpawnCommandInNewTab = { ... }` also accept Lua comments
+  between the action name and `=`. Indexed
   `wezterm.action["..."]` and long-bracket `wezterm.action[ [[...]] ]` names
   followed by Lua table constructors now preserve the table payload separator,
   including when Lua comments appear between `wezterm.action` and `[`, or
