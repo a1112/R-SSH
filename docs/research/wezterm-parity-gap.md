@@ -2377,7 +2377,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `quit_when_all_windows_are_closed`,
   `window_close_confirmation`, `exit_behavior`, `clean_exit_codes`,
   `exit_behavior_messaging`, `skip_close_confirmation_for_processes_named`,
-  and `enable_tab_bar` overrides into the native effective config. That static
+  `leader`, and `enable_tab_bar` overrides into the native effective config. That static
   subset also covers background visual fields `foreground_text_hsb`,
   `inactive_pane_hsb`, `text_background_opacity`,
   `window_background_opacity`, `background`, `window_background_image`,
@@ -2526,7 +2526,7 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `prefer_to_spawn_tabs`, `set_environment_variables`,
   `quit_when_all_windows_are_closed`, `window_close_confirmation`,
   `exit_behavior`, `clean_exit_codes`, `exit_behavior_messaging`,
-  `skip_close_confirmation_for_processes_named`, `enable_tab_bar`, domain
+  `skip_close_confirmation_for_processes_named`, `leader`, `enable_tab_bar`, domain
   fields `exec_domains`, `wsl_domains`, `unix_domains`, `ssh_domains`,
   `tls_servers`, `tls_clients`, and `serial_ports`, mux/resource fields
   `default_mux_server_domain`, `daemon_options`,

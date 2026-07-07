@@ -10953,6 +10953,7 @@ fn lua_static_window_config_overrides_from_query(
         debug_key_events: overrides.debug_key_events,
         log_unknown_escape_sequences: overrides.log_unknown_escape_sequences,
         warn_about_missing_glyphs: overrides.warn_about_missing_glyphs,
+        leader: overrides.leader,
         enable_tab_bar: overrides.enable_tab_bar,
         hide_tab_bar_if_only_one_tab: overrides.hide_tab_bar_if_only_one_tab,
         use_fancy_tab_bar: overrides.use_fancy_tab_bar,
@@ -30132,6 +30133,7 @@ struct NativeLuaWindowConfigOverrides {
     debug_key_events: Option<bool>,
     log_unknown_escape_sequences: Option<bool>,
     warn_about_missing_glyphs: Option<bool>,
+    leader: Option<NativeLeaderKey>,
     enable_tab_bar: Option<bool>,
     hide_tab_bar_if_only_one_tab: Option<bool>,
     use_fancy_tab_bar: Option<bool>,
@@ -30383,6 +30385,7 @@ impl NativeLuaWindowConfigOverrides {
             && self.debug_key_events.is_none()
             && self.log_unknown_escape_sequences.is_none()
             && self.warn_about_missing_glyphs.is_none()
+            && self.leader.is_none()
             && self.enable_tab_bar.is_none()
             && self.hide_tab_bar_if_only_one_tab.is_none()
             && self.use_fancy_tab_bar.is_none()
@@ -31101,6 +31104,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.warn_about_missing_glyphs.is_some() {
             self.warn_about_missing_glyphs = update.warn_about_missing_glyphs;
+        }
+        if update.leader.is_some() {
+            self.leader = update.leader;
         }
         if update.enable_tab_bar.is_some() {
             self.enable_tab_bar = update.enable_tab_bar;
@@ -31883,6 +31889,9 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(warn_about_missing_glyphs) = self.warn_about_missing_glyphs {
             overrides.warn_about_missing_glyphs = Some(warn_about_missing_glyphs);
+        }
+        if let Some(leader) = self.leader {
+            overrides.leader = Some(leader);
         }
         if let Some(enable_tab_bar) = self.enable_tab_bar {
             overrides.enable_tab_bar = Some(enable_tab_bar);
@@ -89585,6 +89594,54 @@ mod tests {
         assert_eq!(
             effective.tab_bar_style.new_tab,
             Some(vec![NativeFormatItem::Text("NEW".to_owned())])
+        );
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_leader() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                leader = { key = 'a', mods = 'CTRL', timeout_milliseconds = 1000 },
+              })
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides leader callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        assert_eq!(
+            app.native_effective_config().leader,
+            Some(NativeLeaderKey {
+                keys: "CTRL+a".to_owned(),
+                timeout_milliseconds: Some(1000),
+            })
         );
         assert_eq!(
             events.lock().unwrap().as_slice(),
