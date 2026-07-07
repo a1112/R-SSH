@@ -8021,9 +8021,13 @@ fn lua_window_title_text_parts_from_expression_with_depth(
 
     let expression = lua_trim_start_comments(expression.trim())?;
     let expression = lua_tostring_argument_from_query(expression).unwrap_or(expression);
-    if let Some(part) =
-        lua_window_title_text_part_from_expression(expression, tab_param, pane_param, tabs_param)
-    {
+    if let Some(part) = lua_window_title_text_part_from_expression(
+        expression,
+        tab_param,
+        pane_param,
+        tabs_param,
+        static_source,
+    ) {
         return Some(vec![part]);
     }
 
@@ -8109,6 +8113,7 @@ fn lua_window_title_text_part_from_expression(
     tab_param: &str,
     pane_param: &str,
     tabs_param: &str,
+    static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitlePart> {
     let expression = lua_trim_start_comments(expression.trim())?;
     let pane_title = format!("{pane_param}.title");
@@ -8132,7 +8137,35 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActivePaneTitle);
     }
 
+    if let Some(receiver) = lua_identifier_literal_from_query(expression) {
+        let rest = expression.get(receiver.len()..)?;
+        if lua_window_title_active_pane_alias_before_offset(static_source, receiver, tab_param)
+            .unwrap_or(false)
+        {
+            let rest = lua_trim_start_comments(rest)?.strip_prefix('.')?;
+            if let Some(rest) = rest.strip_prefix("title")
+                && lua_static_identifier_value_rest_is_statement_end(rest)
+            {
+                return Some(NativeLuaWindowTitlePart::ActivePaneTitle);
+            }
+        }
+    }
+
     lua_window_title_tab_index_format_part_from_expression(expression, tab_param, tabs_param)
+}
+
+fn lua_window_title_active_pane_alias_before_offset(
+    static_source: Option<LuaStaticSource<'_>>,
+    alias: &str,
+    tab_param: &str,
+) -> Option<bool> {
+    let static_source = static_source?;
+    let value = lua_static_expression_variable_assignment_before_offset_from_query(
+        static_source.source,
+        alias,
+        static_source.max_start,
+    )?;
+    Some(value.trim() == format!("{tab_param}.active_pane"))
 }
 
 fn lua_window_title_conditional_assignment_parts_before_offset(
@@ -104524,6 +104557,27 @@ mod tests {
             "#,
         )
         .expect("expected static WezTerm format-window-title local pane title return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_alias_return() {
+        let mut app = NativeWindowApp::new(None);
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              local active = tab.active_pane
+              return active.title
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane alias return");
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
