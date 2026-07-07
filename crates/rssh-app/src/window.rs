@@ -11546,7 +11546,7 @@ fn lua_static_pane_user_vars_status_text_from_query(
         window_name,
         pane_name,
         static_source.max_start,
-    )?;
+    );
     let mut parts = Vec::new();
     let mut has_dynamic_part = false;
 
@@ -11556,7 +11556,9 @@ fn lua_static_pane_user_vars_status_text_from_query(
             static_source,
             outer_static_source,
             segment,
-            &variable,
+            variable.as_deref(),
+            window_name,
+            pane_name,
         ) {
             parts.push(NativeLuaPaneUserVarsStatusPart::UserVar { name, fallback });
             has_dynamic_part = true;
@@ -11564,7 +11566,9 @@ fn lua_static_pane_user_vars_status_text_from_query(
             Some(static_source),
             outer_static_source,
             segment,
-            &variable,
+            variable.as_deref(),
+            window_name,
+            pane_name,
         ) {
             parts.push(NativeLuaPaneUserVarsStatusPart::UserVar {
                 name,
@@ -11630,7 +11634,9 @@ fn lua_static_pane_user_var_fallback_from_query(
     static_source: LuaStaticSource<'_>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
-    variable: &str,
+    variable: Option<&str>,
+    window_name: &str,
+    pane_name: &str,
 ) -> Option<(String, String)> {
     let value = lua_tostring_argument_from_query(value).unwrap_or(value);
     let (dynamic, fallback) = lua_dynamic_status_fallback_from_query(value)?;
@@ -11639,6 +11645,8 @@ fn lua_static_pane_user_var_fallback_from_query(
         outer_static_source,
         dynamic,
         variable,
+        window_name,
+        pane_name,
     )?;
     let fallback = lua_static_string_value_from_expression(None, None, fallback)?;
     Some((name, fallback))
@@ -11648,7 +11656,9 @@ fn lua_static_pane_user_var_name_from_query(
     static_source: Option<LuaStaticSource<'_>>,
     outer_static_source: Option<LuaStaticSource<'_>>,
     value: &str,
-    variable: &str,
+    variable: Option<&str>,
+    window_name: &str,
+    pane_name: &str,
 ) -> Option<String> {
     let value = lua_trim_start_comments(value)?.trim();
     let value = if value.starts_with("tostring")
@@ -11664,10 +11674,92 @@ fn lua_static_pane_user_var_name_from_query(
     } else {
         value
     };
-    let rest = value.strip_prefix(variable)?;
+    if let Some(variable) = variable
+        && let Some(rest) = value.strip_prefix(variable)
+    {
+        if rest.chars().next().is_some_and(is_lua_identifier_character) {
+            return None;
+        }
+        return lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest);
+    }
+    lua_static_direct_pane_user_var_name_from_query(
+        static_source,
+        outer_static_source,
+        value,
+        window_name,
+        pane_name,
+    )
+}
+
+fn lua_static_direct_pane_user_var_name_from_query(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    value: &str,
+    window_name: &str,
+    pane_name: &str,
+) -> Option<String> {
+    let rest = lua_pane_get_user_vars_rest_from_query(value, pane_name)
+        .or_else(|| lua_window_active_pane_get_user_vars_rest_from_query(value, window_name))?;
+    lua_static_pane_user_var_name_from_rest(static_source, outer_static_source, rest)
+}
+
+fn lua_pane_get_user_vars_rest_from_query<'a>(value: &'a str, pane_name: &str) -> Option<&'a str> {
+    let rest = value.strip_prefix(pane_name)?;
     if rest.chars().next().is_some_and(is_lua_identifier_character) {
         return None;
     }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "get_user_vars" || !lua_config_assignment_field_has_boundaries(rest, 0, method) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    lua_trim_start_comments(arguments)?
+        .trim()
+        .is_empty()
+        .then_some(rest)
+}
+
+fn lua_window_active_pane_get_user_vars_rest_from_query<'a>(
+    value: &'a str,
+    window_name: &str,
+) -> Option<&'a str> {
+    let rest = value.strip_prefix(window_name)?;
+    if rest.chars().next().is_some_and(is_lua_identifier_character) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let accessor = lua_identifier_literal_from_query(rest)?;
+    if accessor != "active_pane" || !lua_config_assignment_field_has_boundaries(rest, 0, accessor) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(accessor.len()..)?)?.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    if !lua_trim_start_comments(arguments)?.trim().is_empty() {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest)?.strip_prefix(':')?;
+    let rest = lua_trim_start_comments(rest)?;
+    let method = lua_identifier_literal_from_query(rest)?;
+    if method != "get_user_vars" || !lua_config_assignment_field_has_boundaries(rest, 0, method) {
+        return None;
+    }
+    let rest = lua_trim_start_comments(rest.get(method.len()..)?)?.strip_prefix('(')?;
+    let (arguments, rest) = lua_parenthesized_argument_list_prefix_from_query(rest)?;
+    lua_trim_start_comments(arguments)?
+        .trim()
+        .is_empty()
+        .then_some(rest)
+}
+
+fn lua_static_pane_user_var_name_from_rest(
+    static_source: Option<LuaStaticSource<'_>>,
+    outer_static_source: Option<LuaStaticSource<'_>>,
+    rest: &str,
+) -> Option<String> {
     let rest = lua_trim_start_comments(rest)?;
     if let Some(rest) = rest.strip_prefix('.') {
         let name = lua_identifier_literal_from_query(rest)?;
@@ -82767,6 +82859,35 @@ mod tests {
             .unwrap();
         app.dispatch_update_status();
         assert_eq!(app.right_status, "prog=psh");
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_update_status_direct_pane_user_vars_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_right_status(
+                'prog=' .. pane:get_user_vars().WEZTERM_PROG
+                  .. ' host=' .. (window:active_pane():get_user_vars()['WEZTERM-HOST'] or 'none')
+              )
+            end)
+            "#,
+        )
+        .expect("expected WezTerm direct pane get_user_vars status setter");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog= host=none");
+
+        app.handle_pty_output(
+            b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07\x1b]1337;SetUserVar=WEZTERM-HOST=cHJvZA==\x07",
+        )
+        .unwrap();
+        app.dispatch_update_status();
+        assert_eq!(app.right_status, "prog=psh host=prod");
     }
 
     #[test]

@@ -2001,10 +2001,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   active and inactive pane runtimes, the native window dispatches a typed
   user-var change hook with the window id, pane id, name, and value when a pane
   value changes, and static `update-status` callbacks can read active-pane
-  `pane:get_user_vars()` or `window:active_pane():get_user_vars()` dot fields,
-  static string keys, and callback-local/top-level static string-key variables
-  from the same stored metadata, including static `or` fallbacks with optional
-  `tostring(...)` wrapping.
+  direct or callback-local-aliased `pane:get_user_vars()` or
+  `window:active_pane():get_user_vars()` dot fields, static string keys, and
+  callback-local/top-level static string-key variables from the same stored
+  metadata, including static `or` fallbacks with optional `tostring(...)`
+  wrapping.
 - Terminal core now base64-decodes iTerm2 `OSC 1337;SetBadgeFormat` metadata
   into terminal badge format state; app-shell syncs that value per pane for
   active and inactive pane runtimes, and native rendering displays non-empty
@@ -2539,11 +2540,11 @@ what remains before WezTerm-style parity in key UX/composition areas.
   `pane:get_current_working_dir()`/`pane:get_foreground_process_name()`/
   `pane:get_tty_name()`, static `pane:get_cursor_position()` or
   `window:active_pane():get_cursor_position()` field concatenations for `x`,
-  `y`, `shape`, and `visibility`, static `pane:get_user_vars()` or
-  `window:active_pane():get_user_vars()` dot-field, static string-key, or
-  callback-local/top-level static string-key-variable concatenations for stored
-  user-var names, including static `or` fallbacks with optional `tostring(...)`
-  wrapping,
+  `y`, `shape`, and `visibility`, static direct or callback-local-aliased
+  `pane:get_user_vars()` or `window:active_pane():get_user_vars()` dot-field,
+  static string-key, or callback-local/top-level static string-key-variable
+  concatenations for stored user-var names, including static `or` fallbacks with
+  optional `tostring(...)` wrapping,
   static `pane:get_progress()` or `window:active_pane():get_progress()`
   conditional status branches for `Percentage`, `Error`, and `Indeterminate`,
   static `pane:get_dimensions()` or

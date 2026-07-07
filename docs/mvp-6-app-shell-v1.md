@@ -1699,10 +1699,11 @@ runtime storage for tabs and split panes.
   resolves the active pane tty name, static `pane:get_cursor_position()` or
   `window:active_pane():get_cursor_position()` field concatenations expose
   active pane `x`, `y`, `shape`, and `visibility`,
-  static `pane:get_user_vars()` or `window:active_pane():get_user_vars()`
-  dot-field, static string-key, or callback-local/top-level static
-  string-key-variable concatenations expose stored active-pane user vars,
-  including static `or` fallbacks with optional `tostring(...)` wrapping, static
+  static direct or callback-local-aliased `pane:get_user_vars()` or
+  `window:active_pane():get_user_vars()` dot-field, static string-key, or
+  callback-local/top-level static string-key-variable concatenations expose
+  stored active-pane user vars, including static `or` fallbacks with optional
+  `tostring(...)` wrapping, static
   `pane:get_progress()` or `window:active_pane():get_progress()` conditional
   branches expose active-pane `Percentage`, `Error`, and `Indeterminate`
   progress states, static `pane:get_dimensions()` or

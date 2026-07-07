@@ -1907,7 +1907,7 @@ keyboard, mouse, paste, resize
   plus static `pane:get_cursor_position()` or
   `window:active_pane():get_cursor_position()` field concatenations for `x`,
   `y`, `shape`, and `visibility`
-  plus static `pane:get_user_vars()` or
+  plus static direct or callback-local-aliased `pane:get_user_vars()` or
   `window:active_pane():get_user_vars()` dot-field, static string-key, or
   callback-local/top-level static string-key-variable concatenations for stored
   user-var names, including static `or` fallbacks with optional `tostring(...)`
@@ -2296,11 +2296,11 @@ keyboard, mouse, paste, resize
   those values into per-pane app-shell metadata for active and inactive pane
   runtimes and emits a typed native-window user-var change hook when a stored
   pane value changes, carrying the window id, pane id, name, and value. Static
-  `update-status` callbacks can read active-pane `pane:get_user_vars()` or
-  `window:active_pane():get_user_vars()` dot fields, static string keys, and
-  callback-local/top-level static string-key variables from the same stored
-  metadata, including static `or` fallbacks with optional `tostring(...)`
-  wrapping.
+  `update-status` callbacks can read active-pane direct or callback-local-aliased
+  `pane:get_user_vars()` or `window:active_pane():get_user_vars()` dot fields,
+  static string keys, and callback-local/top-level static string-key variables
+  from the same stored metadata, including static `or` fallbacks with optional
+  `tostring(...)` wrapping.
 - Implemented in v1: `rssh-terminal` base64-decodes iTerm2
   `OSC 1337;SetBadgeFormat` metadata into terminal badge format state.
   `rssh-app` syncs that value into per-pane app-shell metadata for active and
