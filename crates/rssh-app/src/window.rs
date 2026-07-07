@@ -49405,8 +49405,9 @@ fn strip_wezterm_action_table_wrapper_argument_from_query(query: &str) -> Option
             return None;
         }
 
-        let rest = lua_trim_start_comments(query.get(prefix.len()..)?)?;
-        rest.strip_prefix('(')?.strip_suffix(')').map(str::trim)
+        let rest = lua_trim_end_comments(lua_trim_start_comments(query.get(prefix.len()..)?)?)?;
+        let argument = rest.strip_prefix('(')?.trim().strip_suffix(')')?.trim();
+        lua_trim_end_comments(lua_trim_start_comments(argument)?)
     })
 }
 
@@ -112403,6 +112404,42 @@ mod tests {
             "#,
         )
         .expect("expected WezTerm static wrapper-table action config");
+
+        assert_eq!(
+            overrides.key_assignments,
+            Some(vec![NativeUserKeyAssignment {
+                keys: "CTRL|ALT+W".to_owned(),
+                command: WindowCommand::SendString("from-wrapper-variable".to_owned()),
+            }])
+        );
+    }
+
+    #[test]
+    fn window_app_parses_wezterm_lua_config_static_action_wrapper_table_variable_inner_comment() {
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+            local act = wezterm.action
+            local config = {}
+            local wrapper = {
+              SendString = 'from-wrapper-variable',
+            }
+            local action_value = act( -- wrapper action
+              wrapper
+            )
+
+            config.keys = {
+              {
+                key = 'W',
+                mods = 'CTRL|ALT',
+                action = action_value,
+              },
+            }
+
+            return config
+            "#,
+        )
+        .expect("expected WezTerm static wrapper-table action config with inner comment");
 
         assert_eq!(
             overrides.key_assignments,
