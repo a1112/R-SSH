@@ -9965,8 +9965,13 @@ fn lua_static_user_var_changed_from_function_body(
 
     for start in lua_top_level_statement_start_indices_before_offset(body, body.len())? {
         let statement = lua_trim_start_comments(body.get(start..)?)?;
+        let static_source = LuaStaticSource {
+            source: body,
+            max_start: start,
+        };
         if let Some(left_status) = lua_static_user_var_changed_status_setter_from_statement(
             statement,
+            static_source,
             window_name,
             pane_name,
             name_param,
@@ -9977,6 +9982,7 @@ fn lua_static_user_var_changed_from_function_body(
         }
         if let Some(right_status) = lua_static_user_var_changed_status_setter_from_statement(
             statement,
+            static_source,
             window_name,
             pane_name,
             name_param,
@@ -9992,6 +9998,7 @@ fn lua_static_user_var_changed_from_function_body(
 
 fn lua_static_user_var_changed_status_setter_from_statement(
     statement: &str,
+    static_source: LuaStaticSource<'_>,
     window_name: &str,
     pane_name: &str,
     name_param: &str,
@@ -10013,6 +10020,19 @@ fn lua_static_user_var_changed_status_setter_from_statement(
     let [argument] = arguments.as_slice() else {
         return None;
     };
+    if let Some(value) = lua_static_expression_assignment_value_before_offset_from_query(
+        static_source.source,
+        argument,
+        static_source.max_start,
+    ) {
+        return lua_static_user_var_changed_status_text_from_query(
+            value,
+            window_name,
+            pane_name,
+            name_param,
+            value_param,
+        );
+    }
     lua_static_user_var_changed_status_text_from_query(
         argument,
         window_name,
@@ -149969,6 +149989,28 @@ act.Confirmation {
         .unwrap();
 
         assert_eq!(app.right_status, "win=1 pane=1 WEZTERM_HOST=baz");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_user_var_changed_local_status_setter() {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('user-var-changed', function(window, pane, name, value)
+              local status = 'var=' .. name .. ':' .. tostring(value)
+              window:set_right_status(status)
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm user-var-changed local status setter");
+        app.set_config_overrides(overrides);
+
+        app.handle_pty_output(b"\x1b]1337;SetUserVar=WEZTERM_PROG=cHNo\x07")
+            .unwrap();
+
+        assert_eq!(app.right_status, "var=WEZTERM_PROG:psh");
     }
 
     #[test]
