@@ -6802,27 +6802,55 @@ fn lua_static_table_field_path_assignment_value_before_offset_from_query<'a>(
         }
 
         let Some(assignment) =
-            lua_static_table_variable_field_assignment_from_query(source, start, variable)
+            lua_static_table_variable_field_path_assignment_from_query(source, start, variable)
         else {
             continue;
         };
-        if keys.first().is_some_and(|key| assignment.key == *key) {
-            selected = if keys.len() == 1 {
-                Some(assignment.value)
-            } else {
-                lua_table_field_path_value_from_query_with_static_source(
-                    Some(LuaStaticSource {
-                        source,
-                        max_start: start,
-                    }),
-                    assignment.value,
-                    &keys[1..],
-                )?
-            };
+        if assignment.keys == keys {
+            selected = Some(assignment.value);
+        } else if keys.starts_with(&assignment.keys) {
+            selected = lua_table_field_path_value_from_query_with_static_source(
+                Some(LuaStaticSource {
+                    source,
+                    max_start: start,
+                }),
+                assignment.value,
+                &keys[assignment.keys.len()..],
+            )?;
         }
     }
 
     selected
+}
+
+fn lua_static_table_variable_field_path_assignment_from_query<'a>(
+    source: &'a str,
+    start: usize,
+    variable: &str,
+) -> Option<LuaTableMapFieldPathAssignment<'a>> {
+    let Some(after_variable) = source.get(start..)?.strip_prefix(variable) else {
+        return None;
+    };
+    if after_variable
+        .chars()
+        .next()
+        .is_some_and(is_lua_identifier_character)
+    {
+        return None;
+    }
+    let (keys, rest) = lua_table_map_field_path_from_query_with_static_source(
+        Some(LuaStaticSource {
+            source,
+            max_start: start,
+        }),
+        after_variable,
+    )?;
+    let rest = lua_trim_start_comments(rest)?;
+    let rest = lua_trim_start_comments(rest.strip_prefix('=')?)?;
+    Some(LuaTableMapFieldPathAssignment {
+        keys,
+        value: lua_top_level_statement_value_from_query(rest)?,
+    })
 }
 
 fn lua_table_map_field_path_from_query_with_static_source<'a>(
@@ -18172,6 +18200,11 @@ struct LuaTableIndexedFieldAssignment<'a> {
 
 struct LuaTableMapFieldAssignment<'a> {
     key: String,
+    value: &'a str,
+}
+
+struct LuaTableMapFieldPathAssignment<'a> {
+    keys: Vec<String>,
     value: &'a str,
 }
 
@@ -97307,6 +97340,34 @@ mod tests {
         assert_eq!(
             app.effective_window_title(),
             "NESTED TABLE FIELD CALLBACK TITLE"
+        );
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_nested_table_field_assignment_callback()
+    {
+        let mut app = NativeWindowApp::new(None);
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            local callbacks = {}
+            callbacks.window = {}
+            callbacks.window.title = function(tab, pane, tabs, panes, config)
+              return 'NESTED TABLE FIELD ASSIGNMENT CALLBACK TITLE'
+            end
+
+            wezterm.on('format-window-title', callbacks.window.title)
+            "#,
+        )
+        .expect(
+            "expected static WezTerm format-window-title nested table-field assignment callback",
+        );
+        app.set_config_overrides(overrides);
+
+        assert_eq!(
+            app.effective_window_title(),
+            "NESTED TABLE FIELD ASSIGNMENT CALLBACK TITLE"
         );
     }
 
