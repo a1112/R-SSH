@@ -10710,6 +10710,10 @@ fn lua_static_window_config_overrides_from_query(
     Some(NativeLuaWindowConfigOverrides {
         dpi: overrides.dpi,
         dpi_by_screen: overrides.dpi_by_screen,
+        font: overrides.font,
+        font_fallbacks: overrides.font_fallbacks,
+        font_attributes: overrides.font_attributes,
+        font_rules: overrides.font_rules,
         font_size: overrides.font_size,
         cell_width: overrides.cell_width,
         cell_widths: overrides.cell_widths,
@@ -29908,6 +29912,10 @@ struct NativeLuaWindowStatusUpdate {
 struct NativeLuaWindowConfigOverrides {
     dpi: Option<u32>,
     dpi_by_screen: Option<BTreeMap<String, u32>>,
+    font: Option<String>,
+    font_fallbacks: Option<Vec<String>>,
+    font_attributes: Option<NativeFontAttributes>,
+    font_rules: Option<Vec<NativeFontRule>>,
     font_size: Option<NativeFontSize>,
     cell_width: Option<NativeCellWidth>,
     cell_widths: Option<Vec<NativeCellWidthOverride>>,
@@ -30163,6 +30171,10 @@ impl NativeLuaWindowConfigOverrides {
     fn is_empty(&self) -> bool {
         self.dpi.is_none()
             && self.dpi_by_screen.is_none()
+            && self.font.is_none()
+            && self.font_fallbacks.is_none()
+            && self.font_attributes.is_none()
+            && self.font_rules.is_none()
             && self.font_size.is_none()
             && self.cell_width.is_none()
             && self.cell_widths.is_none()
@@ -30420,6 +30432,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if update.dpi_by_screen.is_some() {
             self.dpi_by_screen = update.dpi_by_screen;
+        }
+        if update.font.is_some() {
+            self.font = update.font;
+        }
+        if update.font_fallbacks.is_some() {
+            self.font_fallbacks = update.font_fallbacks;
+        }
+        if update.font_attributes.is_some() {
+            self.font_attributes = update.font_attributes;
+        }
+        if update.font_rules.is_some() {
+            self.font_rules = update.font_rules;
         }
         if update.font_size.is_some() {
             self.font_size = update.font_size;
@@ -31187,6 +31211,18 @@ impl NativeLuaWindowConfigOverrides {
         }
         if let Some(dpi_by_screen) = self.dpi_by_screen {
             overrides.dpi_by_screen = Some(dpi_by_screen);
+        }
+        if let Some(font) = self.font {
+            overrides.font = Some(font);
+        }
+        if let Some(font_fallbacks) = self.font_fallbacks {
+            overrides.font_fallbacks = Some(font_fallbacks);
+        }
+        if let Some(font_attributes) = self.font_attributes {
+            overrides.font_attributes = Some(font_attributes);
+        }
+        if let Some(font_rules) = self.font_rules {
+            overrides.font_rules = Some(font_rules);
         }
         if let Some(font_size) = self.font_size {
             overrides.font_size = Some(font_size);
@@ -88327,6 +88363,88 @@ mod tests {
             NativeFontSize::from_millipoints(15_000)
         );
         assert_eq!(app.right_status, "font=15");
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            [
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+                NativeWindowConfigReloaded {
+                    window_id: rssh_core::WindowId::new(1),
+                    pane: active_pane,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn window_app_parses_update_status_set_config_overrides_font_family_fields() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&events);
+        let mut app = NativeWindowApp::new(None);
+        app.config_reloaded_handler = Box::new(move |event| {
+            recorded.lock().unwrap().push(*event);
+            true
+        });
+        let active_pane = app.app_shell.active_pane_id();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('update-status', function(window, pane)
+              window:set_config_overrides({
+                font = wezterm.font_with_fallback(
+                  { 'JetBrains Mono', 'Noto Color Emoji' },
+                  {
+                    weight = 'DemiBold',
+                    stretch = 'Condensed',
+                    style = 'Italic',
+                  }
+                ),
+                font_rules = {
+                  {
+                    italic = true,
+                    intensity = 'Bold',
+                    font = wezterm.font { family = 'Victor Mono', weight = 'Bold' },
+                  },
+                },
+              })
+            end)
+            "#,
+        )
+        .expect("expected WezTerm set_config_overrides font callback");
+        app.set_config_overrides(overrides);
+
+        app.dispatch_update_status();
+
+        let effective = app.native_effective_config();
+        assert_eq!(effective.font.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(effective.font_fallbacks, vec!["Noto Color Emoji"]);
+        assert_eq!(
+            effective.font_attributes,
+            NativeFontAttributes {
+                weight: Some("DemiBold".to_owned()),
+                stretch: Some("Condensed".to_owned()),
+                style: Some("Italic".to_owned()),
+                harfbuzz_features: Vec::new(),
+                assume_emoji_presentation: None,
+                freetype_load_target: None,
+                freetype_render_target: None,
+                freetype_load_flags: None,
+            }
+        );
+        assert_eq!(effective.font_rules.len(), 1);
+        assert_eq!(effective.font_rules[0].italic, Some(true));
+        assert_eq!(
+            effective.font_rules[0].intensity,
+            Some(NativeFormatIntensity::Bold)
+        );
+        assert_eq!(effective.font_rules[0].font.as_deref(), Some("Victor Mono"));
+        assert_eq!(
+            effective.font_rules[0].font_attributes.weight.as_deref(),
+            Some("Bold")
+        );
         assert_eq!(
             events.lock().unwrap().as_slice(),
             [

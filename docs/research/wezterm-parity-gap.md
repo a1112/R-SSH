@@ -2369,7 +2369,8 @@ what remains before WezTerm-style parity in key UX/composition areas.
   callbacks with literal or static status string `window:set_left_status(...)`
   / `window:set_right_status(...)` calls now update tab-bar status on reload
   events. Static `update-status` callbacks with inline or statically assigned
-  `window:set_config_overrides { ... }` tables now merge `font_size`,
+  `window:set_config_overrides { ... }` tables now merge `font`,
+  `font_fallbacks`, `font_attributes`, `font_rules`, `font_size`,
   `tab_max_width`, `status_update_interval`, `window_decorations`,
   `initial_cols`, `initial_rows`, `adjust_window_size_when_changing_font_size`,
   `selection_word_boundary`, `default_prog`, `default_domain`,
