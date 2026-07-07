@@ -8142,11 +8142,13 @@ fn lua_window_title_text_part_from_expression(
     static_source: Option<LuaStaticSource<'_>>,
 ) -> Option<NativeLuaWindowTitlePart> {
     let expression = lua_trim_start_comments(expression.trim())?;
-    let pane_title = format!("{pane_param}.title");
-    if let Some(rest) = expression.strip_prefix(&pane_title)
-        && lua_static_identifier_value_rest_is_statement_end(rest)
-    {
-        return Some(NativeLuaWindowTitlePart::ActivePaneTitle);
+    for (field, part) in lua_window_title_active_pane_text_parts() {
+        let pane_field = format!("{pane_param}.{field}");
+        if let Some(rest) = expression.strip_prefix(&pane_field)
+            && lua_static_identifier_value_rest_is_statement_end(rest)
+        {
+            return Some(part);
+        }
     }
 
     let tab_title = format!("{tab_param}.tab_title");
@@ -104724,6 +104726,33 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "Pane Title");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_pane_param_metadata_return() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("foreground-proc").with_cwd("/tmp/project"),
+        );
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return pane.domain_name .. ':' .. pane.foreground_process_name .. ':' .. pane.current_working_dir .. ':' .. pane.tty_name
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title pane param metadata return");
+        app.set_config_overrides(overrides);
+        app.session_tty_name = Some("/dev/pts/9".to_owned());
+
+        assert_eq!(
+            app.effective_window_title(),
+            "local:foreground-proc:/tmp/project:/dev/pts/9"
+        );
     }
 
     #[test]
