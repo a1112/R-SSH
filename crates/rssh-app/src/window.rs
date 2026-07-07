@@ -8152,6 +8152,14 @@ fn lua_window_title_text_part_from_expression(
         return Some(NativeLuaWindowTitlePart::ActivePaneForegroundProcessName);
     }
 
+    let tab_active_pane_current_working_dir =
+        format!("{tab_param}.active_pane.current_working_dir");
+    if let Some(rest) = expression.strip_prefix(&tab_active_pane_current_working_dir)
+        && lua_static_identifier_value_rest_is_statement_end(rest)
+    {
+        return Some(NativeLuaWindowTitlePart::ActivePaneCurrentWorkingDir);
+    }
+
     if let Some(receiver) = lua_identifier_literal_from_query(expression) {
         let rest = expression.get(receiver.len()..)?;
         if lua_window_title_active_pane_alias_before_offset(
@@ -30101,6 +30109,7 @@ enum NativeLuaWindowTitlePart {
     ActivePaneTitle,
     ActivePaneDomainName,
     ActivePaneForegroundProcessName,
+    ActivePaneCurrentWorkingDir,
     Conditional {
         condition: NativeLuaWindowTitleCondition,
         parts: Vec<NativeLuaWindowTitlePart>,
@@ -30121,6 +30130,7 @@ impl NativeLuaWindowTitlePart {
             Self::ActivePaneForegroundProcessName => {
                 Some(event.active_pane_info.foreground_process_name.clone())
             }
+            Self::ActivePaneCurrentWorkingDir => event.active_pane_info.current_working_dir.clone(),
             Self::Conditional { condition, parts } => {
                 if !condition.matches(event) {
                     return Some(String::new());
@@ -104674,6 +104684,29 @@ mod tests {
         app.set_config_overrides(overrides);
 
         assert_eq!(app.effective_window_title(), "foreground-proc");
+    }
+
+    #[test]
+    fn window_app_parses_static_wezterm_format_window_title_active_pane_cwd_return() {
+        let mut app = NativeWindowApp::new_with_command(
+            None,
+            rssh_pty::PtyCommand::new("foreground-proc").with_cwd("/tmp/project"),
+        );
+        app.handle_pty_output(b"\x1b]2;Pane Title\x07").unwrap();
+        app.window_title = "Window Fallback".to_owned();
+        let overrides = super::native_config_overrides_from_wezterm_lua_config(
+            r#"
+            local wezterm = require 'wezterm'
+
+            wezterm.on('format-window-title', function(tab, pane, tabs, panes, config)
+              return tab.active_pane.current_working_dir
+            end)
+            "#,
+        )
+        .expect("expected static WezTerm format-window-title active pane cwd return");
+        app.set_config_overrides(overrides);
+
+        assert_eq!(app.effective_window_title(), "/tmp/project");
     }
 
     #[test]
